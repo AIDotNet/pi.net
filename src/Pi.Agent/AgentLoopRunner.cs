@@ -215,9 +215,11 @@ public static partial class AgentLoop
         while (insertIndex < pendingMessages.Count && pendingMessages[insertIndex] is SystemMessage)
             insertIndex++;
 
+        // TS 这里固定 content: ""（工具变更只由 toolsAdded 承载）；端口额外把变更写进 content，
+        // 便于模型理解——差异记入 Pi.Agent 的移植差异表。
         var changeNote = BuildToolChangeNote(added, removed);
         var declaration = new SystemMessage(
-            Content: changeNote.Length > 0 ? changeNote : null,
+            Content: changeNote,
             ToolsAdded: newDeclaration);
         var withInsert = pendingMessages.ToList();
         withInsert.Insert(insertIndex, declaration);

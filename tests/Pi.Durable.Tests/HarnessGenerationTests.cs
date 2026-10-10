@@ -51,7 +51,7 @@ public sealed class HarnessGenerationTests
     {
         null => null,
         SystemMessage => null,
-        UserMessage user => user.Content.OfType<TextContent>().FirstOrDefault()?.Text,
+        UserMessage user => user.Content.ToBlocks().OfType<TextContent>().FirstOrDefault()?.Text,
         AssistantMessage assistant => assistant.Content.OfType<TextContent>().FirstOrDefault()?.Text,
         _ => null,
     };

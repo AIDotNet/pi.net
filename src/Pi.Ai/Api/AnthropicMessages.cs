@@ -25,7 +25,7 @@ public static class AnthropicMessages
     {
         var systemText = string.Join("\n\n", messages
             .OfType<SystemMessage>()
-            .Select(m => m.Content ?? ""));
+            .Select(m => Utils.Text.ContentText(m)));
         var conversation = messages
             .Where(m => m is not SystemMessage)
             .ToList();
@@ -67,7 +67,7 @@ public static class AnthropicMessages
                 case UserMessage user:
                 {
                     var content = new JsonArray();
-                    foreach (var block in user.Content)
+                    foreach (var block in user.Content.ToBlocks())
                     {
                         switch (block)
                         {

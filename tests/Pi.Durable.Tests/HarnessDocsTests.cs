@@ -388,10 +388,10 @@ public class HarnessDocsTests
         Assert.Equal(ordered[0].Id, ordered[0].Head); // head: "self" 写入
         Assert.Equal("pi.user", ordered[1].Kind);
         var message = Assert.IsType<UserMessage>(ordered[1].Model![0]);
-        Assert.Equal("one", Assert.IsType<TextContent>(message.Content[0]).Text);
+        Assert.Equal("one", Assert.IsType<TextContent>(message.Content.ToBlocks()[0]).Text);
         Assert.Equal(100, message.Timestamp);
         var followUp = Assert.IsType<UserMessage>(ordered[2].Model![0]);
-        Assert.Equal("later", Assert.IsType<TextContent>(followUp.Content[0]).Text);
+        Assert.Equal("later", Assert.IsType<TextContent>(followUp.Content.ToBlocks()[0]).Text);
 
         // 写入与被选中的项已离开收件箱；第二个 steer 仍在（one-at-a-time）。
         var inboxSnapshot = await session.SnapshotAsync(Inbox.InboxDoc, conv, Ctx);

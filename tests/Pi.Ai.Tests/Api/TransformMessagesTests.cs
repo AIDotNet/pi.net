@@ -46,7 +46,7 @@ public class TransformMessagesTests
         var result = TransformMessages.Transform(messages, TextOnlyModel());
 
         var user = Assert.IsType<UserMessage>(result[0]);
-        var userBlocks = user.Content.OfType<TextContent>().ToList();
+        var userBlocks = user.Content.ToBlocks().OfType<TextContent>().ToList();
         Assert.Equal(["look", "(image omitted: model does not support images)"],
             userBlocks.Select(t => t.Text).ToArray()); // 连续图片折叠成一个占位
 
@@ -65,7 +65,7 @@ public class TransformMessagesTests
         };
 
         var result = TransformMessages.Transform(messages, VisionModel());
-        Assert.IsType<ImageContent>(Assert.IsType<UserMessage>(result[0]).Content[0]);
+        Assert.IsType<ImageContent>(Assert.IsType<UserMessage>(result[0]).Content.ToBlocks()[0]);
     }
 
     [Fact]

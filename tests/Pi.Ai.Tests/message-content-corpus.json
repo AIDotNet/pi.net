@@ -1,0 +1,662 @@
+{
+	"generatedBy": "tools/gen-ai-message-content-corpus.mjs",
+	"contentText": [
+		{
+			"name": "string",
+			"content": "hello",
+			"separator": null,
+			"text": "hello"
+		},
+		{
+			"name": "string-empty",
+			"content": "",
+			"separator": null,
+			"text": ""
+		},
+		{
+			"name": "string-ignores-separator",
+			"content": "hello",
+			"separator": "|",
+			"text": "hello"
+		},
+		{
+			"name": "array-single-text",
+			"content": [
+				{
+					"type": "text",
+					"text": "hi"
+				}
+			],
+			"separator": null,
+			"text": "hi"
+		},
+		{
+			"name": "array-joins-with-newline",
+			"content": [
+				{
+					"type": "text",
+					"text": "a"
+				},
+				{
+					"type": "text",
+					"text": "b"
+				}
+			],
+			"separator": null,
+			"text": "a\nb"
+		},
+		{
+			"name": "array-custom-separator",
+			"content": [
+				{
+					"type": "text",
+					"text": "a"
+				},
+				{
+					"type": "text",
+					"text": "b"
+				}
+			],
+			"separator": "|",
+			"text": "a|b"
+		},
+		{
+			"name": "array-empty-separator",
+			"content": [
+				{
+					"type": "text",
+					"text": "a"
+				},
+				{
+					"type": "text",
+					"text": "b"
+				}
+			],
+			"separator": "",
+			"text": "ab"
+		},
+		{
+			"name": "array-skips-images",
+			"content": [
+				{
+					"type": "text",
+					"text": "a"
+				},
+				{
+					"type": "image",
+					"data": "QQ==",
+					"mimeType": "image/png"
+				},
+				{
+					"type": "text",
+					"text": "b"
+				}
+			],
+			"separator": null,
+			"text": "a\nb"
+		},
+		{
+			"name": "array-only-images",
+			"content": [
+				{
+					"type": "image",
+					"data": "QQ==",
+					"mimeType": "image/png"
+				}
+			],
+			"separator": null,
+			"text": ""
+		},
+		{
+			"name": "array-empty",
+			"content": [],
+			"separator": null,
+			"text": ""
+		},
+		{
+			"name": "array-empty-text-block",
+			"content": [
+				{
+					"type": "text",
+					"text": ""
+				}
+			],
+			"separator": null,
+			"text": ""
+		},
+		{
+			"name": "array-thinking-ignored",
+			"content": [
+				{
+					"type": "thinking",
+					"thinking": "hmm"
+				},
+				{
+					"type": "text",
+					"text": "out"
+				}
+			],
+			"separator": null,
+			"text": "out"
+		}
+	],
+	"systemText": [
+		{
+			"name": "string-content",
+			"message": {
+				"role": "system",
+				"content": "base",
+				"timestamp": 0
+			},
+			"text": "base",
+			"update": "base"
+		},
+		{
+			"name": "string-content-empty",
+			"message": {
+				"role": "system",
+				"content": "",
+				"timestamp": 0
+			},
+			"text": "",
+			"update": ""
+		},
+		{
+			"name": "array-content",
+			"message": {
+				"role": "system",
+				"content": [
+					{
+						"type": "text",
+						"text": "a"
+					},
+					{
+						"type": "text",
+						"text": "b"
+					}
+				],
+				"timestamp": 0
+			},
+			"text": "a\nb",
+			"update": "a\nb"
+		},
+		{
+			"name": "array-content-with-image",
+			"message": {
+				"role": "system",
+				"content": [
+					{
+						"type": "text",
+						"text": "a"
+					},
+					{
+						"type": "image",
+						"data": "QQ==",
+						"mimeType": "image/png"
+					}
+				],
+				"timestamp": 0
+			},
+			"text": "a",
+			"update": "a"
+		},
+		{
+			"name": "sections",
+			"message": {
+				"role": "system",
+				"content": "base",
+				"sections": {
+					"style": "brief",
+					"tone": null
+				},
+				"timestamp": 0
+			},
+			"text": "base\n\nbrief",
+			"update": "base\n\nUpdated system prompt section \"style\":\n\nbrief\n\nRemoved system prompt section \"tone\"."
+		},
+		{
+			"name": "empty-content-with-sections",
+			"message": {
+				"role": "system",
+				"content": "",
+				"sections": {
+					"style": "brief"
+				},
+				"timestamp": 0
+			},
+			"text": "brief",
+			"update": "Updated system prompt section \"style\":\n\nbrief"
+		},
+		{
+			"name": "array-content-with-sections",
+			"message": {
+				"role": "system",
+				"content": [
+					{
+						"type": "text",
+						"text": "a"
+					},
+					{
+						"type": "text",
+						"text": "b"
+					}
+				],
+				"sections": {
+					"style": "brief"
+				},
+				"timestamp": 0
+			},
+			"text": "a\nb\n\nbrief",
+			"update": "a\nb\n\nUpdated system prompt section \"style\":\n\nbrief"
+		}
+	],
+	"estimate": [
+		{
+			"name": "string-short",
+			"content": "abcd",
+			"tokens": 2,
+			"messageTokens": 2
+		},
+		{
+			"name": "string-7-chars",
+			"content": "abcdefg",
+			"tokens": 2,
+			"messageTokens": 2
+		},
+		{
+			"name": "string-empty",
+			"content": "",
+			"tokens": 0,
+			"messageTokens": 0
+		},
+		{
+			"name": "string-long",
+			"content": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"tokens": 115,
+			"messageTokens": 115
+		},
+		{
+			"name": "array-text-only",
+			"content": [
+				{
+					"type": "text",
+					"text": "abcd"
+				}
+			],
+			"tokens": 2,
+			"messageTokens": 2
+		},
+		{
+			"name": "array-text-sum",
+			"content": [
+				{
+					"type": "text",
+					"text": "ab"
+				},
+				{
+					"type": "text",
+					"text": "cd"
+				}
+			],
+			"tokens": 2,
+			"messageTokens": 2
+		},
+		{
+			"name": "array-image-counts-4800",
+			"content": [
+				{
+					"type": "image",
+					"data": "QQ==",
+					"mimeType": "image/png"
+				}
+			],
+			"tokens": 1372,
+			"messageTokens": 1372
+		},
+		{
+			"name": "array-mixed",
+			"content": [
+				{
+					"type": "text",
+					"text": "abcd"
+				},
+				{
+					"type": "image",
+					"data": "QQ==",
+					"mimeType": "image/png"
+				}
+			],
+			"tokens": 1373,
+			"messageTokens": 1373
+		},
+		{
+			"name": "array-empty",
+			"content": [],
+			"tokens": 0,
+			"messageTokens": 0
+		}
+	],
+	"systemEstimate": [
+		{
+			"name": "string-content",
+			"message": {
+				"role": "system",
+				"content": "abcdefg",
+				"timestamp": 0
+			},
+			"tokens": 2
+		},
+		{
+			"name": "array-content",
+			"message": {
+				"role": "system",
+				"content": [
+					{
+						"type": "text",
+						"text": "ab"
+					},
+					{
+						"type": "text",
+						"text": "cd"
+					}
+				],
+				"timestamp": 0
+			},
+			"tokens": 2
+		},
+		{
+			"name": "empty-content",
+			"message": {
+				"role": "system",
+				"content": "",
+				"timestamp": 0
+			},
+			"tokens": 0
+		}
+	],
+	"transform": [
+		{
+			"name": "string-content-passthrough",
+			"messages": [
+				{
+					"role": "user",
+					"content": "hi",
+					"timestamp": 1
+				}
+			],
+			"model": {
+				"id": "text-only",
+				"input": [
+					"text"
+				],
+				"api": "openai-completions",
+				"provider": "test"
+			},
+			"result": [
+				{
+					"role": "user",
+					"content": "hi",
+					"timestamp": 1
+				}
+			]
+		},
+		{
+			"name": "array-content-downgraded",
+			"messages": [
+				{
+					"role": "user",
+					"content": [
+						{
+							"type": "text",
+							"text": "look"
+						},
+						{
+							"type": "image",
+							"data": "QQ==",
+							"mimeType": "image/png"
+						}
+					],
+					"timestamp": 1
+				}
+			],
+			"model": {
+				"id": "text-only",
+				"input": [
+					"text"
+				],
+				"api": "openai-completions",
+				"provider": "test"
+			},
+			"result": [
+				{
+					"role": "user",
+					"content": [
+						{
+							"type": "text",
+							"text": "look"
+						},
+						{
+							"type": "text",
+							"text": "(image omitted: model does not support images)"
+						}
+					],
+					"timestamp": 1
+				}
+			]
+		},
+		{
+			"name": "array-content-kept-for-vision",
+			"messages": [
+				{
+					"role": "user",
+					"content": [
+						{
+							"type": "text",
+							"text": "look"
+						},
+						{
+							"type": "image",
+							"data": "QQ==",
+							"mimeType": "image/png"
+						}
+					],
+					"timestamp": 1
+				}
+			],
+			"model": {
+				"id": "vision",
+				"input": [
+					"text",
+					"image"
+				],
+				"api": "openai-completions",
+				"provider": "test"
+			},
+			"result": [
+				{
+					"role": "user",
+					"content": [
+						{
+							"type": "text",
+							"text": "look"
+						},
+						{
+							"type": "image",
+							"data": "QQ==",
+							"mimeType": "image/png"
+						}
+					],
+					"timestamp": 1
+				}
+			]
+		},
+		{
+			"name": "mixed-string-and-array",
+			"messages": [
+				{
+					"role": "user",
+					"content": "plain",
+					"timestamp": 1
+				},
+				{
+					"role": "user",
+					"content": [
+						{
+							"type": "text",
+							"text": "look"
+						},
+						{
+							"type": "image",
+							"data": "QQ==",
+							"mimeType": "image/png"
+						}
+					],
+					"timestamp": 2
+				}
+			],
+			"model": {
+				"id": "text-only",
+				"input": [
+					"text"
+				],
+				"api": "openai-completions",
+				"provider": "test"
+			},
+			"result": [
+				{
+					"role": "user",
+					"content": "plain",
+					"timestamp": 1
+				},
+				{
+					"role": "user",
+					"content": [
+						{
+							"type": "text",
+							"text": "look"
+						},
+						{
+							"type": "text",
+							"text": "(image omitted: model does not support images)"
+						}
+					],
+					"timestamp": 2
+				}
+			]
+		}
+	],
+	"wire": [
+		{
+			"name": "user-string-content",
+			"message": {
+				"role": "user",
+				"content": "hi",
+				"timestamp": 1
+			}
+		},
+		{
+			"name": "user-array-content",
+			"message": {
+				"role": "user",
+				"content": [
+					{
+						"type": "text",
+						"text": "hi"
+					},
+					{
+						"type": "image",
+						"data": "QQ==",
+						"mimeType": "image/jpeg"
+					}
+				],
+				"timestamp": 2
+			}
+		},
+		{
+			"name": "user-empty-array-content",
+			"message": {
+				"role": "user",
+				"content": [],
+				"timestamp": 3
+			}
+		},
+		{
+			"name": "system-string-content",
+			"message": {
+				"role": "system",
+				"content": "base",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "system-empty-content",
+			"message": {
+				"role": "system",
+				"content": "",
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "system-empty-content-with-tools",
+			"message": {
+				"role": "system",
+				"content": "",
+				"toolsAdded": [
+					{
+						"name": "a",
+						"description": "A",
+						"parameters": {
+							"type": "object",
+							"properties": {}
+						}
+					}
+				],
+				"timestamp": 0
+			}
+		},
+		{
+			"name": "system-array-content-with-sections",
+			"message": {
+				"role": "system",
+				"content": [
+					{
+						"type": "text",
+						"text": "a"
+					}
+				],
+				"sections": {
+					"style": "brief"
+				},
+				"timestamp": 5
+			}
+		},
+		{
+			"name": "user-null-content-tolerant",
+			"message": {
+				"role": "user",
+				"content": null,
+				"timestamp": 4
+			},
+			"readAsBlocks": []
+		},
+		{
+			"name": "system-null-content-defaults-to-empty",
+			"message": {
+				"role": "system",
+				"content": "",
+				"toolsAdded": [
+					{
+						"name": "a",
+						"description": "A",
+						"parameters": {
+							"type": "object",
+							"properties": {}
+						}
+					}
+				],
+				"timestamp": 0
+			},
+			"constructNullContent": true
+		}
+	]
+}

@@ -15,5 +15,8 @@
     <!-- Differential corpus captured from the TypeScript originals by
          tools/gen-ai-usage-corpus.mjs. -->
     <None Include="usage-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4e-2c-0: the message-content union (`string | (TextContent | ImageContent)[]`) captured by
+         tools/gen-ai-message-content-corpus.mjs. -->
+    <None Include="message-content-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -35,11 +35,27 @@ public static class Estimate
         => (long)Math.Ceiling(text.Length / CharsPerToken);
 
     /// <summary>
-    /// user/toolResult 内容块（文本/图片）token 估算。
-    /// 对应 TS <c>estimateTextAndImageContentTokens(content: string | Array&lt;TextContent | ImageContent&gt;)</c>：
-    /// 非文本块一律按图片计（<c>block.type === "text" ? text.length : 4800</c>），字符串入参按其长度计。
+    /// user 内容 token 估算。对应 TS
+    /// <c>estimateTextAndImageContentTokens(content: string | Array&lt;TextContent | ImageContent&gt;)</c>：
+    /// 字符串入参按其长度计，数组入参里非文本块一律按图片计（<c>block.type === "text" ? text.length : 4800</c>）。
     /// </summary>
+    public static long EstimateTextAndImageContentTokens(MessageContent content)
+        => (long)Math.Ceiling(TextAndImageContentChars(content) / CharsPerToken);
+
+    /// <summary>toolResult 内容（TS 侧此处是纯数组）的 token 估算。</summary>
     public static long EstimateTextAndImageContentTokens(IReadOnlyList<ContentBlock> content)
+        => (long)Math.Ceiling(TextAndImageContentChars(content) / CharsPerToken);
+
+    /// <summary>TS <c>estimateTextAndImageContentChars</c> 的联合入参形态。</summary>
+    private static long TextAndImageContentChars(MessageContent content) => content switch
+    {
+        MessageContent.Text text => text.Value.Length,
+        MessageContent.Blocks blocks => TextAndImageContentChars(blocks.Value),
+        _ => throw new InvalidOperationException(
+            $"Unsupported MessageContent variant {content.GetType().Name}."),
+    };
+
+    private static long TextAndImageContentChars(IReadOnlyList<ContentBlock> content)
     {
         long chars = 0;
         foreach (var block in content)
@@ -50,12 +66,8 @@ public static class Estimate
                 _ => EstimatedImageChars,
             };
         }
-        return (long)Math.Ceiling(chars / CharsPerToken);
+        return chars;
     }
-
-    /// <summary>字符串入参的重载（TS 的联合入参在 C# 拆成两个重载）。</summary>
-    public static long EstimateTextAndImageContentTokens(string content)
-        => (long)Math.Ceiling(content.Length / CharsPerToken);
 
     /// <summary>单条消息 token 估算。对应 TS <c>estimateMessageTokens</c>。</summary>
     public static long EstimateMessageTokens(ChatMessage message)

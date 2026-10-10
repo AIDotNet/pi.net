@@ -13,6 +13,14 @@ public static class Text
         => string.Join(separator,
             content.OfType<TextContent>().Select(block => block.Text));
 
+    /// <summary>TS <c>contentText(content: string | readonly Content[], separator)</c> 的联合入参。</summary>
+    public static string ContentText(MessageContent content, string separator = "\n") => content switch
+    {
+        MessageContent.Text text => text.Value,
+        MessageContent.Blocks blocks => ContentText(blocks.Value, separator),
+        _ => throw new InvalidOperationException($"Unsupported MessageContent variant {content.GetType().Name}."),
+    };
+
     public static string ContentText(SystemMessage message, string separator = "\n")
         => message.Content is null ? "" : ContentText(message.Content, separator);
 

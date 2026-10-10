@@ -58,7 +58,7 @@ public class TranscriptTests
         var collapsed = Transcript.CollapseSystemMessages(context);
         Assert.Equal(2, collapsed.Messages.Count);
         var head = Assert.IsType<SystemMessage>(collapsed.Messages[0]);
-        Assert.Contains("update", head.Content); // 回放合并
+        Assert.Contains("update", Pi.Ai.Utils.Text.ContentText(head)); // 回放合并
         Assert.IsType<UserMessage>(collapsed.Messages[1]);
     }
 

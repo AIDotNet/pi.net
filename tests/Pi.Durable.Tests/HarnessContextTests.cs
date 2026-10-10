@@ -112,7 +112,7 @@ public class HarnessContextTests
         // 错误终态的 assistant 不进模型上下文；e5 的 Replace 编辑替换了 e4 的消息。
         Assert.Equal(["replaced"], view.Messages
             .OfType<UserMessage>()
-            .Select(m => ((TextContent)m.Content[0]).Text));
+            .Select(m => ((TextContent)m.Content.ToBlocks()[0]).Text));
     }
 
     [Fact]

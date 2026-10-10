@@ -49,9 +49,15 @@ public static class TransformMessages
 
         return messages.Select(msg => msg switch
         {
-            UserMessage user => user with
+            // TS 只降级数组分支（`Array.isArray(msg.content)`），裸字符串原样通过。
+            UserMessage user => user.Content switch
             {
-                Content = ReplaceImagesWithPlaceholder(user.Content, NonVisionUserImagePlaceholder),
+                MessageContent.Blocks blocks => user with
+                {
+                    Content = MessageContent.BlocksOf(
+                        ReplaceImagesWithPlaceholder(blocks.Value, NonVisionUserImagePlaceholder)),
+                },
+                _ => user,
             },
             ToolResultMessage toolResult => toolResult with
             {

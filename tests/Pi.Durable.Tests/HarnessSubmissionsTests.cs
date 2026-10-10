@@ -84,7 +84,7 @@ public class HarnessSubmissionsTests
             Assert.NotNull(entry);
             var user = Assert.IsType<UserMessage>(Assert.Single(entry!.Model!));
             Assert.Equal(42, user.Timestamp);
-            Assert.Equal("hi", Assert.IsType<TextContent>(Assert.Single(user.Content)).Text);
+            Assert.Equal("hi", Assert.IsType<TextContent>(Assert.Single(user.Content.ToBlocks())).Text);
 
             var live = await harness.SnapshotAsync(Live.LiveDoc, root.Id, Ctx);
             Assert.NotNull(live);

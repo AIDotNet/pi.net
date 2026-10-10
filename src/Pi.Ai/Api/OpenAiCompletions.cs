@@ -60,13 +60,17 @@ public static class OpenAiCompletions
             switch (message)
             {
                 case SystemMessage system:
-                    result.Add(new JsonObject { ["role"] = "system", ["content"] = system.Content ?? "" });
+                    result.Add(new JsonObject
+                    {
+                        ["role"] = "system",
+                        ["content"] = Utils.Text.ContentText(system),
+                    });
                     break;
 
                 case UserMessage user:
                 {
                     var content = new JsonArray();
-                    foreach (var block in user.Content)
+                    foreach (var block in user.Content.ToBlocks())
                     {
                         switch (block)
                         {

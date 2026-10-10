@@ -699,6 +699,14 @@ public static partial class Compaction
         return string.Join("\n\n", parts);
     }
 
+    /// <summary>TS <c>harness/compaction.ts</c> 的 <c>contentText(content: string | blocks)</c> 联合入参。</summary>
+    private static string ContentText(MessageContent content) => content switch
+    {
+        MessageContent.Text text => text.Value,
+        MessageContent.Blocks blocks => ContentText(blocks.Value),
+        _ => throw new InvalidOperationException($"Unsupported MessageContent variant {content.GetType().Name}."),
+    };
+
     private static string ContentText(IReadOnlyList<ContentBlock> content)
         => string.Join("\n", content.OfType<TextContent>().Where(block => block.Text is not null).Select(block => block.Text!));
 

@@ -1129,18 +1129,114 @@ null-vs-省略），不只是逻辑。另有两项不依赖语料的断言：透
 
 ### 4e-2b 已知缺口（4e-2c 的前置）
 
-1. **`Pi.Ai.Types.UserMessage.Content` 是纯列表，装不下 TS 的 `string` 分支**。TS 的
-   `UserMessage.content: string | (TextContent | ImageContent)[]`，各 provider 都有
-   `typeof msg.content === "string"` 分支。端口把它塌成了 `IReadOnlyList<ContentBlock>`，于是
-   **TS 写的会话 JSONL 里 `"content": "hi"` 这种消息无法反序列化**。改它要动 `Pi.Ai` 的
-   `UserMessage` 类型 + 约 10 个 provider 消费点，属独立的「Pi.Ai 消息线路保真」批次。
-   （本批的语料因此把 `user` 向量写成块形式，避免把 Pi.Ai 的问题混进 `messages.ts` 的验证。）
+> **1 / 3 已由 4e-2c-0 关闭**（见下节）：`MessageContent` 联合已下沉到 `Pi.Ai.Types`，
+> `SystemMessage.content` / `UserMessage.content` 都改回 TS 的联合形态。
+
+1. ~~**`Pi.Ai.Types.UserMessage.Content` 是纯列表，装不下 TS 的 `string` 分支**。~~ 已修（4e-2c-0）。
 2. **`Pi.Durable/Storage/MemoryStorage.CloneMessages` 用默认 `JsonSerializerOptions` 做
    `ChatMessage` 的 JSON 往返**。默认解析器不认识 4 个自定义 role，所以一旦消息里出现
    `bashExecution` 等，克隆会失败。4e-2c 落会话持久化时必须改走 `AgentMessageJson.Options`；
    若 `Pi.Durable` 不便引用 `Pi.CodingAgent`（当前不引用），则应把多态注册点下沉到 `Pi.Ai`。
-3. **`SystemMessage.Content` 是 `string?`**，TS 是 `string | TextContent[]`（同 1 的类别）。
+3. ~~**`SystemMessage.Content` 是 `string?`**，TS 是 `string | TextContent[]`。~~ 已修（4e-2c-0）。
 4. **`ToolResultMessage.NestedCalls`** 未移植（依赖 `nested-tool-calls.ts`）。
+
+## 4e-2c-0 进度（2026-10-11）：消息内容联合下沉到 `Pi.Ai`
+
+4e-2c（`session-manager.ts`）的第一个前置。TS 把消息内容建模成**匿名联合**
+`string | (TextContent | ImageContent)[]`，它同时出现在四处：`SystemMessage.content`、
+`UserMessage.content`、coding-agent 的 `CustomMessage.content`、扩展 API 的 `sendUserMessage`。
+
+端口此前把它拆成了两种互不兼容的形态——`UserMessage.Content` 是 `IReadOnlyList<ContentBlock>`
+（丢掉字符串分支），`SystemMessage.Content` 是 `string?`（丢掉数组分支，且在 `null` 时**漏写**该字段）。
+后果是**双向不可兼容**：TS 写的会话 JSONL 里 `"content": "hi"` 与 `"content": null` 在 C# 侧
+无法反序列化；端口写的 system 消息又缺 `content`，TS 的 `contentText(undefined)` 会直接抛
+（`transformMessages` 虽然会把 `content == null` 归一化为 `[]`，但 `getSystemMessageText` 也可能被
+直接调用）。故本批先把联合下沉到 `Pi.Ai.Types`，再进 `session-manager`。
+
+### 新增 `src/Pi.Ai/Types/MessageContent.cs`
+
+| 成员 | 对应 TS |
+|---|---|
+| `MessageContent`（`Text` / `Blocks` 两分支） | 匿名联合 `string \| (TextContent \| ImageContent)[]` |
+| `MessageContentJsonConverter`（按 JSON token 类型分派） | （无对应：TS 无序列化层） |
+| `MessageContent.TextValue` / `ToBlocks()` / `ToBlocks(out bool wasText)` | （无对应：`typeof content === "string"` 判别的显式化） |
+| `MessageContent.From(string)` / `From(blocks)` / `BlocksOf(blocks)` / 隐式 `string → MessageContent` | （同上） |
+
+**`ToBlocks()` 是 TS 各 provider 里 `typeof content === "string"` 的等价物**：字符串分支折叠为
+单个 `TextContent`，数组分支原样返回。端口此前在 6 个 provider 里直接 `foreach (var block in user.Content)`，
+现在改成 `user.Content.ToBlocks()`——行为与改动前**完全一致**（端口内部此前只可能产出数组形态），
+但类型上保住了两个分支。
+
+### 类型改动
+
+| 位置 | 改动 |
+|---|---|
+| `Pi.Ai.Types.UserMessage` | `IReadOnlyList<ContentBlock> Content` → **`MessageContent Content`**；位置参数记录改为显式 `[JsonConstructor]` 构造 + 收 `IReadOnlyList<ContentBlock>` 的**便捷构造**（等价 `MessageContent.BlocksOf`）——否则 30+ 处 `new UserMessage([...], ts)` 的集合表达式无法绑定 |
+| `Pi.Ai.Types.SystemMessage` | `string? Content` → **`MessageContent? Content`**，并去掉 `WhenWritingNull`（TS 恒写该字段） |
+| `Pi.CodingAgent.Core.MessageContent` | **删除**（连同本地转换器），改用 `Pi.Ai.Types.MessageContent` |
+| `Pi.CodingAgent.Core.AgentMessages` | 私有 `ToBlocks` 辅助删除，改调 `custom.Content.ToBlocks()` |
+
+`MessageContentJsonConverter` 的 `HandleNull` 为 `true` 且把 `null` 写成 `""`：TS 的
+`SystemMessage.content` 是**必填**字段，`createInitialSystemMessage` / `getCurrentSystemMessage` /
+`declareToolChanges` 三个构造点全部给 `""`；端口 `SystemMessage.Content` 的 `null` 默认值因此
+在序列化时补成 `""`。读取方向同时容忍**缺失**与 `null`（→ `Blocks([])`），对齐 TS
+`transformMessages` 对 `content == null` 的归一化。
+
+### 消费点同步（联合入参在 C# 需要显式窄化）
+
+| 位置 | 改动 |
+|---|---|
+| `Pi.Ai/Utils/Text.cs` | 新增 `ContentText(MessageContent, separator)` 重载（TS `contentText` 的联合入参）；`ContentText(SystemMessage)` 走它 |
+| `Pi.Ai/Utils/Estimate.cs` | `EstimateTextAndImageContentTokens` 的字符串重载 + 块重载合并为 `(MessageContent)` + `(IReadOnlyList<ContentBlock>)`，共用 `TextAndImageContentChars`（TS 的 `estimateTextAndImageContentChars` 联合入参） |
+| `Pi.Ai/Api/AnthropicMessages.cs` | system 文本提取改 `Utils.Text.ContentText`；user 块遍历改 `ToBlocks()` |
+| `Pi.Ai/Api/BedrockConverseStream.cs` / `GoogleShared.cs` / `MistralConversations.cs` / `OpenAiCompletions.cs` / `OpenAiResponsesShared.cs` | user 块遍历改 `ToBlocks()`；OpenAI chat 的 system 文本改 `Utils.Text.ContentText` |
+| `Pi.Ai/Api/GitHubCopilotHeaders.cs` | `user.Content.Any(...)` → `user.Content.ToBlocks().Any(...)` |
+| `Pi.Ai/Api/TransformMessages.cs` | 图片降级只对**数组分支**生效（TS `Array.isArray(msg.content)`），字符串分支原样通过 |
+| `Pi.Durable/Harness/Compaction.cs` | `contentText` 改收联合（对齐 `packages/durable/src/harness/compaction.ts` 的 `contentText(content: string \| blocks)`） |
+
+### 4e-2c-0 发现并修复的真实缺陷
+
+| # | 缺陷 | 影响 | 修复 |
+|---|---|---|---|
+| 1 | `SystemMessage.Content` 为 `null` 时**漏写** `content` 字段 | 端口写的会话/system 消息缺字段，TS 的 `contentText(undefined)` 抛异常 | 转换器把 `null` 写成 `""` |
+| 2 | `UserMessage.Content` 装不下字符串分支 | TS 写的 `"content": "hi"` / `"content": null` 在 C# 侧反序列化失败（会话无法加载） | 改回联合 + 读取容忍 `null` |
+| 3 | `Agent.SystemPrompt` 返回**第一条** system 消息的原始 content | TS 是 `getCurrentSystemPrompt(messages)`（回放全部 system 消息 + 拼接 sections） | 改调 `Transcript.GetCurrentSystemPrompt`；属性类型 `string?` → `string`（TS `AgentState.systemPrompt: string`） |
+| 4 | `Agent.Reset()` 只保留**第一条** system 消息 | TS 保留 `getCurrentSystemMessage(messages)`（回放后的单条基线） | 改调 `Transcript.GetCurrentSystemMessage` |
+| 5 | `AgentOptions` 没有 `Messages` | TS `AgentInitialState.messages` 可播种 transcript——**会话恢复的必要条件** | 新增 `Messages`，构造时先 `AddRange` |
+| 6 | 构造器仅在 transcript **为空**时插入前导 system 消息 | TS 的条件是 `messages[0]?.role !== "system"`（非空但不以 system 开头时也要插） | 改用 `Transcript.CreateInitialSystemMessage` + 同 TS 的条件 |
+
+缺陷 3–6 是移植 4e-2c-0 时顺带发现的 **`Pi.Agent` 层**问题（该层此前已标记完成），都属"与 TS 逐字对齐"的范畴，
+且 18 项 `Pi.Agent.Tests` 全部仍然通过。
+
+### 4e-2c-0 差分验证
+
+`tools/gen-ai-message-content-corpus.mjs` 直接 import 真实 TS 的 `utils/text.ts`、
+`utils/estimate.ts`、`api/transform-messages.ts`，产出 6 段 **45 条**向量（`tests/Pi.Ai.Tests/message-content-corpus.json`）：
+
+| 段 | 条数 | 覆盖 |
+|---|---|---|
+| `contentText` | 12 | 字符串分支原样返回（忽略 separator）、数组分支过滤非文本块后按 separator 拼接、空串/空数组/纯图片/空文本块边界 |
+| `systemText` | 7 | `getSystemMessageText`（content + 非 null sections）与 `renderSystemMessageUpdate`（段增删加框）在联合两种分支上的输出 |
+| `estimate` | 9 | `estimateTextAndImageContentTokens` / `estimateMessageTokens`：字符串按字符数、数组里非文本块按 4800 字符 |
+| `systemEstimate` | 3 | system 消息的估算（经 `getSystemMessageText`，同样覆盖联合） |
+| `transform` | 4 | `transformMessages` 只降级数组分支；字符串分支与 vision 模型原样通过 |
+| `wire` | 9 | `content` 两种形状的 JSON 往返、`null → []` 归一化、**system 消息的 `content` 恒存在**（含 `Content = null` 的端口默认值、带 `toolsAdded` 的情形） |
+
+回放测试 `tests/Pi.Ai.Tests/MessageContentCorpusTests.cs` **9 项**全绿；另有 2 项直接断言
+（`ToBlocks` 折叠文本分支、`UserMessage` 块构造与联合构造等价）钉住无 TS 对应物的端口便利 API。
+
+### 4e-2c-0 变异验证
+
+`tools/mutate-check.py` 新增 `message-content` 套件（12 条变异，`*MessageContentCorpusTests*`）：
+**12/12 首轮全捕获**，还原后 9/9 绿，源码无残留。变异覆盖联合的两个分支（`ToBlocks` 文本分支、
+`contentText` 字符串/separator、估算的字符串分支与图片字符数）、`null → ""` 与 `null → []` 两个
+边界、`transformMessages` 的"只降级数组分支"、以及 `content` 的线路名与 `UserMessage` 块构造。
+
+> 首轮 7/11：`mc-toblocks-text` / `mc-write-null-as-empty` / `mc-user-blocks-ctor` **caught=0**
+> （语料没走到这三个端口专属路径——补了 2 项直接断言与 1 条 `constructNullContent` 向量）；
+> `mc-contenttext-string` / `mc-transform-blocks-only` **BUILD-FAIL**（替换文本语法非法：switch
+> 表达式的手臂要用 `,` 而非 `;`；把 `MessageContent.Blocks` 改成 `.Text` 会让 `blocks.Value`
+> 类型不匹配）。这类"变异本身编译不过"的信号说明变异体的构造需要复核——已逐条重写。
 
 ## 环境相关失败（非移植缺陷，2026-10-10 记录）
 

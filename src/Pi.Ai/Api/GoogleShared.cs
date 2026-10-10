@@ -154,7 +154,7 @@ public static class GoogleShared
                 case UserMessage user:
                 {
                     var parts = new JsonArray();
-                    foreach (var item in user.Content)
+                    foreach (var item in user.Content.ToBlocks())
                     {
                         if (item is TextContent text)
                         {

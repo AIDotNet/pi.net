@@ -18,7 +18,7 @@ public static class GitHubCopilotHeaders
     public static bool HasVisionInput(IReadOnlyList<ChatMessage> messages)
         => messages.Any(msg => msg switch
         {
-            UserMessage user => user.Content.Any(c => c is ImageContent),
+            UserMessage user => user.Content.ToBlocks().Any(c => c is ImageContent),
             ToolResultMessage toolResult => toolResult.Content.Any(c => c is ImageContent),
             _ => false,
         });

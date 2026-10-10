@@ -660,7 +660,7 @@ public static class BedrockConverseStream
                 case UserMessage user:
                 {
                     var content = new JsonArray();
-                    foreach (var block in user.Content)
+                    foreach (var block in user.Content.ToBlocks())
                     {
                         if (block is TextContent text)
                         {

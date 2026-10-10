@@ -12,6 +12,12 @@ public sealed class AgentOptions
     /// <summary>初始 system prompt（与 Tools 一起合成首条 system 消息）。</summary>
     public string? SystemPrompt { get; init; }
 
+    /// <summary>
+    /// 初始 transcript。对应 TS <c>AgentInitialState.messages</c>：已以 system 消息开头时，
+    /// <see cref="SystemPrompt"/> / <see cref="Tools"/> 不再折成前导 system 消息。
+    /// </summary>
+    public IReadOnlyList<ChatMessage>? Messages { get; init; }
+
     /// <summary>初始模型。</summary>
     public Model? Model { get; init; }
 

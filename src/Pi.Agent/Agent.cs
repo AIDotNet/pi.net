@@ -43,11 +43,13 @@ public sealed class Agent
         ToolExecution = options.ToolExecution ?? ToolExecutionMode.Parallel;
         SessionId = options.SessionId;
 
-        // 初始 prompt / tools 转为首条 system 消息（transcript 未自带 system 时）。
-        var systemPrompt = options.SystemPrompt;
-        if (_messages.Count == 0 && (systemPrompt is not null || _tools.Count > 0))
-            _messages.Add(new SystemMessage(Content: systemPrompt,
-                ToolsAdded: _tools.Select(t => t.Definition).ToList()));
+        // TS createMutableAgentState：初始 transcript 先就位，再把 prompt / 工具折成前导
+        // system 消息——仅当 transcript 不以 system 消息开头时插入（messages.unshift）。
+        _messages.AddRange(options.Messages ?? []);
+        var initialMessage = Pi.Ai.Utils.Transcript.CreateInitialSystemMessage(
+            options.SystemPrompt, _tools.Select(t => t.Definition).ToList());
+        if (initialMessage is not null && (_messages.Count == 0 || _messages[0] is not SystemMessage))
+            _messages.Insert(0, initialMessage);
     }
 
     /// <summary>默认消息转换：保留全部四种标准角色消息（对齐 TS defaultConvertToLlm）。</summary>
@@ -80,17 +82,8 @@ public sealed class Agent
     /// <summary>最近一次失败/中止回合的错误消息。</summary>
     public string? ErrorMessage => _errorMessage;
 
-    /// <summary>从 transcript 推导当前 system prompt（最后一条 system 消息的内容）。</summary>
-    public string? SystemPrompt
-    {
-        get
-        {
-            foreach (var message in _messages)
-                if (message is SystemMessage system)
-                    return system.Content;
-            return null;
-        }
-    }
+    /// <summary>回放 transcript 得到的当前 system prompt。对应 TS <c>AgentState.systemPrompt</c>。</summary>
+    public string SystemPrompt => Pi.Ai.Utils.Transcript.GetCurrentSystemPrompt(_messages);
 
     // ---------- 选项（构造后可变，对应 TS AgentOptions 公开字段） ----------
 
@@ -196,9 +189,10 @@ public sealed class Agent
         if (_activeRun is not null)
             throw new InvalidOperationException("Agent is already processing. Wait for completion before resetting.");
 
-        var baseline = _messages.FirstOrDefault(m => m is SystemMessage);
+        // TS reset()：把全部 system 消息回放成一条基线（而非取第一条）。
+        var baseline = Pi.Ai.Utils.Transcript.GetCurrentSystemMessage(_messages);
         _messages.Clear();
-        if (baseline is SystemMessage systemMessage) _messages.Add(systemMessage);
+        if (baseline is not null) _messages.Add(baseline);
         _isStreaming = false;
         _streamingMessage = null;
         _pendingToolCalls.Clear();

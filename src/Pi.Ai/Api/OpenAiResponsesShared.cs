@@ -257,7 +257,7 @@ public static class OpenAiResponsesShared
                 case UserMessage user:
                 {
                     var content = new JsonArray();
-                    foreach (var item in user.Content)
+                    foreach (var item in user.Content.ToBlocks())
                     {
                         switch (item)
                         {

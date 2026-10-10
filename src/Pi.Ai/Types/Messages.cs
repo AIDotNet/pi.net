@@ -198,8 +198,13 @@ public abstract record ChatMessage
 /// 按名修补（value 为 null 表示删除该段）、<c>ToolsAdded</c>/<c>ToolsRemoved</c>
 /// 增量变更工具集。按序回放全部 system 消息得到当前 prompt 与工具。
 /// </summary>
+/// <remarks>
+/// <see cref="Content"/> 是 TS 的 <c>string | TextContent[]</c> 联合（见 <see cref="MessageContent"/>）。
+/// TS 侧该字段**必填**，构造点一律给 <c>""</c>；端口的 <c>null</c> 由
+/// <see cref="MessageContentJsonConverter"/> 在序列化时写成 <c>""</c>，故不会漏写字段。
+/// </remarks>
 public sealed record SystemMessage(
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Content = null,
+    [property: JsonPropertyName("content")] MessageContent? Content = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyDictionary<string, string?>? Sections = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -209,7 +214,32 @@ public sealed record SystemMessage(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? Timestamp = null) : ChatMessage;
 
 /// <summary>用户消息。对应 TS <c>UserMessage</c>。</summary>
-public sealed record UserMessage(IReadOnlyList<ContentBlock> Content, long Timestamp) : ChatMessage;
+/// <remarks>
+/// <see cref="Content"/> 是 TS 的 <c>string | (TextContent | ImageContent)[]</c> 联合
+/// （见 <see cref="MessageContent"/>）：TS 的 <c>Agent.Prompt</c> 走数组分支，
+/// 而扩展 / 旧会话文件可能写裸字符串。端口两者都能往返。
+/// </remarks>
+public sealed record UserMessage : ChatMessage
+{
+    [JsonConstructor]
+    public UserMessage(MessageContent content, long timestamp)
+    {
+        Content = content;
+        Timestamp = timestamp;
+    }
+
+    /// <summary>块列表的便捷构造，等价于 <c>MessageContent.BlocksOf(content)</c>。</summary>
+    public UserMessage(IReadOnlyList<ContentBlock> content, long timestamp)
+        : this(MessageContent.BlocksOf(content), timestamp)
+    {
+    }
+
+    [JsonPropertyName("content")]
+    public MessageContent Content { get; init; }
+
+    [JsonPropertyName("timestamp")]
+    public long Timestamp { get; init; }
+}
 
 /// <summary>助手消息。对应 TS <c>AssistantMessage</c>。</summary>
 /// <remarks>

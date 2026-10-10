@@ -18,56 +18,11 @@ namespace Pi.CodingAgent.Core;
 //   1) 4 个自定义消息直接派生自 Pi.Ai 的 ChatMessage（基类判别符就是 TS 的 `role`）；
 //   2) 用运行时 type-info 修饰器把 4 个自定义 role 追加进 ChatMessage 的多态表
 //      （见 AgentMessageJson），使 JSON 线路与 TS 的 role 判别完全一致。
+//
+// 消息内容联合 `string | (TextContent | ImageContent)[]` 由 Pi.Ai.Types.MessageContent 承载
+// （4e-2c-0 下沉到 Pi.Ai：SystemMessage.content / UserMessage.content / CustomMessage.content
+// 与扩展 API 的 sendUserMessage 共用同一个类型）。
 // ============================================================================
-
-/// <summary>
-/// 消息内容联合：纯文本，或文本/图片块数组。对应 TS <c>string | (TextContent | ImageContent)[]</c>。
-/// </summary>
-/// <remarks>
-/// TS 侧这是匿名结构类型，同时出现在 <c>CustomMessage.content</c>、<c>UserMessage.content</c> 与扩展 API 的
-/// <c>sendUserMessage</c>。端口只保留一个具名 C# 类型（原 <c>UserMessageContent</c> 已并入此处）。
-/// </remarks>
-[JsonConverter(typeof(MessageContentJsonConverter))]
-public abstract record MessageContent
-{
-    /// <summary>纯文本分支。</summary>
-    public sealed record Text(string Value) : MessageContent;
-
-    /// <summary>内容块数组分支。</summary>
-    public sealed record Blocks(IReadOnlyList<ContentBlock> Value) : MessageContent;
-}
-
-/// <summary>
-/// <see cref="MessageContent"/> 的线路转换器：TS 侧两种分支的 JSON 形状不同
-/// （字符串 vs 数组），且没有判别字段，故必须按 JSON token 类型分派。
-/// </summary>
-internal sealed class MessageContentJsonConverter : JsonConverter<MessageContent>
-{
-    public override MessageContent Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        => reader.TokenType switch
-        {
-            JsonTokenType.String => new MessageContent.Text(reader.GetString()!),
-            JsonTokenType.StartArray => new MessageContent.Blocks(
-                JsonSerializer.Deserialize<List<ContentBlock>>(ref reader, options) ?? []),
-            _ => throw new JsonException(
-                $"MessageContent expects a string or an array, got {reader.TokenType}."),
-        };
-
-    public override void Write(Utf8JsonWriter writer, MessageContent value, JsonSerializerOptions options)
-    {
-        switch (value)
-        {
-            case MessageContent.Text text:
-                writer.WriteStringValue(text.Value);
-                break;
-            case MessageContent.Blocks blocks:
-                JsonSerializer.Serialize(writer, blocks.Value, options);
-                break;
-            default:
-                throw new JsonException($"Unsupported MessageContent variant {value.GetType().Name}.");
-        }
-    }
-}
 
 /// <summary>
 /// <c>!</c> 命令触发的 bash 执行消息。对应 TS <c>BashExecutionMessage</c>（role <c>bashExecution</c>）。
@@ -269,7 +224,7 @@ public static class AgentMessages
         BashExecutionMessage bash => new UserMessage(
             [new TextContent(BashExecutionToText(bash))], bash.Timestamp),
 
-        CustomMessage custom => new UserMessage(ToBlocks(custom.Content), custom.Timestamp),
+        CustomMessage custom => new UserMessage(custom.Content.ToBlocks(), custom.Timestamp),
 
         BranchSummaryMessage branch => new UserMessage(
             [new TextContent(BranchSummaryPrefix + branch.Summary + BranchSummarySuffix)], branch.Timestamp),
@@ -283,13 +238,6 @@ public static class AgentMessages
 
         // TS 的 default 分支是 never 穷尽检查，运行时返回 undefined 并被 filter 掉。
         _ => null,
-    };
-
-    private static IReadOnlyList<ContentBlock> ToBlocks(MessageContent content) => content switch
-    {
-        MessageContent.Text text => [new TextContent(text.Value)],
-        MessageContent.Blocks blocks => blocks.Value,
-        _ => throw new InvalidOperationException($"Unsupported MessageContent variant {content.GetType().Name}."),
     };
 
     /// <summary>

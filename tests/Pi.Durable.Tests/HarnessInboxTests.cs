@@ -77,7 +77,7 @@ public sealed class HarnessInboxTests
             case SystemMessage:
                 return null;
             case UserMessage user:
-                return user.Content.OfType<TextContent>().FirstOrDefault()?.Text;
+                return user.Content.ToBlocks().OfType<TextContent>().FirstOrDefault()?.Text;
             case AssistantMessage assistant:
                 return assistant.Content.OfType<TextContent>().FirstOrDefault()?.Text;
             default:
@@ -471,7 +471,7 @@ public sealed class HarnessInboxTests
                 Transcript(await HarnessTestSupport.AllEntriesAsync(root)));
             var view = await root.ContextAsync(Ctx);
             var message = Assert.IsType<UserMessage>(Assert.Single(view.Messages));
-            Assert.Equal("handoff", Assert.IsType<TextContent>(Assert.Single(message.Content)).Text);
+            Assert.Equal("handoff", Assert.IsType<TextContent>(Assert.Single(message.Content.ToBlocks())).Text);
         }
         finally
         {
@@ -504,7 +504,7 @@ public sealed class HarnessInboxTests
             view = await root.ContextAsync(Ctx);
             Assert.Equal(view.Head?.Id, view.Head?.Head);
             var message = Assert.IsType<UserMessage>(Assert.Single(view.Messages));
-            Assert.Equal("carry on", Assert.IsType<TextContent>(Assert.Single(message.Content)).Text);
+            Assert.Equal("carry on", Assert.IsType<TextContent>(Assert.Single(message.Content.ToBlocks())).Text);
             Assert.Equal(7, message.Timestamp);
         }
         finally

@@ -564,9 +564,10 @@ public static class MistralConversations
                 }
                 case UserMessage user:
                 {
-                    var hadImages = user.Content.OfType<ImageContent>().Any();
+                    var userBlocks = user.Content.ToBlocks();
+                    var hadImages = userBlocks.OfType<ImageContent>().Any();
                     var content = new JsonArray();
-                    foreach (var item in user.Content)
+                    foreach (var item in userBlocks)
                     {
                         if (item is TextContent textItem)
                         {

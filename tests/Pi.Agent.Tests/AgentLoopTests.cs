@@ -209,7 +209,7 @@ public class AgentLoopTests
         // steering 消息在回合之间注入：user, assistant(first), steer(user), assistant(second)。
         Assert.Equal(4, result.Count);
         var steer = Assert.IsType<UserMessage>(result[2]);
-        Assert.Equal("steer", ((TextContent)steer.Content[0]).Text);
+        Assert.Equal("steer", ((TextContent)steer.Content.ToBlocks()[0]).Text);
     }
 
     [Fact]
