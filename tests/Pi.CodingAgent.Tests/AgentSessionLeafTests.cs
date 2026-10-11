@@ -202,4 +202,46 @@ public sealed class AgentSessionLeafTests : IDisposable
         Assert.True(AgentSessionRuntime.IsSourceAlreadyStored(dest, dest));
         Assert.Throws<IOException>(() => AgentSessionRuntime.CopyImportedJsonl(source, dest, sourceAlreadyStored: false));
     }
+
+    [Fact]
+    public void ParseExtensionCommand_SplitsNameAndUntrimmedArgs()
+    {
+        Assert.Null(AgentSession.ParseExtensionCommand("plain"));
+        var parsed = AgentSession.ParseExtensionCommand("/cmd  arg ");
+        Assert.Equal("cmd", parsed!.Name);
+        Assert.Equal(" arg ", parsed.Args);
+    }
+
+    [Fact]
+    public void ExpandSkillCommand_UnknownPassesThroughAndKnownExpands()
+    {
+        Assert.Equal("/skill:missing", AgentSession.ExpandSkillCommand("/skill:missing", _ => null, _ => ""));
+
+        var source = new SkillCommandSource("demo", Path.Combine(_root, "SKILL.md"), _root);
+        File.WriteAllText(source.FilePath, "---\nname: demo\n---\nbody");
+        var expanded = AgentSession.ExpandSkillCommand(
+            "/skill:demo extra",
+            name => name == "demo" ? source : null,
+            File.ReadAllText);
+        Assert.Contains("<skill name=\"demo\"", expanded);
+        Assert.Contains($"References are relative to {_root}.", expanded);
+        Assert.Contains("\n\nextra", expanded);
+        Assert.Contains("body", expanded);
+    }
+
+    [Fact]
+    public void ExpandSkillCommand_ReadFailureReturnsOriginal()
+    {
+        var source = new SkillCommandSource("demo", Path.Combine(_root, "missing.md"), _root);
+        Assert.Equal(
+            "/skill:demo",
+            AgentSession.ExpandSkillCommand("/skill:demo", _ => source, File.ReadAllText));
+    }
+
+    [Fact]
+    public void AppendPromptHints_JoinsWhenPresent()
+    {
+        Assert.Equal("hi", AgentSession.AppendPromptHints("hi", []));
+        Assert.Equal("hi\n\na\nb", AgentSession.AppendPromptHints("hi", ["a", "b"]));
+    }
 }
