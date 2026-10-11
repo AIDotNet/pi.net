@@ -18,4 +18,9 @@
     <PackageReference Include="SkiaSharp" Version="4.153.1" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\export-html\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

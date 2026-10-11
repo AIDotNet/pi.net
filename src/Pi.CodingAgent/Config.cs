@@ -92,6 +92,9 @@ internal sealed record ConfigSeams
 
     /// <summary>Replacement for the Bun-runtime detection.</summary>
     public bool? IsBunRuntime { get; init; }
+
+    /// <summary>Override for <see cref="Config.GetExportTemplateDir()"/>.</summary>
+    public string? ExportTemplateDir { get; init; }
 }
 
 /// <summary>
@@ -757,7 +760,21 @@ public static partial class Config
     /// <summary>The directory holding the HTML export template.</summary>
     public static string GetExportTemplateDir() => GetExportTemplateDir(null);
 
-    internal static string GetExportTemplateDir(ConfigSeams? seams) => AssetDir(seams, "export-html", "core", "export-html");
+    internal static string GetExportTemplateDir(ConfigSeams? seams)
+    {
+        if (!string.IsNullOrEmpty(seams?.ExportTemplateDir))
+        {
+            return seams.ExportTemplateDir;
+        }
+
+        var bundled = Path.Combine(AppContext.BaseDirectory, "Assets", "export-html");
+        if (Directory.Exists(bundled) && File.Exists(Path.Combine(bundled, "template.html")))
+        {
+            return bundled;
+        }
+
+        return AssetDir(seams, "export-html", "core", "export-html");
+    }
 
     /// <summary>The directory holding the built-in interactive assets.</summary>
     public static string GetInteractiveAssetsDir() => GetInteractiveAssetsDir(null);
