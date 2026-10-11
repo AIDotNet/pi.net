@@ -46,6 +46,9 @@
          getLatestCompactionEntry, sessionEntryToContextMessages, buildContextEntries,
          buildSessionProjection/Context, getDefaultSessionDir. -->
     <None Include="session-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4d-5: extensions/codemode/tool.ts (schema, declarations, description catalog, loadout),
+         core/usage-totals.ts, and readCodemodeStore from execute.ts. -->
+    <None Include="codemode-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" />

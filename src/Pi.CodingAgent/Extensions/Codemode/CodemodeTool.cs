@@ -4,7 +4,9 @@ using Pi.Agent.Types;
 using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Codemode;
+using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
+using Pi.CodingAgent.Core.Tools;
 using Pi.CodingAgent.Utils;
 using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
 using ToolNamespace = Pi.CodingAgent.Core.Extensions.ToolNamespace;
@@ -113,7 +115,7 @@ public static partial class CodemodeToolApi
         public Func<string>? GetMode { get; init; }
 
         /// <summary>Token budget for tool declarations in the description. Default: <see cref="DefaultCodemodeInlineBudget"/>.</summary>
-        public Func<long?>? GetInlineBudget { get; init; }
+        public Func<double?>? GetInlineBudget { get; init; }
     }
 
     private static readonly ToolSchema CodemodeSchema = new(new Dictionary<string, object?>
@@ -181,8 +183,7 @@ public static partial class CodemodeToolApi
 
         /// <summary>Temp file with the full text output, when the output was truncated.</summary>
         [System.Text.Json.Serialization.JsonPropertyName("fullOutputPath")]
-        [System.Text.Json.Serialization.JsonIgnore(
-            System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         public string? FullOutputPath { get; init; }
     }
 
@@ -223,7 +224,7 @@ public static partial class CodemodeToolApi
     }
 
     /// <summary>Default for <c>CodemodeDescriptionOptions.inlineBudget</c>, in estimated tokens.</summary>
-    public const long DefaultCodemodeInlineBudget = 3000;
+    public const double DefaultCodemodeInlineBudget = 3000;
 
     /// <summary>Characters per token when estimating the cost of a tool section.</summary>
     private const int CharsPerToken = 4;
@@ -250,9 +251,6 @@ public static partial class CodemodeToolApi
             tool.OutputSchema is not null ? SchemaToJsonNode(tool.OutputSchema) : SchemaToJsonNode(TextOutputSchema));
     }
 
-    private static readonly CodemodeDeclaration TextOutputDeclaration =
-        new("", "", null, SchemaToJsonNode(TextOutputSchema));
-
     private static JsonNode? DeclarationOutputSchema(CodemodeDeclaration declaration) => declaration.OutputSchema;
 
     /// <summary>Tools a script may call: every given tool except the codemode tool itself.</summary>
@@ -278,7 +276,7 @@ public static partial class CodemodeToolApi
         /// Estimated tokens (characters / 4) the tool sections may use. Tools that do not fit are
         /// left out, like deferred tools. Null lists every tool that is not deferred.
         /// </summary>
-        public long? InlineBudget { get; init; }
+        public double? InlineBudget { get; init; }
     }
 
     /// <summary><c>### `id` (`raw name`)</c> followed by the tool's description and declaration.</summary>
@@ -304,7 +302,7 @@ public static partial class CodemodeToolApi
     /// remaining tool; a group whose next tool does not fit drops out while the others continue.
     /// Every namespace is represented before any namespace is complete. TS <c>selectCatalog</c>.
     /// </summary>
-    private static HashSet<string> SelectCatalog(IEnumerable<CatalogGroup> groups, long? budget)
+    private static HashSet<string> SelectCatalog(IEnumerable<CatalogGroup> groups, double? budget)
     {
         if (budget is null)
         {
@@ -383,7 +381,7 @@ public static partial class CodemodeToolApi
                 new CatalogEntry(declaration.Name, section, Math.Ceiling((double)section.Length / CharsPerToken)));
         }
 
-        var ordered = [.. groups.Values
+        List<CatalogGroup> ordered = [.. groups.Values
             .OrderBy(group => group.Namespace is null ? 0 : 1)
             .ThenBy(group => group.Namespace?.Name, StringComparer.Ordinal)];
         var shown = SelectCatalog(ordered, options.InlineBudget);
@@ -441,13 +439,15 @@ public static partial class CodemodeToolApi
         }
 
         if (schema is JsonObject @object
-            && @object["type"]?.GetValue<string>() == "object"
+            && @object["type"] is JsonValue typeValue
+            && typeValue.GetValueKind() == System.Text.Json.JsonValueKind.String
+            && typeValue.GetValue<string>() == "object"
             && @object["properties"] is JsonObject properties
             && CodemodeDeclarations.McpStructuredContentSchema(schema) is null)
         {
             var required = new HashSet<string>(
-                (@object["required"] as JsonArray ?? [])?.Select(node => node?.GetValue<string>())
-                    .OfType<string>() ?? [],
+                (@object["required"] as JsonArray ?? [])
+                    .Select(node => node?.GetValue<string>()).OfType<string>(),
                 StringComparer.Ordinal);
             var fields = properties.Select(property =>
                 required.Contains(property.Key) ? property.Key : $"{property.Key}?");

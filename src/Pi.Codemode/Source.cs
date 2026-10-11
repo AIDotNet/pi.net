@@ -38,15 +38,18 @@ public static class CodemodeSource
     /// 供语法约束型 provider 使用的 Lark 语法：只固定 options 行的形状，
     /// options JSON 与代码由 <see cref="Parse"/> 检查。对应 TS <c>CODEMODE_SOURCE_GRAMMAR</c>。
     /// </summary>
-    public const string Grammar = """
-        start: options_source | plain_source
-        options_source: OPTIONS_LINE NEWLINE SOURCE
-        plain_source: SOURCE
-
-        OPTIONS_LINE: /[ \t]*\/\/ @options:[^\r\n]*/
-        NEWLINE: /\r?\n/
-        SOURCE: /[\s\S]+/
-        """;
+    /// <remarks>
+    /// 用显式 <c>\n</c> 拼接而非 raw string：TS 语法字符串首尾各有一个换行且行分隔为 LF，
+    /// C# raw string 会剥离首尾行且随源文件行尾（CRLF），差分语料按逐字节比对会失败。
+    /// </remarks>
+    public const string Grammar =
+        "\nstart: options_source | plain_source\n" +
+        "options_source: OPTIONS_LINE NEWLINE SOURCE\n" +
+        "plain_source: SOURCE\n" +
+        "\n" +
+        "OPTIONS_LINE: /[ \\t]*\\/\\/ @options:[^\\r\\n]*/\n" +
+        "NEWLINE: /\\r?\\n/\n" +
+        "SOURCE: /[\\s\\S]+/\n";
 
     /// <summary>
     /// 拆分可选的首页 <c>// @options: {...}</c> 与脚本。空输入或非法选项抛

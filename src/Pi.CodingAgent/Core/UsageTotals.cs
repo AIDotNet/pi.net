@@ -17,7 +17,7 @@ public sealed record UsageTotals
 }
 
 /// <summary>用量累计与合并。对应 TS <c>core/usage-totals.ts</c>。</summary>
-public static class UsageTotalsApi
+public static partial class UsageTotalsApi
 {
     /// <summary>TS <c>createUsageTotals()</c>。</summary>
     public static UsageTotals CreateUsageTotals() => new();

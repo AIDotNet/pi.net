@@ -16,6 +16,7 @@
 
 namespace Pi.CodingAgent.Core.Extensions;
 
+using Pi.CodingAgent.Extensions.Codemode;
 using Pi.CodingAgent.Extensions.ToolSearch;
 
 /// <summary>
@@ -32,7 +33,7 @@ public static class BuiltInExtensions
     {
         new InlineExtension.Described("llama.cpp", PlaceholderFactory("llama.cpp", "4d-7"), Builtin: true),
         new InlineExtension.Described(
-            "codemode", PlaceholderFactory("codemode", "4d-5"), Replaceable: true, Builtin: true),
+            "codemode", CodemodeExtension.CreateCodemodeExtension(), Replaceable: true, Builtin: true),
         new InlineExtension.Described(
             "tool-search", ToolSearch.CreateToolSearchExtension(), Replaceable: true, Builtin: true),
         new InlineExtension.Described(

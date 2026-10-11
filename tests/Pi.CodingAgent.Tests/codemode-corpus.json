@@ -1,0 +1,2689 @@
+{
+	"constants": {
+		"codemodeToolName": "codemode",
+		"codemodeStoreEntryType": "codemode-store",
+		"defaultInlineBudget": 3000,
+		"docsPath": "\\shim\\pkg\\docs\\codemode.md",
+		"systemPrompt": {
+			"snippet": "Run JavaScript that calls other tools",
+			"guidelines": [
+				"Use codemode to batch independent tool calls (Promise.allSettled), chain them, or filter large output, instead of many separate calls."
+			]
+		}
+	},
+	"schema": {
+		"type": "object",
+		"required": [
+			"code"
+		],
+		"properties": {
+			"code": {
+				"type": "string",
+				"description": "Raw JavaScript source."
+			}
+		}
+	},
+	"isCodemodeTool": [
+		{
+			"name": "codemode",
+			"parameters": {
+				"type": "object",
+				"required": [
+					"code"
+				],
+				"properties": {
+					"code": {
+						"type": "string",
+						"description": "Raw JavaScript source."
+					}
+				}
+			},
+			"expected": true
+		},
+		{
+			"name": "codemode",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"path"
+				]
+			},
+			"expected": false
+		},
+		{
+			"name": "other",
+			"parameters": {
+				"type": "object",
+				"required": [
+					"code"
+				],
+				"properties": {
+					"code": {
+						"type": "string",
+						"description": "Raw JavaScript source."
+					}
+				}
+			},
+			"expected": false
+		}
+	],
+	"declaration": [
+		{
+			"name": "case-0",
+			"input": {
+				"tool": {
+					"name": "read",
+					"description": "Read file contents.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"path": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"path"
+						]
+					},
+					"outputSchema": null
+				},
+				"guidelines": [
+					"Examine before editing.",
+					"   ",
+					"Prefer read over cat."
+				]
+			},
+			"expected": {
+				"name": "read",
+				"description": "Read file contents.\n\n- Examine before editing.\n- Prefer read over cat.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"path": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"path"
+					]
+				},
+				"outputSchema": {
+					"type": "string"
+				}
+			}
+		},
+		{
+			"name": "case-1",
+			"input": {
+				"tool": {
+					"name": "  spaced  ",
+					"description": "Trimmed description.  ",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"path": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"path"
+						]
+					},
+					"outputSchema": null
+				},
+				"guidelines": null
+			},
+			"expected": {
+				"name": "  spaced  ",
+				"description": "Trimmed description.  ",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"path": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"path"
+					]
+				},
+				"outputSchema": {
+					"type": "string"
+				}
+			}
+		},
+		{
+			"name": "case-2",
+			"input": {
+				"tool": {
+					"name": "guided",
+					"description": "Has guidelines.",
+					"parameters": {
+						"type": "object",
+						"properties": {
+							"path": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"path"
+						]
+					},
+					"outputSchema": {
+						"type": "string"
+					}
+				},
+				"guidelines": [
+					"One bullet"
+				]
+			},
+			"expected": {
+				"name": "guided",
+				"description": "Has guidelines.\n\n- One bullet",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"path": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"path"
+					]
+				},
+				"outputSchema": {
+					"type": "string"
+				}
+			}
+		}
+	],
+	"declarationNoGuidelines": {
+		"input": {
+			"tool": {
+				"name": "read",
+				"description": "Read file contents.",
+				"parameters": {
+					"type": "object",
+					"properties": {
+						"path": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"path"
+					]
+				},
+				"outputSchema": null
+			},
+			"guidelines": null
+		},
+		"expected": {
+			"name": "read",
+			"description": "Read file contents.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"path"
+				]
+			},
+			"outputSchema": {
+				"type": "string"
+			}
+		}
+	},
+	"callableTools": {
+		"input": [
+			{
+				"name": "read",
+				"description": "r",
+				"parameters": {
+					"type": "object",
+					"properties": {
+						"path": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"path"
+					]
+				},
+				"outputSchema": null
+			},
+			{
+				"name": "codemode",
+				"description": "c",
+				"parameters": {
+					"type": "object",
+					"required": [
+						"code"
+					],
+					"properties": {
+						"code": {
+							"type": "string",
+							"description": "Raw JavaScript source."
+						}
+					}
+				},
+				"outputSchema": null
+			}
+		],
+		"expected": [
+			"read"
+		]
+	},
+	"description": [
+		{
+			"name": "empty-no-models",
+			"input": {
+				"tools": [],
+				"options": {
+					"models": null,
+					"namespaces": null,
+					"deferred": null,
+					"guidelines": null,
+					"inlineBudget": null
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools."
+		},
+		{
+			"name": "empty-models",
+			"input": {
+				"tools": [],
+				"options": {
+					"models": true,
+					"namespaces": null,
+					"deferred": null,
+					"guidelines": null,
+					"inlineBudget": null
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n- `models`: classifiers and image generation. Read \\shim\\pkg\\docs\\codemode.md first."
+		},
+		{
+			"name": "all-tools-no-models",
+			"input": {
+				"tools": [
+					{
+						"name": "read",
+						"description": "Read file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to read."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "write",
+						"description": "Write file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to write."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "bash",
+						"description": "Run a shell command.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Command to run."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "mcp__docs_search",
+						"description": "Search the docs.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Query."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "object",
+							"properties": {
+								"content": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"type"
+										]
+									}
+								},
+								"isError": {
+									"type": "boolean"
+								},
+								"structuredContent": {
+									"type": "object",
+									"properties": {
+										"output": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"output"
+									]
+								},
+								"_meta": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"content"
+							]
+						}
+					},
+					{
+						"name": "codemode",
+						"description": "The codemode tool itself.",
+						"parameters": {
+							"type": "object",
+							"required": [
+								"code"
+							],
+							"properties": {
+								"code": {
+									"type": "string",
+									"description": "Raw JavaScript source."
+								}
+							}
+						},
+						"outputSchema": null
+					}
+				],
+				"options": {
+					"models": null,
+					"namespaces": null,
+					"deferred": null,
+					"guidelines": null,
+					"inlineBudget": null
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n\nShared MCP Types:\n```ts\ntype Role = \"user\" | \"assistant\";\ntype MetaObject = Record<string, unknown>;\ntype Annotations = {\n  audience?: Role[];\n  priority?: number;\n  lastModified?: string;\n};\ntype Icon = {\n  src: string;\n  mimeType?: string;\n  sizes?: string[];\n  theme?: \"light\" | \"dark\";\n};\ntype TextResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  text: string;\n};\ntype BlobResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  blob: string;\n};\ntype TextContent = {\n  type: \"text\";\n  text: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ImageContent = {\n  type: \"image\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype AudioContent = {\n  type: \"audio\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ResourceLink = {\n  icons?: Icon[];\n  name: string;\n  title?: string;\n  uri: string;\n  description?: string;\n  mimeType?: string;\n  annotations?: Annotations;\n  size?: number;\n  _meta?: MetaObject;\n  type: \"resource_link\";\n};\ntype EmbeddedResource = {\n  type: \"resource\";\n  resource: TextResourceContents | BlobResourceContents;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ContentBlock =\n  | TextContent\n  | ImageContent\n  | AudioContent\n  | ResourceLink\n  | EmbeddedResource;\ntype CallToolResult<TStructured = { [key: string]: unknown }> = {\n  _meta?: MetaObject;\n  content: ContentBlock[];\n  isError?: boolean;\n  structuredContent?: TStructured;\n  [key: string]: unknown;\n};\n```\n\nNested tools:\n\n### `read`\nRead file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: {\n  // Absolute path to read.\n  path: string;\n}): Promise<string>; };\n```\n\n### `write`\nWrite file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { write(args: {\n  // Absolute path to write.\n  path: string;\n}): Promise<string>; };\n```\n\n### `bash`\nRun a shell command.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { bash(args: {\n  // Command to run.\n  path: string;\n}): Promise<string>; };\n```\n\n### `mcp__docs_search`\nSearch the docs.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { mcp__docs_search(args: {\n  // Query.\n  path: string;\n}): Promise<CallToolResult<{ output: string; }>>; };\n```"
+		},
+		{
+			"name": "all-tools-models",
+			"input": {
+				"tools": [
+					{
+						"name": "read",
+						"description": "Read file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to read."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "write",
+						"description": "Write file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to write."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "bash",
+						"description": "Run a shell command.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Command to run."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "mcp__docs_search",
+						"description": "Search the docs.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Query."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "object",
+							"properties": {
+								"content": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"type"
+										]
+									}
+								},
+								"isError": {
+									"type": "boolean"
+								},
+								"structuredContent": {
+									"type": "object",
+									"properties": {
+										"output": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"output"
+									]
+								},
+								"_meta": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"content"
+							]
+						}
+					},
+					{
+						"name": "codemode",
+						"description": "The codemode tool itself.",
+						"parameters": {
+							"type": "object",
+							"required": [
+								"code"
+							],
+							"properties": {
+								"code": {
+									"type": "string",
+									"description": "Raw JavaScript source."
+								}
+							}
+						},
+						"outputSchema": null
+					}
+				],
+				"options": {
+					"models": true,
+					"namespaces": {
+						"mcp__docs_search": {
+							"name": "mcp__docs",
+							"description": "Docs server",
+							"instructions": "Use for docs questions."
+						}
+					},
+					"deferred": null,
+					"guidelines": {
+						"read": [
+							"Examine before editing."
+						]
+					},
+					"inlineBudget": null
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n- `models`: classifiers and image generation. Read \\shim\\pkg\\docs\\codemode.md first.\n\nShared MCP Types:\n```ts\ntype Role = \"user\" | \"assistant\";\ntype MetaObject = Record<string, unknown>;\ntype Annotations = {\n  audience?: Role[];\n  priority?: number;\n  lastModified?: string;\n};\ntype Icon = {\n  src: string;\n  mimeType?: string;\n  sizes?: string[];\n  theme?: \"light\" | \"dark\";\n};\ntype TextResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  text: string;\n};\ntype BlobResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  blob: string;\n};\ntype TextContent = {\n  type: \"text\";\n  text: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ImageContent = {\n  type: \"image\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype AudioContent = {\n  type: \"audio\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ResourceLink = {\n  icons?: Icon[];\n  name: string;\n  title?: string;\n  uri: string;\n  description?: string;\n  mimeType?: string;\n  annotations?: Annotations;\n  size?: number;\n  _meta?: MetaObject;\n  type: \"resource_link\";\n};\ntype EmbeddedResource = {\n  type: \"resource\";\n  resource: TextResourceContents | BlobResourceContents;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ContentBlock =\n  | TextContent\n  | ImageContent\n  | AudioContent\n  | ResourceLink\n  | EmbeddedResource;\ntype CallToolResult<TStructured = { [key: string]: unknown }> = {\n  _meta?: MetaObject;\n  content: ContentBlock[];\n  isError?: boolean;\n  structuredContent?: TStructured;\n  [key: string]: unknown;\n};\n```\n\nNested tools:\n\n### `read`\nRead file contents.\n\n- Examine before editing.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: {\n  // Absolute path to read.\n  path: string;\n}): Promise<string>; };\n```\n\n### `write`\nWrite file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { write(args: {\n  // Absolute path to write.\n  path: string;\n}): Promise<string>; };\n```\n\n### `bash`\nRun a shell command.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { bash(args: {\n  // Command to run.\n  path: string;\n}): Promise<string>; };\n```\n\n## mcp__docs\nDocs server\n\n### `mcp__docs_search`\nSearch the docs.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { mcp__docs_search(args: {\n  // Query.\n  path: string;\n}): Promise<CallToolResult<{ output: string; }>>; };\n```"
+		},
+		{
+			"name": "deferred-hides",
+			"input": {
+				"tools": [
+					{
+						"name": "read",
+						"description": "Read file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to read."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "write",
+						"description": "Write file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to write."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "bash",
+						"description": "Run a shell command.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Command to run."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "mcp__docs_search",
+						"description": "Search the docs.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Query."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "object",
+							"properties": {
+								"content": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"type"
+										]
+									}
+								},
+								"isError": {
+									"type": "boolean"
+								},
+								"structuredContent": {
+									"type": "object",
+									"properties": {
+										"output": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"output"
+									]
+								},
+								"_meta": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"content"
+							]
+						}
+					},
+					{
+						"name": "codemode",
+						"description": "The codemode tool itself.",
+						"parameters": {
+							"type": "object",
+							"required": [
+								"code"
+							],
+							"properties": {
+								"code": {
+									"type": "string",
+									"description": "Raw JavaScript source."
+								}
+							}
+						},
+						"outputSchema": null
+					}
+				],
+				"options": {
+					"models": true,
+					"namespaces": {
+						"mcp__docs_search": {
+							"name": "mcp__docs",
+							"description": "Docs server",
+							"instructions": "Use for docs questions."
+						}
+					},
+					"deferred": [
+						"bash"
+					],
+					"guidelines": null,
+					"inlineBudget": null
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n- `models`: classifiers and image generation. Read \\shim\\pkg\\docs\\codemode.md first.\n\nShared MCP Types:\n```ts\ntype Role = \"user\" | \"assistant\";\ntype MetaObject = Record<string, unknown>;\ntype Annotations = {\n  audience?: Role[];\n  priority?: number;\n  lastModified?: string;\n};\ntype Icon = {\n  src: string;\n  mimeType?: string;\n  sizes?: string[];\n  theme?: \"light\" | \"dark\";\n};\ntype TextResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  text: string;\n};\ntype BlobResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  blob: string;\n};\ntype TextContent = {\n  type: \"text\";\n  text: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ImageContent = {\n  type: \"image\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype AudioContent = {\n  type: \"audio\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ResourceLink = {\n  icons?: Icon[];\n  name: string;\n  title?: string;\n  uri: string;\n  description?: string;\n  mimeType?: string;\n  annotations?: Annotations;\n  size?: number;\n  _meta?: MetaObject;\n  type: \"resource_link\";\n};\ntype EmbeddedResource = {\n  type: \"resource\";\n  resource: TextResourceContents | BlobResourceContents;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ContentBlock =\n  | TextContent\n  | ImageContent\n  | AudioContent\n  | ResourceLink\n  | EmbeddedResource;\ntype CallToolResult<TStructured = { [key: string]: unknown }> = {\n  _meta?: MetaObject;\n  content: ContentBlock[];\n  isError?: boolean;\n  structuredContent?: TStructured;\n  [key: string]: unknown;\n};\n```\n\nNested tools:\n\n### `read`\nRead file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: {\n  // Absolute path to read.\n  path: string;\n}): Promise<string>; };\n```\n\n### `write`\nWrite file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { write(args: {\n  // Absolute path to write.\n  path: string;\n}): Promise<string>; };\n```\n\n## mcp__docs\nDocs server\n\n### `mcp__docs_search`\nSearch the docs.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { mcp__docs_search(args: {\n  // Query.\n  path: string;\n}): Promise<CallToolResult<{ output: string; }>>; };\n```"
+		},
+		{
+			"name": "budget-zero",
+			"input": {
+				"tools": [
+					{
+						"name": "read",
+						"description": "Read file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to read."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "write",
+						"description": "Write file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to write."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "bash",
+						"description": "Run a shell command.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Command to run."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "mcp__docs_search",
+						"description": "Search the docs.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Query."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "object",
+							"properties": {
+								"content": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"type"
+										]
+									}
+								},
+								"isError": {
+									"type": "boolean"
+								},
+								"structuredContent": {
+									"type": "object",
+									"properties": {
+										"output": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"output"
+									]
+								},
+								"_meta": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"content"
+							]
+						}
+					},
+					{
+						"name": "codemode",
+						"description": "The codemode tool itself.",
+						"parameters": {
+							"type": "object",
+							"required": [
+								"code"
+							],
+							"properties": {
+								"code": {
+									"type": "string",
+									"description": "Raw JavaScript source."
+								}
+							}
+						},
+						"outputSchema": null
+					}
+				],
+				"options": {
+					"models": null,
+					"namespaces": null,
+					"deferred": null,
+					"guidelines": null,
+					"inlineBudget": 0
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n\nNested tools:"
+		},
+		{
+			"name": "budget-tiny",
+			"input": {
+				"tools": [
+					{
+						"name": "read",
+						"description": "Read file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to read."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "write",
+						"description": "Write file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to write."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "bash",
+						"description": "Run a shell command.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Command to run."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "mcp__docs_search",
+						"description": "Search the docs.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Query."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "object",
+							"properties": {
+								"content": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"type"
+										]
+									}
+								},
+								"isError": {
+									"type": "boolean"
+								},
+								"structuredContent": {
+									"type": "object",
+									"properties": {
+										"output": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"output"
+									]
+								},
+								"_meta": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"content"
+							]
+						}
+					},
+					{
+						"name": "codemode",
+						"description": "The codemode tool itself.",
+						"parameters": {
+							"type": "object",
+							"required": [
+								"code"
+							],
+							"properties": {
+								"code": {
+									"type": "string",
+									"description": "Raw JavaScript source."
+								}
+							}
+						},
+						"outputSchema": null
+					}
+				],
+				"options": {
+					"models": null,
+					"namespaces": null,
+					"deferred": null,
+					"guidelines": null,
+					"inlineBudget": 40
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n\nNested tools:"
+		},
+		{
+			"name": "budget-medium",
+			"input": {
+				"tools": [
+					{
+						"name": "read",
+						"description": "Read file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to read."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "write",
+						"description": "Write file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to write."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "bash",
+						"description": "Run a shell command.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Command to run."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "mcp__docs_search",
+						"description": "Search the docs.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Query."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "object",
+							"properties": {
+								"content": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"type"
+										]
+									}
+								},
+								"isError": {
+									"type": "boolean"
+								},
+								"structuredContent": {
+									"type": "object",
+									"properties": {
+										"output": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"output"
+									]
+								},
+								"_meta": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"content"
+							]
+						}
+					},
+					{
+						"name": "codemode",
+						"description": "The codemode tool itself.",
+						"parameters": {
+							"type": "object",
+							"required": [
+								"code"
+							],
+							"properties": {
+								"code": {
+									"type": "string",
+									"description": "Raw JavaScript source."
+								}
+							}
+						},
+						"outputSchema": null
+					}
+				],
+				"options": {
+					"models": null,
+					"namespaces": null,
+					"deferred": null,
+					"guidelines": null,
+					"inlineBudget": 300
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n\nShared MCP Types:\n```ts\ntype Role = \"user\" | \"assistant\";\ntype MetaObject = Record<string, unknown>;\ntype Annotations = {\n  audience?: Role[];\n  priority?: number;\n  lastModified?: string;\n};\ntype Icon = {\n  src: string;\n  mimeType?: string;\n  sizes?: string[];\n  theme?: \"light\" | \"dark\";\n};\ntype TextResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  text: string;\n};\ntype BlobResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  blob: string;\n};\ntype TextContent = {\n  type: \"text\";\n  text: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ImageContent = {\n  type: \"image\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype AudioContent = {\n  type: \"audio\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ResourceLink = {\n  icons?: Icon[];\n  name: string;\n  title?: string;\n  uri: string;\n  description?: string;\n  mimeType?: string;\n  annotations?: Annotations;\n  size?: number;\n  _meta?: MetaObject;\n  type: \"resource_link\";\n};\ntype EmbeddedResource = {\n  type: \"resource\";\n  resource: TextResourceContents | BlobResourceContents;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ContentBlock =\n  | TextContent\n  | ImageContent\n  | AudioContent\n  | ResourceLink\n  | EmbeddedResource;\ntype CallToolResult<TStructured = { [key: string]: unknown }> = {\n  _meta?: MetaObject;\n  content: ContentBlock[];\n  isError?: boolean;\n  structuredContent?: TStructured;\n  [key: string]: unknown;\n};\n```\n\nNested tools:\n\n### `read`\nRead file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: {\n  // Absolute path to read.\n  path: string;\n}): Promise<string>; };\n```\n\n### `write`\nWrite file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { write(args: {\n  // Absolute path to write.\n  path: string;\n}): Promise<string>; };\n```\n\n### `bash`\nRun a shell command.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { bash(args: {\n  // Command to run.\n  path: string;\n}): Promise<string>; };\n```\n\n### `mcp__docs_search`\nSearch the docs.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { mcp__docs_search(args: {\n  // Query.\n  path: string;\n}): Promise<CallToolResult<{ output: string; }>>; };\n```"
+		},
+		{
+			"name": "budget-unlimited",
+			"input": {
+				"tools": [
+					{
+						"name": "read",
+						"description": "Read file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to read."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "write",
+						"description": "Write file contents.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Absolute path to write."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "bash",
+						"description": "Run a shell command.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Command to run."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": null
+					},
+					{
+						"name": "mcp__docs_search",
+						"description": "Search the docs.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Query."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "object",
+							"properties": {
+								"content": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"type"
+										]
+									}
+								},
+								"isError": {
+									"type": "boolean"
+								},
+								"structuredContent": {
+									"type": "object",
+									"properties": {
+										"output": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"output"
+									]
+								},
+								"_meta": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"content"
+							]
+						}
+					},
+					{
+						"name": "codemode",
+						"description": "The codemode tool itself.",
+						"parameters": {
+							"type": "object",
+							"required": [
+								"code"
+							],
+							"properties": {
+								"code": {
+									"type": "string",
+									"description": "Raw JavaScript source."
+								}
+							}
+						},
+						"outputSchema": null
+					}
+				],
+				"options": {
+					"models": null,
+					"namespaces": null,
+					"deferred": null,
+					"guidelines": null,
+					"inlineBudget": null
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n\nShared MCP Types:\n```ts\ntype Role = \"user\" | \"assistant\";\ntype MetaObject = Record<string, unknown>;\ntype Annotations = {\n  audience?: Role[];\n  priority?: number;\n  lastModified?: string;\n};\ntype Icon = {\n  src: string;\n  mimeType?: string;\n  sizes?: string[];\n  theme?: \"light\" | \"dark\";\n};\ntype TextResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  text: string;\n};\ntype BlobResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  blob: string;\n};\ntype TextContent = {\n  type: \"text\";\n  text: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ImageContent = {\n  type: \"image\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype AudioContent = {\n  type: \"audio\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ResourceLink = {\n  icons?: Icon[];\n  name: string;\n  title?: string;\n  uri: string;\n  description?: string;\n  mimeType?: string;\n  annotations?: Annotations;\n  size?: number;\n  _meta?: MetaObject;\n  type: \"resource_link\";\n};\ntype EmbeddedResource = {\n  type: \"resource\";\n  resource: TextResourceContents | BlobResourceContents;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ContentBlock =\n  | TextContent\n  | ImageContent\n  | AudioContent\n  | ResourceLink\n  | EmbeddedResource;\ntype CallToolResult<TStructured = { [key: string]: unknown }> = {\n  _meta?: MetaObject;\n  content: ContentBlock[];\n  isError?: boolean;\n  structuredContent?: TStructured;\n  [key: string]: unknown;\n};\n```\n\nNested tools:\n\n### `read`\nRead file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: {\n  // Absolute path to read.\n  path: string;\n}): Promise<string>; };\n```\n\n### `write`\nWrite file contents.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { write(args: {\n  // Absolute path to write.\n  path: string;\n}): Promise<string>; };\n```\n\n### `bash`\nRun a shell command.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { bash(args: {\n  // Command to run.\n  path: string;\n}): Promise<string>; };\n```\n\n### `mcp__docs_search`\nSearch the docs.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { mcp__docs_search(args: {\n  // Query.\n  path: string;\n}): Promise<CallToolResult<{ output: string; }>>; };\n```"
+		},
+		{
+			"name": "namespace-only",
+			"input": {
+				"tools": [
+					{
+						"name": "mcp__docs_search",
+						"description": "Search the docs.",
+						"parameters": {
+							"type": "object",
+							"properties": {
+								"path": {
+									"type": "string",
+									"description": "Query."
+								}
+							},
+							"required": [
+								"path"
+							]
+						},
+						"outputSchema": {
+							"type": "object",
+							"properties": {
+								"content": {
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"type": {
+												"type": "string"
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"type"
+										]
+									}
+								},
+								"isError": {
+									"type": "boolean"
+								},
+								"structuredContent": {
+									"type": "object",
+									"properties": {
+										"output": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"output"
+									]
+								},
+								"_meta": {
+									"type": "object"
+								}
+							},
+							"required": [
+								"content"
+							]
+						}
+					}
+				],
+				"options": {
+					"models": null,
+					"namespaces": {
+						"mcp__docs_search": {
+							"name": "mcp__docs",
+							"description": "Docs server",
+							"instructions": "Use for docs questions."
+						}
+					},
+					"deferred": null,
+					"guidelines": null,
+					"inlineBudget": null
+				}
+			},
+			"expected": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n\nShared MCP Types:\n```ts\ntype Role = \"user\" | \"assistant\";\ntype MetaObject = Record<string, unknown>;\ntype Annotations = {\n  audience?: Role[];\n  priority?: number;\n  lastModified?: string;\n};\ntype Icon = {\n  src: string;\n  mimeType?: string;\n  sizes?: string[];\n  theme?: \"light\" | \"dark\";\n};\ntype TextResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  text: string;\n};\ntype BlobResourceContents = {\n  uri: string;\n  mimeType?: string;\n  _meta?: MetaObject;\n  blob: string;\n};\ntype TextContent = {\n  type: \"text\";\n  text: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ImageContent = {\n  type: \"image\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype AudioContent = {\n  type: \"audio\";\n  data: string;\n  mimeType: string;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ResourceLink = {\n  icons?: Icon[];\n  name: string;\n  title?: string;\n  uri: string;\n  description?: string;\n  mimeType?: string;\n  annotations?: Annotations;\n  size?: number;\n  _meta?: MetaObject;\n  type: \"resource_link\";\n};\ntype EmbeddedResource = {\n  type: \"resource\";\n  resource: TextResourceContents | BlobResourceContents;\n  annotations?: Annotations;\n  _meta?: MetaObject;\n};\ntype ContentBlock =\n  | TextContent\n  | ImageContent\n  | AudioContent\n  | ResourceLink\n  | EmbeddedResource;\ntype CallToolResult<TStructured = { [key: string]: unknown }> = {\n  _meta?: MetaObject;\n  content: ContentBlock[];\n  isError?: boolean;\n  structuredContent?: TStructured;\n  [key: string]: unknown;\n};\n```\n\nNested tools:\n\n## mcp__docs\nDocs server\n\n### `mcp__docs_search`\nSearch the docs.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { mcp__docs_search(args: {\n  // Query.\n  path: string;\n}): Promise<CallToolResult<{ output: string; }>>; };\n```"
+		}
+	],
+	"loadout": [
+		{
+			"name": "mode-on",
+			"input": {
+				"loadout": {
+					"declared": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"callable": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "bash",
+							"description": "Run a shell command.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string",
+										"description": "Command."
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "hidden_helper",
+							"description": "Only via scripts.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"registered": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "bash",
+							"description": "Run a shell command.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string",
+										"description": "Command."
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "hidden_helper",
+							"description": "Only via scripts.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"exposures": {
+						"read": "direct",
+						"bash": "direct",
+						"hidden_helper": "deferred",
+						"codemode": "codemode"
+					},
+					"namespaces": {
+						"bash": {
+							"name": "core",
+							"description": "Core tools",
+							"instructions": "Careful."
+						}
+					},
+					"guidelines": {
+						"read": [
+							"Examine first."
+						],
+						"bash": []
+					}
+				},
+				"definition": {
+					"models": false,
+					"mode": "on",
+					"hasGetInlineBudget": true
+				}
+			},
+			"definition": {
+				"name": "codemode",
+				"label": "codemode",
+				"exposure": "model-only",
+				"defaultActive": null,
+				"promptSnippet": "Run JavaScript that calls other tools",
+				"promptGuidelines": [
+					"Use codemode to batch independent tool calls (Promise.allSettled), chain them, or filter large output, instead of many separate calls."
+				],
+				"description": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.",
+				"constrainedSampling": {
+					"type": "grammar",
+					"variants": {
+						"openai_lark": "\nstart: options_source | plain_source\noptions_source: OPTIONS_LINE NEWLINE SOURCE\nplain_source: SOURCE\n\nOPTIONS_LINE: /[ \\t]*\\/\\/ @options:[^\\r\\n]*/\nNEWLINE: /\\r?\\n/\nSOURCE: /[\\s\\S]+/\n"
+					}
+				}
+			},
+			"changes": {
+				"descriptions": {
+					"read": "Read file contents.\n\nCodemode: `tools.read(args)` resolves to a string.",
+					"codemode": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools."
+				},
+				"hiddenDeclarations": []
+			}
+		},
+		{
+			"name": "mode-only",
+			"input": {
+				"loadout": {
+					"declared": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"callable": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "bash",
+							"description": "Run a shell command.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string",
+										"description": "Command."
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "hidden_helper",
+							"description": "Only via scripts.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"registered": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "bash",
+							"description": "Run a shell command.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string",
+										"description": "Command."
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "hidden_helper",
+							"description": "Only via scripts.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"exposures": {
+						"read": "direct",
+						"bash": "direct",
+						"hidden_helper": "deferred",
+						"codemode": "codemode"
+					},
+					"namespaces": {
+						"bash": {
+							"name": "core",
+							"description": "Core tools",
+							"instructions": "Careful."
+						}
+					},
+					"guidelines": {
+						"read": [
+							"Examine first."
+						],
+						"bash": []
+					}
+				},
+				"definition": {
+					"models": false,
+					"mode": "only",
+					"hasGetInlineBudget": true
+				}
+			},
+			"definition": {
+				"name": "codemode",
+				"label": "codemode",
+				"exposure": "model-only",
+				"defaultActive": null,
+				"promptSnippet": "Run JavaScript that calls other tools",
+				"promptGuidelines": [
+					"Use codemode to batch independent tool calls (Promise.allSettled), chain them, or filter large output, instead of many separate calls."
+				],
+				"description": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.",
+				"constrainedSampling": {
+					"type": "grammar",
+					"variants": {
+						"openai_lark": "\nstart: options_source | plain_source\noptions_source: OPTIONS_LINE NEWLINE SOURCE\nplain_source: SOURCE\n\nOPTIONS_LINE: /[ \\t]*\\/\\/ @options:[^\\r\\n]*/\nNEWLINE: /\\r?\\n/\nSOURCE: /[\\s\\S]+/\n"
+					}
+				}
+			},
+			"changes": {
+				"descriptions": {
+					"codemode": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n\nNested tools:\n\n### `read`\nRead file contents.\n\n- Examine first.\n\ncodemode tool declaration:\n```ts\ndeclare const tools: { read(args: { path: string; }): Promise<string>; };\n```\n\n## core (tools not listed)\nCore tools"
+				},
+				"hiddenDeclarations": [
+					"read"
+				]
+			}
+		},
+		{
+			"name": "mode-default",
+			"input": {
+				"loadout": {
+					"declared": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"callable": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "bash",
+							"description": "Run a shell command.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string",
+										"description": "Command."
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "hidden_helper",
+							"description": "Only via scripts.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"registered": [
+						{
+							"name": "read",
+							"description": "Read file contents.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": {
+								"type": "string"
+							}
+						},
+						{
+							"name": "bash",
+							"description": "Run a shell command.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string",
+										"description": "Command."
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "hidden_helper",
+							"description": "Only via scripts.",
+							"parameters": {
+								"type": "object",
+								"properties": {
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"path"
+								]
+							},
+							"outputSchema": null
+						},
+						{
+							"name": "codemode",
+							"description": "self",
+							"parameters": {
+								"type": "object",
+								"required": [
+									"code"
+								],
+								"properties": {
+									"code": {
+										"type": "string",
+										"description": "Raw JavaScript source."
+									}
+								}
+							},
+							"outputSchema": null
+						}
+					],
+					"exposures": {
+						"read": "direct",
+						"bash": "direct",
+						"hidden_helper": "deferred",
+						"codemode": "codemode"
+					},
+					"namespaces": {
+						"bash": {
+							"name": "core",
+							"description": "Core tools",
+							"instructions": "Careful."
+						}
+					},
+					"guidelines": {
+						"read": [
+							"Examine first."
+						],
+						"bash": []
+					}
+				},
+				"definition": {
+					"models": true,
+					"mode": null,
+					"hasGetInlineBudget": false
+				}
+			},
+			"definition": {
+				"name": "codemode",
+				"label": "codemode",
+				"exposure": "model-only",
+				"defaultActive": null,
+				"promptSnippet": "Run JavaScript that calls other tools",
+				"promptGuidelines": [
+					"Use codemode to batch independent tool calls (Promise.allSettled), chain them, or filter large output, instead of many separate calls."
+				],
+				"description": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n- `models`: classifiers and image generation. Read \\shim\\pkg\\docs\\codemode.md first.",
+				"constrainedSampling": {
+					"type": "grammar",
+					"variants": {
+						"openai_lark": "\nstart: options_source | plain_source\noptions_source: OPTIONS_LINE NEWLINE SOURCE\nplain_source: SOURCE\n\nOPTIONS_LINE: /[ \\t]*\\/\\/ @options:[^\\r\\n]*/\nNEWLINE: /\\r?\\n/\nSOURCE: /[\\s\\S]+/\n"
+					}
+				}
+			},
+			"changes": {
+				"descriptions": {
+					"read": "Read file contents.\n\nCodemode: `tools.read(args)` resolves to a string.",
+					"codemode": "Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.\n- `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.\n- Optional first line: `// @options: {\"max_output_tokens\": 10000, \"timeout_ms\": 60000}`\n\nGlobals:\n- `text(value)`, `image(dataUrlOrImageBlock)`, `console.log(...)`, and top-level `return` add output; `exit()` ends the script. With several text items, each starts with a `==> text N/M <==` line, and `console` lines follow the other output in one `<console_output>` block. `image()` also saves the image to a temp file and the result names its path.\n- `store(key, value)` and `load(key)` keep JSON values across codemode calls.\n- `ALL_TOOLS`, `await searchTools(query, { limit?, namespace? })`, `await describeTool(name)`, `await describeNamespace(name)`: find unlisted tools, such as MCP tools.\n- `models`: classifiers and image generation. Read \\shim\\pkg\\docs\\codemode.md first."
+				},
+				"hiddenDeclarations": []
+			}
+		}
+	],
+	"readCodemodeStore": [
+		{
+			"name": "empty",
+			"branch": [],
+			"expected": {}
+		},
+		{
+			"name": "set-and-delete",
+			"branch": [
+				{
+					"type": "custom",
+					"id": "a",
+					"parentId": null,
+					"customType": "codemode-store",
+					"data": {
+						"set": {
+							"k1": "v1",
+							"k2": {
+								"deep": [
+									1,
+									2
+								]
+							}
+						},
+						"delete": []
+					}
+				},
+				{
+					"type": "custom",
+					"id": "b",
+					"parentId": null,
+					"customType": "other",
+					"data": {
+						"set": {
+							"x": 1
+						},
+						"delete": []
+					}
+				},
+				{
+					"type": "custom",
+					"id": "c",
+					"parentId": null,
+					"customType": "codemode-store",
+					"data": {
+						"set": {
+							"k2": null
+						},
+						"delete": [
+							"k1"
+						]
+					}
+				}
+			],
+			"expected": {
+				"k2": null
+			}
+		},
+		{
+			"name": "malformed-data",
+			"branch": [
+				{
+					"type": "custom",
+					"id": "a",
+					"parentId": null,
+					"customType": "codemode-store",
+					"data": {
+						"set": "nope"
+					}
+				},
+				{
+					"type": "custom",
+					"id": "b",
+					"parentId": null,
+					"customType": "codemode-store",
+					"data": {
+						"set": {
+							"ok": true
+						},
+						"delete": []
+					}
+				}
+			],
+			"expected": {
+				"ok": true
+			}
+		},
+		{
+			"name": "non-object-data",
+			"branch": [
+				{
+					"type": "custom",
+					"id": "a",
+					"parentId": null,
+					"customType": "codemode-store",
+					"data": [
+						1,
+						2
+					]
+				},
+				{
+					"type": "custom",
+					"id": "b",
+					"parentId": null,
+					"customType": "other",
+					"data": {
+						"set": {
+							"x": 1
+						},
+						"delete": []
+					}
+				}
+			],
+			"expected": {}
+		}
+	],
+	"combineUsage": [
+		{
+			"name": "plain",
+			"first": {
+				"input": 10,
+				"output": 5,
+				"cacheRead": 2,
+				"cacheWrite": 1,
+				"totalTokens": 16,
+				"cost": {
+					"input": 0.01,
+					"output": 0.02,
+					"cacheRead": 0.001,
+					"cacheWrite": 0.002,
+					"total": 0.033
+				}
+			},
+			"second": {
+				"input": 10,
+				"output": 5,
+				"cacheRead": 2,
+				"cacheWrite": 1,
+				"totalTokens": 7,
+				"cost": {
+					"input": 0.01,
+					"output": 0.02,
+					"cacheRead": 0.001,
+					"cacheWrite": 0.002,
+					"total": 0.033
+				}
+			},
+			"expected": {
+				"input": 20,
+				"output": 10,
+				"cacheRead": 4,
+				"cacheWrite": 2,
+				"totalTokens": 23,
+				"cost": {
+					"input": 0.02,
+					"output": 0.04,
+					"cacheRead": 0.002,
+					"cacheWrite": 0.004,
+					"total": 0.066
+				}
+			}
+		},
+		{
+			"name": "optional-splits",
+			"first": {
+				"input": 10,
+				"output": 5,
+				"cacheRead": 2,
+				"cacheWrite": 1,
+				"totalTokens": 16,
+				"cost": {
+					"input": 0.01,
+					"output": 0.02,
+					"cacheRead": 0.001,
+					"cacheWrite": 0.002,
+					"total": 0.033
+				}
+			},
+			"second": {
+				"input": 10,
+				"output": 5,
+				"cacheRead": 2,
+				"cacheWrite": 1,
+				"cacheWrite1h": 3,
+				"reasoning": 4,
+				"totalTokens": 9,
+				"cost": {
+					"input": 0.01,
+					"output": 0.02,
+					"cacheRead": 0.001,
+					"cacheWrite": 0.002,
+					"total": 0.011
+				}
+			},
+			"expected": {
+				"input": 20,
+				"output": 10,
+				"cacheRead": 4,
+				"cacheWrite": 2,
+				"cacheWrite1h": 3,
+				"reasoning": 4,
+				"totalTokens": 25,
+				"cost": {
+					"input": 0.02,
+					"output": 0.04,
+					"cacheRead": 0.002,
+					"cacheWrite": 0.004,
+					"total": 0.044
+				}
+			}
+		},
+		{
+			"name": "one-side-1h",
+			"first": {
+				"input": 10,
+				"output": 5,
+				"cacheRead": 2,
+				"cacheWrite": 1,
+				"cacheWrite1h": 2,
+				"totalTokens": 16,
+				"cost": {
+					"input": 0.01,
+					"output": 0.02,
+					"cacheRead": 0.001,
+					"cacheWrite": 0.002,
+					"total": 0.033
+				}
+			},
+			"second": {
+				"input": 10,
+				"output": 5,
+				"cacheRead": 2,
+				"cacheWrite": 1,
+				"totalTokens": 16,
+				"cost": {
+					"input": 0.01,
+					"output": 0.02,
+					"cacheRead": 0.001,
+					"cacheWrite": 0.002,
+					"total": 0.033
+				}
+			},
+			"expected": {
+				"input": 20,
+				"output": 10,
+				"cacheRead": 4,
+				"cacheWrite": 2,
+				"cacheWrite1h": 2,
+				"totalTokens": 32,
+				"cost": {
+					"input": 0.02,
+					"output": 0.04,
+					"cacheRead": 0.002,
+					"cacheWrite": 0.004,
+					"total": 0.066
+				}
+			}
+		}
+	],
+	"addUsageToTotals": {
+		"expected": {
+			"input": 20,
+			"output": 10,
+			"cacheRead": 4,
+			"cacheWrite": 2,
+			"cost": 0.083
+		}
+	},
+	"usageCostBreakdown": [
+		{
+			"name": "empty",
+			"entries": [],
+			"expected": []
+		},
+		{
+			"name": "grouped-by-model",
+			"entries": [
+				{
+					"type": "message",
+					"id": "m1",
+					"parentId": null,
+					"message": {
+						"role": "assistant",
+						"content": [],
+						"stopReason": "stop",
+						"provider": "anthropic",
+						"model": "claude-sonnet-4-5",
+						"usage": {
+							"input": 10,
+							"output": 5,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 16,
+							"cost": {
+								"input": 0.01,
+								"output": 0.02,
+								"cacheRead": 0.001,
+								"cacheWrite": 0.002,
+								"total": 0.04
+							}
+						}
+					}
+				},
+				{
+					"type": "message",
+					"id": "m2",
+					"parentId": null,
+					"message": {
+						"role": "assistant",
+						"content": [],
+						"stopReason": "stop",
+						"provider": "anthropic",
+						"model": "claude-sonnet-4-5",
+						"responseModel": "claude-opus-4-6",
+						"usage": {
+							"input": 10,
+							"output": 5,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 16,
+							"cost": {
+								"input": 0.01,
+								"output": 0.02,
+								"cacheRead": 0.001,
+								"cacheWrite": 0.002,
+								"total": 0.04
+							}
+						}
+					}
+				},
+				{
+					"type": "usage",
+					"id": "u1",
+					"parentId": null,
+					"kind": "cache_warm",
+					"provider": "openai",
+					"model": "gpt-5.2",
+					"usage": {
+						"input": 10,
+						"output": 5,
+						"cacheRead": 2,
+						"cacheWrite": 1,
+						"totalTokens": 16,
+						"cost": {
+							"input": 0.01,
+							"output": 0.02,
+							"cacheRead": 0.001,
+							"cacheWrite": 0.002,
+							"total": 0.02
+						}
+					}
+				},
+				{
+					"type": "usage",
+					"id": "u2",
+					"parentId": null,
+					"kind": "cache_warm",
+					"provider": "anthropic",
+					"model": "claude-sonnet-4-5",
+					"usage": {
+						"input": 10,
+						"output": 5,
+						"cacheRead": 2,
+						"cacheWrite": 1,
+						"totalTokens": 16,
+						"cost": {
+							"input": 0.01,
+							"output": 0.02,
+							"cacheRead": 0.001,
+							"cacheWrite": 0.002,
+							"total": 0.06
+						}
+					}
+				}
+			],
+			"expected": [
+				{
+					"key": "anthropic/claude-sonnet-4-5",
+					"cost": 0.1,
+					"tokens": 36
+				},
+				{
+					"key": "anthropic/claude-opus-4-6",
+					"cost": 0.04,
+					"tokens": 18
+				},
+				{
+					"key": "openai/gpt-5.2",
+					"cost": 0.02,
+					"tokens": 18
+				}
+			]
+		},
+		{
+			"name": "tools-summaries-bucket",
+			"entries": [
+				{
+					"type": "message",
+					"id": "t1",
+					"parentId": null,
+					"message": {
+						"role": "toolResult",
+						"toolCallId": "call_1",
+						"toolName": "bash",
+						"content": [],
+						"isError": false,
+						"usage": {
+							"input": 10,
+							"output": 5,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 16,
+							"cost": {
+								"input": 0.01,
+								"output": 0.02,
+								"cacheRead": 0.001,
+								"cacheWrite": 0.002,
+								"total": 0.001
+							}
+						}
+					}
+				},
+				{
+					"type": "branch_summary",
+					"id": "b1",
+					"parentId": null,
+					"fromId": "m0",
+					"summary": "s",
+					"usage": {
+						"input": 10,
+						"output": 5,
+						"cacheRead": 2,
+						"cacheWrite": 1,
+						"totalTokens": 16,
+						"cost": {
+							"input": 0.01,
+							"output": 0.02,
+							"cacheRead": 0.001,
+							"cacheWrite": 0.002,
+							"total": 0.002
+						}
+					}
+				},
+				{
+					"type": "compaction",
+					"id": "c1",
+					"parentId": null,
+					"summary": "compact",
+					"firstKeptEntryId": "m5",
+					"tokensBefore": 100,
+					"usage": {
+						"input": 10,
+						"output": 5,
+						"cacheRead": 2,
+						"cacheWrite": 1,
+						"totalTokens": 16,
+						"cost": {
+							"input": 0.01,
+							"output": 0.02,
+							"cacheRead": 0.001,
+							"cacheWrite": 0.002,
+							"total": 0.003
+						}
+					}
+				}
+			],
+			"expected": [
+				{
+					"key": "Tools/summaries",
+					"cost": 0.006,
+					"tokens": 54
+				}
+			]
+		},
+		{
+			"name": "zero-filtered-and-sorted",
+			"entries": [
+				{
+					"type": "message",
+					"id": "m1",
+					"parentId": null,
+					"message": {
+						"role": "assistant",
+						"content": [],
+						"stopReason": "stop",
+						"provider": "anthropic",
+						"model": "claude-sonnet-4-5",
+						"usage": {
+							"input": 10,
+							"output": 5,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 16,
+							"cost": {
+								"input": 0.01,
+								"output": 0.02,
+								"cacheRead": 0.001,
+								"cacheWrite": 0.002,
+								"total": 0
+							}
+						}
+					}
+				},
+				{
+					"type": "message",
+					"id": "m2",
+					"parentId": null,
+					"message": {
+						"role": "assistant",
+						"content": [],
+						"stopReason": "stop",
+						"provider": "anthropic",
+						"model": "claude-sonnet-4-5",
+						"usage": {
+							"input": 10,
+							"output": 5,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 16,
+							"cost": {
+								"input": 0.01,
+								"output": 0.02,
+								"cacheRead": 0.001,
+								"cacheWrite": 0.002,
+								"total": 0.5
+							}
+						}
+					}
+				},
+				{
+					"type": "usage",
+					"id": "u1",
+					"parentId": null,
+					"kind": "cache_warm",
+					"provider": "openai",
+					"model": "gpt-5.2",
+					"usage": {
+						"input": 10,
+						"output": 5,
+						"cacheRead": 2,
+						"cacheWrite": 1,
+						"totalTokens": 16,
+						"cost": {
+							"input": 0.01,
+							"output": 0.02,
+							"cacheRead": 0.001,
+							"cacheWrite": 0.002,
+							"total": 0.25
+						}
+					}
+				},
+				{
+					"type": "message",
+					"id": "t1",
+					"parentId": null,
+					"message": {
+						"role": "toolResult",
+						"toolCallId": "call_1",
+						"toolName": "bash",
+						"content": [],
+						"isError": false
+					}
+				}
+			],
+			"expected": [
+				{
+					"key": "anthropic/claude-sonnet-4-5",
+					"cost": 0.5,
+					"tokens": 36
+				},
+				{
+					"key": "openai/gpt-5.2",
+					"cost": 0.25,
+					"tokens": 18
+				}
+			]
+		}
+	]
+}

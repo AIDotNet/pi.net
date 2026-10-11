@@ -30,7 +30,7 @@
 | **4a** | `src/utils/*`（37 文件）+ 无依赖的根级模块（`config.ts` / `migrations.ts` / `core/defaults.ts` 等）                                                                              |    ~4,500 | ✅ utils 36/36 + `config.ts` 完成（2026-10-09）                                                                                                                                             |
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
-| **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-5 codemode、4d-7b llama 流式层待办 |
+| **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
 | **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1（叶子模块）+ 4e-2a（`Usage` 完整形态）+ 4e-2b（`AgentMessage` / `core/messages.ts`）+ 4e-2c-0（消息内容联合下沉）+ **4e-2c-1（`session-manager` 类型与纯树/投影逻辑）** 完成（2026-10-11）；余 4e-2c-2/3、4e-2d 待办                     |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
@@ -471,6 +471,7 @@ C# 侧另有若干「JS 语义」辅助（TS 无对应文件，供全部子阶�
 | `McpToolsTests` | 32 | 4d-4b MCP 工具适配差分：工具名生成（`mcp__server__tool` 前缀、非 `[A-Za-z0-9_]` 转 `_`、超长加 8 位哈希后缀、sanitize 冲突加哈希）、exposure 映射（codemode→deferred）、`CallToolResult` 输出 schema（content 必填、structuredContent/isError/_meta、无结构化 schema 时省略键）、20KB 输出限制（未超原样返回、超限截断并保存全文、保存失败报错、图片保留在文本后）、结果转换（文本/图片直通、isError 保留结构化结果且无 `_meta`、isError 无文本时补兜底文案、无 content 但有 structuredContent 转 JSON、resource_link 带 mimeType/size/描述与 read 提示、无 readableResources 时无 read 提示、内嵌文本资源直通、内嵌图片资源转图片、二进制资源保存为文件、文本类 blob 直显、保存失败报错、音频资源占位）、工具定义（schema 补 type/properties、description 回退链 annotations.title→title→默认、annotations 四个 hint 提取）、MCP 内容转换（文本/图片、无块但有结构化内容转 JSON、audio 占位、resource_link、内嵌图片资源、二进制资源占位、未知类型占位） |
 
 | `LlamaCorpusTests` | 88 | 4d-7a/4d-7b llama 差分：`formatBytes`（26 条含 KiB/MiB 进位与 `>=10` 精度切换）、`normalizeLlamaServerUrl`（46 条含 23 条 IPv6：校验、规范压缩、内嵌 IPv4、非法字面量）、`llamaInferenceUrl`、`LlamaClient` 的 `list`/`props`/`load`/`unload`/`download`/`unloadAndWait`（脚本化 fetch，逐请求比对 URL/方法/头/体 + 错误文案）、`watch`（29 条：SSE 分帧、CRLF、多 `data:` 行、畸形 JSON、BOM、多字节跨块、非法字节、无 body/HTTP 错）、`loadAndWait`（11 条：首轮即 loaded、事件短路、事件失败、退出码优先、其他模型事件不短路、事件进度）、`downloadAndWait`（9 条：两轮轮询、阈值兜底、状态进度、finished/failed 事件、事件过滤）、`parseLoadProgress` / `parseDownloadProgress`、`HuggingFaceClient` 的 `search` / `details`（量化解析、分片合并、`Q4_K_M` 优先与同名次排序）、`findHuggingFaceToken`（临时目录回放发现顺序） |
+| `CodemodeCorpusTests` | 26 | 4d-5 codemode 差分：常量（工具名 / store 条目类型 / 默认 inline 预算 / docsPath 连接分隔符 / 系统提示 snippet+guidelines）、schema 逐键深度比对（含引用身份供 `isCodemodeTool` 用）、schema 身份守卫（名称匹配+引用匹配→true；引用不同→false；名称不同→false）、`toCodemodeDeclaration`（3 条含空格名修剪、空 guideline 过滤、outputSchema 缺省回退文本 schema）、`getCodemodeCallableTools`（codemode 自身被排除）、`createCodemodeDescription`（10 条：空/全工具 × models、namespace 分组标题、deferred 完全隐藏、预算 0/40/300/无限截断、仅 namespace 工具）、`createCodemodeToolDefinition` + `prepareLoadout`（mode on/only/default：描述改写、codemode 自身描述、only 模式隐藏 direct 声明、constrainedSampling grammar 逐字节）、`readCodemodeStore`（空 branch、set+delete 应用顺序、畸形 data 跳过、非对象 data）、`combineUsage`（可选 cacheWrite1h/reasoning 任一侧存在即保留）、`addUsageToTotals`、`getUsageCostBreakdown`（按模型分组、`Tools/summaries` 桶、零值行过滤、按成本降序） |
 
 ## 4d-1 进度（2026-10-10）：扩展系统契约层
 
@@ -1347,3 +1348,53 @@ null-vs-省略），不只是逻辑。另有两项不依赖语料的断言：透
 - 待办（可选，4b/model-runtime 范围）：`ModelRuntime` 的内置 provider 凭据解析目前读真实 `process.env`，
   未走注入的 `Env` 缝，导致测试对宿主环境敏感。若要让测试在任何环境都确定，需要把内置 provider 的
   env 读取也纳入注入缝。
+
+## 4d-5 进度（2026-10-11）：codemode 扩展
+
+`extensions/codemode/{tool.ts(419), execute.ts(719), index.ts(48)}`（约 1.2k 行）已移植，
+构建 0 警告 0 错误，全测试 807/807 绿（基线 781 + 新增 26）。`renderer.ts`（150 行）
+依赖 TUI/theme 栈，随 4f 落地（同 C85/C109 先例）；`worker.ts` / `execute.lazy.ts` 由
+`ICodemodeJsEngine` 注入缝承载（QuickJS 沙箱宿主侧），文档化为设计差异。
+
+### 新增/改动文件
+
+| 文件 | 内容 |
+| --- | --- |
+| `src/Pi.CodingAgent/Core/UsageTotals.cs` | TS `core/usage-totals.ts`：`UsageTotals` record、`CreateUsageTotals` / `AddUsageToTotals`、`CombineUsage`（可选 `cacheWrite1h`/`reasoning` 任一侧存在即保留，缺侧按 0 补齐）、`GetUsageCostBreakdown`（switch 模式匹配五类条目；注意 `BranchSummaryEntry`/`CompactionEntry` 的 usage 属性名为 `UsageStats`） |
+| `src/Pi.CodingAgent/Extensions/Codemode/CodemodeTool.cs` | `tool.ts` 纯函数面：schema/常量、`IsCodemodeTool`（C113 引用身份）、`ToCodemodeDeclaration`、`GetCodemodeCallableTools`、`CreateCodemodeDescription`（catalog 预算轮转）、`PrepareCodemodeLoadout`、`CreateCodemodeToolDefinition`、`CreateCodemodeTool`；`ICodemodeModelRuntime` + `ModelRegistryRuntime` 适配器（C112 模式） |
+| `src/Pi.CodingAgent/Extensions/Codemode/CodemodeExecute.cs` | `execute.ts`：`ExecuteCodemodeAsync` 编排、kind-safe JSON 读取、分类器/图片上下文校验、`CallLimiter`（FIFO TCS 队列）、`ReadCodemodeStore`、输出格式化/截断/存图、discovery 与 models globals、`EngineDefaults`（`ICodemodeJsEngine` 注入缝） |
+| `src/Pi.CodingAgent/Extensions/Codemode/CodemodeExtension.cs` | `index.ts`：`CodemodeExtensionOptions`（mode/inlineBudget 从 Settings `codemode` JsonObject kind-safe 读取）、`AppendEntry` 以 JsonObject 落库、工厂函数 |
+| `src/Pi.CodingAgent/Core/Extensions/BuiltInExtensions.cs` | codemode 占位工厂替换为真实工厂（至此 4 个内置扩展仅剩 mcp/llama 流式层待办） |
+| `src/Pi.CodingAgent/Core/Extensions/ToolDefinition.cs` | `IToolLoadout` 补 `GetPromptGuidelines(name)` |
+| `src/Pi.CodingAgent/Extensions/ToolSearch/ToolSearch.cs` | `CreateToolSearchDocument` 重构出四参重载供 AgentTool 路径复用 |
+| `src/Pi.Codemode/Types.cs` | `CodemodeOutputItem.Text` 补 `bool? Console`（TS `console?: true` 此前缺失） |
+| `src/Pi.Codemode/Source.cs` | `Grammar` 改显式 `\n` 拼接：TS 语法字符串首尾各一个换行且行分隔为 LF，raw string 会剥离首尾行且随源文件 CRLF，差分逐字节比对暴露 |
+| `tools/gen-coding-agent-codemode-corpus.mjs` + `tools/codemode-corpus-shims.mjs` + `tools/register-codemode-shims.mjs` + 两个 stub | 差分语料生成器：`node --experimental-strip-types --import ./tools/register-codemode-shims.mjs tools/gen-coding-agent-codemode-corpus.mjs`，resolve hook 把 typebox 指向 `.codemode-corpus-deps/node_modules`（真实 typebox@1.3.27）、pi-codemode 三 specifier 指向兄弟包 src、renderer/config 用 stub；语料 12 段全部自包含（含输入） |
+| `tests/Pi.CodingAgent.Tests/CodemodeCorpusTests.cs` + `codemode-corpus.json` | 26 项回放测试（见上表） |
+
+### 4d-5 发现并修复的真实缺陷
+
+`ReadCodemodeStore` 原实现只接受 `entry.Data is JsonNode`：内存路径（`CodemodeExtension.JsonEntryData`
+写入 JsonObject）没问题，但从会话文件反序列化时 `CustomEntry.Data`（`object?`）被 STJ 具体化为
+`JsonElement`——重启会话后 `load()` 将读不到任何 `store()` 写入。已修复为 JsonNode/JsonElement 双形态归一。
+
+### 4d-5 设计差异（文档化）
+
+- `CodemodeDeclaration` record + 按需 `ToSandboxTool()` 桥接（TS 直接返回 `Omit<CodemodeTool,"execute">`）。
+- `worker.ts` / `execute.lazy.ts` 的懒加载沙箱由 `ICodemodeJsEngine` 注入缝承载，测试用 scripted engine
+  （同 Pi.Codemode 的 SandboxTests 设备）；executeCodemode 编排的脚本化集成测试随 durable harness 测试顺延项补齐。
+- docsPath：TS 生成器 stub `config.ts` 的 `getDocsPath` 为 `/shim/pkg/docs`，语料两侧把 docsPath
+  归一化为 token 后比对；CRLF/LF 在展示文本与 grammar 上的处理见 `Normalize` 与 `Grammar` 备注。
+
+### 4d-5 语料生成器踩坑（记录给后续批次）
+
+- resolve hook 文件内 `resolve` 标识符会遮蔽 hook 自身导出的 `resolve` 函数（函数声明提升），必须
+  `import { resolve as resolvePath }` 且 body 全部用 `resolvePath`。
+- register 放独立文件用 `--import` 预注册（照抄 `register-pi-ai-shim.mjs` 模式），生成器内联
+  `register()` 会导致 hook 链异常。
+- Windows 下动态 `import(绝对路径)` 必须包 `pathToFileURL(...).href`，否则 `ERR_UNSUPPORTED_ESM_URL_SCHEME`。
+- `tools` 到 `pi/packages` 是 `../../`（两级），不是四级。
+- TS `JSON.stringify` 忽略 `undefined` 属性 → 语料可选键（`cacheWrite1h` 等）可能整体缺失，回放侧用
+  `TryGetProperty`；`Usage` 等类型反序列化需 camelCase options（`SessionEntries.JsonOptions`）。
+- 本机 `dotnet test` 对 xunit v3 MTP 项目只 restore 不执行（exit 0 无输出），须直接跑
+  `tests/Pi.CodingAgent.Tests/bin/Debug/net10.0/Pi.CodingAgent.Tests.exe`（输出 GBK，iconv 转码查看）。

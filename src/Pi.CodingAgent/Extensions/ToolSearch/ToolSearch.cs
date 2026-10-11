@@ -233,10 +233,19 @@ public static partial class ToolSearch
     /// descriptions and property names, and the namespace with its description and instructions.
     /// Port of the TS <c>createToolSearchDocument</c>.
     /// </summary>
-    public static ToolSearchDocument CreateToolSearchDocument(ToolInfo tool, ToolNamespace? ns = null)
+    public static ToolSearchDocument CreateToolSearchDocument(ToolInfo tool, ToolNamespace? ns = null) =>
+        CreateToolSearchDocument(tool.Name, tool.Description, tool.Parameters, ns);
+
+    /// <summary>
+    /// The <c>Pick&lt;ToolInfo, "name" | "description" | "parameters"&gt;</c> slice as explicit
+    /// arguments, so callers holding an <see cref="AgentTool"/> (the codemode nested-tool path)
+    /// build the same document without faking the registry-only members.
+    /// </summary>
+    public static ToolSearchDocument CreateToolSearchDocument(
+        string name, string description, ToolSchema parameters, ToolNamespace? ns = null)
     {
-        var parts = new List<string> { tool.Name, tool.Name.Replace("_", " "), tool.Description };
-        SchemaText(tool.Parameters.JsonSchema, parts);
+        var parts = new List<string> { name, name.Replace("_", " "), description };
+        SchemaText(parameters.JsonSchema, parts);
         if (ns is not null)
         {
             parts.Add(ns.Name);
@@ -244,7 +253,7 @@ public static partial class ToolSearch
             parts.Add(ns.Instructions ?? "");
         }
 
-        return new ToolSearchDocument(tool.Name, string.Join(" ", parts.Where(part => part.Trim().Length > 0)));
+        return new ToolSearchDocument(name, string.Join(" ", parts.Where(part => part.Trim().Length > 0)));
     }
 
     /// <summary>Whether the tool is this <c>tool_search</c>, not another extension's tool of the same name.</summary>
