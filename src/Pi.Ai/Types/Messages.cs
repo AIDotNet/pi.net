@@ -318,25 +318,25 @@ public sealed record NestedToolCallRecord
     /// <summary>超尺寸限制时省略，此时 <see cref="ArgumentsBytes"/> 给出字节数。</summary>
     [JsonPropertyName("arguments")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public System.Text.Json.Nodes.JsonObject? Arguments { get; init; }
+    public System.Text.Json.Nodes.JsonObject? Arguments { get; set; }
 
     /// <summary>arguments 的 JSON UTF-8 字节数（省略 arguments 时设置）。</summary>
     [JsonPropertyName("argumentsBytes")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public long? ArgumentsBytes { get; init; }
+    public long? ArgumentsBytes { get; set; }
 
     /// <summary><c>unfinished</c>：调用工具结束时嵌套调用仍在运行。对应 TS <c>"ok" | "error" | "unfinished"</c>。</summary>
     [JsonPropertyName("status")]
-    public required string Status { get; init; }
+    public required string Status { get; set; }
 
     [JsonPropertyName("durationMs")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public long? DurationMs { get; init; }
+    public long? DurationMs { get; set; }
 
     /// <summary>截断后的错误文本。</summary>
     [JsonPropertyName("error")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Error { get; init; }
+    public string? Error { get; set; }
 }
 
 /// <summary>工具发起的嵌套调用的有界记录（不记录结果）。对应 TS <c>NestedToolCalls</c>。</summary>

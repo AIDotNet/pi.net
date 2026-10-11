@@ -76,7 +76,11 @@ public sealed record AgentToolResult(
 public sealed record AgentToolCallOutcome(
     ToolCallContent ToolCall,
     AgentToolResult Result,
-    bool IsError);
+    bool IsError)
+{
+    /// <summary>工具执行耗时（毫秒）。对应 TS <c>durationMs?</c>。</summary>
+    public long? DurationMs { get; init; }
+}
 
 /// <summary>工具执行时的流式部分结果回调。对应 TS <c>AgentToolUpdateCallback</c>。</summary>
 public delegate Task AgentToolUpdateCallback(AgentToolResult partialResult);

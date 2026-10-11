@@ -24,7 +24,7 @@
 | env | 2,073 | 884 | Pi.Durable（`Env/` 子目录） |
 | durable | 20,404 | 25,671 | Pi.Durable |
 | tui | 19,293 | 18,731 | Pi.Tui |
-| coding-agent | 19,427 | 13,239 | **未开始** |
+| coding-agent | 85,536 | 13,239 | Pi.CodingAgent（🚧 4a–4e-3a 已完成） |
 | evals | 1,446 | 815 | **未开始** |
 | **合计** | **110,418** | **121,181** | |
 
@@ -57,10 +57,12 @@
 
 > **2026-10-09 顺序调整**：原计划「Phase 3 durable 测试 → Phase 4 coding-agent」。经评估，durable **源码**已 100% 移植且已有 11,859 行 C# 测试，补测试只增加验证深度而不改变迁移完成度；coding-agent 则是 0% 移植的主产品且是 evals 的硬前置。用户确认后改为**直接推进 coding-agent**（Phase 4），durable 测试顺延。
 
-### 1.4 当前工作区状态（本次会话开始时）
+### 1.4 当前工作区状态（2026-10-11 4e-3a 收口后）
 
-- 工作区存在**未提交**的进行中改动：`markdown.ts` + `alt-screen-search.ts` + 四个叶子组件（settings-list / image / mouse-region / alt-screen-flash）的移植，以及配套差分语料。
-- 该批改动可构建（0 警告 0 错误），但测试有失败：`MarkedLexer` 的 CRLF 归一化错误（`\r\n` 被拆成两个 `\n`）、`MarkedRules` 每渲染重建导致性能退化（每次渲染 ~300–500ms）、以及若干测试夹具 / 语料缺陷。
+- 11 个运行时包源码已移植；tui 仅剩 `index.ts` 桶文件（无需代码）；durable harness 测试顺延。
+- coding-agent 已完成 4a / 4b / 4c / 4d 主体 / 4e-1～4e-2d / **4e-3a 叶子模块**。
+- 最新提交点：`4e-3a`（`output-guard` / `cache-stats` / `nested-tool-calls` / `bash-executor` / `settings-diagnostics`）。
+- 下一步：4e-3b `export-html` + `bug-report` → 4e-3c `package-manager` → 4e-3d `resource-loader` / `footer-data-provider` → 4e-3e agent-session 三件套 + `sdk`。
 
 ---
 
@@ -114,7 +116,9 @@
      - **4e-2b `AgentMessage` 与 `core/messages.ts`**（2026-10-10）已完成——新增 `Core/Messages.cs`：4 个自定义 role（`bashExecution` / `custom` / `branchSummary` / `compactionSummary`）派生自 `ChatMessage`，用运行时 type-info 修饰器把 role 追加进多态表（declaration merging 的 C# 替代，见 C137）；`MessageContent` 两分支联合 + 4 个摘要常量 + `BashExecutionToText` + 3 个工厂 + `ConvertToLlm`；扩展契约的 `UserMessageContent` / `CustomMessage<T>` 占位并入真实类型。顺带修复 4 处真实线路缺陷（枚举线名 PascalCase → TS 小写字面量、`usageStats` → `usage`、可空字段多写 `null`、`CustomMessageDraft.Content` 声明成 `string` 丢了数组分支）。44 条语料 + 12 项差分测试；21 处变异全部被捕获。
      - **4e-2c-0 消息内容联合下沉到 `Pi.Ai`**（2026-10-11）已完成——TS 的 `string | (TextContent | ImageContent)[]` 此前被端口拆成两种互不兼容的形态（`UserMessage.Content` 纯列表、`SystemMessage.Content` 是 `string?` 且 `null` 时漏写字段），TS 写的会话 JSONL 无法完整反序列化。新增 `Pi.Ai/Types/MessageContent.cs`（两分支 + 按 token 分派的转换器 + `ToBlocks()` 窄化）；`UserMessage` / `SystemMessage` 改回联合；10 个消费点同步（6 个 provider + `Text` / `Estimate` / `TransformMessages` / `GitHubCopilotHeaders`）。顺带修复 6 处真实缺陷（其中 4 处属 `Pi.Agent` 层：`SystemPrompt` 与 `Reset` 未回放 system 消息、`AgentOptions` 缺 `Messages`、前导 system 消息的插入条件）。45 条语料 + 9 项差分测试；12 处变异全部被捕获。
      - **4e-2c-1 `session-manager.ts` 类型与纯树/投影逻辑**（2026-10-11）已完成——新增 `Core/SessionEntries.cs`（约 1,000 行 C#，对应 TS 2,013 行中的类型与纯逻辑部分）：`FileEntry` / `SessionEntry` 两层 `type` 判别联合（12 种条目）、9 个投影/树/信息类型、`CURRENT_SESSION_VERSION`、`assertValidSessionId`、`parseSessionEntries`、`migrateSessionEntries`（v1→v2→v3 链式）、`getLatestCompactionEntry`、`sessionEntryToContextMessages`、`buildContextEntries` / `buildSessionProjection` / `buildSessionContext`、`getDefaultSessionDirPath`；同批在 `Core/Messages.cs` 新增 legacy `HookMessage` 并抽出共用的 role 修饰器；6 个 session 占位类型（`CustomEntry<T>` / `SessionEntry` / `ContextEditEntry` / `CompactionEntry` / `BranchSummaryEntry` / `ProjectedSessionEntry`）并入真实类型。顺带修复 1 处真实缺陷（`buildSessionProjection` 的 context_edit 编辑表误按条目自身 id 索引，TS 是按 `targetId`）。218 条语料 + 20 项差分测试；28 处变异全部被捕获。
-    - 余 4e-2c-2/2c-3/2d：`session-manager` 的文件 I/O 与 `SessionManager` 类、`usage-totals` / `cache-stats` / `session-export`；再往后 `skills` / `resource-loader`（需先补 `ignore` 包的 C# 移植）、`package-manager` / `agent-session` / `compaction/*` / `export-html/*` / `system-prompt`。**4e-2c-3 仍存的前置**：`MemoryStorage.CloneMessages` 的默认 options 不认识自定义 role（详见状态文档「4e-2b 已知缺口」第 2 条）。
+     - **4e-2c-2 / 4e-2c-3 / 4e-2d**（2026-10-11）已完成——`SessionFiles` / `SessionManager` / `UsageTotals` / `Skills` / `Compaction` / `SessionExport`。
+     - **4e-3a 无环叶子模块**（2026-10-11）已完成——`OutputGuard` / `CacheStats` / `NestedToolCalls` / `BashExecutor` / `SettingsDiagnostics`。对应 TS `output-guard.ts` / `cache-stats.ts` / `nested-tool-calls.ts` / `bash-executor.ts` / `settings-diagnostics.ts`。`SessionRuntimeLeafTests` 30 项全绿（含 cache-stats 11 条、nested-tool-calls 14 条与 TS 测试对齐）。
+     - **余 4e-3b～4e-3e**：`export-html/*` / `bug-report*` / `package-manager` / `footer-data-provider` / `resource-loader`（theme 依赖 4f，先做最小加载器）/ `cache-warmer` / `core/extensions/runner.ts` / `agent-session` 三件套 / `sdk`。
      - **已知缺口**：`cost.tiers`（请求级阶梯费率）未移植；`AnthropicMessages` / `OpenAiCompletions` 的 provider 侧用量/成本保真（走轻量 `Model`，无目录费率）。
   6. 4f 模式层（`modes/rpc/*`、`modes/interactive/*`，含 7,082 行的 `interactive-mode.ts`）
   7. 4g 入口与实验层（`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`bun/*`、`client/*`、`experimental/*`）
