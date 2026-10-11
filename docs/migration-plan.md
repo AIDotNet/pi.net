@@ -61,8 +61,8 @@
 
 - 11 个运行时包源码已移植；tui 仅剩 `index.ts` 桶文件（无需代码）；durable harness 测试顺延。
 - coding-agent 已完成 4a / 4b / 4c / 4d 主体 / 4e-1～4e-2d / **4e-3a 叶子模块**。
-- 最新提交点：`4e-3d-2`（`cache-warmer` 叶子函数 + `resource-loader` 最小加载）。
-- 下一步：4e-3e agent-session 三件套 + `sdk` + `collectBugReport`；extensions runner 与完整 theme 分别顺延 4e-3e / 4f。
+- 最新提交点：`4e-3e-1`（agent-session 叶子：parseSkillBlock / JSONL 导入路径）。
+- 下一步：4e-3e-2 AgentSession prompt 循环 + runtime switch/fork + `sdk`。
 
 ---
 
@@ -124,7 +124,8 @@
      - **4e-3c-3 install/remove seams**（2026-10-11）已完成——`InstallAsync` / `InstallAndPersistAsync` / `RemoveAndPersistAsync`，经 `IPackageCommandRunner` 注入 npm/git，测试用 `RecordingRunner`。`PackageManagerTests` 14 项全绿。`update` / `hasAvailableUpdate` 未做。
      - **4e-3d-1 footer-data-provider**（2026-10-11）已完成——`FindGitPaths`、同步读分支、扩展 status。
      - **4e-3d-2 cache-warmer + resource-loader**（2026-10-11）已完成——delay/ttl/replayable、Start 门闩、项目上下文文件、skills/prompts、theme JSON。`CacheWarmerTests` 7 项、`ResourceLoaderTests` 3 项全绿。streamSimple 刷新、extensions runner 顺延 **4e-3e**，完整 theme 顺延 **4f**。
-     - **余 4e-3e**：`core/extensions/runner.ts` / `agent-session` 三件套 / `sdk`。
+     - **4e-3e-1 agent-session 叶子**（2026-10-11）已完成——`ParseSkillBlock`、`WithoutDeletedHeaders`、`ExtractUserMessageText`、JSONL 目标去重、`SessionImportFileNotFoundError`。复用已有 `AgentSessionRuntimeDiagnostic`。`AgentSessionLeafTests` 6 项全绿。prompt 循环 / switch / sdk 顺延 **4e-3e-2**。
+     - **余 4e-3e-2**：`agent-session` prompt 循环 / runtime switch/fork / `sdk` / extensions runner。
      - **已知缺口**：`cost.tiers`（请求级阶梯费率）未移植；`AnthropicMessages` / `OpenAiCompletions` 的 provider 侧用量/成本保真（走轻量 `Model`，无目录费率）。
   6. 4f 模式层（`modes/rpc/*`、`modes/interactive/*`，含 7,082 行的 `interactive-mode.ts`）
   7. 4g 入口与实验层（`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`bun/*`、`client/*`、`experimental/*`）
