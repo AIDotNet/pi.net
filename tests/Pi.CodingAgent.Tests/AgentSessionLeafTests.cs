@@ -244,4 +244,30 @@ public sealed class AgentSessionLeafTests : IDisposable
         Assert.Equal("hi", AgentSession.AppendPromptHints("hi", []));
         Assert.Equal("hi\n\na\nb", AgentSession.AppendPromptHints("hi", ["a", "b"]));
     }
+
+    [Fact]
+    public void WillRetryAfterAgentEnd_RequiresEnabledRetryableAssistantError()
+    {
+        ChatMessage[] retryable =
+        [
+            new AssistantMessage([], StopReason.Error, ErrorMessage: "overloaded"),
+        ];
+        Assert.False(AgentSession.WillRetryAfterAgentEnd("turn_end", retryable, retryEnabled: true));
+        Assert.False(AgentSession.WillRetryAfterAgentEnd("agent_end", retryable, retryEnabled: false));
+        Assert.False(AgentSession.WillRetryAfterAgentEnd("agent_end", [], retryEnabled: true));
+        Assert.True(AgentSession.WillRetryAfterAgentEnd("agent_end", retryable, retryEnabled: true));
+        Assert.False(AgentSession.WillRetryAfterAgentEnd(
+            "agent_end",
+            [new AssistantMessage([], StopReason.Error, ErrorMessage: "insufficient_quota")],
+            retryEnabled: true));
+    }
+
+    [Fact]
+    public void ShouldContinueAfterBeforeSettle_RequiresCanContinue()
+    {
+        Assert.True(AgentSession.ShouldContinueAfterBeforeSettle(true, false, true));
+        Assert.True(AgentSession.ShouldContinueAfterBeforeSettle(false, true, true));
+        Assert.False(AgentSession.ShouldContinueAfterBeforeSettle(true, true, false));
+        Assert.False(AgentSession.ShouldContinueAfterBeforeSettle(false, false, true));
+    }
 }

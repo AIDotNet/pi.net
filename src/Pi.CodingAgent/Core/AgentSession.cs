@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Pi.Ai.Models;
 using Pi.Ai.Types;
+using Pi.Ai.Utils;
 using Pi.CodingAgent.Utils;
 
 namespace Pi.CodingAgent.Core;
@@ -104,7 +105,8 @@ public sealed record AgentSessionConfig
 
 /// <summary>
 /// 会话核心。对应 TS <c>core/agent-session.ts</c>。
-/// 4e-3e-1：parseSkillBlock。4e-3e-3：getLastAssistantText / cycle。4e-3e-6：slash/skill 展开与 hints。prompt 循环顺延 4e-3e-7。
+/// 4e-3e-1：parseSkillBlock。4e-3e-3：getLastAssistantText / cycle。4e-3e-6：slash/skill 展开。
+/// 4e-3e-7：agent_end 重试判定与 before_settle 继续判定。prompt 循环主体顺延 4e-3e-8。
 /// </summary>
 public static class AgentSession
 {
@@ -270,4 +272,37 @@ public static class AgentSession
     /// <summary>对应 TS <c>prompt</c> 把 <c>normalized.hints</c> 拼到用户文本。</summary>
     public static string AppendPromptHints(string expandedText, IReadOnlyList<string> hints)
         => hints.Count == 0 ? expandedText : $"{expandedText}\n\n{string.Join("\n", hints)}";
+
+    /// <summary>对应 TS <c>_willRetryAfterAgentEnd</c>。</summary>
+    public static bool WillRetryAfterAgentEnd(
+        string eventType,
+        IReadOnlyList<ChatMessage> messages,
+        bool retryEnabled)
+    {
+        if (eventType != "agent_end")
+        {
+            return false;
+        }
+
+        if (!retryEnabled)
+        {
+            return false;
+        }
+
+        if (messages.Count == 0)
+        {
+            return false;
+        }
+
+        return messages[^1] is AssistantMessage last
+            && last.StopReason == StopReason.Error
+            && Retry.IsRetryableAssistantError(last);
+    }
+
+    /// <summary>对应 TS <c>agent_before_settle</c> 的 continue / queued / canContinue 判定。</summary>
+    public static bool ShouldContinueAfterBeforeSettle(bool resultContinue, bool hasQueuedMessages, bool canContinue)
+    {
+        var shouldContinue = resultContinue || hasQueuedMessages;
+        return shouldContinue && canContinue;
+    }
 }
