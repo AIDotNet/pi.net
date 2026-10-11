@@ -180,4 +180,26 @@ public sealed class AgentSessionLeafTests : IDisposable
         var ex = Assert.Throws<InvalidOperationException>(() => AgentSessionRuntime.RequireSavedSessionFile(missing));
         Assert.Contains("has not been saved yet", ex.Message);
     }
+
+    [Fact]
+    public void ResolveNewSessionKind_MapsPersistedFlag()
+    {
+        Assert.Equal(NewSessionKind.Persisted, AgentSessionRuntime.ResolveNewSessionKind(true));
+        Assert.Equal(NewSessionKind.InMemory, AgentSessionRuntime.ResolveNewSessionKind(false));
+    }
+
+    [Fact]
+    public void CopyImportedJsonl_CopiesUnlessAlreadyStored()
+    {
+        var source = Path.Combine(_root, "src.jsonl");
+        var dest = Path.Combine(_root, "sessions", "src.jsonl");
+        File.WriteAllText(source, "{\"id\":\"1\"}\n");
+        AgentSessionRuntime.EnsureSessionDirectory(Path.GetDirectoryName(dest)!);
+        AgentSessionRuntime.CopyImportedJsonl(source, dest, sourceAlreadyStored: false);
+        Assert.Equal("{\"id\":\"1\"}\n", File.ReadAllText(dest));
+
+        AgentSessionRuntime.CopyImportedJsonl(source, dest, sourceAlreadyStored: true);
+        Assert.True(AgentSessionRuntime.IsSourceAlreadyStored(dest, dest));
+        Assert.Throws<IOException>(() => AgentSessionRuntime.CopyImportedJsonl(source, dest, sourceAlreadyStored: false));
+    }
 }

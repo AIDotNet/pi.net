@@ -31,10 +31,26 @@ public sealed class SessionImportFileNotFoundError : FileNotFoundException
 /// <summary>对应 TS <c>fork</c> 解析出的目标叶子与选中文本。</summary>
 public sealed record ForkTarget(string? TargetLeafId, string? SelectedText);
 
+/// <summary>对应 TS switch/new/fork/import 的 <c>{ cancelled }</c> 结果。</summary>
+public sealed record SessionReplacementResult(bool Cancelled, string? SelectedText = null)
+{
+    public static SessionReplacementResult CancelledResult { get; } = new(true);
+
+    public static SessionReplacementResult Completed { get; } = new(false);
+}
+
+/// <summary>对应 TS <c>newSession</c> 的 persisted / inMemory 分支。</summary>
+public enum NewSessionKind
+{
+    InMemory,
+    Persisted,
+}
+
 /// <summary>
 /// 会话运行时。对应 TS <c>core/agent-session-runtime.ts</c>。
 /// 4e-3e-1：导入错误、用户消息文本抽取、JSONL 目标路径去重。
-/// 4e-3e-4：fork 目标解析、持久化会话文件前置检查。完整 switch/fork 循环顺延 4e-3e-5。
+/// 4e-3e-4：fork 目标解析、持久化会话文件前置检查。
+/// 4e-3e-5：import JSONL 复制、newSession 模式。完整 switch/fork 循环顺延 4e-3e-6。
 /// </summary>
 public static class AgentSessionRuntime
 {
@@ -157,5 +173,31 @@ public static class AgentSessionRuntime
         }
 
         return sessionFile;
+    }
+
+    /// <summary>对应 TS <c>newSession</c>：已持久化则 create，否则 inMemory。</summary>
+    public static NewSessionKind ResolveNewSessionKind(bool persisted)
+        => persisted ? NewSessionKind.Persisted : NewSessionKind.InMemory;
+
+    /// <summary>对应 TS <c>importFromJsonl</c> 的 sourceAlreadyStored。</summary>
+    public static bool IsSourceAlreadyStored(string sourcePath, string destinationPath)
+        => string.Equals(
+            Path.GetFullPath(destinationPath),
+            Path.GetFullPath(sourcePath),
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>对应 TS <c>importFromJsonl</c> 的 sessionDir mkdir。</summary>
+    public static void EnsureSessionDirectory(string sessionDir)
+        => Directory.CreateDirectory(sessionDir);
+
+    /// <summary>对应 TS <c>copyFileSync(..., COPYFILE_EXCL)</c>。</summary>
+    public static void CopyImportedJsonl(string sourcePath, string destinationPath, bool sourceAlreadyStored)
+    {
+        if (sourceAlreadyStored)
+        {
+            return;
+        }
+
+        File.Copy(sourcePath, destinationPath);
     }
 }
