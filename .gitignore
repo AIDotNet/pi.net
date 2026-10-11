@@ -32,3 +32,4 @@ full-diff.log
 gen.log
 push.log
 
+test-*.log
