@@ -81,6 +81,33 @@ public interface IPackageManager
 /// <summary>对应 TS 安装进度事件。</summary>
 public sealed record PackageProgressEvent(string Phase, string Message);
 
+/// <summary>npm/git 进程注入点。测试替换为假实现，避免真实网络。</summary>
+public interface IPackageCommandRunner
+{
+    Task<string> RunAsync(string command, IReadOnlyList<string> arguments, string? workingDirectory = null, CancellationToken cancellationToken = default);
+}
+
+/// <summary>默认用 <see cref="ChildProcess.SpawnSync"/> 跑 npm/git。</summary>
+public sealed class DefaultPackageCommandRunner : IPackageCommandRunner
+{
+    public Task<string> RunAsync(string command, IReadOnlyList<string> arguments, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = ChildProcess.SpawnSync(command, arguments, new SpawnSyncOptions { Cwd = workingDirectory });
+        if (result.Error is not null)
+        {
+            throw result.Error;
+        }
+
+        if (result.Status is not 0)
+        {
+            throw new InvalidOperationException($"{command} exited {result.Status}: {result.Stderr}");
+        }
+
+        return Task.FromResult(result.Stdout);
+    }
+}
+
 /// <summary>
 /// 包管理器。对应 TS <c>core/package-manager.ts</c> 的 <c>DefaultPackageManager</c>。
 /// 4e-3c-1 先落地 <c>resolve()</c>（自动发现、settings 路径、include/exclude/autoload）与 <c>parseSource</c>。
@@ -100,21 +127,67 @@ public sealed class DefaultPackageManager : IPackageManager
     private readonly string _cwd;
     private readonly string _agentDir;
     private readonly IReadOnlyList<string> _builtinExtensions;
+    private readonly IPackageCommandRunner _runner;
     private Action<PackageProgressEvent>? _progress;
 
     public DefaultPackageManager(
         SettingsManager settingsManager,
         string cwd,
         string agentDir,
-        IReadOnlyList<string>? builtinExtensions = null)
+        IReadOnlyList<string>? builtinExtensions = null,
+        IPackageCommandRunner? commandRunner = null)
     {
         _settings = settingsManager;
         _cwd = cwd;
         _agentDir = agentDir;
         _builtinExtensions = builtinExtensions ?? [];
+        _runner = commandRunner ?? new DefaultPackageCommandRunner();
     }
 
     public void SetProgressCallback(Action<PackageProgressEvent>? callback) => _progress = callback;
+
+    /// <summary>对应 TS <c>install</c>。</summary>
+    public async Task<string> InstallAsync(string source, string scope = "user", CancellationToken cancellationToken = default)
+    {
+        var parsed = ParseSource(source);
+        _progress?.Invoke(new PackageProgressEvent("install", source));
+        return parsed.Type switch
+        {
+            "npm" => await InstallNpmAsync(parsed, scope, cancellationToken).ConfigureAwait(false),
+            "git" => await InstallGitAsync(parsed, scope, cancellationToken).ConfigureAwait(false),
+            _ => InstallLocal(parsed),
+        };
+    }
+
+    /// <summary>对应 TS <c>installAndPersist</c>。</summary>
+    public async Task<string> InstallAndPersistAsync(string source, bool local = false, CancellationToken cancellationToken = default)
+    {
+        var path = await InstallAsync(source, local ? "project" : "user", cancellationToken).ConfigureAwait(false);
+        AddSourceToSettings(source, local);
+        return path;
+    }
+
+    /// <summary>对应 TS <c>removeAndPersist</c> 的 settings 侧；进程卸载经 runner。</summary>
+    public async Task<bool> RemoveAndPersistAsync(string source, bool local = false, CancellationToken cancellationToken = default)
+    {
+        var parsed = ParseSource(source);
+        if (parsed.Type == "npm")
+        {
+            var root = GetNpmInstallRoot(local ? "project" : "user", temporary: false);
+            var npm = GetNpmInvocation();
+            await _runner.RunAsync(npm.Command, [.. npm.Args, "uninstall", parsed.Name ?? source, "--prefix", root], cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        else if (parsed.Type == "git")
+        {
+            var dest = GetManagedGitInstallPath(parsed, local ? "project" : "user");
+            if (Directory.Exists(dest))
+            {
+                Directory.Delete(dest, recursive: true);
+            }
+        }
+
+        return RemoveSourceFromSettings(source, local);
+    }
 
     public Task<ResolvedResources> ResolveAsync(CancellationToken cancellationToken = default)
     {
@@ -234,6 +307,86 @@ public sealed class DefaultPackageManager : IPackageManager
 
     internal static string GetGitInstallPath(string packagesRoot, string name, string resolvedHash)
         => Path.Combine(packagesRoot, "git", Sanitize(name), Sanitize(resolvedHash));
+
+    internal string GetNpmInstallRoot(string scope, bool temporary)
+    {
+        if (temporary || scope == "temporary")
+        {
+            return Path.Combine(_agentDir, "tmp", "extensions");
+        }
+
+        return scope == "project"
+            ? Path.Combine(_cwd, Config.ConfigDirName, "npm")
+            : Path.Combine(_agentDir, "npm");
+    }
+
+    internal string GetManagedGitInstallPath(ParsedPackageSource source, string scope)
+    {
+        var host = source.Host ?? "git";
+        var path = (source.Path ?? source.Name ?? "repo").Replace('/', Path.DirectorySeparatorChar);
+        var root = scope == "project"
+            ? Path.Combine(_cwd, Config.ConfigDirName, "git")
+            : Path.Combine(_agentDir, "git");
+        return Path.Combine(root, host, path);
+    }
+
+    private string InstallLocal(ParsedPackageSource source)
+    {
+        var path = source.Path ?? source.Spec;
+        var absolute = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_cwd, path));
+        if (!File.Exists(absolute) && !Directory.Exists(absolute))
+        {
+            throw new DirectoryNotFoundException($"local package not found: {absolute}");
+        }
+
+        return absolute;
+    }
+
+    private async Task<string> InstallNpmAsync(ParsedPackageSource source, string scope, CancellationToken cancellationToken)
+    {
+        var temporary = scope == "temporary";
+        var root = GetNpmInstallRoot(scope, temporary);
+        Directory.CreateDirectory(root);
+        var packageJson = Path.Combine(root, "package.json");
+        if (!File.Exists(packageJson))
+        {
+            File.WriteAllText(packageJson, """{"private":true}""");
+        }
+
+        var spec = source.Version is { Length: > 0 } version ? $"{source.Name}@{version}" : source.Name ?? source.Spec;
+        var npm = GetNpmInvocation();
+        await _runner.RunAsync(npm.Command, [.. npm.Args, "install", spec, "--prefix", root, "--legacy-peer-deps"], cancellationToken: cancellationToken).ConfigureAwait(false);
+        return Path.Combine(root, "node_modules", source.Name ?? spec);
+    }
+
+    private async Task<string> InstallGitAsync(ParsedPackageSource source, string scope, CancellationToken cancellationToken)
+    {
+        var dest = GetManagedGitInstallPath(source, scope);
+        if (Directory.Exists(dest))
+        {
+            return dest;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        await _runner.RunAsync("git", ["clone", source.Locator, dest], cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(source.Ref) && !source.Pinned)
+        {
+            await _runner.RunAsync("git", ["checkout", source.Ref], dest, cancellationToken).ConfigureAwait(false);
+        }
+
+        return dest;
+    }
+
+    private (string Command, string[] Args) GetNpmInvocation()
+    {
+        var custom = _settings.GetNpmCommand();
+        if (custom is { Count: > 0 })
+        {
+            return (custom[0], custom.Skip(1).ToArray());
+        }
+
+        return ("npm", []);
+    }
 
     internal sealed record ParsedPackageSource
     {

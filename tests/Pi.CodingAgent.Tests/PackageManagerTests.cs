@@ -176,6 +176,46 @@ public sealed class PackageManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task InstallAndPersist_LocalAddsRelativeSource()
+    {
+        var (cwd, agentDir, settings) = NewEnv();
+        var pkgDir = Path.Combine(_root, "local-pkg");
+        Directory.CreateDirectory(pkgDir);
+        File.WriteAllText(Path.Combine(pkgDir, "pi.json"), "{}");
+        var manager = new DefaultPackageManager(settings, cwd, agentDir, commandRunner: new RecordingRunner());
+        var installed = await manager.InstallAndPersistAsync(pkgDir);
+        Assert.True(Directory.Exists(installed));
+        Assert.Single(settings.GetGlobalSettings().Packages!);
+    }
+
+    [Fact]
+    public async Task InstallAsync_NpmUsesInjectedRunner()
+    {
+        var (cwd, agentDir, settings) = NewEnv();
+        var runner = new RecordingRunner();
+        var manager = new DefaultPackageManager(settings, cwd, agentDir, commandRunner: runner);
+        var path = await manager.InstallAsync("npm:left-pad@1.3.0");
+        Assert.Contains(Path.Combine("npm", "node_modules"), path);
+        var call = Assert.Single(runner.Calls);
+        Assert.Equal("npm", call.Command);
+        Assert.Contains("install", call.Arguments);
+        Assert.Contains("left-pad@1.3.0", call.Arguments);
+        Assert.Contains("--legacy-peer-deps", call.Arguments);
+    }
+
+    [Fact]
+    public async Task InstallAsync_GitClonesViaRunner()
+    {
+        var (cwd, agentDir, settings) = NewEnv();
+        var runner = new RecordingRunner();
+        var manager = new DefaultPackageManager(settings, cwd, agentDir, commandRunner: runner);
+        var path = await manager.InstallAsync("https://github.com/acme/skills.git");
+        Assert.Contains(Path.Combine("git", "github.com", "acme", "skills"), path);
+        Assert.Equal("git", runner.Calls[0].Command);
+        Assert.Equal("clone", runner.Calls[0].Arguments[0]);
+    }
+
+    [Fact]
     public void InstallPaths_AreStable()
     {
         Assert.Contains("npm", DefaultPackageManager.GetNpmInstallPath("/pkg", "@scope/pkg", "1.0.0"));
@@ -184,4 +224,15 @@ public sealed class PackageManagerTests : IDisposable
 
     private static bool PathsEqual(string left, string right)
         => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+
+    private sealed class RecordingRunner : IPackageCommandRunner
+    {
+        public List<(string Command, IReadOnlyList<string> Arguments, string? Cwd)> Calls { get; } = [];
+
+        public Task<string> RunAsync(string command, IReadOnlyList<string> arguments, string? workingDirectory = null, CancellationToken cancellationToken = default)
+        {
+            Calls.Add((command, [.. arguments], workingDirectory));
+            return Task.FromResult(string.Empty);
+        }
+    }
 }
