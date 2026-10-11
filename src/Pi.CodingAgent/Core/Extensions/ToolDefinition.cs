@@ -94,6 +94,13 @@ public interface IToolLoadout
     string GetExposure(string name);
 
     ToolNamespace? GetNamespace(string name);
+
+    /// <summary>
+    /// A tool's <c>promptGuidelines</c>. Hidden declarations leave them out of the system prompt.
+    /// TS <c>getPromptGuidelines(name)</c>; the port returns an empty list for unknown tools,
+    /// matching the TS implementations' fallback.
+    /// </summary>
+    IReadOnlyList<string> GetPromptGuidelines(string name);
 }
 
 /// <summary>Changes <see cref="ToolDefinition.PrepareLoadout"/> makes to what the model sees.</summary>

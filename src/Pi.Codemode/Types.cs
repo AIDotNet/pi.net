@@ -52,7 +52,16 @@ public abstract record CodemodeOutputItem
 {
     private CodemodeOutputItem() { }
 
-    public sealed record Text(string Value) : CodemodeOutputItem;
+    public sealed record Text(string Value) : CodemodeOutputItem
+    {
+        /// <summary>
+        /// true 表示该行来自 <c>console.*</c>（在结果里聚进 <c>&lt;console_output&gt;</c> 块）。
+        /// 对应 TS <c>console?: true</c>；缺省（null）不写线路字段。
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore(
+            System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public bool? Console { get; init; }
+    }
 
     public sealed record Image(string Data, string MimeType) : CodemodeOutputItem;
 }
