@@ -77,6 +77,10 @@ public sealed record ResourceDiagnostic
     public static ResourceDiagnostic Warning(string message, string? path = null) =>
         new() { Type = ResourceDiagnosticType.Warning, Message = message, Path = path };
 
+    /// <summary>The TS <c>{ type: "error", message, path }</c> shorthand.</summary>
+    public static ResourceDiagnostic Error(string message, string? path = null) =>
+        new() { Type = ResourceDiagnosticType.Error, Message = message, Path = path };
+
     /// <summary>The TS <c>{ type: "collision", message, path, collision }</c> shorthand.</summary>
     public static ResourceDiagnostic CollisionOf(string message, string? path, ResourceCollision collision) =>
         new() { Type = ResourceDiagnosticType.Collision, Message = message, Path = path, Collision = collision };
