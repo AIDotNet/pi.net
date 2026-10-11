@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1（叶子模块）+ 4e-2a（`Usage` 完整形态）+ 4e-2b（`AgentMessage` / `core/messages.ts`）+ 4e-2c-0（消息内容联合下沉）+ **4e-2c-1（`session-manager` 类型与纯树/投影逻辑）** 完成（2026-10-11）；余 4e-2c-2/3、4e-2d 待办                     |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1（叶子模块）+ 4e-2a（`Usage` 完整形态）+ 4e-2b（`AgentMessage` / `core/messages.ts`）+ 4e-2c-0（消息内容联合下沉）+ **4e-2c-1（`session-manager` 类型与纯树/投影逻辑）** + **4e-2c-2（`session-manager` 文件 I/O 与目录发现）** 完成（2026-10-11）；余 4e-2c-3、4e-2d 待办                     |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -472,6 +472,7 @@ C# 侧另有若干「JS 语义」辅助（TS 无对应文件，供全部子阶�
 
 | `LlamaCorpusTests` | 88 | 4d-7a/4d-7b llama 差分：`formatBytes`（26 条含 KiB/MiB 进位与 `>=10` 精度切换）、`normalizeLlamaServerUrl`（46 条含 23 条 IPv6：校验、规范压缩、内嵌 IPv4、非法字面量）、`llamaInferenceUrl`、`LlamaClient` 的 `list`/`props`/`load`/`unload`/`download`/`unloadAndWait`（脚本化 fetch，逐请求比对 URL/方法/头/体 + 错误文案）、`watch`（29 条：SSE 分帧、CRLF、多 `data:` 行、畸形 JSON、BOM、多字节跨块、非法字节、无 body/HTTP 错）、`loadAndWait`（11 条：首轮即 loaded、事件短路、事件失败、退出码优先、其他模型事件不短路、事件进度）、`downloadAndWait`（9 条：两轮轮询、阈值兜底、状态进度、finished/failed 事件、事件过滤）、`parseLoadProgress` / `parseDownloadProgress`、`HuggingFaceClient` 的 `search` / `details`（量化解析、分片合并、`Q4_K_M` 优先与同名次排序）、`findHuggingFaceToken`（临时目录回放发现顺序） |
 | `CodemodeCorpusTests` | 26 | 4d-5 codemode 差分：常量（工具名 / store 条目类型 / 默认 inline 预算 / docsPath 连接分隔符 / 系统提示 snippet+guidelines）、schema 逐键深度比对（含引用身份供 `isCodemodeTool` 用）、schema 身份守卫（名称匹配+引用匹配→true；引用不同→false；名称不同→false）、`toCodemodeDeclaration`（3 条含空格名修剪、空 guideline 过滤、outputSchema 缺省回退文本 schema）、`getCodemodeCallableTools`（codemode 自身被排除）、`createCodemodeDescription`（10 条：空/全工具 × models、namespace 分组标题、deferred 完全隐藏、预算 0/40/300/无限截断、仅 namespace 工具）、`createCodemodeToolDefinition` + `prepareLoadout`（mode on/only/default：描述改写、codemode 自身描述、only 模式隐藏 direct 声明、constrainedSampling grammar 逐字节）、`readCodemodeStore`（空 branch、set+delete 应用顺序、畸形 data 跳过、非对象 data）、`combineUsage`（可选 cacheWrite1h/reasoning 任一侧存在即保留）、`addUsageToTotals`、`getUsageCostBreakdown`（按模型分组、`Tools/summaries` 桶、零值行过滤、按成本降序） |
+| `SessionFilesCorpusTests` | 21 | 4e-2c-2 会话文件 I/O 差分（语料由真实 TS 模块对 Node 临时目录产出，回放侧按相同字节与 mtime 重建后比对）：`loadEntriesFromFile` 9 条（正常 / 空文件 / 仅头 / 首行非头→空 / 坏行+空行跳过 / 缺尾换行修复（验证文件被补 `\n`）/ BOM 不剥→首行失效→空 / 多字节 UTF-8 / 尾行截断 JSON 跳过+修复）、`findMostRecentSession` 5 条（mtime 最新（无 cwd 时无视 cwd）/ cwd 过滤命中较旧 / cwd 无匹配→null / 目录缺失→null / 空目录→null；覆盖非会话文件与非 .jsonl 忽略）、`SessionManager.list` 门面语义下的 `buildSessionInfo`/`listSessionsFromDir` 6 条（modified 排序、活动时间与 firstMessage 提取、toolResult/bashExecution 不参与文本与活动时间、session_info 命名与 trim 清除、纯图片 user 无文本、无头/空文件→无条目、目录缺失→[]） |
 
 ## 4d-1 进度（2026-10-10）：扩展系统契约层
 
@@ -1398,3 +1399,48 @@ null-vs-省略），不只是逻辑。另有两项不依赖语料的断言：透
   `TryGetProperty`；`Usage` 等类型反序列化需 camelCase options（`SessionEntries.JsonOptions`）。
 - 本机 `dotnet test` 对 xunit v3 MTP 项目只 restore 不执行（exit 0 无输出），须直接跑
   `tests/Pi.CodingAgent.Tests/bin/Debug/net10.0/Pi.CodingAgent.Tests.exe`（输出 GBK，iconv 转码查看）。
+
+## 4e-2c-2 进度（2026-10-11）：`session-manager.ts` 文件 I/O 与目录发现
+
+`session-manager.ts` 589–974 行（约 390 行）已移植，构建 0 警告 0 错误，全测试 828/828 绿
+（4d-5 后 807 + 新增 21）。`SessionManager` 类（987–2013 行）在 4e-2c-3。
+
+### 新增/改动文件
+
+| 文件 | 内容 |
+| --- | --- |
+| `src/Pi.CodingAgent/Core/SessionFiles.cs` | TS `loadEntriesFromFile`（1 MiB 缓冲流式读 + 有状态 UTF-8 Decoder 跨块 + 行分割 + 头校验 + 缺尾换行补 `\n` 修复）、`parseSessionHeaderCandidate`/`readSessionHeader`（4 KiB 缓冲、1 MiB 有界扫描、边界 EOF 探测、`SessionHeaderScanLimitException`）、`readSessionHeaderForDiscovery`（best-effort）、`findMostRecentSession`（mtime 降序 + cwd 匹配）、`getDefaultSessionDir`（mkdir recursive）、`buildSessionInfo`（头校验 / `session_info` 命名与 trim 清除 / 消息计数 / 活动时间 / firstMessage / allMessagesText / modified 三级回退：活动时间→头部时间→文件 mtime）、`mapWithConcurrency`（有界并发 worker 池 + `Interlocked` 游标）、`listSessionsFromDir`（文件名 localeCompare 倒序近似为 CurrentCulture、并发 10、第 1 个/每 10 个/最后一个发布部分结果）、`sortSessionInfos`（**稳定排序** OrderByDescending，对齐 TS 稳定 sort） |
+| `src/Pi.CodingAgent/Core/SessionEntries.cs` | 会话线路 `JsonOptions` 增加 `toolResult.content` 字符串宽容读取（见下「发现的真实缺陷」） |
+| `tools/gen-coding-agent-session-files-corpus.mjs` + shims/stubs + `tests/Pi.CodingAgent.Tests/SessionFilesCorpusTests.cs` + `session-files-corpus.json` | 差分语料：真实 TS 模块在 Node 临时目录对真实文件跑 `loadEntriesFromFile`/`findMostRecentSession`，并经 `SessionManager.list` 门面驱动模块私有的 `buildSessionInfo`/`listSessionsFromDir`；语料记录文件字节与 mtime，C# 回放侧在**自己的**临时目录按相同字节与 mtime 重建后比对。shim：`pi-ai` → 既有 shim、`../config.ts` → stub（真实 config 引 cross-spawn）、`./child-process.ts` → stub（仅 macOS/Linux xattr 用） |
+
+### 4e-2c-2 发现并修复的真实缺陷（1 个为 4e-2b 补缺）
+
+1. **`toolResult.content` 字符串形态读不了（4e-2b 缺口，本批补会话线路）**：TS 的
+   `toolResult.content` 是 `string | (TextContent | ImageContent)[]` 联合，真实 TS 会话会写出
+   字符串形态；端口消息线路把 `Content` 定型为块列表，差分语料一跑就暴露——会话里任何一条
+   字符串 content 的 toolResult 都会让整个文件解析时该行被跳过（消息计数丢失）。修复：会话线路
+   `JsonOptions` 对 `ToolResultMessage.Content` 属性挂宽容 converter（读取时字符串折叠为单个
+   `TextContent` 块，数组照常；写入仍按块列表，TS 读数组 ✓）。**待办（4e-2b 补缺批次）**：把
+   `ToolResultMessage.Content` 联合化为 `MessageContent`（与 4e-2c-0 对 System/User 的处理一致），
+   届时移除该 converter。
+2. `getMessageActivityTime` 首版把 toolResult/bashExecution 等非 user/assistant 角色也回退到
+   条目 `timestamp`；TS 明确这些角色不贡献活动时间。差分语料抓到后已修。
+
+### 4e-2c-2 差分验证
+
+- `SessionFilesCorpusTests` 21 项（见上表）。语料由真实 TS 产出：`node --experimental-strip-types
+  --import ./tools/register-session-files-shims.mjs tools/gen-coding-agent-session-files-corpus.mjs`。
+- 对齐细节：TS `StringDecoder("utf8")` **不剥 BOM**（带 BOM 的首行 JSON.parse 失败 → 头校验失败 →
+  整个文件按空处理），端口保持一致；TS `JSON.stringify` 省略 undefined 键（`name`/
+  `parentSessionPath`/Invalid Date），回放断言用 TryGet；Invalid Date 折叠为 `DateTimeOffset.MinValue`；
+  稳定排序对齐（同 modified 保持输入序）。
+
+### 4e-2c-2 设计差异（文档化）
+
+- `parseSessionEntryLine`：TS `JSON.parse` 不校验结构，「JSON 合法但缺必需字段」的行保留原样；端口
+  强类型反序列化抛 `JsonException` 跳过该行。真实会话文件由两端自身写出、字段恒全，仅手工编辑的
+  畸形文件受影响（差异 2c2-1）。
+- `created` 时间戳非法时 TS 是 Invalid Date，端口折叠为 `MinValue`（差异 2c2-2）。
+- 文件名 `localeCompare` 倒序以 `StringComparer.CurrentCulture` 近似（语料文件名为 ASCII，两侧一致）。
+- `buildSessionInfo`/`listSessionsFromDir` 是模块私有函数，差分经 `SessionManager.list` 门面
+  （cwd 过滤 + modified 排序）驱动；C# 回放复刻同一门面语义（过滤 + 稳定排序）。

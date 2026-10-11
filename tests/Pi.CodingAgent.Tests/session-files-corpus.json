@@ -1,0 +1,412 @@
+{
+	"loadEntriesFromFile": [
+		{
+			"name": "valid",
+			"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-load\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/project\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1767225601000}}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"name\":\"chat\"}\n{\"type\":\"label\",\"id\":\"l1\",\"parentId\":\"i1\",\"timestamp\":\"2026-01-01T00:00:03.000Z\",\"targetId\":\"m1\"}\n",
+			"expected": [
+				{
+					"type": "session",
+					"version": 3,
+					"id": "sess-load",
+					"timestamp": "2026-01-01T00:00:00.000Z",
+					"cwd": "/project"
+				},
+				{
+					"type": "message",
+					"id": "m1",
+					"parentId": null,
+					"timestamp": "2026-01-01T00:00:01.000Z",
+					"message": {
+						"role": "user",
+						"content": "hi",
+						"timestamp": 1767225601000
+					}
+				},
+				{
+					"type": "session_info",
+					"id": "i1",
+					"parentId": "m1",
+					"timestamp": "2026-01-01T00:00:02.000Z",
+					"name": "chat"
+				},
+				{
+					"type": "label",
+					"id": "l1",
+					"parentId": "i1",
+					"timestamp": "2026-01-01T00:00:03.000Z",
+					"targetId": "m1"
+				}
+			],
+			"repaired": false
+		},
+		{
+			"name": "empty-file",
+			"content": "",
+			"expected": [],
+			"repaired": false
+		},
+		{
+			"name": "header-only",
+			"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-load\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/project\"}\n",
+			"expected": [
+				{
+					"type": "session",
+					"version": 3,
+					"id": "sess-load",
+					"timestamp": "2026-01-01T00:00:00.000Z",
+					"cwd": "/project"
+				}
+			],
+			"repaired": false
+		},
+		{
+			"name": "first-line-not-header",
+			"content": "{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n",
+			"expected": [],
+			"repaired": false
+		},
+		{
+			"name": "malformed-and-blank-lines",
+			"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-load\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/project\"}\n{not json\n\n   \n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n",
+			"expected": [
+				{
+					"type": "session",
+					"version": 3,
+					"id": "sess-load",
+					"timestamp": "2026-01-01T00:00:00.000Z",
+					"cwd": "/project"
+				},
+				{
+					"type": "message",
+					"id": "m1",
+					"parentId": null,
+					"timestamp": "2026-01-01T00:00:01.000Z",
+					"message": {
+						"role": "user",
+						"content": "hi",
+						"timestamp": 1
+					}
+				}
+			],
+			"repaired": false
+		},
+		{
+			"name": "missing-trailing-newline",
+			"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-load\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/project\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}",
+			"expected": [
+				{
+					"type": "session",
+					"version": 3,
+					"id": "sess-load",
+					"timestamp": "2026-01-01T00:00:00.000Z",
+					"cwd": "/project"
+				},
+				{
+					"type": "message",
+					"id": "m1",
+					"parentId": null,
+					"timestamp": "2026-01-01T00:00:01.000Z",
+					"message": {
+						"role": "user",
+						"content": "hi",
+						"timestamp": 1
+					}
+				}
+			],
+			"repaired": true
+		},
+		{
+			"name": "bom-prefixed",
+			"content": "﻿{\"type\":\"session\",\"version\":3,\"id\":\"sess-load\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/project\"}\n",
+			"expected": [],
+			"repaired": false
+		},
+		{
+			"name": "multibyte-content",
+			"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-load\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/project\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"你好世界 🌍 — ünïcodé\",\"timestamp\":1767225601000}}\n",
+			"expected": [
+				{
+					"type": "session",
+					"version": 3,
+					"id": "sess-load",
+					"timestamp": "2026-01-01T00:00:00.000Z",
+					"cwd": "/project"
+				},
+				{
+					"type": "message",
+					"id": "m1",
+					"parentId": null,
+					"timestamp": "2026-01-01T00:00:01.000Z",
+					"message": {
+						"role": "user",
+						"content": "你好世界 🌍 — ünïcodé",
+						"timestamp": 1767225601000
+					}
+				}
+			],
+			"repaired": false
+		},
+		{
+			"name": "truncated-json-tail",
+			"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-load\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/project\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\"",
+			"expected": [
+				{
+					"type": "session",
+					"version": 3,
+					"id": "sess-load",
+					"timestamp": "2026-01-01T00:00:00.000Z",
+					"cwd": "/project"
+				}
+			],
+			"repaired": true
+		}
+	],
+	"findMostRecentSession": [
+		{
+			"name": "picks-newest-ignores-cwd",
+			"cwd": null,
+			"dirName": "find",
+			"files": [
+				{
+					"name": "old.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-old\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n",
+					"mtimeMs": 1000
+				},
+				{
+					"name": "new.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-new\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n",
+					"mtimeMs": 2000
+				},
+				{
+					"name": "other-cwd.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-other\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-b\"}\n",
+					"mtimeMs": 3000
+				},
+				{
+					"name": "not-a-session.jsonl",
+					"content": "{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n",
+					"mtimeMs": 4000
+				},
+				{
+					"name": "notes.txt",
+					"content": "not a session",
+					"mtimeMs": 5000
+				}
+			],
+			"expected": "<TMP>/find/other-cwd.jsonl"
+		},
+		{
+			"name": "cwd-filter-matches-older",
+			"cwd": "D:/pi-session-corpus/proj-a",
+			"dirName": "find",
+			"files": [
+				{
+					"name": "old.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-old\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n",
+					"mtimeMs": 1000
+				},
+				{
+					"name": "new.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-new\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n",
+					"mtimeMs": 2000
+				},
+				{
+					"name": "other-cwd.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-other\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-b\"}\n",
+					"mtimeMs": 3000
+				},
+				{
+					"name": "not-a-session.jsonl",
+					"content": "{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n",
+					"mtimeMs": 4000
+				},
+				{
+					"name": "notes.txt",
+					"content": "not a session",
+					"mtimeMs": 5000
+				}
+			],
+			"expected": "<TMP>/find/new.jsonl"
+		},
+		{
+			"name": "cwd-no-match",
+			"cwd": "D:/pi-session-corpus/proj-z",
+			"dirName": "find",
+			"files": [
+				{
+					"name": "old.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-old\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n",
+					"mtimeMs": 1000
+				},
+				{
+					"name": "new.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-new\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n",
+					"mtimeMs": 2000
+				},
+				{
+					"name": "other-cwd.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-other\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-b\"}\n",
+					"mtimeMs": 3000
+				},
+				{
+					"name": "not-a-session.jsonl",
+					"content": "{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n",
+					"mtimeMs": 4000
+				},
+				{
+					"name": "notes.txt",
+					"content": "not a session",
+					"mtimeMs": 5000
+				}
+			],
+			"expected": null
+		},
+		{
+			"name": "missing-dir",
+			"cwd": null,
+			"dirName": "does-not-exist",
+			"files": [],
+			"expected": null
+		},
+		{
+			"name": "empty-dir",
+			"cwd": null,
+			"dirName": "find-empty",
+			"files": [],
+			"expected": null
+		}
+	],
+	"listSessions": [
+		{
+			"name": "sorted-by-modified",
+			"files": [
+				{
+					"name": "list\\sorted-by-modified\\a.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-a\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"name\":\"First\"}\n",
+					"mtimeMs": 1000
+				},
+				{
+					"name": "list\\sorted-by-modified\\b.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-b\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n",
+					"mtimeMs": 3000
+				},
+				{
+					"name": "list\\sorted-by-modified\\c.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-c\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n",
+					"mtimeMs": 2000
+				}
+			],
+			"facadeCwd": "D:/pi-session-corpus/proj-a",
+			"expected": [
+				{
+					"path": "<TMP>/list/sorted-by-modified/c.jsonl",
+					"id": "sess-c",
+					"cwd": "D:/pi-session-corpus/proj-a",
+					"created": "2026-01-01T00:00:00.000Z",
+					"modified": "2026-01-01T00:00:00.000Z",
+					"messageCount": 0,
+					"firstMessage": "(no messages)",
+					"allMessagesText": ""
+				},
+				{
+					"path": "<TMP>/list/sorted-by-modified/b.jsonl",
+					"id": "sess-b",
+					"cwd": "D:/pi-session-corpus/proj-a",
+					"created": "2026-01-01T00:00:00.000Z",
+					"modified": "2026-01-01T00:00:00.000Z",
+					"messageCount": 0,
+					"firstMessage": "(no messages)",
+					"allMessagesText": ""
+				},
+				{
+					"path": "<TMP>/list/sorted-by-modified/a.jsonl",
+					"id": "sess-a",
+					"cwd": "D:/pi-session-corpus/proj-a",
+					"name": "First",
+					"created": "2026-01-01T00:00:00.000Z",
+					"modified": "2026-01-01T00:00:00.000Z",
+					"messageCount": 0,
+					"firstMessage": "(no messages)",
+					"allMessagesText": ""
+				}
+			]
+		},
+		{
+			"name": "message-activity-and-first-message",
+			"files": [
+				{
+					"name": "list\\message-activity-and-first-message\\chat.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-chat\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"first user message\",\"timestamp\":1767225601000}}\n{\"type\":\"message\",\"id\":\"m2\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"assistant reply\"},{\"type\":\"text\",\"text\":\"second block\"}],\"stopReason\":\"stop\",\"timestamp\":1767225602000}}\n{\"type\":\"message\",\"id\":\"m3\",\"parentId\":\"m2\",\"timestamp\":\"2026-01-01T00:00:03.000Z\",\"message\":{\"role\":\"toolResult\",\"toolCallId\":\"call_1\",\"toolName\":\"bash\",\"content\":\"out\",\"isError\":false,\"timestamp\":1767225603000}}\n{\"type\":\"message\",\"id\":\"m4\",\"parentId\":\"m3\",\"timestamp\":\"2026-01-01T00:00:04.000Z\",\"message\":{\"role\":\"bashExecution\",\"command\":\"ls\",\"output\":\"x\",\"exitCode\":0,\"cancelled\":false,\"truncated\":false,\"timestamp\":1767225604000}}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":\"m4\",\"timestamp\":\"2026-01-01T00:00:05.000Z\",\"name\":\"  Trimmed  \"}\n",
+					"mtimeMs": 9000000
+				}
+			],
+			"facadeCwd": "D:/pi-session-corpus/proj-a",
+			"expected": [
+				{
+					"path": "<TMP>/list/message-activity-and-first-message/chat.jsonl",
+					"id": "sess-chat",
+					"cwd": "D:/pi-session-corpus/proj-a",
+					"name": "Trimmed",
+					"created": "2026-01-01T00:00:00.000Z",
+					"modified": "2026-01-01T00:00:02.000Z",
+					"messageCount": 4,
+					"firstMessage": "first user message",
+					"allMessagesText": "first user message assistant reply second block"
+				}
+			]
+		},
+		{
+			"name": "name-clear-and-image-only-user",
+			"files": [
+				{
+					"name": "list\\name-clear-and-image-only-user\\cleared.jsonl",
+					"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-clear\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"D:/pi-session-corpus/proj-a\"}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"name\":\"temp name\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"AAAA\"}],\"timestamp\":1767225602000}}\n{\"type\":\"session_info\",\"id\":\"i2\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:03.000Z\",\"name\":\"   \"}\n",
+					"mtimeMs": 1000
+				}
+			],
+			"facadeCwd": "D:/pi-session-corpus/proj-a",
+			"expected": [
+				{
+					"path": "<TMP>/list/name-clear-and-image-only-user/cleared.jsonl",
+					"id": "sess-clear",
+					"cwd": "D:/pi-session-corpus/proj-a",
+					"created": "2026-01-01T00:00:00.000Z",
+					"modified": "2026-01-01T00:00:02.000Z",
+					"messageCount": 1,
+					"firstMessage": "(no messages)",
+					"allMessagesText": ""
+				}
+			]
+		},
+		{
+			"name": "no-header",
+			"files": [
+				{
+					"name": "list\\no-header\\bad.jsonl",
+					"content": "{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n",
+					"mtimeMs": 1000
+				}
+			],
+			"facadeCwd": "D:/pi-session-corpus/proj-a",
+			"expected": []
+		},
+		{
+			"name": "empty-file",
+			"files": [
+				{
+					"name": "list\\empty-file\\empty.jsonl",
+					"content": "",
+					"mtimeMs": 1000
+				}
+			],
+			"facadeCwd": "D:/pi-session-corpus/proj-a",
+			"expected": []
+		},
+		{
+			"name": "missing-dir",
+			"files": [],
+			"facadeCwd": "D:/pi-session-corpus/proj-a",
+			"expected": []
+		}
+	]
+}

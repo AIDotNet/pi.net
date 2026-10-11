@@ -1,0 +1,24 @@
+xUnit.net v3 Microsoft.Testing.Platform v1 Runner v3.2.2+728c1dce01 (64-bit .NET 10.0.12)
+
+失败 Pi.CodingAgent.Tests.SessionFilesCorpusTests.ListSessions_MatchesTypeScript(label: "message-activity-and-first-message") (19ms)
+  Assert.Equal() Failure: Values differ
+  Expected: 4
+  Actual:   3
+    在 Pi.CodingAgent.Tests.SessionFilesCorpusTests.AssertSessionInfo(String label, JsonElement expected, SessionInfo actual) 位于 d:\AI\参考项目\pi.net\tests\Pi.CodingAgent.Tests\SessionFilesCorpusTests.cs:166
+    在 Pi.CodingAgent.Tests.SessionFilesCorpusTests.ListSessions_MatchesTypeScript(String label) 位于 d:\AI\参考项目\pi.net\tests\Pi.CodingAgent.Tests\SessionFilesCorpusTests.cs:152
+    --- End of stack trace from previous location ---
+[+416/x1/?0] Pi.CodingAgent.Tests.dll (net10.0|x64) - Pi.CodingAgent.Tests.CoreToolsTests.Edit_ReplacesText_AndProducesApplyablePatch (3s)
+
+[+540/x1/?0] Pi.CodingAgent.Tests.dll (net10.0|x64) - Pi.CodingAgent.Tests.MinimatchCorpusTests.MinimatchFunction_MatchesReference (6s)
+
+[+541/x1/?0] Pi.CodingAgent.Tests.dll (net10.0|x64) - Pi.CodingAgent.Tests.MinimatchCorpusTests.MakeRe_MatchesReference (9s)
+
+[+682/x1/?0] Pi.CodingAgent.Tests.dll (net10.0|x64) - Pi.CodingAgent.Tests.LlamaCorpusTests.LlamaClientDownloadAndWait_MatchesTypeScript (12s)
+
+
+测试运行摘要: 失败! - D:\AI\参考项目\pi.net\tests\Pi.CodingAgent.Tests\bin\Debug\net10.0\Pi.CodingAgent.Tests.dll (net10.0|x64)
+  total: 828
+  失败: 1
+  succeeded: 827
+  已跳过: 0
+  duration: 12s 409ms

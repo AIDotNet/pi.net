@@ -49,6 +49,9 @@
     <!-- 4d-5: extensions/codemode/tool.ts (schema, declarations, description catalog, loadout),
          core/usage-totals.ts, and readCodemodeStore from execute.ts. -->
     <None Include="codemode-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4e-2c-2: session-manager.ts file I/O and directory discovery (loadEntriesFromFile,
+         findMostRecentSession, buildSessionInfo/listSessionsFromDir through the list facade). -->
+    <None Include="session-files-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" />

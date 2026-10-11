@@ -476,11 +476,56 @@ public static partial class SessionEntries
         var resolver = new DefaultJsonTypeInfoResolver();
         resolver.Modifiers.Add(static typeInfo => AgentMessageJson.AddCodingAgentRoles(typeInfo));
         resolver.Modifiers.Add(static typeInfo => AddLegacyHookRole(typeInfo));
+        resolver.Modifiers.Add(static typeInfo => AllowStringToolResultContent(typeInfo));
         return new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             TypeInfoResolver = resolver,
         };
+    }
+
+    /// <summary>
+    /// TS 会话文件里 <c>toolResult.content</c> 的类型是 <c>string | (TextContent | ImageContent)[]</c>
+    /// 联合，真实的 TS 会话会写出字符串形态；端口的消息线路把 <see cref="ToolResultMessage.Content"/>
+    /// 定型为块列表（4e-2b 差异，联合化列为 4e-2b 补缺待办）。会话线路在**读取**侧宽容字符串形态
+    /// （折叠为单个文本块），写入仍按块列表——TS 读数组 ✓，读写闭环与 TS 会话文件互通。
+    /// </summary>
+    private static void AllowStringToolResultContent(JsonTypeInfo typeInfo)
+    {
+        if (typeInfo.Type != typeof(ToolResultMessage))
+        {
+            return;
+        }
+
+        var content = typeInfo.Properties.FirstOrDefault(property =>
+            property.Name is "content" or "Content");
+        if (content is not null)
+        {
+            content.CustomConverter = ToolResultContentJsonConverter.Instance;
+        }
+    }
+
+    internal sealed class ToolResultContentJsonConverter : JsonConverter<IReadOnlyList<ContentBlock>>
+    {
+        public static readonly ToolResultContentJsonConverter Instance = new();
+
+        public override IReadOnlyList<ContentBlock>? Read(
+            ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.String)
+            {
+                return [new TextContent(reader.GetString()!)];
+            }
+
+            // 数组形态走 ContentBlock 的常规多态管线（converter 只挂在 ToolResultMessage.Content
+            // 属性上，此处 Deserialize 不会递归回自身）。
+            using var document = JsonDocument.ParseValue(ref reader);
+            return document.RootElement.Deserialize<IReadOnlyList<ContentBlock>>(options);
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer, IReadOnlyList<ContentBlock> value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, value, options);
     }
 
     private static void AddLegacyHookRole(JsonTypeInfo typeInfo)
