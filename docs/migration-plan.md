@@ -61,8 +61,8 @@
 
 - 11 个运行时包源码已移植；tui 仅剩 `index.ts` 桶文件（无需代码）；durable harness 测试顺延。
 - coding-agent 已完成 4a / 4b / 4c / 4d 主体 / 4e-1～4e-2d / **4e-3a 叶子模块**。
-- 最新提交点：`4e-3e-3`（agent-session：getLastAssistantText / cycle 下标 / thinking 循环）。
-- 下一步：4e-3e-4 AgentSession prompt 循环 + runtime switch/fork + 完整 `createAgentSession`。
+- 最新提交点：`4e-3e-4`（runtime fork 目标解析与会话文件前置检查）。
+- 下一步：4e-3e-5 AgentSession prompt 循环 + runtime switch/fork 主体 + 完整 `createAgentSession`。
 
 ---
 
@@ -126,8 +126,9 @@
      - **4e-3d-2 cache-warmer + resource-loader**（2026-10-11）已完成——delay/ttl/replayable、Start 门闩、项目上下文文件、skills/prompts、theme JSON。`CacheWarmerTests` 7 项、`ResourceLoaderTests` 3 项全绿。streamSimple 刷新、extensions runner 顺延 **4e-3e**，完整 theme 顺延 **4f**。
      - **4e-3e-1 agent-session 叶子**（2026-10-11）已完成——`ParseSkillBlock`、`WithoutDeletedHeaders`、`ExtractUserMessageText`、JSONL 目标去重。
      - **4e-3e-2 sdk 工具选择**（2026-10-11）已完成——`GetToolListError`、`ApplyToolModifiers`、`Sdk.ResolveSessionTools`、`CreateToolNameMatcher`。`SdkTests` 6 项全绿。
-     - **4e-3e-3 agent-session cycle 叶子**（2026-10-11）已完成——`GetLastAssistantText`、`NextCycleIndex`、`NextThinkingLevel`。`AgentSessionLeafTests` 10 项全绿。prompt 循环 / switch / 完整 `createAgentSession` 顺延 **4e-3e-4**。
-     - **余 4e-3e-4**：`agent-session` prompt 循环 / runtime switch/fork / 完整 `sdk` / extensions runner。
+     - **4e-3e-3 agent-session cycle 叶子**（2026-10-11）已完成——`GetLastAssistantText`、`NextCycleIndex`、`NextThinkingLevel`。
+     - **4e-3e-4 runtime fork 叶子**（2026-10-11）已完成——`ResolveForkTarget`、`RequirePersistedSessionFile`、`RequireSavedSessionFile`。`AgentSessionLeafTests` 15 项全绿。prompt 循环 / switch 主体顺延 **4e-3e-5**。
+     - **余 4e-3e-5**：`agent-session` prompt 循环 / runtime switch/fork 主体 / 完整 `sdk` / extensions runner。
      - **已知缺口**：`cost.tiers`（请求级阶梯费率）未移植；`AnthropicMessages` / `OpenAiCompletions` 的 provider 侧用量/成本保真（走轻量 `Model`，无目录费率）。
   6. 4f 模式层（`modes/rpc/*`、`modes/interactive/*`，含 7,082 行的 `interactive-mode.ts`）
   7. 4g 入口与实验层（`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`bun/*`、`client/*`、`experimental/*`）

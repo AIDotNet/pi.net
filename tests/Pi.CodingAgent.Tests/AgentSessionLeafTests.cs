@@ -124,4 +124,60 @@ public sealed class AgentSessionLeafTests : IDisposable
         Assert.Equal(ThinkingLevel.Off, AgentSession.NextThinkingLevel(ThinkingLevel.High, levels));
         Assert.Null(AgentSession.NextThinkingLevel(ThinkingLevel.Off, []));
     }
+
+    [Fact]
+    public void ResolveForkTarget_AtKeepsEntryId()
+    {
+        var entry = new SessionMessageEntry
+        {
+            Id = "leaf",
+            ParentId = "root",
+            Message = new UserMessage(new MessageContent.Text("hi"), 1),
+        };
+        var target = AgentSessionRuntime.ResolveForkTarget(entry, "at");
+        Assert.Equal("leaf", target.TargetLeafId);
+        Assert.Null(target.SelectedText);
+    }
+
+    [Fact]
+    public void ResolveForkTarget_BeforeUserExtractsTextAndParent()
+    {
+        var entry = new SessionMessageEntry
+        {
+            Id = "leaf",
+            ParentId = "root",
+            Message = new UserMessage(new MessageContent.Text("fork me"), 1),
+        };
+        var target = AgentSessionRuntime.ResolveForkTarget(entry);
+        Assert.Equal("root", target.TargetLeafId);
+        Assert.Equal("fork me", target.SelectedText);
+    }
+
+    [Fact]
+    public void ResolveForkTarget_RejectsNonUserBefore()
+    {
+        var entry = new SessionMessageEntry
+        {
+            Id = "leaf",
+            Message = new AssistantMessage([new TextContent("no")]),
+        };
+        var ex = Assert.Throws<InvalidOperationException>(() => AgentSessionRuntime.ResolveForkTarget(entry));
+        Assert.Equal("Invalid entry ID for forking", ex.Message);
+    }
+
+    [Fact]
+    public void RequirePersistedSessionFile_RejectsMissingPath()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => AgentSessionRuntime.RequirePersistedSessionFile(null, persisted: true));
+        Assert.Equal("Persisted session is missing a session file", ex.Message);
+    }
+
+    [Fact]
+    public void RequireSavedSessionFile_RejectsUnsaved()
+    {
+        var missing = Path.Combine(_root, "unsaved.jsonl");
+        var ex = Assert.Throws<InvalidOperationException>(() => AgentSessionRuntime.RequireSavedSessionFile(missing));
+        Assert.Contains("has not been saved yet", ex.Message);
+    }
 }
