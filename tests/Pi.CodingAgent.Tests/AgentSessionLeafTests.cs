@@ -270,4 +270,46 @@ public sealed class AgentSessionLeafTests : IDisposable
         Assert.False(AgentSession.ShouldContinueAfterBeforeSettle(true, true, false));
         Assert.False(AgentSession.ShouldContinueAfterBeforeSettle(false, false, true));
     }
+
+    [Fact]
+    public void ThrowIfCompactionInProgress_ThrowsExactMessage()
+    {
+        AgentSession.ThrowIfCompactionInProgress(false);
+        var ex = Assert.Throws<InvalidOperationException>(() => AgentSession.ThrowIfCompactionInProgress(true));
+        Assert.Equal(
+            "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.",
+            ex.Message);
+    }
+
+    [Fact]
+    public void ResolveStreamingQueueAction_QueuesWhenStreaming()
+    {
+        Assert.Equal("prompt", AgentSession.ResolveStreamingQueueAction(false, null));
+        Assert.Equal("followUp", AgentSession.ResolveStreamingQueueAction(true, "followUp"));
+        Assert.Equal("steer", AgentSession.ResolveStreamingQueueAction(true, "steer"));
+        var ex = Assert.Throws<InvalidOperationException>(() => AgentSession.ResolveStreamingQueueAction(true, null));
+        Assert.Equal(
+            "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+            ex.Message);
+    }
+
+    [Fact]
+    public void DequeueMatchingUserText_PrefersSteeringThenFollowUp()
+    {
+        var (steering, followUp) = AgentSession.DequeueMatchingUserText(["a", "b"], ["a"], "a");
+        Assert.Equal(["b"], steering);
+        Assert.Equal(["a"], followUp);
+
+        (steering, followUp) = AgentSession.DequeueMatchingUserText(["x"], ["a", "a"], "a");
+        Assert.Equal(["x"], steering);
+        Assert.Equal(["a"], followUp);
+    }
+
+    [Fact]
+    public void FormatExpiredOAuthMessage_IncludesLoginHint()
+    {
+        Assert.Equal(
+            "Authentication failed for \"openai\". Credentials may have expired or network is unavailable. Run '/login openai' to re-authenticate.",
+            AgentSession.FormatExpiredOAuthMessage("openai"));
+    }
 }

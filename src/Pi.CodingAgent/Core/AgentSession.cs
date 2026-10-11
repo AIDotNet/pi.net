@@ -106,7 +106,7 @@ public sealed record AgentSessionConfig
 /// <summary>
 /// 会话核心。对应 TS <c>core/agent-session.ts</c>。
 /// 4e-3e-1：parseSkillBlock。4e-3e-3：getLastAssistantText / cycle。4e-3e-6：slash/skill 展开。
-/// 4e-3e-7：agent_end 重试判定与 before_settle 继续判定。prompt 循环主体顺延 4e-3e-8。
+/// 4e-3e-7：agent_end 重试判定。4e-3e-8：prompt 预检（压缩/流式排队/出队）。prompt 循环主体顺延 4e-3e-9。
 /// </summary>
 public static class AgentSession
 {
@@ -305,4 +305,64 @@ public static class AgentSession
         var shouldContinue = resultContinue || hasQueuedMessages;
         return shouldContinue && canContinue;
     }
+
+    /// <summary>对应 TS prompt 在 compaction 进行中拒绝提交。</summary>
+    public static void ThrowIfCompactionInProgress(bool compactionInProgress)
+    {
+        if (compactionInProgress)
+        {
+            throw new InvalidOperationException(
+                "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.");
+        }
+    }
+
+    /// <summary>对应 TS prompt 在 <c>isStreaming</c> 时选择 steer / followUp，否则走主循环。</summary>
+    public static string ResolveStreamingQueueAction(bool isStreaming, string? streamingBehavior)
+    {
+        if (!isStreaming)
+        {
+            return "prompt";
+        }
+
+        if (string.IsNullOrEmpty(streamingBehavior))
+        {
+            throw new InvalidOperationException(
+                "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.");
+        }
+
+        return streamingBehavior == "followUp" ? "followUp" : "steer";
+    }
+
+    /// <summary>对应 TS <c>message_start</c> 用户文本从 steering 优先、否则 followUp 出队。</summary>
+    public static (List<string> Steering, List<string> FollowUp) DequeueMatchingUserText(
+        IEnumerable<string> steering,
+        IEnumerable<string> followUp,
+        string messageText)
+    {
+        var steeringList = steering.ToList();
+        var followUpList = followUp.ToList();
+        if (messageText.Length == 0)
+        {
+            return (steeringList, followUpList);
+        }
+
+        var steeringIndex = steeringList.IndexOf(messageText);
+        if (steeringIndex >= 0)
+        {
+            steeringList.RemoveAt(steeringIndex);
+            return (steeringList, followUpList);
+        }
+
+        var followUpIndex = followUpList.IndexOf(messageText);
+        if (followUpIndex >= 0)
+        {
+            followUpList.RemoveAt(followUpIndex);
+        }
+
+        return (steeringList, followUpList);
+    }
+
+    /// <summary>对应 TS prompt 在 OAuth 凭证失效时的错误文案。</summary>
+    public static string FormatExpiredOAuthMessage(string provider)
+        => $"Authentication failed for \"{provider}\". Credentials may have expired or network is unavailable. Run '/login {provider}' to re-authenticate.";
 }
