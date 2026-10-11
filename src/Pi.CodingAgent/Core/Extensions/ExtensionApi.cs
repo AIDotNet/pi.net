@@ -306,7 +306,7 @@ public interface IExtensionApi
     void RegisterMarkdownTransformer(MarkdownTransformer transformer);
 
     /// <summary>Register a custom renderer for CustomEntry. Custom entries do not participate in LLM context.</summary>
-    void RegisterEntryRenderer<T>(string customType, EntryRenderer<T> renderer);
+    void RegisterEntryRenderer(string customType, EntryRenderer renderer);
 
     /// <summary>Choose how tool calls are drawn. Resolvers run in extension load order.</summary>
     void RegisterToolRenderer(ToolRendererResolver resolver);

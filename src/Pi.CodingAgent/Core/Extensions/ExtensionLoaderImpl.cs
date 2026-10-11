@@ -341,7 +341,7 @@ internal sealed class ExtensionApiImpl : IExtensionApi
         extension.MarkdownTransformer = transformer;
     }
 
-    public void RegisterEntryRenderer<T>(string customType, EntryRenderer<T> renderer)
+    public void RegisterEntryRenderer(string customType, EntryRenderer renderer)
     {
         AssertActive();
         extension.EntryRenderers[customType] = renderer;

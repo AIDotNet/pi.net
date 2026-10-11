@@ -811,7 +811,11 @@ public sealed record EntryRenderOptions
 public delegate IComponent? MessageRenderer(CustomMessage message, MessageRenderOptions options, Theme theme);
 
 /// <summary>TS <c>EntryRenderer&lt;T&gt;</c>.</summary>
-public delegate IComponent? EntryRenderer<T>(CustomEntry<T> entry, EntryRenderOptions options, Theme theme);
+/// <remarks>
+/// 与 <see cref="MessageRenderer"/> 同理：TS 的 <c>T</c> 只用于把 <c>entry.data</c> 收窄成调用方声明的
+/// 类型，端口让 <see cref="CustomEntry.Data"/> 承载 <c>object?</c>，故去掉该类型参数。
+/// </remarks>
+public delegate IComponent? EntryRenderer(CustomEntry entry, EntryRenderOptions options, Theme theme);
 
 // ============================================================================
 // Type guards — TS isBashToolResult / isToolCallEventType family

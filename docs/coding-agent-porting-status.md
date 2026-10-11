@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-5 codemode、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳                                                                                                                                                                                      |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1（叶子模块）+ 4e-2a（`Usage` 完整形态）+ 4e-2b（`AgentMessage` / `core/messages.ts`）+ 4e-2c-0（消息内容联合下沉）+ **4e-2c-1（`session-manager` 类型与纯树/投影逻辑）** 完成（2026-10-11）；余 4e-2c-2/3、4e-2d 待办                     |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -484,7 +484,7 @@ C# 侧另有若干「JS 语义」辅助（TS 无对应文件，供全部子阶�
 | `src/Pi.CodingAgent/Core/Extensions/ExtensionContexts.cs` | `ExtensionMode` / `WidgetPlacement` / `NotifyType` / `ForkPosition` / `DeliverAs` 字面量联合；`ExtensionUIContext`（29 个成员）、`ExtensionContext`（18）、`ExtensionToolContext`（2）、`ExtensionCommandContext`（7）、`ReplacedSessionContext`（2）四组上下文；`ContextUsage` / `CompactOptions` / `ExecuteToolOptions` / `NewSessionOptions` / `ForkOptions` / `NavigateTreeOptions` / `SwitchSessionOptions` / `SendMessageOptions` / `SendUserMessageOptions` / `CustomMessageDraft` |
 | `src/Pi.CodingAgent/Core/Extensions/ExtensionEvents.cs` | `ExtensionEvent` 联合的 56 个变体（含 10 个 session 事件、8 个 tool_call 事件、9 个 tool_result 事件）、`BoundaryState` / `BoundaryResult` / 4 种 `SessionBoundaryDraft`、`TreePreparation`、12 个事件结果类型、`MessageRenderer` / `EntryRenderer` / `MarkdownTransformer` / `ToolRendererResolver` 委托、`ExtensionEventGuards` 类型守卫 |
 | `src/Pi.CodingAgent/Core/Extensions/ExtensionApi.cs` | `ExtensionAPI`（34 个成员）、`RegisteredCommand` / `ResolvedCommand` / `RegisteredTool` / `ExtensionFlag` / `ExtensionShortcut` / `ToolInfo`、12 个 handler 委托、`ExtensionFactory` / `InlineExtension` / `ExtensionVirtualModel` |
-| `src/Pi.CodingAgent/Core/Extensions/Types/Placeholders.cs` | 4e/4f 占位类型（`SourceInfo` / `ExecOptions` / `ExecResult` / `BashResult` / `BashOperations` / `ReadonlyFooterDataProvider` / `CompactionPreparation` / `CompactionResult` / `CacheWarmingDecisionEvent` / `CustomMessage<T>` / `CustomEntry<T>` / 5 个 session 条目类型 / `ReadonlySessionManager` / `SessionManager` / `SlashCommandInfo` / `BuildSystemPromptOptions` / `AppKeybinding` / `OverlayHandle` / `ProviderHeaders` / `Provider` / `Theme`），每处均有 `// 4e/4f 接入后替换` 标记（`EventBus` 占位已在 4d-2a 移除） |
+| `src/Pi.CodingAgent/Core/Extensions/Types/Placeholders.cs` | 4e/4f 占位类型（`SourceInfo` / `ExecOptions` / `ExecResult` / `BashResult` / `BashOperations` / `ReadonlyFooterDataProvider` / `CompactionPreparation` / `CompactionResult` / `CacheWarmingDecisionEvent` / `ReadonlySessionManager` / `SessionManager` / `SlashCommandInfo` / `BuildSystemPromptOptions` / `AppKeybinding` / `OverlayHandle` / `ProviderHeaders` / `Provider` / `Theme`），每处均有 `// 4e/4f 接入后替换` 标记（`EventBus` 占位已在 4d-2a 移除；`CustomMessage<T>` 已在 4e-2b、`CustomEntry<T>` 与 5 个 session 条目类型已在 4e-2c-1 并入真实类型） |
 
 与 TS 的差异（均为 C# 表达力限制下的等价选择，已在代码注释标注）：
 
@@ -1237,6 +1237,103 @@ null-vs-省略），不只是逻辑。另有两项不依赖语料的断言：透
 > `mc-contenttext-string` / `mc-transform-blocks-only` **BUILD-FAIL**（替换文本语法非法：switch
 > 表达式的手臂要用 `,` 而非 `;`；把 `MessageContent.Blocks` 改成 `.Text` 会让 `blocks.Value`
 > 类型不匹配）。这类"变异本身编译不过"的信号说明变异体的构造需要复核——已逐条重写。
+
+## 4e-2c-1 进度（2026-10-11）：`session-manager.ts` 类型与纯树/投影逻辑
+
+`core/session-manager.ts`（2,013 行）拆三步走：**2c-1 类型 + 纯树/投影逻辑**（本批）、
+2c-2 文件 I/O 与目录发现、2c-3 `SessionManager` 类与静态工厂。本批不触碰文件系统。
+
+### 新增 `src/Pi.CodingAgent/Core/SessionEntries.cs`
+
+| 成员 | 对应 TS |
+|---|---|
+| `FileEntry`（12 种 `type` 的判别联合根） | `FileEntry = SessionHeader \| SessionEntry` |
+| `SessionEntry`（11 种条目的中间抽象多态基） | `SessionEntryBase` + 各条目接口 |
+| `SessionHeader` / `SessionMessageEntry` / `ThinkingLevelChangeEntry` / `ModelChangeEntry` / `UsageEntry` / `CompactionEntry` / `BranchSummaryEntry` / `CustomEntry` / `CustomMessageEntry` / `ContextEditEntry` / `LabelEntry` / `SessionInfoEntry` | 同名接口 |
+| `SessionModel` / `ProjectedSessionEntry` / `SessionProjection` / `SessionContext` / `SessionTreeNode` / `SessionInfo` / `NewSessionOptions` / `SessionListProgress` | 同名类型 |
+| `SessionEntries.CurrentVersion` | `CURRENT_SESSION_VERSION` |
+| `AssertValidSessionId` / `ParseSessionEntries` / `MigrateSessionEntries` / `GetLatestCompactionEntry` / `SessionEntryToContextMessages` / `BuildContextEntries` / `BuildSessionProjection` / `BuildSessionContext` / `GetDefaultSessionDirPath` | 同名导出 / 模块私有函数 |
+| `SessionEntries.JsonOptions` | （无对应：TS 无序列化层） |
+
+同批在 `Core/Messages.cs` 新增 legacy `HookMessage`（v2 会话文件的 `hookMessage` role），
+并把 `AgentMessageJson` 的 role 修饰器抽成 `AddCodingAgentRoles(JsonTypeInfo)` 供会话线路复用。
+
+### 设计差异
+
+| # | TS | 端口 | 理由 |
+|---|---|---|---|
+| S1 | `SessionEntry` 是按 `type` 判别的联合 | `FileEntry`（含 header）与 `SessionEntry`（11 条目）**两层** `[JsonPolymorphic("type")]` | 中间抽象类型也要能独立序列化——`SessionTreeNode.entry` / `ProjectedSessionEntry.sourceEntry` 的声明类型是 `SessionEntry` |
+| S2 | 迁移函数**原地改**（`entry.id = …` / `delete comp.firstKeptEntryIndex`） | 返回**重建后的列表** | 不可变 record 无法原地改 `message.role`（role 是类型判别符，只能换类型） |
+| S3 | v2 的 `hookMessage` role 是普通字符串 | 新增 legacy `HookMessage` 类型，只注册进**会话**线路 | C# 的 role 是类型判别符，未知 role 无法反序列化；迁移把 `HookMessage` 换成 `CustomMessage` |
+| S4 | `buildSessionPath(entries, leafId?, byId?)` 三态（`undefined` / `null` / 字符串）+ 可传预建索引 | 重载：`(entries)` = 省略，`(entries, leafId)` = 显式；去掉 `byId` | 端口每次重建索引，结果与传入的预建索引完全一致（`SessionManager.byId` 恒等于 `getEntries()` 的索引） |
+| S5 | `CompactionEntry.systemMessage?: SystemMessage` | 声明为 `ChatMessage?` | STJ 只在**声明类型是多态基类**时写出 `role` 判别符；TS 的 `role` 是消息自身字段，必须恒写 |
+| S6 | `CompactionEntry.firstKeptEntryIndex` 靠 cast 读 | 显式可空字段 + `WhenWritingNull` | v1 遗留字段，迁移时清除 |
+| S7 | `generateId` 用 `randomUUID().slice(0, 8)` | `Guid.NewGuid().ToString("N")[..8]` | 同为小写十六进制；语料按「首次出现顺序」归一化 id |
+
+### 已知差异（文档化，暂不复现）
+
+| # | TS 行为 | 端口行为 | 影响 |
+|---|---|---|---|
+| D1 | 显式 `"content": null` 原样保留 | `MessageContent` 转换器归一化为 `[]`（4e-2c-0 的决定） | 会话文件重新写盘时 `null` 变 `[]`；`sessionEntryToContextMessages` 对 system 的 `content == null` 分支产出 `""`，端口因为已是 `[]` 走透传分支产出 `[]`。语义等价、字节不同 |
+| D2 | 「合法 JSON 但 `type` 未知」的行保留成普通对象 | 判别符无匹配派生类型 → 整行跳过 | pi 自己写出的文件只含已知类型；手改文件里的未知条目会被丢弃 |
+| D3 | `Usage` 只写上报字段 | `totalTokens` / `cost` 是存储字段，恒写出 | 旧会话文件（缺这两个字段）重新写盘会补上（4e-2a 决定的延伸） |
+| D4 | `new Date(不可解析).getTime()` → `NaN` | `ParseTimestamp` 抛 `FormatException` | 真实调用点的时间戳全部来自 `Date.toISOString()`（4e-2b 已记录） |
+
+### 4e-2c-1 发现并修复的真实缺陷
+
+| # | 缺陷 | 影响 | 修复 |
+|---|---|---|---|
+| 1 | `buildSessionProjection` 的上下文编辑表按**编辑条目自身 id** 索引 | TS 是 `edits.set(entry.targetId, entry)`；按自身 id 索引让所有 `context_edit` 失效——被编辑条目的 content 不再被替换/剔除 | 改按 `edit.TargetId` 索引 |
+
+> 该缺陷由差分语料首轮捕获（`context-edit-*` 向量 expected 是替换后的 content，actual 是原文）。
+
+### 4e-2c-1 差分验证
+
+`tools/gen-coding-agent-session-corpus.mjs` 直接 import 真实 TS 的 `core/session-manager.ts`。该模块从
+`@earendil-works/pi-ai` import **运行值**（`getCurrentSystemMessage` / `uuidv7`），而沙箱里 monorepo 的
+`node_modules` 未安装，故新增 `tools/register-pi-ai-shim.mjs` + `tools/pi-ai-shim-loader.mjs` +
+`tools/pi-ai-shim.mjs`，用 `node:module` 的 `register()` 把该 specifier 重定向到本地 shim
+（只提供这两个运行导出，其余全是类型导入，被 `--experimental-strip-types` 擦除）。
+
+语料 `tests/Pi.CodingAgent.Tests/session-corpus.json` 共 10 段 **218 条**向量：
+
+| 段 | 条数 | 覆盖 |
+|---|---|---|
+| `constants` | 1 | `CURRENT_SESSION_VERSION` |
+| `assertValidSessionId` | 19 | 合法 / 非法 id、`-`/`_`/`.` 的位置约束、首尾必须字母数字、换行（`\z` vs `$`）、非 ASCII |
+| `parseSessionEntries` | 11 | 空 / 纯空白 / 单头 / 多头 / v1 头无 version / CRLF / 空行 / 畸形行 / 字符串 content / 全 12 种条目类型 |
+| `migrateSessionEntries` | 9 | v1→v3 链式、v1 compaction 索引→id（含越界 / 指向 header / 前向引用）、v2 hookMessage 改名、v2 保 id、v3 幂等、无头默认按 v1 |
+| `getLatestCompactionEntry` | 4 | 空 / 无压缩 / 单个 / 取最新 |
+| `sessionEntryToContextMessages` | 23 | 4 个基础 role 的 null / 缺失 / 正常 content、custom_message 字符串 / 块 / null / 缺失 content、branch_summary 空串、compaction 带 / 不带 systemMessage、8 种状态条目不参与上下文 |
+| `buildContextEntries` | 28 | 5 棵树 × 6 种 leaf（省略 / null / 未知 / 根 / 尾 / 空串） |
+| `buildSessionProjection` | 52 | 9 棵树 × 6 种 leaf，含 context_edit 字符串 / null / 块替换、嵌套压缩的 `index > 0` 规则、保留区间内的 system 跳过 |
+| `buildSessionContext` | 52 | 同上 |
+| `defaultSessionDir` | 3 | cwd 编码（去前导斜杠 + `[/\\:]`→`-`）、盘符绝对路径、尾分隔符 |
+| `divergence` | 3 | D1 / D2 两处已知差异的**双侧**钉定 |
+
+迁移产生的随机 id 由**双侧同一套归一化**（按首次出现顺序映射到 `id0` / `id1` …）消除非确定性。
+
+回放测试 `tests/Pi.CodingAgent.Tests/SessionCorpusTests.cs` **20 项**全绿：16 项语料回放 + 4 项直接断言
+（`FileEntry` 13 种类型线路往返、根条目恒写 `parentId: null`、`compaction.systemMessage` 带 `role`、
+`sessionEntryToContextMessages` 对 system 的 null content 分支确实产出 `Text("")`）+ 3 项差异断言。
+
+### 4e-2c-1 变异验证
+
+`tools/mutate-check.py` 新增 `session` 套件（28 条变异，`*SessionCorpusTests*`）：**28/28 全部被捕获**，
+还原后 20/20 绿，源码无残留。
+
+> 首轮 22/28，6 处不合格已逐条修正：
+> - `session-assert-id-class` / `session-dir-separator` **SKIP**——锚点（字符类）同时出现在正则上方的
+>   解释性注释里。改用带上下文的锚点。
+> - `session-path-leaf-null` / `session-context-model-from-assistant` **BUILD-FAIL**——前者 `if (false)`
+>   触发 CS0162（不可达代码）在 `TreatWarningsAsErrors` 下变成编译失败；后者把 pattern 换成别的消息
+>   类型后函数体里的绑定失效（CS0103）。两者各换一种等价的变异写法。
+> - `session-entry-system-null` / `session-entry-custom-null` / `session-entries-system-skip` **caught=0**——
+>   都是语料盲点：前两个因为 `MessageContent` 转换器把 `null` 也写成 `""` / `[]`，变异在线路上不可观测
+>   （补了一条「content 字段整体缺失」的向量与一条内存态直接断言）；第三个是因为原树里的 system 消息
+>   位于 firstKeptEntryId **之前**，过滤条件永不触发（把 system 消息移到保留区间内）。
+>
+> 首轮还抓到一个**真实端口缺陷**：`context_edit` 编辑表的索引键写错（见上表）。
 
 ## 环境相关失败（非移植缺陷，2026-10-10 记录）
 

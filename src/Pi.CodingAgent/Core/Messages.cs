@@ -87,6 +87,47 @@ public sealed record CompactionSummaryMessage(
     long Timestamp) : ChatMessage;
 
 /// <summary>
+/// v2 会话文件里的历史 role（<c>hookMessage</c>）。**仅用于解析旧会话文件**：v2→v3 迁移会把它
+/// 改写成 <see cref="CustomMessage"/>（见 <see cref="SessionEntries.MigrateSessionEntries"/>）。
+/// </summary>
+/// <remarks>
+/// TS 侧这个 role 不属于 <c>AgentMessage</c> 联合（迁移之后才变成 <c>custom</c>），所以它**不**注册进
+/// <see cref="AgentMessageJson.Options"/>；只有会话线路（<see cref="SessionEntries.JsonOptions"/>）认识它。
+/// <para>
+/// 字段全部可空：TS 的历史数据不做校验，迁移只改名、不补字段。真实 v2 文件里的 hookMessage 由
+/// 扩展 <c>sendMessage</c> 产出，字段齐全；缺字段的只可能是手工构造的数据，此时迁移后端口会写出
+/// 默认值（<c>""</c>/<c>false</c>/<c>0</c>），而 TS 仍省略这些字段——已记为文档化差异。
+/// </para>
+/// </remarks>
+public sealed record HookMessage : ChatMessage
+{
+    [JsonPropertyName("customType")]
+    public string? CustomType { get; init; }
+
+    [JsonPropertyName("content")]
+    public MessageContent? Content { get; init; }
+
+    [JsonPropertyName("display")]
+    public bool? Display { get; init; }
+
+    [JsonPropertyName("details")]
+    public object? Details { get; init; }
+
+    [JsonPropertyName("timestamp")]
+    public long? Timestamp { get; init; }
+
+    /// <summary>迁移为当前形态的 <see cref="CustomMessage"/>（v2→v3 的 role 改名）。</summary>
+    internal CustomMessage ToCustomMessage() => new(
+        CustomType ?? "",
+        Content ?? MessageContent.BlocksOf([]),
+        Display ?? false,
+        Timestamp ?? 0)
+    {
+        Details = Details,
+    };
+}
+
+/// <summary>
 /// AgentMessage 的 JSON 线路配置。在 <see cref="ChatMessage"/> 的 4 个基础 role 之上，
 /// 追加 coding-agent 的 4 个自定义 role（TS 的 declaration merging 在 C# 侧的等价物）。
 /// </summary>
@@ -98,29 +139,37 @@ public static class AgentMessageJson
     private static JsonSerializerOptions CreateOptions()
     {
         var resolver = new DefaultJsonTypeInfoResolver();
-        resolver.Modifiers.Add(static typeInfo =>
-        {
-            if (typeInfo.Type != typeof(ChatMessage))
-            {
-                return;
-            }
-
-            var polymorphism = typeInfo.PolymorphismOptions ??= new JsonPolymorphismOptions
-            {
-                TypeDiscriminatorPropertyName = "role",
-            };
-
-            polymorphism.DerivedTypes.Add(new JsonDerivedType(typeof(BashExecutionMessage), "bashExecution"));
-            polymorphism.DerivedTypes.Add(new JsonDerivedType(typeof(CustomMessage), "custom"));
-            polymorphism.DerivedTypes.Add(new JsonDerivedType(typeof(BranchSummaryMessage), "branchSummary"));
-            polymorphism.DerivedTypes.Add(new JsonDerivedType(typeof(CompactionSummaryMessage), "compactionSummary"));
-        });
-
+        resolver.Modifiers.Add(static typeInfo => AddCodingAgentRoles(typeInfo));
         return new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             TypeInfoResolver = resolver,
         };
+    }
+
+    /// <summary>
+    /// 把 coding-agent 的 4 个自定义 role 追加进 <see cref="ChatMessage"/> 的多态表。
+    /// </summary>
+    /// <remarks>
+    /// 独立成方法是为了让会话线路（<see cref="SessionEntries.JsonOptions"/>）复用同一张表，再在其上
+    /// 叠加只属于会话文件的遗留 role（<c>hookMessage</c>）。
+    /// </remarks>
+    internal static void AddCodingAgentRoles(JsonTypeInfo typeInfo)
+    {
+        if (typeInfo.Type != typeof(ChatMessage))
+        {
+            return;
+        }
+
+        var polymorphism = typeInfo.PolymorphismOptions ??= new JsonPolymorphismOptions
+        {
+            TypeDiscriminatorPropertyName = "role",
+        };
+
+        polymorphism.DerivedTypes.Add(new JsonDerivedType(typeof(BashExecutionMessage), "bashExecution"));
+        polymorphism.DerivedTypes.Add(new JsonDerivedType(typeof(CustomMessage), "custom"));
+        polymorphism.DerivedTypes.Add(new JsonDerivedType(typeof(BranchSummaryMessage), "branchSummary"));
+        polymorphism.DerivedTypes.Add(new JsonDerivedType(typeof(CompactionSummaryMessage), "compactionSummary"));
     }
 }
 

@@ -95,52 +95,15 @@ public sealed record CacheWarmingDecisionEventResult
 // ---------------------------------------------------------------------------
 // messages.ts（4e-2b）—— CustomMessage / UserMessageContent 占位已移除，
 // 真实类型见 Core/Messages.cs（CustomMessage 派生自 Pi.Ai 的 ChatMessage）。
+//
+// session-manager.ts（4e-2c-1）—— CustomEntry<T> / SessionEntry / ContextEditEntry /
+// CompactionEntry / BranchSummaryEntry / ProjectedSessionEntry 占位已移除，
+// 真实类型见 Core/SessionEntries.cs（在父命名空间 Pi.CodingAgent.Core 下，无需 using）。
 // ---------------------------------------------------------------------------
-
-/// <summary>TS <c>CustomEntry&lt;T&gt;</c> 占位（会话中的自定义条目）。// 4e/4f 接入后替换</summary>
-public sealed record CustomEntry<T>
-{
-    public required string CustomType { get; init; }
-
-    public T? Data { get; init; }
-}
 
 // ---------------------------------------------------------------------------
 // session-manager.ts（4e）
 // ---------------------------------------------------------------------------
-
-/// <summary>TS <c>SessionEntry</c> 占位。// 4e/4f 接入后替换</summary>
-public abstract record SessionEntry
-{
-    public required string Id { get; init; }
-}
-
-/// <summary>TS <c>ContextEditEntry</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record ContextEditEntry : SessionEntry
-{
-    /// <summary>TS <c>ContextEditEntry["replacement"]</c> 的占位。</summary>
-    public object? Replacement { get; init; }
-}
-
-/// <summary>TS <c>CompactionEntry</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record CompactionEntry : SessionEntry
-{
-    public string Summary { get; init; } = "";
-
-    public string? FirstKeptEntryId { get; init; }
-}
-
-/// <summary>TS <c>BranchSummaryEntry</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record BranchSummaryEntry : SessionEntry
-{
-    public string Summary { get; init; } = "";
-}
-
-/// <summary>TS <c>ProjectedSessionEntry</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record ProjectedSessionEntry
-{
-    public required string Id { get; init; }
-}
 
 /// <summary>
 /// TS <c>ReadonlySessionManager</c> 占位（扩展上下文里的只读会话视图）。// 4e/4f 接入后替换

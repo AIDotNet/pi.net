@@ -41,6 +41,11 @@
     <!-- 4e-2b: core/messages.ts — the four coding-agent message roles, the summary constants,
          bashExecutionToText, the three factories, convertToLlm, and the AgentMessage JSON wire shape. -->
     <None Include="messages-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4e-2c-1: core/session-manager.ts types and pure tree/projection logic — session version,
+         assertValidSessionId, parseSessionEntries, migrateSessionEntries (v1→v2→v3),
+         getLatestCompactionEntry, sessionEntryToContextMessages, buildContextEntries,
+         buildSessionProjection/Context, getDefaultSessionDir. -->
+    <None Include="session-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" />
