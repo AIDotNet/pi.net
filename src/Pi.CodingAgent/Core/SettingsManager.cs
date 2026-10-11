@@ -486,27 +486,64 @@ public sealed class SettingsManager
         return result;
     }
 
+    /// <summary>对应 TS <c>isToolModifier</c>。</summary>
+    internal static bool IsToolModifier(string? entry)
+        => entry is { Length: > 0 } && (entry[0] is '+' or '-');
+
+    /// <summary>对应 TS <c>getToolListError</c>。</summary>
+    internal static string? GetToolListError(IReadOnlyList<string> entries)
+    {
+        var modifiers = entries.Where(IsToolModifier).ToList();
+        if (modifiers.Count == 0)
+        {
+            return null;
+        }
+
+        if (modifiers.Count < entries.Count)
+        {
+            return "tool names cannot be mixed with +name or -name entries";
+        }
+
+        var pattern = modifiers.FirstOrDefault(entry => entry.Contains('*'));
+        return pattern is null ? null : $"+name and -name entries take exact tool names, not patterns: {pattern}";
+    }
+
+    /// <summary>对应 TS <c>applyToolModifiers</c>。</summary>
+    internal static List<string> ApplyToolModifiers(IReadOnlyList<string> @base, IReadOnlyList<string> entries)
+    {
+        var tools = @base.ToList();
+        foreach (var entry in entries)
+        {
+            if (!IsToolModifier(entry))
+            {
+                continue;
+            }
+
+            var name = entry[1..];
+            var index = tools.IndexOf(name);
+            if (entry[0] == '+' && index == -1 && name.Length > 0)
+            {
+                tools.Add(name);
+            }
+            else if (entry[0] == '-' && index != -1)
+            {
+                tools.RemoveAt(index);
+            }
+        }
+
+        return tools;
+    }
+
     /// <summary>
     /// Resolve a merged <c>defaultTools</c> list: plain names replace <see cref="DefaultToolNames"/>, then
     /// <c>+name</c> adds and <c>-name</c> removes a tool, in list order.
     /// </summary>
     internal static IReadOnlyList<string> ResolveDefaultTools(IReadOnlyList<string> entries)
     {
-        var plain = entries.Where(entry => !IsToolModifierText(entry)).ToList();
+        var plain = entries.Where(entry => !IsToolModifier(entry)).ToList();
         var tools = plain.Count > 0 || entries.Count == 0 ? plain : [.. DefaultToolNames];
-        foreach (var entry in entries)
-        {
-            if (!IsToolModifierText(entry)) continue;
-            var name = entry[1..];
-            var index = tools.IndexOf(name);
-            if (entry[0] == '+' && index == -1 && name.Length > 0) tools.Add(name);
-            else if (entry[0] == '-' && index != -1) tools.RemoveAt(index);
-        }
-        return tools;
+        return ApplyToolModifiers(tools, entries);
     }
-
-    private static bool IsToolModifierText(string entry)
-        => entry.Length > 0 && (entry[0] == '+' || entry[0] == '-');
 
     // ---- serialization boundary -------------------------------------------
 
