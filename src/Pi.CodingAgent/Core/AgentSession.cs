@@ -97,7 +97,7 @@ public sealed record AgentSessionConfig
 
 /// <summary>
 /// 会话核心。对应 TS <c>core/agent-session.ts</c>。
-/// 4e-3e-1：parseSkillBlock、配置/统计类型、headers 过滤。prompt 循环与扩展绑定顺延后续切片。
+/// 4e-3e-1：parseSkillBlock。4e-3e-3：getLastAssistantText、cycle 下标、thinking 循环。prompt 循环顺延 4e-3e-4。
 /// </summary>
 public static class AgentSession
 {
@@ -139,5 +139,64 @@ public static class AgentSession
         return headers
             .Where(entry => entry.Value is not null)
             .ToDictionary(entry => entry.Key, entry => entry.Value!, StringComparer.Ordinal);
+    }
+
+    /// <summary>对应 TS <c>getLastAssistantText</c>。</summary>
+    public static string? GetLastAssistantText(IReadOnlyList<ChatMessage> messages)
+    {
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i] is not AssistantMessage assistant)
+            {
+                continue;
+            }
+
+            if (assistant.StopReason == StopReason.Aborted && assistant.Content.Count == 0)
+            {
+                continue;
+            }
+
+            var text = string.Concat(assistant.Content.OfType<TextContent>().Select(block => block.Text)).Trim();
+            return text.Length == 0 ? null : text;
+        }
+
+        return null;
+    }
+
+    /// <summary>对应 TS <c>cycleModel</c> 的环形下标。</summary>
+    public static int NextCycleIndex(int currentIndex, int length, bool forward)
+    {
+        if (length <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(length));
+        }
+
+        if (currentIndex < 0)
+        {
+            currentIndex = 0;
+        }
+
+        return forward ? (currentIndex + 1) % length : (currentIndex - 1 + length) % length;
+    }
+
+    /// <summary>对应 TS <c>cycleThinkingLevel</c> 的下一档。</summary>
+    public static ThinkingLevel? NextThinkingLevel(ThinkingLevel current, IReadOnlyList<ThinkingLevel> levels)
+    {
+        if (levels.Count == 0)
+        {
+            return null;
+        }
+
+        var currentIndex = -1;
+        for (var i = 0; i < levels.Count; i++)
+        {
+            if (levels[i] == current)
+            {
+                currentIndex = i;
+                break;
+            }
+        }
+
+        return levels[(currentIndex + 1) % levels.Count];
     }
 }

@@ -91,4 +91,37 @@ public sealed class AgentSessionLeafTests : IDisposable
         var ex = Assert.Throws<SessionImportFileNotFoundError>(() => AgentSessionRuntime.RequireImportSource(missing));
         Assert.Contains("File not found:", ex.Message);
     }
+
+    [Fact]
+    public void GetLastAssistantText_SkipsAbortedEmptyAndJoinsText()
+    {
+        ChatMessage[] messages =
+        [
+            new AssistantMessage([new TextContent("old")], StopReason.Stop),
+            new AssistantMessage([], StopReason.Aborted),
+            new AssistantMessage([new TextContent("  new  "), new ToolCallContent("1", "bash", null)], StopReason.Stop),
+        ];
+        Assert.Equal("new", AgentSession.GetLastAssistantText(messages));
+    }
+
+    [Fact]
+    public void GetLastAssistantText_ReturnsNullWhenBlank()
+        => Assert.Null(AgentSession.GetLastAssistantText([new AssistantMessage([new TextContent("  ")])]));
+
+    [Fact]
+    public void NextCycleIndex_WrapsForwardAndBackward()
+    {
+        Assert.Equal(0, AgentSession.NextCycleIndex(2, 3, forward: true));
+        Assert.Equal(2, AgentSession.NextCycleIndex(0, 3, forward: false));
+        Assert.Equal(1, AgentSession.NextCycleIndex(-1, 3, forward: true));
+    }
+
+    [Fact]
+    public void NextThinkingLevel_WrapsAndTreatsMissingAsFirst()
+    {
+        ThinkingLevel[] levels = [ThinkingLevel.Off, ThinkingLevel.Low, ThinkingLevel.Medium];
+        Assert.Equal(ThinkingLevel.Off, AgentSession.NextThinkingLevel(ThinkingLevel.Medium, levels));
+        Assert.Equal(ThinkingLevel.Off, AgentSession.NextThinkingLevel(ThinkingLevel.High, levels));
+        Assert.Null(AgentSession.NextThinkingLevel(ThinkingLevel.Off, []));
+    }
 }
