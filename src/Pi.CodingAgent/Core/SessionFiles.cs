@@ -31,8 +31,14 @@ public static class SessionFiles
     /// <summary>TS <c>MAX_CONCURRENT_SESSION_INFO_LOADS</c>。</summary>
     private const int MaxConcurrentSessionInfoLoads = 10;
 
+    /// <summary>TS <c>MAX_CONCURRENT_SESSION_DISCOVERY_LOADS</c>。</summary>
+    private const int MaxConcurrentSessionDiscoveryLoads = 64;
+
     /// <summary>TS <c>CURRENT_SESSION_LIST_PUBLISH_INTERVAL</c>。</summary>
     private const int CurrentSessionListPublishInterval = 10;
+
+    /// <summary>TS <c>ALL_SESSION_LIST_PUBLISH_INTERVAL</c>。</summary>
+    private const int AllSessionListPublishInterval = 100;
 
     // ─────────────────────────────────────────────────────────────────────────────
     // 会话目录
@@ -76,13 +82,15 @@ public static class SessionFiles
         {
             return JsonSerializer.Deserialize<FileEntry>(line, SessionEntries.JsonOptions);
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or FormatException)
         {
-            // Skip malformed lines
-            return null;
-        }
-        catch (FormatException)
-        {
+            // Skip malformed lines。PI_SM_CORPUS_DEBUG 打开时输出诊断（差分语料收敛用）。
+            if (Environment.GetEnvironmentVariable("PI_SM_CORPUS_DEBUG") is not null)
+            {
+                Console.Error.WriteLine(
+                    $"[ParseSessionEntryLine] {ex.GetType().Name}: {ex.Message} (len={line.Length}) head={line[..Math.Min(80, line.Length)]}");
+            }
+
             return null;
         }
     }
@@ -226,7 +234,11 @@ public static class SessionFiles
     /// 读取文件首行作为会话头（4 KiB 缓冲、1 MiB 有界扫描、边界处探测 EOF 以允许恰好在
     /// 上限结束的无换行头行）。对应 TS <c>readSessionHeader</c>；未找到返回 null。
     /// </summary>
-    private static SessionHeader? ReadSessionHeader(string filePath)
+    /// <remarks>
+    /// 4e-2c-3 起为 internal：<see cref="SessionManager.Open"/> 需要直接调用（并对
+    /// <see cref="SessionHeaderScanLimitException"/> 回退到全量加载）。
+    /// </remarks>
+    internal static SessionHeader? ReadSessionHeader(string filePath)
     {
         using var stream = new FileStream(
             filePath, FileMode.Open, FileAccess.Read, FileShare.Read, SessionHeaderReadBufferSize);
@@ -635,5 +647,229 @@ public static class SessionFiles
             signal.ThrowIfCancellationRequested();
             return [];
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // 4e-2c-3：面向 SessionManager 的查询门面（TS 里是 session-manager.ts 的模块私有函数）
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 精确按会话 id 查找文件：目录内 <c>.jsonl</c> 逐个探测头部，id 与（可选的）cwd 过滤都匹配
+    /// 即返回路径。任何异常都按 best-effort 吞掉返回 null（与 list 一致）。对应 TS
+    /// <c>SessionManager.findById</c> 的循环体。
+    /// </summary>
+    /// <remarks>
+    /// TS <c>readdirSync</c> 在 NTFS 上按名称排序返回；端口用 Ordinal 排序近似（Linux 上
+    /// readdir 返回目录序，两端在非 NTFS 宿主上顺序都可能不同，命中结果不受影响）。
+    /// </remarks>
+    internal static string? FindSessionById(string cwd, string id, string? sessionDir)
+    {
+        var dir = sessionDir is not null ? Paths.NormalizePath(sessionDir) : GetDefaultSessionDir(cwd);
+        var filterCwd = sessionDir is not null && dir != SessionEntries.GetDefaultSessionDirPath(cwd);
+        var resolvedCwd = Paths.ResolvePath(cwd);
+
+        try
+        {
+            foreach (var file in Directory.GetFileSystemEntries(dir)
+                         .OrderBy(entry => entry, StringComparer.Ordinal))
+            {
+                if (!file.EndsWith(".jsonl", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var header = ReadSessionHeaderForDiscovery(file);
+                if (header?.Id != id)
+                {
+                    continue;
+                }
+
+                if (filterCwd && !SessionCwdMatches(header.Cwd, resolvedCwd))
+                {
+                    continue;
+                }
+
+                return file;
+            }
+        }
+        catch
+        {
+            // Exact session discovery is best-effort, matching list().
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 按会话管理器的 cwd 语义列会话：显式 <paramref name="sessionDir"/> 与默认目录不同时按
+    /// cwd 过滤结果（含进度回传里的部分结果）。对应 TS <c>SessionManager.list</c> 的门面逻辑。
+    /// </summary>
+    internal static async Task<IReadOnlyList<SessionInfo>> ListSessionsForCwdAsync(
+        string cwd, string? sessionDir, SessionListProgress? onProgress, CancellationToken signal)
+    {
+        var dir = sessionDir is not null ? Paths.NormalizePath(sessionDir) : GetDefaultSessionDir(cwd);
+        var filterCwd = sessionDir is not null && dir != SessionEntries.GetDefaultSessionDirPath(cwd);
+        var resolvedCwd = Paths.ResolvePath(cwd);
+
+        bool Include(SessionInfo session) =>
+            !filterCwd || SessionCwdMatches(session.Cwd, resolvedCwd);
+
+        SessionListProgress? progress = onProgress is null
+            ? null
+            : (loaded, total, partialSessions) =>
+                onProgress(
+                    loaded, total,
+                    partialSessions is null ? null : partialSessions.Where(Include).ToList());
+
+        var sessions = await ListSessionsAsync(dir, progress, signal).ConfigureAwait(false);
+        return SortSessionInfos(sessions.Where(Include).ToList());
+    }
+
+    /// <summary>
+    /// 列出全部会话：显式 <paramref name="sessionDir"/> 时只列该目录；否则扫描会话库根下每个
+    /// 项目目录（目录或符号链接），并发发现文件、按（修改时间降序 + 文件名倒序并列）排序后并发
+    /// 构建信息，周期性发布部分结果。对应 TS <c>SessionManager.listAll</c>。
+    /// </summary>
+    internal static async Task<IReadOnlyList<SessionInfo>> ListAllSessionsAsync(
+        string? sessionDir, SessionListProgress? onProgress, CancellationToken signal)
+    {
+        signal.ThrowIfCancellationRequested();
+        if (sessionDir is not null)
+        {
+            var customSessionDir = Paths.NormalizePath(sessionDir);
+            return SortSessionInfos(
+                [.. await ListSessionsAsync(customSessionDir, onProgress, signal).ConfigureAwait(false)]);
+        }
+
+        var sessionsDir = Config.GetSessionsDir();
+
+        try
+        {
+            if (!Directory.Exists(sessionsDir))
+            {
+                return [];
+            }
+
+            // TS: isDirectory() || isSymbolicLink()；.NET 以 ReparsePoint 近似符号链接。
+            var dirs = new DirectoryInfo(sessionsDir).EnumerateFileSystemInfos()
+                .Where(entry => entry is DirectoryInfo || entry.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                .Select(entry => NodePath.Join(sessionsDir, entry.Name))
+                .ToList();
+
+            var dirFiles = await MapWithConcurrency(dirs, MaxConcurrentSessionDiscoveryLoads,
+                async (dir, _) =>
+                {
+                    try
+                    {
+                        // Directory.GetFiles 返回完整路径（TS 的 readdirSync 只返回文件名），
+                        // 不再二次拼接。
+                        return Directory.GetFiles(dir)
+                            .Where(file => file.EndsWith(".jsonl", StringComparison.Ordinal))
+                            .ToList();
+                    }
+                    catch
+                    {
+                        return new List<string>();
+                    }
+                },
+                signal).ConfigureAwait(false);
+            var allFiles = dirFiles.SelectMany(files => files).ToList();
+            var candidates = await MapWithConcurrency(allFiles, MaxConcurrentSessionDiscoveryLoads,
+                async (path, _) =>
+                {
+                    (string Path, FileSystemInfo? Stats) candidate;
+                    try
+                    {
+                        var stats = new FileInfo(path);
+                        candidate = (path, stats.Exists ? (FileSystemInfo?)stats : null);
+                    }
+                    catch
+                    {
+                        candidate = (path, null);
+                    }
+
+                    return candidate;
+                },
+                signal).ConfigureAwait(false);
+            var sorted = SortCandidatesStable(candidates);
+
+            var totalFiles = sorted.Count;
+            var loaded = 0;
+            var firstCandidateLoaded = false;
+            var partialSessions = new List<SessionInfo>();
+            var gate = new object();
+            var results = await MapWithConcurrency(sorted, MaxConcurrentSessionInfoLoads,
+                async (file, index) =>
+                {
+                    var info = await BuildSessionInfoAsync(file.Path, signal, file.Stats).ConfigureAwait(false);
+                    lock (gate)
+                    {
+                        loaded++;
+                        if (index == 0)
+                        {
+                            firstCandidateLoaded = true;
+                        }
+
+                        if (info is not null)
+                        {
+                            partialSessions.Add(info);
+                        }
+
+                        var publishPartial = firstCandidateLoaded
+                            && (index == 0
+                                || loaded % AllSessionListPublishInterval == 0
+                                || loaded == totalFiles);
+                        onProgress?.Invoke(
+                            loaded, totalFiles,
+                            publishPartial ? SortSessionInfos([.. partialSessions]) : null);
+                    }
+
+                    return info;
+                },
+                signal).ConfigureAwait(false);
+
+            return SortSessionInfos([.. results.OfType<SessionInfo>()]);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            signal.ThrowIfCancellationRequested();
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// 候选文件排序（稳定）：修改时间降序（缺失视为 −∞ 排最后），时间相同（或都缺失）时按
+    /// 文件名倒序（TS <c>localeCompare</c>，端口用 CurrentCulture 近似）。
+    /// </summary>
+    private static List<(string Path, FileSystemInfo? Stats)> SortCandidatesStable(
+        (string Path, FileSystemInfo? Stats)[] candidates)
+    {
+        // TS Array.sort 是稳定排序；.NET List.Sort 不稳定，附原索引做稳定化。
+        var withIndex = candidates.Select((candidate, index) => (candidate, index)).ToList();
+        withIndex.Sort((left, right) =>
+        {
+            var result = CompareCandidates(left.candidate, right.candidate);
+            return result != 0 ? result : left.index.CompareTo(right.index);
+        });
+        return [.. withIndex.Select(pair => pair.candidate)];
+    }
+
+    private static int CompareCandidates((string Path, FileSystemInfo? Stats) left, (string Path, FileSystemInfo? Stats) right)
+    {
+        // TS: (b.mtimeMs ?? -Inf) - (a.mtimeMs ?? -Inf) || basename(b).localeCompare(basename(a))
+        // 两侧都缺失时差值是 NaN（falsy），直接落到文件名比较——与端口「都缺失跳过时间比较」一致。
+        var leftMtime = left.Stats?.LastWriteTimeUtc;
+        var rightMtime = right.Stats?.LastWriteTimeUtc;
+        if (leftMtime.HasValue || rightMtime.HasValue)
+        {
+            var result = (rightMtime ?? DateTimeOffset.MinValue).CompareTo(leftMtime ?? DateTimeOffset.MinValue);
+            if (result != 0)
+            {
+                return result;
+            }
+        }
+
+        return string.Compare(
+            Path.GetFileName(right.Path), Path.GetFileName(left.Path), StringComparison.CurrentCulture);
     }
 }

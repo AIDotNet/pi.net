@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
@@ -292,8 +293,15 @@ public sealed record CustomMessageEntry : SessionEntry
 /// </remarks>
 public sealed record ContextEditReplacement
 {
+    /// <summary>
+    /// 替换内容，线路原样（string | Content[]）。TS 的 <c>appendContextEdit</c> 入参校验把
+    /// JSON null / 缺失 / 其他标量一律拒绝，而 <see cref="MessageContent"/> 的转换器会把
+    /// null 归一化为空 Blocks（消息线路的旧文件语义）——两者冲突，这里保留原始节点，由
+    /// <see cref="SessionManager.AppendContextEdit"/> 校验、由 <see cref="ProjectContextEntry"/>
+    /// 转换为消息内容。
+    /// </summary>
     [JsonPropertyName("content")]
-    public MessageContent? Content { get; init; }
+    public JsonNode? Content { get; init; }
 }
 
 /// <summary>
@@ -992,7 +1000,14 @@ public static partial class SessionEntries
             return [];
         }
 
-        var replacementContent = replacement.Content ?? MessageContent.BlocksOf([]);
+        // replacement.Content 是线路原样节点（string | Content[]，见 ContextEditReplacement 注释）；
+        // 其他形状已被 AppendContextEdit 校验拒绝，这里兜底归一化为空 Blocks。
+        MessageContent replacementContent = replacement.Content switch
+        {
+            JsonValue { } value when value.TryGetValue<string>(out var text) => new MessageContent.Text(text),
+            JsonArray array => new MessageContent.Blocks(array.Deserialize<List<ContentBlock>>(SessionEntries.JsonOptions) ?? []),
+            _ => MessageContent.BlocksOf([]),
+        };
         var projected = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {

@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1（叶子模块）+ 4e-2a（`Usage` 完整形态）+ 4e-2b（`AgentMessage` / `core/messages.ts`）+ 4e-2c-0（消息内容联合下沉）+ **4e-2c-1（`session-manager` 类型与纯树/投影逻辑）** + **4e-2c-2（`session-manager` 文件 I/O 与目录发现）** 完成（2026-10-11）；余 4e-2c-3、4e-2d 待办                     |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1（叶子模块）+ 4e-2a（`Usage` 完整形态）+ 4e-2b（`AgentMessage` / `core/messages.ts`）+ 4e-2c-0（消息内容联合下沉）+ **4e-2c-1（`session-manager` 类型与纯树/投影逻辑）** + **4e-2c-2（`session-manager` 文件 I/O 与目录发现）** + **4e-2c-3（`SessionManager` 类与差分语料）** 完成（2026-10-11）；余 4e-2d 待办                     |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -473,6 +473,7 @@ C# 侧另有若干「JS 语义」辅助（TS 无对应文件，供全部子阶�
 | `LlamaCorpusTests` | 88 | 4d-7a/4d-7b llama 差分：`formatBytes`（26 条含 KiB/MiB 进位与 `>=10` 精度切换）、`normalizeLlamaServerUrl`（46 条含 23 条 IPv6：校验、规范压缩、内嵌 IPv4、非法字面量）、`llamaInferenceUrl`、`LlamaClient` 的 `list`/`props`/`load`/`unload`/`download`/`unloadAndWait`（脚本化 fetch，逐请求比对 URL/方法/头/体 + 错误文案）、`watch`（29 条：SSE 分帧、CRLF、多 `data:` 行、畸形 JSON、BOM、多字节跨块、非法字节、无 body/HTTP 错）、`loadAndWait`（11 条：首轮即 loaded、事件短路、事件失败、退出码优先、其他模型事件不短路、事件进度）、`downloadAndWait`（9 条：两轮轮询、阈值兜底、状态进度、finished/failed 事件、事件过滤）、`parseLoadProgress` / `parseDownloadProgress`、`HuggingFaceClient` 的 `search` / `details`（量化解析、分片合并、`Q4_K_M` 优先与同名次排序）、`findHuggingFaceToken`（临时目录回放发现顺序） |
 | `CodemodeCorpusTests` | 26 | 4d-5 codemode 差分：常量（工具名 / store 条目类型 / 默认 inline 预算 / docsPath 连接分隔符 / 系统提示 snippet+guidelines）、schema 逐键深度比对（含引用身份供 `isCodemodeTool` 用）、schema 身份守卫（名称匹配+引用匹配→true；引用不同→false；名称不同→false）、`toCodemodeDeclaration`（3 条含空格名修剪、空 guideline 过滤、outputSchema 缺省回退文本 schema）、`getCodemodeCallableTools`（codemode 自身被排除）、`createCodemodeDescription`（10 条：空/全工具 × models、namespace 分组标题、deferred 完全隐藏、预算 0/40/300/无限截断、仅 namespace 工具）、`createCodemodeToolDefinition` + `prepareLoadout`（mode on/only/default：描述改写、codemode 自身描述、only 模式隐藏 direct 声明、constrainedSampling grammar 逐字节）、`readCodemodeStore`（空 branch、set+delete 应用顺序、畸形 data 跳过、非对象 data）、`combineUsage`（可选 cacheWrite1h/reasoning 任一侧存在即保留）、`addUsageToTotals`、`getUsageCostBreakdown`（按模型分组、`Tools/summaries` 桶、零值行过滤、按成本降序） |
 | `SessionFilesCorpusTests` | 21 | 4e-2c-2 会话文件 I/O 差分（语料由真实 TS 模块对 Node 临时目录产出，回放侧按相同字节与 mtime 重建后比对）：`loadEntriesFromFile` 9 条（正常 / 空文件 / 仅头 / 首行非头→空 / 坏行+空行跳过 / 缺尾换行修复（验证文件被补 `\n`）/ BOM 不剥→首行失效→空 / 多字节 UTF-8 / 尾行截断 JSON 跳过+修复）、`findMostRecentSession` 5 条（mtime 最新（无 cwd 时无视 cwd）/ cwd 过滤命中较旧 / cwd 无匹配→null / 目录缺失→null / 空目录→null；覆盖非会话文件与非 .jsonl 忽略）、`SessionManager.list` 门面语义下的 `buildSessionInfo`/`listSessionsFromDir` 6 条（modified 排序、活动时间与 firstMessage 提取、toolResult/bashExecution 不参与文本与活动时间、session_info 命名与 trim 清除、纯图片 user 无文本、无头/空文件→无条目、目录缺失→[]） |
+| `SessionManagerCorpusTests` | 20 | 4e-2c-3 SessionManager 类差分：op 解释器驱动真实 TS `SessionManager` 与 C# 回放器在各自 per-scenario 临时目录执行同一 ops 序列（含 `$N`/`$pN`/`$root` 占位引用与 `{"__pad":{p,n,s}}` 超长 fixture 压缩），逐 op 输出做 token 归一化后全等比对。20 场景：append 系列 11 op + 持久化门控（user/assistant 才落盘）、session_info 命名与 trim、appendCompaction（当前 system 消息转储）、appendContextEdit（校验/branch/字符串→块归一）、appendLabelChange、open 全家（existing/empty/invalid/missing-explicit-path/scan-limit 回退）、树排序与孤儿、branch/branchWithSummary/ResetLeaf、createBranchedSession（persist/in-memory，label 重链）、静态工厂（create options/continueRecent/forkFrom/findById/list/listAll）、v1/v2 迁移 on open |
 
 ## 4d-1 进度（2026-10-10）：扩展系统契约层
 
@@ -1444,3 +1445,73 @@ null-vs-省略），不只是逻辑。另有两项不依赖语料的断言：透
 - 文件名 `localeCompare` 倒序以 `StringComparer.CurrentCulture` 近似（语料文件名为 ASCII，两侧一致）。
 - `buildSessionInfo`/`listSessionsFromDir` 是模块私有函数，差分经 `SessionManager.list` 门面
   （cwd 过滤 + modified 排序）驱动；C# 回放复刻同一门面语义（过滤 + 稳定排序）。
+
+## 4e-2c-3 进度（2026-10-11）：`SessionManager` 类 + 差分语料回放
+
+`session-manager.ts` 987–2013 行（约 1,030 行）已移植：`SessionManager` 类全量（构造/文件切换/
+newSession/append 全系列/getter 全系列/树遍历/branch 系列/静态工厂 Create·Open·ContinueRecent·
+InMemory·ForkFrom·FindById·List·ListAll）。构建 0 警告 0 错误；`SessionManagerCorpusTests`
+20/20 绿（差分语料，见下）；全量测试 842/848 —— 6 个失败为**预存环境敏感用例**
+（`ModelResolverTests` 2 + `CoreModelRuntimeTests` 4，干净基线 `git stash` 后同样失败，
+模型 catalog 发现本机 anthropic 凭据所致，与本批次无关，已记录待排查）。
+
+### 新增/改动文件
+
+| 文件 | 内容 |
+| --- | --- |
+| `src/Pi.CodingAgent/Core/SessionManager.cs` | TS `SessionManager` 类全量：私有构造 + `SetSessionFileInternal`（空文件初始化 header / 非会话文件抛错 / 缺失保留显式路径）、`NewSession`（`fileTimestamp = timestamp.replace(/[:.]/g, "-")`）、`LoadEntries`/`BuildIndex`/`RewriteFile`/`HasConversation`/`Persist`（wx 首写 + 追加）、append 系列 11 个（message/thinkingLevel/model/usage（note 空串折叠 null）/compaction（当前 system 消息转储）/custom/sessionInfo/customMessage/contextEdit/labelChange）、getter 全系列、`GetTree`（稳定插入排序对齐 TS `new Date(a)-new Date(b)` NaN 语义 + 孤儿/无 id 条目为根）、`Branch`/`ResetLeaf`/`BranchWithSummary`/`CreateBranchedSession`（label 重链 + firstKeptEntryId 替换）、静态工厂（`Create`/`Open`（ScanLimit 回退全量加载）/`ContinueRecent`/`InMemory`/`ForkFrom`/`FindById`/`ListAsync`/`ListAllAsync`） |
+| `src/Pi.CodingAgent/Core/SessionFiles.cs` | `ReadSessionHeader` internal 化（供 `Open`）、`FindSessionById`、`ListSessionsForCwdAsync`、`ListAllSessionsAsync`（库根扫子目录 + 并发发现 + 稳定排序 + 周期发布部分结果）、`ParseSessionEntryLine` 补 `NotSupportedException` 捕获（JSON 合法但缺 `type` discriminator 的行跳过） |
+| `src/Pi.CodingAgent/Core/SessionEntries.cs` | `ContextEditReplacement.Content` 由 `MessageContent?` 改为 `JsonNode?`（保留线路原样，见缺陷 3） |
+| `tests/Pi.CodingAgent.Tests/SessionManagerCorpusTests.cs` + `session-manager-corpus.json` | 差分语料回放（见下） |
+
+### 4e-2c-3 差分验证
+
+- 语料由真实 TS `SessionManager` 产出：`node --import ./tools/register-session-files-shims.mjs
+  tools/gen-coding-agent-session-manager-corpus.mjs`。op 解释器在 per-scenario 临时目录驱动真实
+  `session-manager.ts`（`process.chdir` + `PI_CODING_AGENT_DIR` 指向场景 agent 目录），C# 回放侧
+  在自己的临时目录执行同一 ops（`Directory.SetCurrentDirectory` + 同名 env）逐 op 比对。
+- 20 场景：append-basic / session-info-clear-and-trim / append-compaction / append-context-edit /
+  append-label-change / open-existing-full / open-empty-file / open-invalid-file /
+  open-missing-file-explicit-path / open-scan-limit-fallback / tree-ordering-and-orphans /
+  branch-and-branch-with-summary / create-branched-session-persist /
+  create-branched-session-in-memory / static-create-options / static-continue-recent /
+  static-fork-from / static-find-by-id / static-list-and-list-all / migrate-on-open。
+- 语料机制：`$N`/`$pN`/`$root` 占位引用（随机 id/路径/tempRoot 的两侧无关化）；token 化规则
+  （uuid/8-hex → `#N`、ISO/偏移时间戳 → `<tsN>`、文件名时间戳 → `<file-ts>`、tempRoot → `<TMP>`、
+  数字 timestamp → `<millis>`、>128 字符串 → `<str:len>`，长度按 tempRoot 与 safePath 归一化后
+  计算）；`{"__pad":{p,n,s}}` 超长 fixture 压缩（p + x×n + 后缀 s，scan-limit 场景 1.2 MB cwd）；
+  `expectThrow` op 记录真实错误消息（两侧异常文案逐字比对）。
+- 关键实现点：测试序列化按**声明类型** `typeof(FileEntry)`（多态 `type` discriminator 才会写出）；
+  测试序列化 options 从 `SessionEntries.JsonOptions` 克隆（保留 camelCase + `type`/`role` 双层多态）
+  再加 `UnsafeRelaxedJsonEscaping`；`GetTree` 的 record `Children` collection expression 构造出
+  **数组**而非 List，需并行维护 List 引用。
+
+### 4e-2c-3 发现并修复的真实缺陷（差分语料抓到）
+
+1. **会话文件写不出 `type` 字段（产品级严重）**：`RewriteFile`/`Persist`/`CreateBranchedSession`
+   的 `JsonSerializer.Serialize(entry, options)` 按运行时类型序列化，多态 `type` discriminator
+   **不写出**——TS 读 C# 写的会话文件会整文件判空。修复：全部改为
+   `Serialize(entry, typeof(FileEntry), options)` 按声明类型序列化（与 TS `JSON.stringify` 形状一致）。
+2. **`listAll` 双重拼路径**：`ListAllSessionsAsync` 里 `Directory.GetFiles(dir)` 已返回完整路径，
+   再 `NodePath.Join(dir, file)` 产生无效路径 → 全库扫描恒空。修复：直接使用完整路径。
+3. **`ContextEditReplacement.Content` 吞掉 JSON null**：`MessageContent` 转换器把 null 归一化为空
+   `Blocks`（消息线路对旧文件的语义），但 TS `appendContextEdit` 的入参校验要求 `content` 为
+   string/数组、null 抛错——差分语料的 `expectThrow` 场景直接暴露（C# 不抛 → op 序列错位）。
+   修复：`Content` 改为 `JsonNode?` 保留线路原样，`AppendContextEdit` 按原始节点校验，
+   `ProjectContextEntry` 再转换为消息内容。
+4. **`GetTree` 的数组 cast**：record `Children = []` 构造数组而非 List，`(List<...>)node.Children`
+   抛 `InvalidCastException`；且无 id 根条目（TS 以 "undefined" 为键）在子节点排序时缺 childrenMap
+   条目会炸。修复：先建 List 再同时赋给属性与字典；排序循环对无 id 条目跳过。
+
+### 4e-2c-3 设计差异（文档化）
+
+- 无 id 条目：TS `BuildIndex` 以字符串 `"undefined"` 为键、`getTree` 按其连接；端口跳过无 id 条目、
+  `getTree` 把它们当根返回（v1 迁移后 id 恒非空，仅畸形文件受影响，差异 2c3-1）。
+- `listAll` 目录枚举：TS `readdirSync` NTFS 排序近似为 `EnumerateFileSystemInfos` 默认序
+  （差异 2c3-2）；符号链接以 ReparsePoint 属性近似。
+- 语料 `<str:len>` 折叠：超长字符串只保留归一化后长度，两侧 temp 根绝对长度不同不影响比对
+  （机制性约定，非产品差异）。
+- `expectThrow` 的错误文案两侧逐字比对：C# 统一用 `InvalidOperationException`，消息文本与 TS
+  `Error` 一致（如 `Entry {id} not found`、`Cannot fork: source session file is empty or invalid: {path}`、
+  `Session file is not a valid pi session: {path}`）。
+

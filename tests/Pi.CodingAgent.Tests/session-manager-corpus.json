@@ -1,0 +1,6650 @@
+{
+	"scenarios": [
+		{
+			"name": "append-basic",
+			"ops": [
+				{
+					"op": "create",
+					"args": {
+						"cwd": "/proj"
+					}
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/agent/sessions"
+					}
+				},
+				{
+					"op": "appendThinkingLevelChange",
+					"args": {
+						"thinkingLevel": "high"
+					}
+				},
+				{
+					"op": "appendModelChange",
+					"args": {
+						"provider": "anthropic",
+						"modelId": "claude-sonnet-4"
+					}
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/agent/sessions"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "hello",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "hi there"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "toolResult",
+							"toolCallId": "call-1",
+							"toolName": "bash",
+							"content": [
+								{
+									"type": "text",
+									"text": "ok"
+								}
+							],
+							"isError": false,
+							"timestamp": 1767225603000
+						}
+					}
+				},
+				{
+					"op": "appendUsage",
+					"args": {
+						"kind": "cache_warm",
+						"provider": "anthropic",
+						"model": "claude-sonnet-4",
+						"usage": {
+							"input": 10,
+							"output": 4,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 17,
+							"cost": {
+								"input": 1,
+								"output": 2,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 3
+							}
+						}
+					}
+				},
+				{
+					"op": "appendUsage",
+					"args": {
+						"kind": "note",
+						"provider": "anthropic",
+						"model": "m",
+						"usage": {
+							"input": 10,
+							"output": 4,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 17,
+							"cost": {
+								"input": 1,
+								"output": 2,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 3
+							}
+						},
+						"note": "note here"
+					}
+				},
+				{
+					"op": "appendUsage",
+					"args": {
+						"kind": "empty-note",
+						"provider": "anthropic",
+						"model": "m",
+						"usage": {
+							"input": 10,
+							"output": 4,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 17,
+							"cost": {
+								"input": 1,
+								"output": 2,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 3
+							}
+						},
+						"note": ""
+					}
+				},
+				{
+					"op": "appendCustomEntry",
+					"args": {
+						"customType": "ext-state",
+						"data": {
+							"counter": 3
+						}
+					}
+				},
+				{
+					"op": "appendSessionInfo",
+					"args": {
+						"name": "My Session"
+					}
+				},
+				{
+					"op": "appendCustomMessageEntry",
+					"args": {
+						"customType": "ext-msg",
+						"content": "hello custom",
+						"display": true,
+						"details": {
+							"k": 1
+						}
+					}
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/agent/sessions"
+					}
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "getLeafId"
+				},
+				{
+					"op": "getEntryCount"
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getSessionName"
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getCwd"
+				},
+				{
+					"op": "getSessionDir"
+				},
+				{
+					"op": "usesDefaultSessionDir"
+				},
+				{
+					"op": "isPersisted"
+				},
+				{
+					"op": "buildSessionProjection"
+				}
+			],
+			"results": [
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": null,
+							"name": "--<TMP>-proj--"
+						}
+					]
+				},
+				{
+					"op": "appendThinkingLevelChange",
+					"out": "#1"
+				},
+				{
+					"op": "appendModelChange",
+					"out": "#1"
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": null,
+							"name": "--<TMP>-proj--"
+						}
+					]
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendUsage",
+					"out": {
+						"id": "#1",
+						"kind": "cache_warm",
+						"model": "claude-sonnet-4",
+						"parentId": "#2",
+						"provider": "anthropic",
+						"timestamp": "<ts1>",
+						"type": "usage",
+						"usage": {
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"cost": {
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"input": 1,
+								"output": 2,
+								"total": 3
+							},
+							"input": 10,
+							"output": 4,
+							"totalTokens": 17
+						}
+					}
+				},
+				{
+					"op": "appendUsage",
+					"out": {
+						"id": "#1",
+						"kind": "note",
+						"model": "m",
+						"note": "note here",
+						"parentId": "#2",
+						"provider": "anthropic",
+						"timestamp": "<ts1>",
+						"type": "usage",
+						"usage": {
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"cost": {
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"input": 1,
+								"output": 2,
+								"total": 3
+							},
+							"input": 10,
+							"output": 4,
+							"totalTokens": 17
+						}
+					}
+				},
+				{
+					"op": "appendUsage",
+					"out": {
+						"id": "#1",
+						"kind": "empty-note",
+						"model": "m",
+						"parentId": "#2",
+						"provider": "anthropic",
+						"timestamp": "<ts1>",
+						"type": "usage",
+						"usage": {
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"cost": {
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"input": 1,
+								"output": 2,
+								"total": 3
+							},
+							"input": 10,
+							"output": 4,
+							"totalTokens": 17
+						}
+					}
+				},
+				{
+					"op": "appendCustomEntry",
+					"out": "#1"
+				},
+				{
+					"op": "appendSessionInfo",
+					"out": "#1"
+				},
+				{
+					"op": "appendCustomMessageEntry",
+					"out": "#1"
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": null,
+							"name": "--<TMP>-proj--"
+						}
+					]
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "#1",
+							"parentId": null,
+							"thinkingLevel": "high",
+							"timestamp": "<ts1>",
+							"type": "thinking_level_change"
+						},
+						{
+							"id": "#2",
+							"modelId": "claude-sonnet-4",
+							"parentId": "#3",
+							"provider": "anthropic",
+							"timestamp": "<ts2>",
+							"type": "model_change"
+						},
+						{
+							"id": "#4",
+							"message": {
+								"content": "hello",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "#5",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "#6",
+							"message": {
+								"content": [
+									{
+										"text": "hi there",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#7",
+							"timestamp": "<ts4>",
+							"type": "message"
+						},
+						{
+							"id": "#8",
+							"message": {
+								"content": [
+									{
+										"text": "ok",
+										"type": "text"
+									}
+								],
+								"isError": false,
+								"role": "toolResult",
+								"timestamp": "<millis>",
+								"toolCallId": "call-1",
+								"toolName": "bash"
+							},
+							"parentId": "#9",
+							"timestamp": "<ts5>",
+							"type": "message"
+						},
+						{
+							"id": "#10",
+							"kind": "cache_warm",
+							"model": "claude-sonnet-4",
+							"parentId": "#11",
+							"provider": "anthropic",
+							"timestamp": "<ts6>",
+							"type": "usage",
+							"usage": {
+								"cacheRead": 2,
+								"cacheWrite": 1,
+								"cost": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"input": 1,
+									"output": 2,
+									"total": 3
+								},
+								"input": 10,
+								"output": 4,
+								"totalTokens": 17
+							}
+						},
+						{
+							"id": "#12",
+							"kind": "note",
+							"model": "m",
+							"note": "note here",
+							"parentId": "#13",
+							"provider": "anthropic",
+							"timestamp": "<ts7>",
+							"type": "usage",
+							"usage": {
+								"cacheRead": 2,
+								"cacheWrite": 1,
+								"cost": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"input": 1,
+									"output": 2,
+									"total": 3
+								},
+								"input": 10,
+								"output": 4,
+								"totalTokens": 17
+							}
+						},
+						{
+							"id": "#14",
+							"kind": "empty-note",
+							"model": "m",
+							"parentId": "#15",
+							"provider": "anthropic",
+							"timestamp": "<ts8>",
+							"type": "usage",
+							"usage": {
+								"cacheRead": 2,
+								"cacheWrite": 1,
+								"cost": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"input": 1,
+									"output": 2,
+									"total": 3
+								},
+								"input": 10,
+								"output": 4,
+								"totalTokens": 17
+							}
+						},
+						{
+							"customType": "ext-state",
+							"data": {
+								"counter": 3
+							},
+							"id": "#16",
+							"parentId": "#17",
+							"timestamp": "<ts9>",
+							"type": "custom"
+						},
+						{
+							"id": "#18",
+							"name": "My Session",
+							"parentId": "#19",
+							"timestamp": "<ts10>",
+							"type": "session_info"
+						},
+						{
+							"content": "hello custom",
+							"customType": "ext-msg",
+							"details": {
+								"k": 1
+							},
+							"display": true,
+							"id": "#20",
+							"parentId": "#21",
+							"timestamp": "<ts11>",
+							"type": "custom_message"
+						}
+					]
+				},
+				{
+					"op": "getLeafId",
+					"out": "#1"
+				},
+				{
+					"op": "getEntryCount",
+					"out": 11
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "<TMP>/proj",
+						"id": "#1",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getSessionName",
+					"out": "My Session"
+				},
+				{
+					"op": "getSessionId",
+					"out": "#1"
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/agent/sessions/--<TMP>-proj--/<file-ts>_#1.jsonl"
+				},
+				{
+					"op": "getCwd",
+					"out": "<TMP>/proj"
+				},
+				{
+					"op": "getSessionDir",
+					"out": "<TMP>/agent/sessions/--<TMP>-proj--"
+				},
+				{
+					"op": "usesDefaultSessionDir",
+					"out": true
+				},
+				{
+					"op": "isPersisted",
+					"out": true
+				},
+				{
+					"op": "buildSessionProjection",
+					"out": {
+						"entries": [
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#1",
+									"parentId": null,
+									"thinkingLevel": "high",
+									"timestamp": "<ts1>",
+									"type": "thinking_level_change"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#2",
+									"modelId": "claude-sonnet-4",
+									"parentId": "#3",
+									"provider": "anthropic",
+									"timestamp": "<ts2>",
+									"type": "model_change"
+								}
+							},
+							{
+								"messages": [
+									{
+										"content": "hello",
+										"role": "user",
+										"timestamp": "<millis>"
+									}
+								],
+								"sourceEntry": {
+									"id": "#4",
+									"message": {
+										"content": "hello",
+										"role": "user",
+										"timestamp": "<millis>"
+									},
+									"parentId": "#5",
+									"timestamp": "<ts3>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [
+									{
+										"content": [
+											{
+												"text": "hi there",
+												"type": "text"
+											}
+										],
+										"model": "claude-sonnet-4",
+										"provider": "anthropic",
+										"role": "assistant",
+										"stopReason": "stop",
+										"timestamp": "<millis>",
+										"usage": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"cost": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"input": 0,
+												"output": 0,
+												"total": 0
+											},
+											"input": 10,
+											"output": 4,
+											"totalTokens": 14
+										}
+									}
+								],
+								"sourceEntry": {
+									"id": "#6",
+									"message": {
+										"content": [
+											{
+												"text": "hi there",
+												"type": "text"
+											}
+										],
+										"model": "claude-sonnet-4",
+										"provider": "anthropic",
+										"role": "assistant",
+										"stopReason": "stop",
+										"timestamp": "<millis>",
+										"usage": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"cost": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"input": 0,
+												"output": 0,
+												"total": 0
+											},
+											"input": 10,
+											"output": 4,
+											"totalTokens": 14
+										}
+									},
+									"parentId": "#7",
+									"timestamp": "<ts4>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [
+									{
+										"content": [
+											{
+												"text": "ok",
+												"type": "text"
+											}
+										],
+										"isError": false,
+										"role": "toolResult",
+										"timestamp": "<millis>",
+										"toolCallId": "call-1",
+										"toolName": "bash"
+									}
+								],
+								"sourceEntry": {
+									"id": "#8",
+									"message": {
+										"content": [
+											{
+												"text": "ok",
+												"type": "text"
+											}
+										],
+										"isError": false,
+										"role": "toolResult",
+										"timestamp": "<millis>",
+										"toolCallId": "call-1",
+										"toolName": "bash"
+									},
+									"parentId": "#9",
+									"timestamp": "<ts5>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#10",
+									"kind": "cache_warm",
+									"model": "claude-sonnet-4",
+									"parentId": "#11",
+									"provider": "anthropic",
+									"timestamp": "<ts6>",
+									"type": "usage",
+									"usage": {
+										"cacheRead": 2,
+										"cacheWrite": 1,
+										"cost": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"input": 1,
+											"output": 2,
+											"total": 3
+										},
+										"input": 10,
+										"output": 4,
+										"totalTokens": 17
+									}
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#12",
+									"kind": "note",
+									"model": "m",
+									"note": "note here",
+									"parentId": "#13",
+									"provider": "anthropic",
+									"timestamp": "<ts7>",
+									"type": "usage",
+									"usage": {
+										"cacheRead": 2,
+										"cacheWrite": 1,
+										"cost": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"input": 1,
+											"output": 2,
+											"total": 3
+										},
+										"input": 10,
+										"output": 4,
+										"totalTokens": 17
+									}
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#14",
+									"kind": "empty-note",
+									"model": "m",
+									"parentId": "#15",
+									"provider": "anthropic",
+									"timestamp": "<ts8>",
+									"type": "usage",
+									"usage": {
+										"cacheRead": 2,
+										"cacheWrite": 1,
+										"cost": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"input": 1,
+											"output": 2,
+											"total": 3
+										},
+										"input": 10,
+										"output": 4,
+										"totalTokens": 17
+									}
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"customType": "ext-state",
+									"data": {
+										"counter": 3
+									},
+									"id": "#16",
+									"parentId": "#17",
+									"timestamp": "<ts9>",
+									"type": "custom"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#18",
+									"name": "My Session",
+									"parentId": "#19",
+									"timestamp": "<ts10>",
+									"type": "session_info"
+								}
+							},
+							{
+								"messages": [
+									{
+										"content": "hello custom",
+										"customType": "ext-msg",
+										"details": {
+											"k": 1
+										},
+										"display": true,
+										"role": "custom",
+										"timestamp": "<millis>"
+									}
+								],
+								"sourceEntry": {
+									"content": "hello custom",
+									"customType": "ext-msg",
+									"details": {
+										"k": 1
+									},
+									"display": true,
+									"id": "#20",
+									"parentId": "#21",
+									"timestamp": "<ts11>",
+									"type": "custom_message"
+								}
+							}
+						],
+						"messages": [
+							{
+								"content": "hello",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							{
+								"content": [
+									{
+										"text": "hi there",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							{
+								"content": [
+									{
+										"text": "ok",
+										"type": "text"
+									}
+								],
+								"isError": false,
+								"role": "toolResult",
+								"timestamp": "<millis>",
+								"toolCallId": "call-1",
+								"toolName": "bash"
+							},
+							{
+								"content": "hello custom",
+								"customType": "ext-msg",
+								"details": {
+									"k": 1
+								},
+								"display": true,
+								"role": "custom",
+								"timestamp": "<millis>"
+							}
+						],
+						"model": {
+							"modelId": "claude-sonnet-4",
+							"provider": "anthropic"
+						},
+						"thinkingLevel": "high"
+					}
+				}
+			]
+		},
+		{
+			"name": "session-info-clear-and-trim",
+			"ops": [
+				{
+					"op": "create",
+					"args": {
+						"cwd": "/proj"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "hi",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendSessionInfo",
+					"args": {
+						"name": "first name"
+					}
+				},
+				{
+					"op": "getSessionName"
+				},
+				{
+					"op": "appendSessionInfo",
+					"args": {
+						"name": ""
+					}
+				},
+				{
+					"op": "getSessionName"
+				},
+				{
+					"op": "appendSessionInfo",
+					"args": {
+						"name": "  padded  "
+					}
+				},
+				{
+					"op": "getSessionName"
+				},
+				{
+					"op": "appendSessionInfo",
+					"args": {
+						"name": "line1\r\nline2"
+					}
+				},
+				{
+					"op": "getSessionName"
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/agent/sessions"
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendSessionInfo",
+					"out": "#1"
+				},
+				{
+					"op": "getSessionName",
+					"out": "first name"
+				},
+				{
+					"op": "appendSessionInfo",
+					"out": "#1"
+				},
+				{
+					"op": "getSessionName",
+					"out": null
+				},
+				{
+					"op": "appendSessionInfo",
+					"out": "#1"
+				},
+				{
+					"op": "getSessionName",
+					"out": "padded"
+				},
+				{
+					"op": "appendSessionInfo",
+					"out": "#1"
+				},
+				{
+					"op": "getSessionName",
+					"out": "line1 line2"
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": null,
+							"name": "--<TMP>-proj--"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "append-compaction",
+			"ops": [
+				{
+					"op": "create",
+					"args": {
+						"cwd": "/proj"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "system",
+							"content": "You are helpful.",
+							"timestamp": 1767225600000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "question one",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "answer one"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "question two",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendCompaction",
+					"args": {
+						"summary": "compacted summary",
+						"firstKeptEntryId": null,
+						"tokensBefore": 4321
+					}
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "buildSessionProjection"
+				},
+				{
+					"op": "buildSessionContext"
+				},
+				{
+					"op": "appendCompaction",
+					"args": {
+						"summary": "hook compaction",
+						"firstKeptEntryId": null,
+						"tokensBefore": 5000,
+						"details": {
+							"version": 2
+						},
+						"fromHook": true,
+						"usage": {
+							"input": 10,
+							"output": 4,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 17,
+							"cost": {
+								"input": 1,
+								"output": 2,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 3
+							}
+						}
+					}
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/agent/sessions"
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendCompaction",
+					"out": "#1"
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "You are helpful.",
+								"role": "system",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": "question one",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#4",
+							"message": {
+								"content": [
+									{
+										"text": "answer one",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#5",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "#6",
+							"message": {
+								"content": "question two",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "#7",
+							"timestamp": "<ts4>",
+							"type": "message"
+						},
+						{
+							"firstKeptEntryId": "#8",
+							"id": "#9",
+							"parentId": "#10",
+							"summary": "compacted summary",
+							"systemMessage": {
+								"content": "You are helpful.",
+								"role": "system",
+								"timestamp": "<millis>"
+							},
+							"timestamp": "<ts5>",
+							"tokensBefore": 4321,
+							"type": "compaction"
+						}
+					]
+				},
+				{
+					"op": "buildSessionProjection",
+					"out": {
+						"entries": [
+							{
+								"messages": [
+									{
+										"content": "You are helpful.",
+										"role": "system",
+										"timestamp": "<millis>"
+									},
+									{
+										"role": "compactionSummary",
+										"summary": "compacted summary",
+										"timestamp": "<millis>",
+										"tokensBefore": 4321
+									}
+								],
+								"sourceEntry": {
+									"firstKeptEntryId": "#1",
+									"id": "#2",
+									"parentId": "#3",
+									"summary": "compacted summary",
+									"systemMessage": {
+										"content": "You are helpful.",
+										"role": "system",
+										"timestamp": "<millis>"
+									},
+									"timestamp": "<ts1>",
+									"tokensBefore": 4321,
+									"type": "compaction"
+								}
+							}
+						],
+						"messages": [
+							{
+								"content": "You are helpful.",
+								"role": "system",
+								"timestamp": "<millis>"
+							},
+							{
+								"role": "compactionSummary",
+								"summary": "compacted summary",
+								"timestamp": "<millis>",
+								"tokensBefore": 4321
+							}
+						],
+						"model": {
+							"modelId": "claude-sonnet-4",
+							"provider": "anthropic"
+						},
+						"thinkingLevel": "off"
+					}
+				},
+				{
+					"op": "buildSessionContext",
+					"out": {
+						"messages": [
+							{
+								"content": "You are helpful.",
+								"role": "system",
+								"timestamp": "<millis>"
+							},
+							{
+								"role": "compactionSummary",
+								"summary": "compacted summary",
+								"timestamp": "<millis>",
+								"tokensBefore": 4321
+							}
+						],
+						"model": {
+							"modelId": "claude-sonnet-4",
+							"provider": "anthropic"
+						},
+						"thinkingLevel": "off"
+					}
+				},
+				{
+					"op": "appendCompaction",
+					"out": "#1"
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "You are helpful.",
+								"role": "system",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": "question one",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#4",
+							"message": {
+								"content": [
+									{
+										"text": "answer one",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#5",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "#6",
+							"message": {
+								"content": "question two",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "#7",
+							"timestamp": "<ts4>",
+							"type": "message"
+						},
+						{
+							"firstKeptEntryId": "#8",
+							"id": "#9",
+							"parentId": "#10",
+							"summary": "compacted summary",
+							"systemMessage": {
+								"content": "You are helpful.",
+								"role": "system",
+								"timestamp": "<millis>"
+							},
+							"timestamp": "<ts5>",
+							"tokensBefore": 4321,
+							"type": "compaction"
+						},
+						{
+							"details": {
+								"version": 2
+							},
+							"firstKeptEntryId": "#11",
+							"fromHook": true,
+							"id": "#12",
+							"parentId": "#13",
+							"summary": "hook compaction",
+							"systemMessage": {
+								"content": "You are helpful.",
+								"role": "system",
+								"timestamp": "<millis>"
+							},
+							"timestamp": "<ts6>",
+							"tokensBefore": 5000,
+							"type": "compaction",
+							"usage": {
+								"cacheRead": 2,
+								"cacheWrite": 1,
+								"cost": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"input": 1,
+									"output": 2,
+									"total": 3
+								},
+								"input": 10,
+								"output": 4,
+								"totalTokens": 17
+							}
+						}
+					]
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": null,
+							"name": "--<TMP>-proj--"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "append-context-edit",
+			"ops": [
+				{
+					"op": "create",
+					"args": {
+						"cwd": "/proj"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "original question",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "original answer"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "toolResult",
+							"toolCallId": "call-1",
+							"toolName": "bash",
+							"content": [
+								{
+									"type": "text",
+									"text": "tool output"
+								}
+							],
+							"isError": false,
+							"timestamp": 1767225603000
+						}
+					}
+				},
+				{
+					"op": "appendModelChange",
+					"args": {
+						"provider": "p",
+						"modelId": "m"
+					}
+				},
+				{
+					"op": "appendContextEdit",
+					"args": {
+						"targetId": "$2",
+						"replacement": {
+							"content": "edited answer"
+						}
+					}
+				},
+				{
+					"op": "appendContextEdit",
+					"args": {
+						"targetId": "$1",
+						"replacement": {
+							"content": "edited question"
+						}
+					}
+				},
+				{
+					"op": "appendContextEdit",
+					"args": {
+						"targetId": "$3",
+						"replacement": null
+					}
+				},
+				{
+					"op": "buildSessionProjection"
+				},
+				{
+					"op": "buildContextEntries"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "appendContextEdit",
+						"args": {
+							"targetId": "missing-id",
+							"replacement": null
+						}
+					}
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "appendContextEdit",
+						"args": {
+							"targetId": "$1",
+							"replacement": {
+								"content": null
+							}
+						}
+					}
+				},
+				{
+					"op": "branch",
+					"args": {
+						"fromId": "$1"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "branch question",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "appendContextEdit",
+						"args": {
+							"targetId": "$2",
+							"replacement": null
+						}
+					}
+				},
+				{
+					"op": "branch",
+					"args": {
+						"fromId": "$3"
+					}
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "appendContextEdit",
+						"args": {
+							"targetId": "$5",
+							"replacement": null
+						}
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendModelChange",
+					"out": "#1"
+				},
+				{
+					"op": "appendContextEdit",
+					"out": "#1"
+				},
+				{
+					"op": "appendContextEdit",
+					"out": "#1"
+				},
+				{
+					"op": "appendContextEdit",
+					"out": "#1"
+				},
+				{
+					"op": "buildSessionProjection",
+					"out": {
+						"entries": [
+							{
+								"messages": [
+									{
+										"content": "edited question",
+										"role": "user",
+										"timestamp": "<millis>"
+									}
+								],
+								"sourceEntry": {
+									"id": "#1",
+									"message": {
+										"content": "original question",
+										"role": "user",
+										"timestamp": "<millis>"
+									},
+									"parentId": null,
+									"timestamp": "<ts1>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [
+									{
+										"content": [
+											{
+												"text": "edited answer",
+												"type": "text"
+											}
+										],
+										"model": "claude-sonnet-4",
+										"provider": "anthropic",
+										"role": "assistant",
+										"stopReason": "stop",
+										"timestamp": "<millis>",
+										"usage": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"cost": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"input": 0,
+												"output": 0,
+												"total": 0
+											},
+											"input": 10,
+											"output": 4,
+											"totalTokens": 14
+										}
+									}
+								],
+								"sourceEntry": {
+									"id": "#2",
+									"message": {
+										"content": [
+											{
+												"text": "original answer",
+												"type": "text"
+											}
+										],
+										"model": "claude-sonnet-4",
+										"provider": "anthropic",
+										"role": "assistant",
+										"stopReason": "stop",
+										"timestamp": "<millis>",
+										"usage": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"cost": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"input": 0,
+												"output": 0,
+												"total": 0
+											},
+											"input": 10,
+											"output": 4,
+											"totalTokens": 14
+										}
+									},
+									"parentId": "#3",
+									"timestamp": "<ts2>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#4",
+									"message": {
+										"content": [
+											{
+												"text": "tool output",
+												"type": "text"
+											}
+										],
+										"isError": false,
+										"role": "toolResult",
+										"timestamp": "<millis>",
+										"toolCallId": "call-1",
+										"toolName": "bash"
+									},
+									"parentId": "#5",
+									"timestamp": "<ts3>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#6",
+									"modelId": "m",
+									"parentId": "#7",
+									"provider": "p",
+									"timestamp": "<ts4>",
+									"type": "model_change"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#8",
+									"parentId": "#9",
+									"replacement": {
+										"content": [
+											{
+												"text": "edited answer",
+												"type": "text"
+											}
+										]
+									},
+									"targetId": "#10",
+									"timestamp": "<ts5>",
+									"type": "context_edit"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#11",
+									"parentId": "#12",
+									"replacement": {
+										"content": "edited question"
+									},
+									"targetId": "#13",
+									"timestamp": "<ts6>",
+									"type": "context_edit"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "#14",
+									"parentId": "#15",
+									"replacement": null,
+									"targetId": "#16",
+									"timestamp": "<ts7>",
+									"type": "context_edit"
+								}
+							}
+						],
+						"messages": [
+							{
+								"content": "edited question",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							{
+								"content": [
+									{
+										"text": "edited answer",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							}
+						],
+						"model": {
+							"modelId": "m",
+							"provider": "p"
+						},
+						"thinkingLevel": "off"
+					}
+				},
+				{
+					"op": "buildContextEntries",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "original question",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": [
+									{
+										"text": "original answer",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#4",
+							"message": {
+								"content": [
+									{
+										"text": "tool output",
+										"type": "text"
+									}
+								],
+								"isError": false,
+								"role": "toolResult",
+								"timestamp": "<millis>",
+								"toolCallId": "call-1",
+								"toolName": "bash"
+							},
+							"parentId": "#5",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "#6",
+							"modelId": "m",
+							"parentId": "#7",
+							"provider": "p",
+							"timestamp": "<ts4>",
+							"type": "model_change"
+						},
+						{
+							"id": "#8",
+							"parentId": "#9",
+							"replacement": {
+								"content": [
+									{
+										"text": "edited answer",
+										"type": "text"
+									}
+								]
+							},
+							"targetId": "#10",
+							"timestamp": "<ts5>",
+							"type": "context_edit"
+						},
+						{
+							"id": "#11",
+							"parentId": "#12",
+							"replacement": {
+								"content": "edited question"
+							},
+							"targetId": "#13",
+							"timestamp": "<ts6>",
+							"type": "context_edit"
+						},
+						{
+							"id": "#14",
+							"parentId": "#15",
+							"replacement": null,
+							"targetId": "#16",
+							"timestamp": "<ts7>",
+							"type": "context_edit"
+						}
+					]
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "original question",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": [
+									{
+										"text": "original answer",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#4",
+							"message": {
+								"content": [
+									{
+										"text": "tool output",
+										"type": "text"
+									}
+								],
+								"isError": false,
+								"role": "toolResult",
+								"timestamp": "<millis>",
+								"toolCallId": "call-1",
+								"toolName": "bash"
+							},
+							"parentId": "#5",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "#6",
+							"modelId": "m",
+							"parentId": "#7",
+							"provider": "p",
+							"timestamp": "<ts4>",
+							"type": "model_change"
+						},
+						{
+							"id": "#8",
+							"parentId": "#9",
+							"replacement": {
+								"content": [
+									{
+										"text": "edited answer",
+										"type": "text"
+									}
+								]
+							},
+							"targetId": "#10",
+							"timestamp": "<ts5>",
+							"type": "context_edit"
+						},
+						{
+							"id": "#11",
+							"parentId": "#12",
+							"replacement": {
+								"content": "edited question"
+							},
+							"targetId": "#13",
+							"timestamp": "<ts6>",
+							"type": "context_edit"
+						},
+						{
+							"id": "#14",
+							"parentId": "#15",
+							"replacement": null,
+							"targetId": "#16",
+							"timestamp": "<ts7>",
+							"type": "context_edit"
+						}
+					]
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Entry missing-id not found"
+					}
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Context edit replacement must be null or contain string/array content"
+					}
+				},
+				{
+					"op": "branch",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Entry #1 is not on the active branch"
+					}
+				},
+				{
+					"op": "branch",
+					"out": null
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Entry #1 is not on the active branch"
+					}
+				}
+			]
+		},
+		{
+			"name": "append-label-change",
+			"ops": [
+				{
+					"op": "create",
+					"args": {
+						"cwd": "/proj"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "root message",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "reply"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "appendLabelChange",
+					"args": {
+						"targetId": "$1",
+						"label": "alpha"
+					}
+				},
+				{
+					"op": "getLabel",
+					"args": {
+						"id": "$1"
+					}
+				},
+				{
+					"op": "getLabel",
+					"args": {
+						"id": "$2"
+					}
+				},
+				{
+					"op": "appendLabelChange",
+					"args": {
+						"targetId": "$1",
+						"label": "beta"
+					}
+				},
+				{
+					"op": "getLabel",
+					"args": {
+						"id": "$1"
+					}
+				},
+				{
+					"op": "getTree"
+				},
+				{
+					"op": "appendLabelChange",
+					"args": {
+						"targetId": "$1",
+						"label": ""
+					}
+				},
+				{
+					"op": "getLabel",
+					"args": {
+						"id": "$1"
+					}
+				},
+				{
+					"op": "getTree"
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "appendLabelChange",
+						"args": {
+							"targetId": "nope",
+							"label": "x"
+						}
+					}
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/agent/sessions"
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendLabelChange",
+					"out": "#1"
+				},
+				{
+					"op": "getLabel",
+					"out": "alpha"
+				},
+				{
+					"op": "getLabel",
+					"out": null
+				},
+				{
+					"op": "appendLabelChange",
+					"out": "#1"
+				},
+				{
+					"op": "getLabel",
+					"out": "beta"
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [
+										{
+											"children": [
+												{
+													"children": [],
+													"entry": {
+														"id": "#1",
+														"label": "beta",
+														"parentId": "#2",
+														"targetId": "#3",
+														"timestamp": "<ts1>",
+														"type": "label"
+													}
+												}
+											],
+											"entry": {
+												"id": "#4",
+												"label": "alpha",
+												"parentId": "#5",
+												"targetId": "#6",
+												"timestamp": "<ts2>",
+												"type": "label"
+											}
+										}
+									],
+									"entry": {
+										"id": "#7",
+										"message": {
+											"content": [
+												{
+													"text": "reply",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "#8",
+										"timestamp": "<ts3>",
+										"type": "message"
+									}
+								}
+							],
+							"entry": {
+								"id": "#9",
+								"message": {
+									"content": "root message",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts4>",
+								"type": "message"
+							},
+							"label": "beta",
+							"labelTimestamp": "<ts5>"
+						}
+					]
+				},
+				{
+					"op": "appendLabelChange",
+					"out": "#1"
+				},
+				{
+					"op": "getLabel",
+					"out": null
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [
+										{
+											"children": [
+												{
+													"children": [
+														{
+															"children": [],
+															"entry": {
+																"id": "#1",
+																"label": "",
+																"parentId": "#2",
+																"targetId": "#3",
+																"timestamp": "<ts1>",
+																"type": "label"
+															}
+														}
+													],
+													"entry": {
+														"id": "#4",
+														"label": "beta",
+														"parentId": "#5",
+														"targetId": "#6",
+														"timestamp": "<ts2>",
+														"type": "label"
+													}
+												}
+											],
+											"entry": {
+												"id": "#7",
+												"label": "alpha",
+												"parentId": "#8",
+												"targetId": "#9",
+												"timestamp": "<ts3>",
+												"type": "label"
+											}
+										}
+									],
+									"entry": {
+										"id": "#10",
+										"message": {
+											"content": [
+												{
+													"text": "reply",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "#11",
+										"timestamp": "<ts4>",
+										"type": "message"
+									}
+								}
+							],
+							"entry": {
+								"id": "#12",
+								"message": {
+									"content": "root message",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts5>",
+								"type": "message"
+							}
+						}
+					]
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Entry nope not found"
+					}
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": null,
+							"name": "--<TMP>-proj--"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "open-existing-full",
+			"ops": [
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/load/target.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-open\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/proj\"}\n{\"type\":\"thinking_level_change\",\"id\":\"t1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"thinkingLevel\":\"medium\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":\"t1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"user\",\"content\":\"stored question\",\"timestamp\":1767225601000}}\n{\"type\":\"message\",\"id\":\"m2\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:03.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"stored answer\"}],\"provider\":\"anthropic\",\"model\":\"claude-sonnet-4\",\"stopReason\":\"stop\",\"usage\":{\"input\":10,\"output\":4,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":14,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"timestamp\":1767225602000}}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":\"m2\",\"timestamp\":\"2026-01-01T00:00:04.000Z\",\"name\":\"stored name\"}\n{\"type\":\"label\",\"id\":\"l1\",\"parentId\":\"i1\",\"timestamp\":\"2026-01-01T00:00:05.000Z\",\"targetId\":\"m1\",\"label\":\"start\"}\n{\"type\":\"context_edit\",\"id\":\"e1\",\"parentId\":\"l1\",\"timestamp\":\"2026-01-01T00:00:06.000Z\",\"targetId\":\"m2\",\"replacement\":{\"content\":\"replaced answer\"}}\n"
+					}
+				},
+				{
+					"op": "open",
+					"args": {
+						"path": "/load/target.jsonl"
+					}
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getCwd"
+				},
+				{
+					"op": "getSessionDir"
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getSessionName"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "getLeafId"
+				},
+				{
+					"op": "getLabel",
+					"args": {
+						"id": "m1"
+					}
+				},
+				{
+					"op": "getTree"
+				},
+				{
+					"op": "buildSessionProjection"
+				},
+				{
+					"op": "isPersisted"
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "follow-up",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "readSessionFile",
+					"args": {
+						"path": "$p1"
+					}
+				},
+				{
+					"op": "open",
+					"args": {
+						"path": "/load/target.jsonl",
+						"cwdOverride": "/elsewhere"
+					}
+				},
+				{
+					"op": "getCwd"
+				},
+				{
+					"op": "open",
+					"args": {
+						"path": "/load/target.jsonl",
+						"sessionDir": "/custom-dir"
+					}
+				},
+				{
+					"op": "getSessionDir"
+				}
+			],
+			"results": [
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/load/target.jsonl"
+				},
+				{
+					"op": "getCwd",
+					"out": "C:/proj"
+				},
+				{
+					"op": "getSessionDir",
+					"out": "<TMP>/load"
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "/proj",
+						"id": "sess-open",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getSessionName",
+					"out": "stored name"
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "t1",
+							"parentId": null,
+							"thinkingLevel": "medium",
+							"timestamp": "<ts1>",
+							"type": "thinking_level_change"
+						},
+						{
+							"id": "m1",
+							"message": {
+								"content": "stored question",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "t1",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "m2",
+							"message": {
+								"content": [
+									{
+										"text": "stored answer",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "i1",
+							"name": "stored name",
+							"parentId": "m2",
+							"timestamp": "<ts4>",
+							"type": "session_info"
+						},
+						{
+							"id": "l1",
+							"label": "start",
+							"parentId": "i1",
+							"targetId": "m1",
+							"timestamp": "<ts5>",
+							"type": "label"
+						},
+						{
+							"id": "e1",
+							"parentId": "l1",
+							"replacement": {
+								"content": "replaced answer"
+							},
+							"targetId": "m2",
+							"timestamp": "<ts6>",
+							"type": "context_edit"
+						}
+					]
+				},
+				{
+					"op": "getLeafId",
+					"out": "e1"
+				},
+				{
+					"op": "getLabel",
+					"out": "start"
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [
+										{
+											"children": [
+												{
+													"children": [
+														{
+															"children": [
+																{
+																	"children": [],
+																	"entry": {
+																		"id": "e1",
+																		"parentId": "l1",
+																		"replacement": {
+																			"content": "replaced answer"
+																		},
+																		"targetId": "m2",
+																		"timestamp": "<ts1>",
+																		"type": "context_edit"
+																	}
+																}
+															],
+															"entry": {
+																"id": "l1",
+																"label": "start",
+																"parentId": "i1",
+																"targetId": "m1",
+																"timestamp": "<ts2>",
+																"type": "label"
+															}
+														}
+													],
+													"entry": {
+														"id": "i1",
+														"name": "stored name",
+														"parentId": "m2",
+														"timestamp": "<ts3>",
+														"type": "session_info"
+													}
+												}
+											],
+											"entry": {
+												"id": "m2",
+												"message": {
+													"content": [
+														{
+															"text": "stored answer",
+															"type": "text"
+														}
+													],
+													"model": "claude-sonnet-4",
+													"provider": "anthropic",
+													"role": "assistant",
+													"stopReason": "stop",
+													"timestamp": "<millis>",
+													"usage": {
+														"cacheRead": 0,
+														"cacheWrite": 0,
+														"cost": {
+															"cacheRead": 0,
+															"cacheWrite": 0,
+															"input": 0,
+															"output": 0,
+															"total": 0
+														},
+														"input": 10,
+														"output": 4,
+														"totalTokens": 14
+													}
+												},
+												"parentId": "m1",
+												"timestamp": "<ts4>",
+												"type": "message"
+											}
+										}
+									],
+									"entry": {
+										"id": "m1",
+										"message": {
+											"content": "stored question",
+											"role": "user",
+											"timestamp": "<millis>"
+										},
+										"parentId": "t1",
+										"timestamp": "<ts5>",
+										"type": "message"
+									},
+									"label": "start",
+									"labelTimestamp": "<ts6>"
+								}
+							],
+							"entry": {
+								"id": "t1",
+								"parentId": null,
+								"thinkingLevel": "medium",
+								"timestamp": "<ts7>",
+								"type": "thinking_level_change"
+							}
+						}
+					]
+				},
+				{
+					"op": "buildSessionProjection",
+					"out": {
+						"entries": [
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "t1",
+									"parentId": null,
+									"thinkingLevel": "medium",
+									"timestamp": "<ts1>",
+									"type": "thinking_level_change"
+								}
+							},
+							{
+								"messages": [
+									{
+										"content": "stored question",
+										"role": "user",
+										"timestamp": "<millis>"
+									}
+								],
+								"sourceEntry": {
+									"id": "m1",
+									"message": {
+										"content": "stored question",
+										"role": "user",
+										"timestamp": "<millis>"
+									},
+									"parentId": "t1",
+									"timestamp": "<ts2>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [
+									{
+										"content": [
+											{
+												"text": "replaced answer",
+												"type": "text"
+											}
+										],
+										"model": "claude-sonnet-4",
+										"provider": "anthropic",
+										"role": "assistant",
+										"stopReason": "stop",
+										"timestamp": "<millis>",
+										"usage": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"cost": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"input": 0,
+												"output": 0,
+												"total": 0
+											},
+											"input": 10,
+											"output": 4,
+											"totalTokens": 14
+										}
+									}
+								],
+								"sourceEntry": {
+									"id": "m2",
+									"message": {
+										"content": [
+											{
+												"text": "stored answer",
+												"type": "text"
+											}
+										],
+										"model": "claude-sonnet-4",
+										"provider": "anthropic",
+										"role": "assistant",
+										"stopReason": "stop",
+										"timestamp": "<millis>",
+										"usage": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"cost": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"input": 0,
+												"output": 0,
+												"total": 0
+											},
+											"input": 10,
+											"output": 4,
+											"totalTokens": 14
+										}
+									},
+									"parentId": "m1",
+									"timestamp": "<ts3>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "i1",
+									"name": "stored name",
+									"parentId": "m2",
+									"timestamp": "<ts4>",
+									"type": "session_info"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "l1",
+									"label": "start",
+									"parentId": "i1",
+									"targetId": "m1",
+									"timestamp": "<ts5>",
+									"type": "label"
+								}
+							},
+							{
+								"messages": [],
+								"sourceEntry": {
+									"id": "e1",
+									"parentId": "l1",
+									"replacement": {
+										"content": "replaced answer"
+									},
+									"targetId": "m2",
+									"timestamp": "<ts6>",
+									"type": "context_edit"
+								}
+							}
+						],
+						"messages": [
+							{
+								"content": "stored question",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							{
+								"content": [
+									{
+										"text": "replaced answer",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							}
+						],
+						"model": {
+							"modelId": "claude-sonnet-4",
+							"provider": "anthropic"
+						},
+						"thinkingLevel": "medium"
+					}
+				},
+				{
+					"op": "isPersisted",
+					"out": true
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "readSessionFile",
+					"out": [
+						{
+							"cwd": "/proj",
+							"id": "sess-open",
+							"timestamp": "<ts1>",
+							"type": "session",
+							"version": 3
+						},
+						{
+							"id": "t1",
+							"parentId": null,
+							"thinkingLevel": "medium",
+							"timestamp": "<ts2>",
+							"type": "thinking_level_change"
+						},
+						{
+							"id": "m1",
+							"message": {
+								"content": "stored question",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "t1",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "m2",
+							"message": {
+								"content": [
+									{
+										"text": "stored answer",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts4>",
+							"type": "message"
+						},
+						{
+							"id": "i1",
+							"name": "stored name",
+							"parentId": "m2",
+							"timestamp": "<ts5>",
+							"type": "session_info"
+						},
+						{
+							"id": "l1",
+							"label": "start",
+							"parentId": "i1",
+							"targetId": "m1",
+							"timestamp": "<ts6>",
+							"type": "label"
+						},
+						{
+							"id": "e1",
+							"parentId": "l1",
+							"replacement": {
+								"content": "replaced answer"
+							},
+							"targetId": "m2",
+							"timestamp": "<ts7>",
+							"type": "context_edit"
+						},
+						{
+							"id": "#1",
+							"message": {
+								"content": "follow-up",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "e1",
+							"timestamp": "<ts8>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getCwd",
+					"out": "C:/elsewhere"
+				},
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getSessionDir",
+					"out": "<TMP>/custom-dir"
+				}
+			]
+		},
+		{
+			"name": "open-empty-file",
+			"ops": [
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/load/empty.jsonl",
+						"content": ""
+					}
+				},
+				{
+					"op": "open",
+					"args": {
+						"path": "/load/empty.jsonl"
+					}
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getEntryCount"
+				},
+				{
+					"op": "readSessionFile",
+					"args": {
+						"path": "$p1"
+					}
+				},
+				{
+					"op": "getSessionId"
+				}
+			],
+			"results": [
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/load/empty.jsonl"
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "<TMP>",
+						"id": "#1",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getEntryCount",
+					"out": 0
+				},
+				{
+					"op": "readSessionFile",
+					"out": [
+						{
+							"cwd": "<TMP>",
+							"id": "#1",
+							"timestamp": "<ts1>",
+							"type": "session",
+							"version": 3
+						}
+					]
+				},
+				{
+					"op": "getSessionId",
+					"out": "#1"
+				}
+			]
+		},
+		{
+			"name": "open-invalid-file",
+			"ops": [
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/load/invalid.jsonl",
+						"content": "not a session at all\njust text\n"
+					}
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "open",
+						"args": {
+							"path": "/load/invalid.jsonl"
+						}
+					}
+				},
+				{
+					"op": "readSessionFile",
+					"args": {
+						"path": "/load/invalid.jsonl"
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Session file is not a valid pi session: <TMP>/load/invalid.jsonl"
+					}
+				},
+				{
+					"op": "readSessionFile",
+					"out": [
+						"not a session at all",
+						"just text"
+					]
+				}
+			]
+		},
+		{
+			"name": "open-missing-file-explicit-path",
+			"ops": [
+				{
+					"op": "open",
+					"args": {
+						"path": "/fresh/created.jsonl"
+					}
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/fresh"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "hi",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/fresh"
+					}
+				},
+				{
+					"op": "readSessionFile",
+					"args": {
+						"path": "$p1"
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/fresh/created.jsonl"
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "<TMP>",
+						"id": "#1",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "listFiles",
+					"out": []
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": [
+								{
+									"cwd": "<TMP>",
+									"id": "#1",
+									"timestamp": "<ts1>",
+									"type": "session",
+									"version": 3
+								},
+								{
+									"id": "#2",
+									"message": {
+										"content": "hi",
+										"role": "user",
+										"timestamp": "<millis>"
+									},
+									"parentId": null,
+									"timestamp": "<ts2>",
+									"type": "message"
+								}
+							],
+							"name": "created.jsonl"
+						}
+					]
+				},
+				{
+					"op": "readSessionFile",
+					"out": [
+						{
+							"cwd": "<TMP>",
+							"id": "#1",
+							"timestamp": "<ts1>",
+							"type": "session",
+							"version": 3
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": "hi",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts2>",
+							"type": "message"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "open-scan-limit-fallback",
+			"ops": [
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/load/huge.jsonl",
+						"content": {
+							"__pad": {
+								"p": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-huge\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/proj/",
+								"n": 1200000,
+								"s": "\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"user\",\"content\":\"after huge header\",\"timestamp\":1767225601000}}\n"
+							}
+						}
+					}
+				},
+				{
+					"op": "open",
+					"args": {
+						"path": "/load/huge.jsonl"
+					}
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getCwd"
+				},
+				{
+					"op": "getEntries"
+				}
+			],
+			"results": [
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "<str:1200006>",
+						"id": "sess-huge",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getCwd",
+					"out": "<str:1200008>"
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "m1",
+							"message": {
+								"content": "after huge header",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "tree-ordering-and-orphans",
+			"ops": [
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/tree/s.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-tree\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/proj\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"root\",\"timestamp\":1767225601000}}\n{\"type\":\"message\",\"id\":\"m2\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:04.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"child A\"}],\"provider\":\"anthropic\",\"model\":\"claude-sonnet-4\",\"stopReason\":\"stop\",\"usage\":{\"input\":10,\"output\":4,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":14,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"timestamp\":1767225602000}}\n{\"type\":\"message\",\"id\":\"m3\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"child B — older timestamp than m2\"}],\"provider\":\"anthropic\",\"model\":\"claude-sonnet-4\",\"stopReason\":\"stop\",\"usage\":{\"input\":10,\"output\":4,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":14,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"timestamp\":1767225602000}}\n{\"type\":\"message\",\"id\":\"m4\",\"parentId\":\"m3\",\"timestamp\":\"2026-01-01T00:00:03.000Z\",\"message\":{\"role\":\"user\",\"content\":\"grandchild\",\"timestamp\":1767225601000}}\n{\"type\":\"message\",\"id\":\"m5\",\"parentId\":\"ghost\",\"timestamp\":\"2026-01-01T00:00:05.000Z\",\"message\":{\"role\":\"user\",\"content\":\"orphan — parent missing\",\"timestamp\":1767225601000}}\n{\"type\":\"label\",\"id\":\"l1\",\"parentId\":\"m4\",\"timestamp\":\"2026-01-01T00:00:06.000Z\",\"targetId\":\"m3\",\"label\":\"kept\"}\n"
+					}
+				},
+				{
+					"op": "open",
+					"args": {
+						"path": "/tree/s.jsonl"
+					}
+				},
+				{
+					"op": "getTree"
+				},
+				{
+					"op": "getChildren",
+					"args": {
+						"parentId": "m1"
+					}
+				},
+				{
+					"op": "getChildren",
+					"args": {
+						"parentId": "nope"
+					}
+				},
+				{
+					"op": "getLabel",
+					"args": {
+						"id": "m3"
+					}
+				},
+				{
+					"op": "getBranch",
+					"args": {
+						"fromId": "m4"
+					}
+				},
+				{
+					"op": "getBranch"
+				},
+				{
+					"op": "getLeafId"
+				},
+				{
+					"op": "getLeafEntry"
+				}
+			],
+			"results": [
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [
+										{
+											"children": [
+												{
+													"children": [],
+													"entry": {
+														"id": "l1",
+														"label": "kept",
+														"parentId": "m4",
+														"targetId": "m3",
+														"timestamp": "<ts1>",
+														"type": "label"
+													}
+												}
+											],
+											"entry": {
+												"id": "m4",
+												"message": {
+													"content": "grandchild",
+													"role": "user",
+													"timestamp": "<millis>"
+												},
+												"parentId": "m3",
+												"timestamp": "<ts2>",
+												"type": "message"
+											}
+										}
+									],
+									"entry": {
+										"id": "m3",
+										"message": {
+											"content": [
+												{
+													"text": "child B — older timestamp than m2",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "m1",
+										"timestamp": "<ts3>",
+										"type": "message"
+									},
+									"label": "kept",
+									"labelTimestamp": "<ts4>"
+								},
+								{
+									"children": [],
+									"entry": {
+										"id": "m2",
+										"message": {
+											"content": [
+												{
+													"text": "child A",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "m1",
+										"timestamp": "<ts5>",
+										"type": "message"
+									}
+								}
+							],
+							"entry": {
+								"id": "m1",
+								"message": {
+									"content": "root",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts6>",
+								"type": "message"
+							}
+						},
+						{
+							"children": [],
+							"entry": {
+								"id": "m5",
+								"message": {
+									"content": "orphan — parent missing",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": "ghost",
+								"timestamp": "<ts7>",
+								"type": "message"
+							}
+						}
+					]
+				},
+				{
+					"op": "getChildren",
+					"out": [
+						{
+							"id": "m2",
+							"message": {
+								"content": [
+									{
+										"text": "child A",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "m3",
+							"message": {
+								"content": [
+									{
+										"text": "child B — older timestamp than m2",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts2>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "getChildren",
+					"out": []
+				},
+				{
+					"op": "getLabel",
+					"out": "kept"
+				},
+				{
+					"op": "getBranch",
+					"out": [
+						{
+							"id": "m1",
+							"message": {
+								"content": "root",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "m3",
+							"message": {
+								"content": [
+									{
+										"text": "child B — older timestamp than m2",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "m4",
+							"message": {
+								"content": "grandchild",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "m3",
+							"timestamp": "<ts3>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "getBranch",
+					"out": [
+						{
+							"id": "m1",
+							"message": {
+								"content": "root",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "m3",
+							"message": {
+								"content": [
+									{
+										"text": "child B — older timestamp than m2",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "m4",
+							"message": {
+								"content": "grandchild",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "m3",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "l1",
+							"label": "kept",
+							"parentId": "m4",
+							"targetId": "m3",
+							"timestamp": "<ts4>",
+							"type": "label"
+						}
+					]
+				},
+				{
+					"op": "getLeafId",
+					"out": "l1"
+				},
+				{
+					"op": "getLeafEntry",
+					"out": {
+						"id": "l1",
+						"label": "kept",
+						"parentId": "m4",
+						"targetId": "m3",
+						"timestamp": "<ts1>",
+						"type": "label"
+					}
+				}
+			]
+		},
+		{
+			"name": "branch-and-branch-with-summary",
+			"ops": [
+				{
+					"op": "create",
+					"args": {
+						"cwd": "/proj"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "q1",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "a1"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "branch",
+					"args": {
+						"fromId": "$1"
+					}
+				},
+				{
+					"op": "getLeafId"
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "a1 alternative"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "getTree"
+				},
+				{
+					"op": "getBranch"
+				},
+				{
+					"op": "buildContextEntries"
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "branch",
+						"args": {
+							"fromId": "ghost"
+						}
+					}
+				},
+				{
+					"op": "branchWithSummary",
+					"args": {
+						"branchFromId": "$1",
+						"summary": "abandoned path summary",
+						"details": {
+							"reason": "user retry"
+						},
+						"fromHook": false,
+						"usage": {
+							"input": 10,
+							"output": 4,
+							"cacheRead": 2,
+							"cacheWrite": 1,
+							"totalTokens": 17,
+							"cost": {
+								"input": 1,
+								"output": 2,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"total": 3
+							}
+						}
+					}
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "buildSessionProjection"
+				},
+				{
+					"op": "resetLeaf"
+				},
+				{
+					"op": "getLeafId"
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "fresh root",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "getTree"
+				}
+			],
+			"results": [
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "branch",
+					"out": null
+				},
+				{
+					"op": "getLeafId",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [],
+									"entry": {
+										"id": "#1",
+										"message": {
+											"content": [
+												{
+													"text": "a1",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "#2",
+										"timestamp": "<ts1>",
+										"type": "message"
+									}
+								},
+								{
+									"children": [],
+									"entry": {
+										"id": "#3",
+										"message": {
+											"content": [
+												{
+													"text": "a1 alternative",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "#4",
+										"timestamp": "<ts2>",
+										"type": "message"
+									}
+								}
+							],
+							"entry": {
+								"id": "#5",
+								"message": {
+									"content": "q1",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts3>",
+								"type": "message"
+							}
+						}
+					]
+				},
+				{
+					"op": "getBranch",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "q1",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": [
+									{
+										"text": "a1 alternative",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "buildContextEntries",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "q1",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": [
+									{
+										"text": "a1 alternative",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Entry ghost not found"
+					}
+				},
+				{
+					"op": "branchWithSummary",
+					"out": "#1"
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "q1",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": [
+									{
+										"text": "a1",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#4",
+							"message": {
+								"content": [
+									{
+										"text": "a1 alternative",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#5",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"details": {
+								"reason": "user retry"
+							},
+							"fromHook": false,
+							"fromId": "#6",
+							"id": "#7",
+							"parentId": "#8",
+							"summary": "abandoned path summary",
+							"timestamp": "<ts4>",
+							"type": "branch_summary",
+							"usage": {
+								"cacheRead": 2,
+								"cacheWrite": 1,
+								"cost": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"input": 1,
+									"output": 2,
+									"total": 3
+								},
+								"input": 10,
+								"output": 4,
+								"totalTokens": 17
+							}
+						}
+					]
+				},
+				{
+					"op": "buildSessionProjection",
+					"out": {
+						"entries": [
+							{
+								"messages": [
+									{
+										"content": "q1",
+										"role": "user",
+										"timestamp": "<millis>"
+									}
+								],
+								"sourceEntry": {
+									"id": "#1",
+									"message": {
+										"content": "q1",
+										"role": "user",
+										"timestamp": "<millis>"
+									},
+									"parentId": null,
+									"timestamp": "<ts1>",
+									"type": "message"
+								}
+							},
+							{
+								"messages": [
+									{
+										"fromId": "#2",
+										"role": "branchSummary",
+										"summary": "abandoned path summary",
+										"timestamp": "<millis>"
+									}
+								],
+								"sourceEntry": {
+									"details": {
+										"reason": "user retry"
+									},
+									"fromHook": false,
+									"fromId": "#3",
+									"id": "#4",
+									"parentId": "#5",
+									"summary": "abandoned path summary",
+									"timestamp": "<ts2>",
+									"type": "branch_summary",
+									"usage": {
+										"cacheRead": 2,
+										"cacheWrite": 1,
+										"cost": {
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"input": 1,
+											"output": 2,
+											"total": 3
+										},
+										"input": 10,
+										"output": 4,
+										"totalTokens": 17
+									}
+								}
+							}
+						],
+						"messages": [
+							{
+								"content": "q1",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							{
+								"fromId": "#6",
+								"role": "branchSummary",
+								"summary": "abandoned path summary",
+								"timestamp": "<millis>"
+							}
+						],
+						"model": null,
+						"thinkingLevel": "off"
+					}
+				},
+				{
+					"op": "resetLeaf",
+					"out": null
+				},
+				{
+					"op": "getLeafId",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [],
+									"entry": {
+										"id": "#1",
+										"message": {
+											"content": [
+												{
+													"text": "a1",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "#2",
+										"timestamp": "<ts1>",
+										"type": "message"
+									}
+								},
+								{
+									"children": [],
+									"entry": {
+										"id": "#3",
+										"message": {
+											"content": [
+												{
+													"text": "a1 alternative",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "#4",
+										"timestamp": "<ts2>",
+										"type": "message"
+									}
+								},
+								{
+									"children": [],
+									"entry": {
+										"details": {
+											"reason": "user retry"
+										},
+										"fromHook": false,
+										"fromId": "#5",
+										"id": "#6",
+										"parentId": "#7",
+										"summary": "abandoned path summary",
+										"timestamp": "<ts3>",
+										"type": "branch_summary",
+										"usage": {
+											"cacheRead": 2,
+											"cacheWrite": 1,
+											"cost": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"input": 1,
+												"output": 2,
+												"total": 3
+											},
+											"input": 10,
+											"output": 4,
+											"totalTokens": 17
+										}
+									}
+								}
+							],
+							"entry": {
+								"id": "#8",
+								"message": {
+									"content": "q1",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts4>",
+								"type": "message"
+							}
+						},
+						{
+							"children": [],
+							"entry": {
+								"id": "#9",
+								"message": {
+									"content": "fresh root",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts5>",
+								"type": "message"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "create-branched-session-persist",
+			"ops": [
+				{
+					"op": "create",
+					"args": {
+						"cwd": "/proj"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "first",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "first reply"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "second",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "appendLabelChange",
+					"args": {
+						"targetId": "$2",
+						"label": "keep-me"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "second reply"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "branch",
+					"args": {
+						"fromId": "$1"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "assistant",
+							"content": [
+								{
+									"type": "text",
+									"text": "alternative"
+								}
+							],
+							"provider": "anthropic",
+							"model": "claude-sonnet-4",
+							"stopReason": "stop",
+							"usage": {
+								"input": 10,
+								"output": 4,
+								"cacheRead": 0,
+								"cacheWrite": 0,
+								"totalTokens": 14,
+								"cost": {
+									"input": 0,
+									"output": 0,
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"total": 0
+								}
+							},
+							"timestamp": 1767225602000
+						}
+					}
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "createBranchedSession",
+					"args": {
+						"leafId": "$2"
+					}
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "getTree"
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "after extraction",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/agent/sessions"
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "appendLabelChange",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "branch",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/agent/sessions/--<TMP>-proj--/<file-ts>_#1.jsonl"
+				},
+				{
+					"op": "createBranchedSession",
+					"out": "<TMP>/agent/sessions/--<TMP>-proj--/<file-ts>_#1.jsonl"
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/agent/sessions/--<TMP>-proj--/<file-ts>_#1.jsonl"
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "<TMP>/proj",
+						"id": "#1",
+						"parentSession": "<TMP>/agent/sessions/--<TMP>-proj--/<file-ts>_#2.jsonl",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "first",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": [
+									{
+										"text": "first reply",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#4",
+							"label": "keep-me",
+							"parentId": "#5",
+							"targetId": "#6",
+							"timestamp": "<ts3>",
+							"type": "label"
+						}
+					]
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [
+										{
+											"children": [],
+											"entry": {
+												"id": "#1",
+												"label": "keep-me",
+												"parentId": "#2",
+												"targetId": "#3",
+												"timestamp": "<ts1>",
+												"type": "label"
+											}
+										}
+									],
+									"entry": {
+										"id": "#4",
+										"message": {
+											"content": [
+												{
+													"text": "first reply",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "#5",
+										"timestamp": "<ts2>",
+										"type": "message"
+									},
+									"label": "keep-me",
+									"labelTimestamp": "<ts3>"
+								}
+							],
+							"entry": {
+								"id": "#6",
+								"message": {
+									"content": "first",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts4>",
+								"type": "message"
+							}
+						}
+					]
+				},
+				{
+					"op": "getSessionId",
+					"out": "#1"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": null,
+							"name": "--<TMP>-proj--"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "create-branched-session-in-memory",
+			"ops": [
+				{
+					"op": "inMemory",
+					"args": {
+						"cwd": "/proj",
+						"entries": [
+							{
+								"type": "session",
+								"version": 3,
+								"id": "sess-mem",
+								"timestamp": "2026-01-01T00:00:00.000Z",
+								"cwd": "/proj"
+							},
+							{
+								"type": "message",
+								"id": "m1",
+								"parentId": null,
+								"timestamp": "2026-01-01T00:00:01.000Z",
+								"message": {
+									"role": "user",
+									"content": "root",
+									"timestamp": 1767225601000
+								}
+							},
+							{
+								"type": "message",
+								"id": "m2",
+								"parentId": "m1",
+								"timestamp": "2026-01-01T00:00:02.000Z",
+								"message": {
+									"role": "assistant",
+									"content": [
+										{
+											"type": "text",
+											"text": "reply"
+										}
+									],
+									"provider": "anthropic",
+									"model": "claude-sonnet-4",
+									"stopReason": "stop",
+									"usage": {
+										"input": 10,
+										"output": 4,
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"totalTokens": 14,
+										"cost": {
+											"input": 0,
+											"output": 0,
+											"cacheRead": 0,
+											"cacheWrite": 0,
+											"total": 0
+										}
+									},
+									"timestamp": 1767225602000
+								}
+							},
+							{
+								"type": "label",
+								"id": "l1",
+								"parentId": "m2",
+								"timestamp": "2026-01-01T00:00:03.000Z",
+								"targetId": "m1",
+								"label": "bookmarked"
+							},
+							{
+								"type": "message",
+								"id": "m3",
+								"parentId": "l1",
+								"timestamp": "2026-01-01T00:00:04.000Z",
+								"message": {
+									"role": "user",
+									"content": "after label",
+									"timestamp": 1767225601000
+								}
+							}
+						]
+					}
+				},
+				{
+					"op": "isPersisted"
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "createBranchedSession",
+					"args": {
+						"leafId": "m2"
+					}
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "getTree"
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "createBranchedSession",
+						"args": {
+							"leafId": "ghost"
+						}
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "inMemory",
+					"out": null
+				},
+				{
+					"op": "isPersisted",
+					"out": false
+				},
+				{
+					"op": "getSessionFile",
+					"out": null
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "m1",
+							"message": {
+								"content": "root",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "m2",
+							"message": {
+								"content": [
+									{
+										"text": "reply",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "l1",
+							"label": "bookmarked",
+							"parentId": "m2",
+							"targetId": "m1",
+							"timestamp": "<ts3>",
+							"type": "label"
+						},
+						{
+							"id": "m3",
+							"message": {
+								"content": "after label",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "l1",
+							"timestamp": "<ts4>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "createBranchedSession",
+					"out": null
+				},
+				{
+					"op": "getSessionFile",
+					"out": null
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "m1",
+							"message": {
+								"content": "root",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "m2",
+							"message": {
+								"content": [
+									{
+										"text": "reply",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#1",
+							"label": "bookmarked",
+							"parentId": "m2",
+							"targetId": "m1",
+							"timestamp": "<ts3>",
+							"type": "label"
+						}
+					]
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [
+										{
+											"children": [],
+											"entry": {
+												"id": "#1",
+												"label": "bookmarked",
+												"parentId": "m2",
+												"targetId": "m1",
+												"timestamp": "<ts1>",
+												"type": "label"
+											}
+										}
+									],
+									"entry": {
+										"id": "m2",
+										"message": {
+											"content": [
+												{
+													"text": "reply",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "m1",
+										"timestamp": "<ts2>",
+										"type": "message"
+									}
+								}
+							],
+							"entry": {
+								"id": "m1",
+								"message": {
+									"content": "root",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts3>",
+								"type": "message"
+							},
+							"label": "bookmarked",
+							"labelTimestamp": "<ts4>"
+						}
+					]
+				},
+				{
+					"op": "getSessionId",
+					"out": "#1"
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Entry ghost not found"
+					}
+				}
+			]
+		},
+		{
+			"name": "static-create-options",
+			"ops": [
+				{
+					"op": "create",
+					"args": {
+						"cwd": "/proj",
+						"sessionDir": "/dir-a",
+						"options": {
+							"id": "custom-id",
+							"parentSession": "/old/session.jsonl"
+						}
+					}
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "usesDefaultSessionDir"
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "hi",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/dir-a"
+					}
+				},
+				{
+					"op": "newSession",
+					"args": {
+						"options": {
+							"id": "second-id"
+						}
+					}
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getEntryCount"
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "newSession",
+						"args": {
+							"options": {
+								"id": "bad id!"
+							}
+						}
+					}
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "create",
+						"args": {
+							"cwd": "/proj",
+							"options": {
+								"id": "-leadingdash"
+							}
+						}
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "<TMP>/proj",
+						"id": "custom-id",
+						"parentSession": "/old/session.jsonl",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getSessionId",
+					"out": "custom-id"
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/dir-a/<file-ts>_custom-id.jsonl"
+				},
+				{
+					"op": "usesDefaultSessionDir",
+					"out": false
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": [
+								{
+									"cwd": "<TMP>/proj",
+									"id": "custom-id",
+									"parentSession": "/old/session.jsonl",
+									"timestamp": "<ts1>",
+									"type": "session",
+									"version": 3
+								},
+								{
+									"id": "#1",
+									"message": {
+										"content": "hi",
+										"role": "user",
+										"timestamp": "<millis>"
+									},
+									"parentId": null,
+									"timestamp": "<ts2>",
+									"type": "message"
+								}
+							],
+							"name": "<file-ts>_custom-id.jsonl"
+						}
+					]
+				},
+				{
+					"op": "newSession",
+					"out": "<TMP>/dir-a/<file-ts>_second-id.jsonl"
+				},
+				{
+					"op": "getSessionId",
+					"out": "second-id"
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/dir-a/<file-ts>_second-id.jsonl"
+				},
+				{
+					"op": "getEntryCount",
+					"out": 0
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "<str:135>"
+					}
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "<str:135>"
+					}
+				}
+			]
+		},
+		{
+			"name": "static-continue-recent",
+			"ops": [
+				{
+					"op": "mkdir",
+					"args": {
+						"path": "/recent"
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/recent/a-old.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-old\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"$root/proj\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"old conversation\",\"timestamp\":1767225601000}}\n",
+						"mtimeMs": 1767225600000
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/recent/b-new.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-new\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"$root/proj\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"new conversation\",\"timestamp\":1767225601000}}\n",
+						"mtimeMs": 1767225700000
+					}
+				},
+				{
+					"op": "continueRecent",
+					"args": {
+						"cwd": "$root/proj",
+						"sessionDir": "/recent"
+					}
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "continued",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "readSessionFile",
+					"args": {
+						"path": "$p1"
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/recent/c-other.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-other\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"$root/other-project\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"other project\",\"timestamp\":1767225601000}}\n",
+						"mtimeMs": 1767225800000
+					}
+				},
+				{
+					"op": "continueRecent",
+					"args": {
+						"cwd": "$root/proj",
+						"sessionDir": "/recent"
+					}
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "continueRecent",
+					"args": {
+						"cwd": "$root/empty-cwd",
+						"sessionDir": "/nowhere"
+					}
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "isPersisted"
+				}
+			],
+			"results": [
+				{
+					"op": "mkdir",
+					"out": null
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "continueRecent",
+					"out": null
+				},
+				{
+					"op": "getSessionId",
+					"out": "sess-new"
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "m1",
+							"message": {
+								"content": "new conversation",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/recent/b-new.jsonl"
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "readSessionFile",
+					"out": [
+						{
+							"cwd": "<TMP>/proj",
+							"id": "sess-new",
+							"timestamp": "<ts1>",
+							"type": "session",
+							"version": 3
+						},
+						{
+							"id": "m1",
+							"message": {
+								"content": "new conversation",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#1",
+							"message": {
+								"content": "continued",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "m1",
+							"timestamp": "<ts3>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "continueRecent",
+					"out": null
+				},
+				{
+					"op": "getSessionId",
+					"out": "sess-new"
+				},
+				{
+					"op": "continueRecent",
+					"out": null
+				},
+				{
+					"op": "getSessionId",
+					"out": "#1"
+				},
+				{
+					"op": "isPersisted",
+					"out": true
+				}
+			]
+		},
+		{
+			"name": "static-fork-from",
+			"ops": [
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/fork/source.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-src\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/origin\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"from origin\",\"timestamp\":1767225601000}}\n{\"type\":\"message\",\"id\":\"m2\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"origin reply\"}],\"provider\":\"anthropic\",\"model\":\"claude-sonnet-4\",\"stopReason\":\"stop\",\"usage\":{\"input\":10,\"output\":4,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":14,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"timestamp\":1767225602000}}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":\"m2\",\"timestamp\":\"2026-01-01T00:00:03.000Z\",\"name\":\"origin session\"}\n"
+					}
+				},
+				{
+					"op": "forkFrom",
+					"args": {
+						"sourcePath": "/fork/source.jsonl",
+						"targetCwd": "/fork-target",
+						"options": {
+							"id": "forked-id"
+						}
+					}
+				},
+				{
+					"op": "getSessionFile"
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "getCwd"
+				},
+				{
+					"op": "getSessionId"
+				},
+				{
+					"op": "listFiles",
+					"args": {
+						"dir": "/agent/sessions"
+					}
+				},
+				{
+					"op": "readSessionFile",
+					"args": {
+						"path": "$p1"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "after fork",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "forkFrom",
+						"args": {
+							"sourcePath": "/fork/missing.jsonl",
+							"targetCwd": "/t"
+						}
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/fork/no-header.jsonl",
+						"content": "{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"no header\",\"timestamp\":1767225601000}}\n"
+					}
+				},
+				{
+					"op": "expectThrow",
+					"run": {
+						"op": "forkFrom",
+						"args": {
+							"sourcePath": "/fork/no-header.jsonl",
+							"targetCwd": "/t"
+						}
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "forkFrom",
+					"out": null
+				},
+				{
+					"op": "getSessionFile",
+					"out": "<TMP>/agent/sessions/--<TMP>-fork-target--/<file-ts>_forked-id.jsonl"
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "<TMP>/fork-target",
+						"id": "forked-id",
+						"parentSession": "<TMP>/fork/source.jsonl",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "m1",
+							"message": {
+								"content": "from origin",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "m2",
+							"message": {
+								"content": [
+									{
+										"text": "origin reply",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "i1",
+							"name": "origin session",
+							"parentId": "m2",
+							"timestamp": "<ts3>",
+							"type": "session_info"
+						}
+					]
+				},
+				{
+					"op": "getCwd",
+					"out": "<TMP>/fork-target"
+				},
+				{
+					"op": "getSessionId",
+					"out": "forked-id"
+				},
+				{
+					"op": "listFiles",
+					"out": [
+						{
+							"lines": null,
+							"name": "--<TMP>-fork-target--"
+						}
+					]
+				},
+				{
+					"op": "readSessionFile",
+					"out": [
+						{
+							"cwd": "<TMP>/fork-target",
+							"id": "forked-id",
+							"parentSession": "<TMP>/fork/source.jsonl",
+							"timestamp": "<ts1>",
+							"type": "session",
+							"version": 3
+						},
+						{
+							"id": "m1",
+							"message": {
+								"content": "from origin",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "m2",
+							"message": {
+								"content": [
+									{
+										"text": "origin reply",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "m1",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"id": "i1",
+							"name": "origin session",
+							"parentId": "m2",
+							"timestamp": "<ts4>",
+							"type": "session_info"
+						}
+					]
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Cannot fork: source session file is empty or invalid: <TMP>/fork/missing.jsonl"
+					}
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "expectThrow",
+					"out": {
+						"error": "Cannot fork: source session file is empty or invalid: <TMP>/fork/no-header.jsonl"
+					}
+				}
+			]
+		},
+		{
+			"name": "static-find-by-id",
+			"ops": [
+				{
+					"op": "mkdir",
+					"args": {
+						"path": "/find"
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/find/one.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-one\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"$root/proj\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"one\",\"timestamp\":1767225601000}}\n"
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/find/two.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-two\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"$root/other\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"two\",\"timestamp\":1767225601000}}\n"
+					}
+				},
+				{
+					"op": "staticFindById",
+					"args": {
+						"cwd": "$root/proj",
+						"id": "sess-one",
+						"sessionDir": "/find"
+					}
+				},
+				{
+					"op": "staticFindById",
+					"args": {
+						"cwd": "$root/proj",
+						"id": "sess-two",
+						"sessionDir": "/find"
+					}
+				},
+				{
+					"op": "staticFindById",
+					"args": {
+						"cwd": "$root/proj",
+						"id": "sess-missing",
+						"sessionDir": "/find"
+					}
+				},
+				{
+					"op": "staticFindById",
+					"args": {
+						"cwd": "$root/other",
+						"id": "sess-two",
+						"sessionDir": "/find"
+					}
+				},
+				{
+					"op": "staticFindById",
+					"args": {
+						"cwd": "$root/proj",
+						"id": "sess-one",
+						"sessionDir": "/nowhere"
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "mkdir",
+					"out": null
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "staticFindById",
+					"out": "<TMP>/find/one.jsonl"
+				},
+				{
+					"op": "staticFindById",
+					"out": null
+				},
+				{
+					"op": "staticFindById",
+					"out": null
+				},
+				{
+					"op": "staticFindById",
+					"out": "<TMP>/find/two.jsonl"
+				},
+				{
+					"op": "staticFindById",
+					"out": null
+				}
+			]
+		},
+		{
+			"name": "static-list-and-list-all",
+			"ops": [
+				{
+					"op": "mkdir",
+					"args": {
+						"path": "/list-dir"
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/list-dir/aaa.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-aaa\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"$root/proj\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"aaa first\",\"timestamp\":1767225601000}}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"name\":\"AAA\"}\n",
+						"mtimeMs": 1767225600000
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/list-dir/bbb.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-bbb\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"$root/proj\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"bbb second\",\"timestamp\":1767225601000}}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"name\":\"BBB\"}\n",
+						"mtimeMs": 1767225700000
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/list-dir/ccc.jsonl",
+						"content": "{\"type\":\"session\",\"version\":3,\"id\":\"sess-ccc\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"$root/elsewhere\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"ccc other cwd\",\"timestamp\":1767225601000}}\n{\"type\":\"session_info\",\"id\":\"i1\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"name\":\"CCC\"}\n",
+						"mtimeMs": 1767225800000
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/list-dir/broken.txt",
+						"content": "not a session"
+					}
+				},
+				{
+					"op": "staticList",
+					"args": {
+						"cwd": "$root/proj",
+						"sessionDir": "/list-dir"
+					}
+				},
+				{
+					"op": "staticList",
+					"args": {
+						"cwd": "$root/elsewhere",
+						"sessionDir": "/list-dir"
+					}
+				},
+				{
+					"op": "staticList",
+					"args": {
+						"cwd": "$root/nowhere-cwd",
+						"sessionDir": "/list-dir"
+					}
+				},
+				{
+					"op": "staticListAll",
+					"args": {
+						"sessionDir": "/list-dir"
+					}
+				},
+				{
+					"op": "staticList",
+					"args": {
+						"cwd": "/proj",
+						"sessionDir": "/missing-dir"
+					}
+				},
+				{
+					"op": "create",
+					"args": {
+						"cwd": "$root/proj"
+					}
+				},
+				{
+					"op": "appendMessage",
+					"args": {
+						"message": {
+							"role": "user",
+							"content": "library scan fodder",
+							"timestamp": 1767225601000
+						}
+					}
+				},
+				{
+					"op": "staticListAll"
+				}
+			],
+			"results": [
+				{
+					"op": "mkdir",
+					"out": null
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "staticList",
+					"out": [
+						{
+							"allMessagesText": "bbb second",
+							"created": "<ts1>",
+							"cwd": "<TMP>/proj",
+							"firstMessage": "bbb second",
+							"id": "sess-bbb",
+							"messageCount": 1,
+							"modified": "<ts2>",
+							"name": "BBB",
+							"path": "<TMP>/list-dir/bbb.jsonl"
+						},
+						{
+							"allMessagesText": "aaa first",
+							"created": "<ts3>",
+							"cwd": "<TMP>/proj",
+							"firstMessage": "aaa first",
+							"id": "sess-aaa",
+							"messageCount": 1,
+							"modified": "<ts4>",
+							"name": "AAA",
+							"path": "<TMP>/list-dir/aaa.jsonl"
+						}
+					]
+				},
+				{
+					"op": "staticList",
+					"out": [
+						{
+							"allMessagesText": "ccc other cwd",
+							"created": "<ts1>",
+							"cwd": "<TMP>/elsewhere",
+							"firstMessage": "ccc other cwd",
+							"id": "sess-ccc",
+							"messageCount": 1,
+							"modified": "<ts2>",
+							"name": "CCC",
+							"path": "<TMP>/list-dir/ccc.jsonl"
+						}
+					]
+				},
+				{
+					"op": "staticList",
+					"out": []
+				},
+				{
+					"op": "staticListAll",
+					"out": [
+						{
+							"allMessagesText": "ccc other cwd",
+							"created": "<ts1>",
+							"cwd": "<TMP>/elsewhere",
+							"firstMessage": "ccc other cwd",
+							"id": "sess-ccc",
+							"messageCount": 1,
+							"modified": "<ts2>",
+							"name": "CCC",
+							"path": "<TMP>/list-dir/ccc.jsonl"
+						},
+						{
+							"allMessagesText": "bbb second",
+							"created": "<ts3>",
+							"cwd": "<TMP>/proj",
+							"firstMessage": "bbb second",
+							"id": "sess-bbb",
+							"messageCount": 1,
+							"modified": "<ts4>",
+							"name": "BBB",
+							"path": "<TMP>/list-dir/bbb.jsonl"
+						},
+						{
+							"allMessagesText": "aaa first",
+							"created": "<ts5>",
+							"cwd": "<TMP>/proj",
+							"firstMessage": "aaa first",
+							"id": "sess-aaa",
+							"messageCount": 1,
+							"modified": "<ts6>",
+							"name": "AAA",
+							"path": "<TMP>/list-dir/aaa.jsonl"
+						}
+					]
+				},
+				{
+					"op": "staticList",
+					"out": []
+				},
+				{
+					"op": "create",
+					"out": null
+				},
+				{
+					"op": "appendMessage",
+					"out": "#1"
+				},
+				{
+					"op": "staticListAll",
+					"out": [
+						{
+							"allMessagesText": "library scan fodder",
+							"created": "<ts1>",
+							"cwd": "<TMP>/proj",
+							"firstMessage": "library scan fodder",
+							"id": "#1",
+							"messageCount": 1,
+							"modified": "<ts2>",
+							"path": "<TMP>/agent/sessions/--<TMP>-proj--/<file-ts>_#2.jsonl"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "migrate-on-open",
+			"ops": [
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/migrate/v2.jsonl",
+						"content": "{\"type\":\"session\",\"version\":2,\"id\":\"sess-v2\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/proj\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"hookMessage\",\"customType\":\"hook\",\"content\":\"v2 hook message\",\"display\":true,\"timestamp\":1767225601000}}\n{\"type\":\"message\",\"id\":\"m2\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"user\",\"content\":\"v2 user\",\"timestamp\":1767225601000}}\n"
+					}
+				},
+				{
+					"op": "open",
+					"args": {
+						"path": "/migrate/v2.jsonl"
+					}
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "readSessionFile",
+					"args": {
+						"path": "/migrate/v2.jsonl"
+					}
+				},
+				{
+					"op": "writeFile",
+					"args": {
+						"path": "/migrate/v1.jsonl",
+						"content": "{\"type\":\"session\",\"id\":\"sess-v1\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"/proj\"}\n{\"type\":\"message\",\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"v1 user\",\"timestamp\":1767225601000}}\n{\"type\":\"message\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"v1 assistant\"}],\"provider\":\"anthropic\",\"model\":\"claude-sonnet-4\",\"stopReason\":\"stop\",\"usage\":{\"input\":10,\"output\":4,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":14,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"timestamp\":1767225602000}}\n{\"type\":\"compaction\",\"timestamp\":\"2026-01-01T00:00:03.000Z\",\"summary\":\"v1 summary\",\"firstKeptEntryIndex\":1,\"tokensBefore\":100}\n"
+					}
+				},
+				{
+					"op": "open",
+					"args": {
+						"path": "/migrate/v1.jsonl"
+					}
+				},
+				{
+					"op": "getHeader"
+				},
+				{
+					"op": "getEntries"
+				},
+				{
+					"op": "getTree"
+				},
+				{
+					"op": "readSessionFile",
+					"args": {
+						"path": "/migrate/v1.jsonl"
+					}
+				}
+			],
+			"results": [
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "/proj",
+						"id": "sess-v2",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "m1",
+							"message": {
+								"content": "v2 hook message",
+								"customType": "hook",
+								"display": true,
+								"role": "custom",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "m2",
+							"message": {
+								"content": "v2 user",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "m1",
+							"timestamp": "<ts2>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "readSessionFile",
+					"out": [
+						{
+							"cwd": "/proj",
+							"id": "sess-v2",
+							"timestamp": "<ts1>",
+							"type": "session",
+							"version": 3
+						},
+						{
+							"id": "m1",
+							"message": {
+								"content": "v2 hook message",
+								"customType": "hook",
+								"display": true,
+								"role": "custom",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "m2",
+							"message": {
+								"content": "v2 user",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": "m1",
+							"timestamp": "<ts3>",
+							"type": "message"
+						}
+					]
+				},
+				{
+					"op": "writeFile",
+					"out": null
+				},
+				{
+					"op": "open",
+					"out": null
+				},
+				{
+					"op": "getHeader",
+					"out": {
+						"cwd": "/proj",
+						"id": "sess-v1",
+						"timestamp": "<ts1>",
+						"type": "session",
+						"version": 3
+					}
+				},
+				{
+					"op": "getEntries",
+					"out": [
+						{
+							"id": "#1",
+							"message": {
+								"content": "v1 user",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts1>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": [
+									{
+										"text": "v1 assistant",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#3",
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"firstKeptEntryId": "#4",
+							"id": "#5",
+							"parentId": "#6",
+							"summary": "v1 summary",
+							"timestamp": "<ts3>",
+							"tokensBefore": 100,
+							"type": "compaction"
+						}
+					]
+				},
+				{
+					"op": "getTree",
+					"out": [
+						{
+							"children": [
+								{
+									"children": [
+										{
+											"children": [],
+											"entry": {
+												"firstKeptEntryId": "#1",
+												"id": "#2",
+												"parentId": "#3",
+												"summary": "v1 summary",
+												"timestamp": "<ts1>",
+												"tokensBefore": 100,
+												"type": "compaction"
+											}
+										}
+									],
+									"entry": {
+										"id": "#4",
+										"message": {
+											"content": [
+												{
+													"text": "v1 assistant",
+													"type": "text"
+												}
+											],
+											"model": "claude-sonnet-4",
+											"provider": "anthropic",
+											"role": "assistant",
+											"stopReason": "stop",
+											"timestamp": "<millis>",
+											"usage": {
+												"cacheRead": 0,
+												"cacheWrite": 0,
+												"cost": {
+													"cacheRead": 0,
+													"cacheWrite": 0,
+													"input": 0,
+													"output": 0,
+													"total": 0
+												},
+												"input": 10,
+												"output": 4,
+												"totalTokens": 14
+											}
+										},
+										"parentId": "#5",
+										"timestamp": "<ts2>",
+										"type": "message"
+									}
+								}
+							],
+							"entry": {
+								"id": "#6",
+								"message": {
+									"content": "v1 user",
+									"role": "user",
+									"timestamp": "<millis>"
+								},
+								"parentId": null,
+								"timestamp": "<ts3>",
+								"type": "message"
+							}
+						}
+					]
+				},
+				{
+					"op": "readSessionFile",
+					"out": [
+						{
+							"cwd": "/proj",
+							"id": "sess-v1",
+							"timestamp": "<ts1>",
+							"type": "session",
+							"version": 3
+						},
+						{
+							"id": "#1",
+							"message": {
+								"content": "v1 user",
+								"role": "user",
+								"timestamp": "<millis>"
+							},
+							"parentId": null,
+							"timestamp": "<ts2>",
+							"type": "message"
+						},
+						{
+							"id": "#2",
+							"message": {
+								"content": [
+									{
+										"text": "v1 assistant",
+										"type": "text"
+									}
+								],
+								"model": "claude-sonnet-4",
+								"provider": "anthropic",
+								"role": "assistant",
+								"stopReason": "stop",
+								"timestamp": "<millis>",
+								"usage": {
+									"cacheRead": 0,
+									"cacheWrite": 0,
+									"cost": {
+										"cacheRead": 0,
+										"cacheWrite": 0,
+										"input": 0,
+										"output": 0,
+										"total": 0
+									},
+									"input": 10,
+									"output": 4,
+									"totalTokens": 14
+								}
+							},
+							"parentId": "#3",
+							"timestamp": "<ts3>",
+							"type": "message"
+						},
+						{
+							"firstKeptEntryId": "#4",
+							"id": "#5",
+							"parentId": "#6",
+							"summary": "v1 summary",
+							"timestamp": "<ts4>",
+							"tokensBefore": 100,
+							"type": "compaction"
+						}
+					]
+				}
+			]
+		}
+	]
+}

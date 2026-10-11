@@ -424,7 +424,7 @@ public class SessionCorpusTests
             (new BranchSummaryEntry { Id = "e", ParentId = null, Timestamp = "t", FromId = "f", Summary = "s" }, "branch_summary"),
             (new CustomEntry { Id = "e", ParentId = null, Timestamp = "t", CustomType = "c" }, "custom"),
             (new CustomMessageEntry { Id = "e", ParentId = null, Timestamp = "t", CustomType = "c", Content = new MessageContent.Text("hi"), Display = true }, "custom_message"),
-            (new ContextEditEntry { Id = "e", ParentId = null, Timestamp = "t", TargetId = "x", Replacement = new ContextEditReplacement { Content = new MessageContent.Text("r") } }, "context_edit"),
+            (new ContextEditEntry { Id = "e", ParentId = null, Timestamp = "t", TargetId = "x", Replacement = new ContextEditReplacement { Content = JsonValue.Create("r") } }, "context_edit"),
             (new LabelEntry { Id = "e", ParentId = null, Timestamp = "t", TargetId = "x", Label = "l" }, "label"),
             (new SessionInfoEntry { Id = "e", ParentId = null, Timestamp = "t", Name = "n" }, "session_info"),
         };

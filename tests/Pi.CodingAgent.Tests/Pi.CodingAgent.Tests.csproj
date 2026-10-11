@@ -52,6 +52,9 @@
     <!-- 4e-2c-2: session-manager.ts file I/O and directory discovery (loadEntriesFromFile,
          findMostRecentSession, buildSessionInfo/listSessionsFromDir through the list facade). -->
     <None Include="session-files-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4e-2c-3: session-manager.ts SessionManager class (file switching, append*, tree traversal,
+         branching, createBranchedSession, static factories). -->
+    <None Include="session-manager-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" />
