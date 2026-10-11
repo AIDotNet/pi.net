@@ -55,6 +55,9 @@
     <!-- 4e-2c-3: session-manager.ts SessionManager class (file switching, append*, tree traversal,
          branching, createBranchedSession, static factories). -->
     <None Include="session-manager-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4e-2d: core/compaction/* (utils, compaction, branch-summarization), core/skills.ts
+         formatSkillsForPrompt and core/system-prompt.ts. -->
+    <None Include="compaction-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" />

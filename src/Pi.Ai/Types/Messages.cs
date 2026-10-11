@@ -306,6 +306,50 @@ public sealed record AssistantMessage(
         Content.OfType<ToolCallContent>();
 }
 
+/// <summary>工具运行期间发起的嵌套工具调用（例如 codemode 脚本里的调用）。对应 TS <c>NestedToolCallRecord</c>。</summary>
+public sealed record NestedToolCallRecord
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+
+    /// <summary>超尺寸限制时省略，此时 <see cref="ArgumentsBytes"/> 给出字节数。</summary>
+    [JsonPropertyName("arguments")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public System.Text.Json.Nodes.JsonObject? Arguments { get; init; }
+
+    /// <summary>arguments 的 JSON UTF-8 字节数（省略 arguments 时设置）。</summary>
+    [JsonPropertyName("argumentsBytes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ArgumentsBytes { get; init; }
+
+    /// <summary><c>unfinished</c>：调用工具结束时嵌套调用仍在运行。对应 TS <c>"ok" | "error" | "unfinished"</c>。</summary>
+    [JsonPropertyName("status")]
+    public required string Status { get; init; }
+
+    [JsonPropertyName("durationMs")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? DurationMs { get; init; }
+
+    /// <summary>截断后的错误文本。</summary>
+    [JsonPropertyName("error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; init; }
+}
+
+/// <summary>工具发起的嵌套调用的有界记录（不记录结果）。对应 TS <c>NestedToolCalls</c>。</summary>
+public sealed record NestedToolCalls
+{
+    [JsonPropertyName("calls")]
+    public required IReadOnlyList<NestedToolCallRecord> Calls { get; init; }
+
+    /// <summary>false 表示调用被丢弃、arguments 被省略或有调用未完成。</summary>
+    [JsonPropertyName("complete")]
+    public required bool Complete { get; init; }
+}
+
 /// <summary>工具结果消息。对应 TS <c>ToolResultMessage</c>。</summary>
 public sealed record ToolResultMessage(
     string ToolCallId,
@@ -326,6 +370,11 @@ public sealed record ToolResultMessage(
     [JsonPropertyName("durationMs")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? DurationMs { get; set; }
+
+    /// <summary>该工具运行期间发起的嵌套调用（保留在会话记录里；不发给模型）。对应 TS <c>nestedCalls?</c>。</summary>
+    [JsonPropertyName("nestedCalls")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NestedToolCalls? NestedCalls { get; set; }
 }
 
 /// <summary>静态构造辅助（对齐 TS 侧消息工厂的易用性）。</summary>

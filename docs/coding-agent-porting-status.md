@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1（叶子模块）+ 4e-2a（`Usage` 完整形态）+ 4e-2b（`AgentMessage` / `core/messages.ts`）+ 4e-2c-0（消息内容联合下沉）+ **4e-2c-1（`session-manager` 类型与纯树/投影逻辑）** + **4e-2c-2（`session-manager` 文件 I/O 与目录发现）** + **4e-2c-3（`SessionManager` 类与差分语料）** 完成（2026-10-11）；余 4e-2d 待办                     |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1（叶子模块）+ 4e-2a（`Usage` 完整形态）+ 4e-2b（`AgentMessage` / `core/messages.ts`）+ 4e-2c-0（消息内容联合下沉）+ **4e-2c-1（`session-manager` 类型与纯树/投影逻辑）** + **4e-2c-2（`session-manager` 文件 I/O 与目录发现）** + **4e-2c-3（`SessionManager` 类与差分语料）** + **4e-2d（compaction 目录 + skills / system-prompt / session-export）** 完成（2026-10-11）；余 4e-3（agent-session 三件套）待办                     |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -474,6 +474,8 @@ C# 侧另有若干「JS 语义」辅助（TS 无对应文件，供全部子阶�
 | `CodemodeCorpusTests` | 26 | 4d-5 codemode 差分：常量（工具名 / store 条目类型 / 默认 inline 预算 / docsPath 连接分隔符 / 系统提示 snippet+guidelines）、schema 逐键深度比对（含引用身份供 `isCodemodeTool` 用）、schema 身份守卫（名称匹配+引用匹配→true；引用不同→false；名称不同→false）、`toCodemodeDeclaration`（3 条含空格名修剪、空 guideline 过滤、outputSchema 缺省回退文本 schema）、`getCodemodeCallableTools`（codemode 自身被排除）、`createCodemodeDescription`（10 条：空/全工具 × models、namespace 分组标题、deferred 完全隐藏、预算 0/40/300/无限截断、仅 namespace 工具）、`createCodemodeToolDefinition` + `prepareLoadout`（mode on/only/default：描述改写、codemode 自身描述、only 模式隐藏 direct 声明、constrainedSampling grammar 逐字节）、`readCodemodeStore`（空 branch、set+delete 应用顺序、畸形 data 跳过、非对象 data）、`combineUsage`（可选 cacheWrite1h/reasoning 任一侧存在即保留）、`addUsageToTotals`、`getUsageCostBreakdown`（按模型分组、`Tools/summaries` 桶、零值行过滤、按成本降序） |
 | `SessionFilesCorpusTests` | 21 | 4e-2c-2 会话文件 I/O 差分（语料由真实 TS 模块对 Node 临时目录产出，回放侧按相同字节与 mtime 重建后比对）：`loadEntriesFromFile` 9 条（正常 / 空文件 / 仅头 / 首行非头→空 / 坏行+空行跳过 / 缺尾换行修复（验证文件被补 `\n`）/ BOM 不剥→首行失效→空 / 多字节 UTF-8 / 尾行截断 JSON 跳过+修复）、`findMostRecentSession` 5 条（mtime 最新（无 cwd 时无视 cwd）/ cwd 过滤命中较旧 / cwd 无匹配→null / 目录缺失→null / 空目录→null；覆盖非会话文件与非 .jsonl 忽略）、`SessionManager.list` 门面语义下的 `buildSessionInfo`/`listSessionsFromDir` 6 条（modified 排序、活动时间与 firstMessage 提取、toolResult/bashExecution 不参与文本与活动时间、session_info 命名与 trim 清除、纯图片 user 无文本、无头/空文件→无条目、目录缺失→[]） |
 | `SessionManagerCorpusTests` | 20 | 4e-2c-3 SessionManager 类差分：op 解释器驱动真实 TS `SessionManager` 与 C# 回放器在各自 per-scenario 临时目录执行同一 ops 序列（含 `$N`/`$pN`/`$root` 占位引用与 `{"__pad":{p,n,s}}` 超长 fixture 压缩），逐 op 输出做 token 归一化后全等比对。20 场景：append 系列 11 op + 持久化门控（user/assistant 才落盘）、session_info 命名与 trim、appendCompaction（当前 system 消息转储）、appendContextEdit（校验/branch/字符串→块归一）、appendLabelChange、open 全家（existing/empty/invalid/missing-explicit-path/scan-limit 回退）、树排序与孤儿、branch/branchWithSummary/ResetLeaf、createBranchedSession（persist/in-memory，label 重链）、静态工厂（create options/continueRecent/forkFrom/findById/list/listAll）、v1/v2 迁移 on open |
+| `CompactionCorpusTests` | 13 | 4e-2d compaction 差分（语料由真实 TS compaction 模块驱动、C# 回放器逐向量比对，token 归一化沿用 `#N`/`<tsN>`/`<millis>`/`<TMP>`/`<str:len>` 惯例 + keepLen 分节豁免；date-only timestamp 两侧 parse 一致）：`calcContextTokens`（CalculateContextTokens/GetLastAssistantUsage/EstimateContextTokens/EstimateProjectedContextTokens）、`estimateTokens`（8 分支）、`shouldCompact`、`estimateContext`（capturedContext 包装回放）、`serializeConversation`（全文逐字）、`fileOps`（CreateFileOps/ExtractFileOpsFromMessage/ComputeFileLists/FormatFileOperations diff 渲染）、`summarizationFailure`（undefined 键消失语义）、`findCutPoint`、`findTurnStartIndex`、`findCutPointPostCompaction`、`generateSummary`（全文逐字 + usage 合并）、`branchCollect`/`branchPrepare`、skills/system-prompt 共享输入 section |
+| `CompactionSkillsExportTests` | 17 | 4e-2d 补充差分与单测：Skills 目录加载 13 条（13 个目录、`SKILL.md` 停递归、根 md 仅顶层、name 回退目录名、缺 description 诊断、校验警告仍加载、node_modules/隐藏目录跳过、`disable-model-invocation` 跳过、**gitignore 过滤（含 `Path.GetRelativePath` `"."` 语义缺陷回归）**、否定+glob、子目录锚定、collision、missing path warning）+ `EstimateTokens` toolsAdded 算法断言（`(SerializeToPlainText(tools).Length + 3) / 4`）+ SessionExport 3 条（branch 序列化结构、trailing type=`custom_message`、parentId 显式 JSON null） |
 
 ## 4d-1 进度（2026-10-10）：扩展系统契约层
 
@@ -1515,3 +1517,59 @@ InMemory·ForkFrom·FindById·List·ListAll）。构建 0 警告 0 错误；`Ses
   `Error` 一致（如 `Entry {id} not found`、`Cannot fork: source session file is empty or invalid: {path}`、
   `Session file is not a valid pi session: {path}`）。
 
+
+## 4e-2d 进度（2026-10-11）：compaction 目录 + skills / system-prompt / session-export
+
+`core/compaction/*`（compaction.ts、compaction-utils.ts、branch-summarization.ts）、
+`core/skills.ts`、`core/system-prompt.ts`、`core/session-export.ts` 已移植，构建 0 警告 0 错误。
+全量 878 total / 872 过 / 6 失败——失败全部为预存环境敏感用例（ModelResolverTests 2 +
+CoreModelRuntimeTests 4，本机 anthropic 凭据导致 catalog 发现差异，与本批无关），新增 30 项测试零回归。
+
+新增文件：
+
+| 文件 | 内容 |
+|---|---|
+| `src/Pi.CodingAgent/Core/CompactionUtils.cs` | FileOperations / CreateFileOps / ExtractFileOpsFromMessage / ComputeFileLists / FormatFileOperations（added/removed 双清单 diff 渲染）、SerializeConversation、TruncateForSummary、SummarizationSystemPrompt |
+| `src/Pi.CodingAgent/Core/Compaction.cs` | CalculateContextTokens / GetLastAssistantUsage / EstimateContextTokens / EstimateProjectedContextTokens / ShouldCompact、EstimateTokens（8 分支）、FindTurnStartIndex / FindCutPoint / GetSummarizationFailure / CreateSummarizationOptions / CompleteSummarizationAsync / GenerateSummaryWithUsageAsync / GenerateSummaryAsync / DeserializeDetails（JsonObject + JsonElement 双形态）/ PrepareCompaction / CompactAsync / GenerateTurnPrefixSummaryAsync |
+| `src/Pi.CodingAgent/Core/BranchSummarization.cs` | CollectEntriesForBranchSummary / PrepareBranchEntries / GenerateBranchSummaryAsync 与五组结果类型 |
+| `src/Pi.CodingAgent/Core/CompatShims.cs` | SerializeToPlainText / ToModel(this ModelSpec) / ToDictionary(SimpleStreamOptions) 等 TS 单文件工具函数 |
+| `src/Pi.CodingAgent/Core/Skills.cs` | IgnoreMatcher（gitignore 子集自实现：`*` 不跨 `/`、`**` 跨层级、含 `/` 锚定、尾 `/` 目录、`!` 否定、最后匹配者胜、目录排除传播到内容）+ Skill 加载 / 校验 / FormatSkillsForPrompt / LoadSkills 门面 |
+| `src/Pi.CodingAgent/Core/SystemPrompt.cs` | BuildSystemPrompt / DiffSystemPromptSections（OrderedDictionary 保序 + options 归一化 + DocsSection raw string 常量） |
+| `src/Pi.CodingAgent/Core/SessionExport.cs` | SerializeSessionBranch / ExportSessionToJsonl（branch 子树序列化与 JSONL 写出） |
+| `src/Pi.Ai/Types/Messages.cs`（修改） | 新增 `NestedToolCallRecord` / `NestedToolCalls`（TS 嵌套工具调用有界记录）与 ToolResultMessage 的 `nestedToolCalls` 属性（compaction 序列化需要） |
+
+差分语料：`tests/Pi.CodingAgent.Tests/compaction-corpus.json`（生成器驱动真实 TS 模块产出；生成器与
+shim 位于 `tools/`，按既有惯例不入库）。14 个 section + 4 个共享输入 section：calcContextTokens /
+estimateTokens / shouldCompact / estimateContext / serializeConversation / fileOps / summarizationFailure /
+findCutPoint / findTurnStartIndex / findCutPointPostCompaction / generateSummary / branchCollect /
+branchPrepare / skillsFormat / systemPrompt / systemPromptDiff。
+
+- token 化归一化沿用既有惯例（`#N` / `<tsN>` / `<millis>` / `<TMP>` / `<str:len>`），新增 **keepLen
+  分节豁免**：serializeConversation / generateSummary / skillsFormat / systemPrompt / systemPromptDiff
+  的输出全文存储（验证常量逐字一致），其余折叠 `<str:len>`。
+- TS 侧 shim（resolve hook）：pi-ai / pi-ai/compat / pi-agent-core → 短路桩（completeSimple 抛占位、
+  retryAssistantCall 直调 produce）；cross-spawn / ignore / yaml → stub。
+- date-only timestamp（如 `"2026-01-03"`）两侧 parse 一致（JS `new Date` → UTC midnight；C#
+  ParseTimestamp 按 yyyy-MM-dd AssumeUniversal）且 <20 字符不被折叠——绕开 `<tsN>` 归一化破坏
+  ParseTimestamp 回放。
+
+### 4e-2d 发现并修复的真实缺陷
+
+1. **gitignore 过滤全部失效（产品级严重）**：`Path.GetRelativePath(root, root)` 返回 `"."` 而 Node
+   `path.relative` 返回 `""`——当 skills 目录自身即 relativeDir 时前缀变 `./`，`./build` 之类含锚定
+   前缀的规则全部失配，忽略文件静默失效。修复：relativeDir 为 `"."` 时归空。
+2. **SessionExport parentId 写不出 JSON null（产品级）**：`JsonObject` 索引器 set null 是**移除属性**
+   而非写 JSON null——C# 导出的分支首条目缺 `parentId` 键而 TS 是显式 null。修复：Remove +
+   `Add(key, null)`。
+3. **JsonObject 无法持有显式 JSON null**：`JsonValue.Create<string?>(null)` 返回 C# null——
+   `{ ...entry, parentId }` 式映射统一按「存在键原位替换、缺失键末尾追加、null 需 Remove+Add」处理。
+4. **estimateTokens toolsAdded 向量不可比**：ToolDefinition 的 wire 形状与 TS JSON.stringify 长度
+   不可比（ToolSchema 的 jsonSchema 包装 + STJ 序列化细节），语料删该向量，改算法性单测
+   `EstimateTokens == (SerializeToPlainText(tools).Length + 3) / 4`。
+
+### 4e-2d 设计差异（文档化）
+
+- 语料 toolResult content 用 blocks 形态：`ToolResultMessage.Content` 仍是
+  `IReadOnlyList<ContentBlock>`（string | blocks 联合化是 4e-2b 待办），估算 / 序列化值等价。
+- `{"__pad": {p, n, s}}` 超长 fixture 压缩惯例延续，C# ExpandPads 重建（需 `ReferenceEquals` 防
+  JsonNode re-parent）。
