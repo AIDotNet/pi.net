@@ -1220,6 +1220,22 @@ public sealed class SettingsManager
     public void SetProjectExtensionPaths(IReadOnlyList<string> paths)
         => UpdateProjectSettings("extensions", settings => settings["extensions"] = ToJsonArray(paths));
 
+    public IReadOnlyList<string> GetProjectExtensionPaths() => [.. AsStringArray(_projectSettings["extensions"])];
+
+    public IReadOnlyList<string> GetProjectSkillPaths() => [.. AsStringArray(_projectSettings["skills"])];
+
+    public IReadOnlyList<string> GetProjectPromptTemplatePaths() => [.. AsStringArray(_projectSettings["prompts"])];
+
+    public IReadOnlyList<string> GetProjectThemePaths() => [.. AsStringArray(_projectSettings["themes"])];
+
+    public IReadOnlyList<string> GetGlobalExtensionPaths() => [.. AsStringArray(_globalSettings["extensions"])];
+
+    public IReadOnlyList<string> GetGlobalSkillPaths() => [.. AsStringArray(_globalSettings["skills"])];
+
+    public IReadOnlyList<string> GetGlobalPromptTemplatePaths() => [.. AsStringArray(_globalSettings["prompts"])];
+
+    public IReadOnlyList<string> GetGlobalThemePaths() => [.. AsStringArray(_globalSettings["themes"])];
+
     public IReadOnlyList<string> GetSkillPaths() => [.. AsStringArray(Raw("skills"))];
 
     public void SetSkillPaths(IReadOnlyList<string> paths)
@@ -1255,6 +1271,34 @@ public sealed class SettingsManager
 
     public void SetProjectThemePaths(IReadOnlyList<string> paths)
         => UpdateProjectSettings("themes", settings => settings["themes"] = ToJsonArray(paths));
+
+    public IReadOnlyList<string> GetInclude(string type) => GetOverrideList("include", type);
+
+    public IReadOnlyList<string> GetExclude(string type) => GetOverrideList("exclude", type);
+
+    public IReadOnlyList<string> GetAutoload(string type) => GetOverrideList("autoload", type);
+
+    public void SetInclude(string type, IReadOnlyList<string> patterns) => SetOverrideList("include", type, patterns);
+
+    public void SetExclude(string type, IReadOnlyList<string> patterns) => SetOverrideList("exclude", type, patterns);
+
+    public void SetAutoload(string type, IReadOnlyList<string> patterns) => SetOverrideList("autoload", type, patterns);
+
+    private IReadOnlyList<string> GetOverrideList(string kind, string type)
+        => Raw(kind) is JsonObject obj ? [.. AsStringArray(obj[type])] : [];
+
+    private void SetOverrideList(string kind, string type, IReadOnlyList<string> patterns)
+    {
+        if (_globalSettings[kind] is not JsonObject obj)
+        {
+            obj = [];
+            _globalSettings[kind] = obj;
+        }
+
+        obj[type] = ToJsonArray(patterns);
+        MarkModified(kind);
+        Save();
+    }
 
     public bool GetEnableSkillCommands() => AsBool(Raw("enableSkillCommands"), true);
 
