@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Pi.CodingAgent.Core;
 using Xunit;
 
@@ -104,16 +105,74 @@ public sealed class PackageManagerTests : IDisposable
     }
 
     [Fact]
-    public void ParseSource_NpmScopedAndGit()
+    public void ParseSource_NpmPrefixAndHttpsGit()
     {
-        var npm = DefaultPackageManager.ParseSource("@scope/pkg@1.2.3");
-        Assert.Equal("npm", npm.Kind);
+        var npm = DefaultPackageManager.ParseSource("npm:@scope/pkg@1.2.3");
+        Assert.Equal("npm", npm.Type);
         Assert.Equal("@scope/pkg", npm.Locator);
         Assert.Equal("1.2.3", npm.Version);
+        Assert.True(npm.Pinned);
 
-        var git = DefaultPackageManager.ParseSource("https://github.com/acme/pkg.git#main");
-        Assert.Equal("git", git.Kind);
-        Assert.Contains("github.com/acme/pkg", git.Locator.Replace('\\', '/'));
+        var git = DefaultPackageManager.ParseSource("https://github.com/mariozechner/pi-skills.git");
+        Assert.Equal("git", git.Type);
+        Assert.Equal("github.com", git.Host);
+        Assert.Equal("mariozechner/pi-skills", git.Path);
+        Assert.False(git.Pinned);
+
+        var shorthand = DefaultPackageManager.ParseSource("github.com/user/repo");
+        Assert.Equal("local", shorthand.Type);
+    }
+
+    [Fact]
+    public void AddSourceToSettings_NormalizesAndUpdatesSameGitIdentity()
+    {
+        var (cwd, agentDir, settings) = NewEnv();
+        var manager = new DefaultPackageManager(settings, cwd, agentDir);
+        var pkgDir = Path.Combine(_root, "pkg");
+        Directory.CreateDirectory(pkgDir);
+
+        Assert.True(manager.AddSourceToSettings(pkgDir));
+        var stored = Assert.Single(settings.GetGlobalSettings().Packages!);
+        var expectedRel = Path.GetRelativePath(agentDir, pkgDir);
+        expectedRel = expectedRel.StartsWith('.') ? expectedRel : Path.Combine(".", expectedRel);
+        Assert.Equal(expectedRel, stored!.GetValue<string>());
+
+        Assert.True(manager.AddSourceToSettings("https://github.com/user/repo.git"));
+        Assert.False(manager.AddSourceToSettings("https://github.com/user/repo.git"));
+        Assert.True(manager.AddSourceToSettings("https://github.com/user/repo.git#v2"));
+        var packages = settings.GetGlobalSettings().Packages!;
+        Assert.Equal(2, packages.Count);
+        Assert.Equal("https://github.com/user/repo.git#v2", packages[1]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void AddSourceToSettings_PreservesFiltersWhenUpdatingObjectEntry()
+    {
+        var (cwd, agentDir, settings) = NewEnv();
+        settings.SetPackages(
+        [
+            new JsonObject
+            {
+                ["source"] = "https://github.com/user/repo.git",
+                ["skills"] = new JsonArray("review"),
+            },
+        ]);
+        var manager = new DefaultPackageManager(settings, cwd, agentDir);
+        Assert.True(manager.AddSourceToSettings("https://github.com/user/repo.git#v2"));
+        var obj = Assert.IsType<JsonObject>(settings.GetGlobalSettings().Packages![0]);
+        Assert.Equal("https://github.com/user/repo.git#v2", obj["source"]!.GetValue<string>());
+        Assert.Equal("review", obj["skills"]!.AsArray()[0]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void GetNpmInstallPath_TemporaryUsesTmpExtensions()
+    {
+        var (cwd, agentDir, settings) = NewEnv();
+        var manager = new DefaultPackageManager(settings, cwd, agentDir);
+        var parsed = DefaultPackageManager.ParseSource("npm:@foo/bar@1.0.0");
+        var path = manager.GetNpmInstallPath(parsed, "temporary");
+        Assert.Contains(Path.Combine("tmp", "extensions", "node_modules"), path);
+        Assert.Contains("bar", path);
     }
 
     [Fact]

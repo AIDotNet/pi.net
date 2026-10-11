@@ -61,8 +61,8 @@
 
 - 11 个运行时包源码已移植；tui 仅剩 `index.ts` 桶文件（无需代码）；durable harness 测试顺延。
 - coding-agent 已完成 4a / 4b / 4c / 4d 主体 / 4e-1～4e-2d / **4e-3a 叶子模块**。
-- 最新提交点：`4e-3c-1`（`package-manager` 的 `resolve()` / `parseSource`）。
-- 下一步：4e-3c-2 npm/git install/update → 4e-3d `resource-loader` / `footer-data-provider` → 4e-3e agent-session 三件套 + `sdk`。
+- 最新提交点：`4e-3c-2`（`parseSource` 对齐 TS、settings 增删）。
+- 下一步：4e-3c-3 npm/git 进程安装 → 4e-3d `resource-loader` / `footer-data-provider` → 4e-3e agent-session 三件套 + `sdk`。
 
 ---
 
@@ -119,8 +119,9 @@
      - **4e-2c-2 / 4e-2c-3 / 4e-2d**（2026-10-11）已完成——`SessionFiles` / `SessionManager` / `UsageTotals` / `Skills` / `Compaction` / `SessionExport`。
      - **4e-3a 无环叶子模块**（2026-10-11）已完成——`OutputGuard` / `CacheStats` / `NestedToolCalls` / `BashExecutor` / `SettingsDiagnostics`。
      - **4e-3b export-html + bug-report**（2026-10-11）已完成——`AnsiToHtml` / `ExportHtml.GenerateHtml` / `ToolHtmlRendererFactory` / 模板资源 / `BugReport` 脱敏与 zip 归档 / `BugReportUpload`。`ExportHtmlBugReportTests` 11 项全绿。`collectBugReport` 依赖 AgentSession，顺延 4e-3e；`loadTheme` 主题变量顺延 4f。
-     - **4e-3c-1 package-manager resolve**（2026-10-11）已完成——`DefaultPackageManager.ResolveAsync`（自动发现、settings 路径、include/exclude/autoload、builtin 扩展）与 `ParseSource`。`PackageManagerTests` 8 项全绿。npm/git install/update 与完整 TS 100+ 用例顺延 **4e-3c-2**。
-     - **余 4e-3c-2～4e-3e**：`package-manager` 安装/更新 / `footer-data-provider` / `resource-loader` / `cache-warmer` / `core/extensions/runner.ts` / `agent-session` 三件套 / `sdk`。
+     - **4e-3c-1 package-manager resolve**（2026-10-11）已完成——`DefaultPackageManager.ResolveAsync`。
+     - **4e-3c-2 parseSource + settings 增删**（2026-10-11）已完成——`ParseSource` 对齐 TS（`npm:` / 本地 / git URL），`AddSourceToSettings` / `RemoveSourceFromSettings`（相对路径规范化、同 git 身份更新 ref、保留 filters）。`PackageManagerTests` 11 项全绿。npm/git 进程安装顺延 **4e-3c-3**。
+     - **余 4e-3c-3～4e-3e**：`package-manager` 安装/更新 / `footer-data-provider` / `resource-loader` / `cache-warmer` / `core/extensions/runner.ts` / `agent-session` 三件套 / `sdk`。
      - **已知缺口**：`cost.tiers`（请求级阶梯费率）未移植；`AnthropicMessages` / `OpenAiCompletions` 的 provider 侧用量/成本保真（走轻量 `Model`，无目录费率）。
   6. 4f 模式层（`modes/rpc/*`、`modes/interactive/*`，含 7,082 行的 `interactive-mode.ts`）
   7. 4g 入口与实验层（`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`bun/*`、`client/*`、`experimental/*`）

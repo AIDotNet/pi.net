@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Pi.CodingAgent.Utils;
 
 namespace Pi.CodingAgent.Core;
@@ -73,7 +74,12 @@ public sealed record PackageSource
 public interface IPackageManager
 {
     Task<ResolvedResources> ResolveAsync(CancellationToken cancellationToken = default);
+
+    void SetProgressCallback(Action<PackageProgressEvent>? callback);
 }
+
+/// <summary>对应 TS 安装进度事件。</summary>
+public sealed record PackageProgressEvent(string Phase, string Message);
 
 /// <summary>
 /// 包管理器。对应 TS <c>core/package-manager.ts</c> 的 <c>DefaultPackageManager</c>。
@@ -94,6 +100,7 @@ public sealed class DefaultPackageManager : IPackageManager
     private readonly string _cwd;
     private readonly string _agentDir;
     private readonly IReadOnlyList<string> _builtinExtensions;
+    private Action<PackageProgressEvent>? _progress;
 
     public DefaultPackageManager(
         SettingsManager settingsManager,
@@ -106,6 +113,8 @@ public sealed class DefaultPackageManager : IPackageManager
         _agentDir = agentDir;
         _builtinExtensions = builtinExtensions ?? [];
     }
+
+    public void SetProgressCallback(Action<PackageProgressEvent>? callback) => _progress = callback;
 
     public Task<ResolvedResources> ResolveAsync(CancellationToken cancellationToken = default)
     {
@@ -121,7 +130,7 @@ public sealed class DefaultPackageManager : IPackageManager
         return Task.FromResult(acc.ToResolved());
     }
 
-    /// <summary>对应 TS <c>parseSource</c>。</summary>
+    /// <summary>对应 TS <c>parseSource</c>：先 <c>npm:</c>，再本地路径，再 git URL，否则视为本地。</summary>
     internal static ParsedPackageSource ParseSource(string spec)
     {
         if (string.IsNullOrWhiteSpace(spec))
@@ -129,38 +138,95 @@ public sealed class DefaultPackageManager : IPackageManager
             throw new ArgumentException("empty package source", nameof(spec));
         }
 
-        if (spec.StartsWith("git+", StringComparison.Ordinal)
-            || spec.StartsWith("git://", StringComparison.Ordinal)
-            || spec.StartsWith("ssh://", StringComparison.Ordinal)
-            || spec.Contains(".git", StringComparison.Ordinal)
-            || spec.StartsWith("github:", StringComparison.Ordinal)
-            || spec.StartsWith("gitlab:", StringComparison.Ordinal)
-            || spec.StartsWith("bitbucket:", StringComparison.Ordinal)
-            || LooksLikeGithubShorthand(spec))
+        if (spec.StartsWith("npm:", StringComparison.Ordinal))
         {
-            var parsed = Git.ParseGitUrl(spec.StartsWith("git+", StringComparison.Ordinal) ? spec[4..] : spec)
-                ?? throw new ArgumentException($"invalid git source: {spec}", nameof(spec));
-            var repoName = Path.GetFileName(parsed.Repo.TrimEnd('/', '\\'));
-            if (repoName.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+            var npmSpec = spec[4..].Trim();
+            var (npmName, version) = ParseNpmSpec(npmSpec);
+            return new ParsedPackageSource
             {
-                repoName = repoName[..^4];
+                Type = "npm",
+                Spec = npmSpec,
+                Locator = npmName,
+                Name = npmName,
+                Version = version,
+                Pinned = IsExactNpmVersion(version),
+            };
+        }
+
+        if (IsLocalPath(spec))
+        {
+            return new ParsedPackageSource { Type = "local", Spec = spec, Locator = spec, Path = spec };
+        }
+
+        var git = Git.ParseGitUrl(spec);
+        if (git is not null)
+        {
+            return new ParsedPackageSource
+            {
+                Type = "git",
+                Spec = spec,
+                Locator = git.Repo,
+                Host = git.Host,
+                Path = git.Path,
+                Ref = git.Ref,
+                Pinned = git.Pinned,
+                Name = git.Path,
+            };
+        }
+
+        return new ParsedPackageSource { Type = "local", Spec = spec, Locator = spec, Path = spec };
+    }
+
+    /// <summary>对应 TS <c>addSourceToSettings</c>。</summary>
+    public bool AddSourceToSettings(string source, bool local = false)
+    {
+        var scope = local ? "project" : "user";
+        var current = GetPackageNodes(local);
+        var normalized = NormalizePackageSourceForSettings(source, scope);
+        var matchIndex = current.FindIndex(existing => PackageSourcesMatch(existing, source, scope));
+        if (matchIndex >= 0)
+        {
+            if (GetPackageSourceString(current[matchIndex]) == normalized)
+            {
+                return false;
             }
 
-            return new ParsedPackageSource("git", spec, parsed.Repo, parsed.Ref, null, repoName);
+            current[matchIndex] = ReplacePackageSource(current[matchIndex], normalized);
         }
-
-        if (spec.StartsWith("file:", StringComparison.Ordinal)
-            || spec.StartsWith(".", StringComparison.Ordinal)
-            || spec.StartsWith("~", StringComparison.Ordinal)
-            || Path.IsPathRooted(spec)
-            || spec.Contains("/./", StringComparison.Ordinal)
-            || spec.Contains("\\", StringComparison.Ordinal))
+        else
         {
-            return new ParsedPackageSource("local", spec, spec, null, null, null);
+            current.Add(JsonValue.Create(normalized));
         }
 
-        var (name, version) = ParseNpmSpec(spec);
-        return new ParsedPackageSource("npm", spec, name, version, null, name);
+        WritePackageNodes(local, current);
+        _progress?.Invoke(new PackageProgressEvent("settings", normalized));
+        return true;
+    }
+
+    /// <summary>对应 TS <c>removeSourceFromSettings</c>。</summary>
+    public bool RemoveSourceFromSettings(string source, bool local = false)
+    {
+        var scope = local ? "project" : "user";
+        var current = GetPackageNodes(local);
+        var next = current.Where(existing => !PackageSourcesMatch(existing, source, scope)).ToList();
+        if (next.Count == current.Count)
+        {
+            return false;
+        }
+
+        WritePackageNodes(local, next);
+        return true;
+    }
+
+    internal string GetNpmInstallPath(ParsedPackageSource source, string scope)
+    {
+        var name = source.Name ?? "package";
+        if (scope == "temporary")
+        {
+            return Path.Combine(_agentDir, "tmp", "extensions", "node_modules", Sanitize(name));
+        }
+
+        return GetNpmInstallPath(Path.Combine(_agentDir, "packages"), name, source.Version ?? "latest");
     }
 
     internal static string GetNpmInstallPath(string packagesRoot, string name, string version)
@@ -169,7 +235,26 @@ public sealed class DefaultPackageManager : IPackageManager
     internal static string GetGitInstallPath(string packagesRoot, string name, string resolvedHash)
         => Path.Combine(packagesRoot, "git", Sanitize(name), Sanitize(resolvedHash));
 
-    internal sealed record ParsedPackageSource(string Kind, string Spec, string Locator, string? Version, string? Hash, string? Name);
+    internal sealed record ParsedPackageSource
+    {
+        public required string Type { get; init; }
+
+        public string Spec { get; init; } = "";
+
+        public string Locator { get; init; } = "";
+
+        public string? Name { get; init; }
+
+        public string? Version { get; init; }
+
+        public string? Path { get; init; }
+
+        public string? Host { get; init; }
+
+        public string? Ref { get; init; }
+
+        public bool Pinned { get; init; }
+    }
 
     private void AddBuiltinExtensions(Accumulator acc)
     {
@@ -391,20 +476,96 @@ public sealed class DefaultPackageManager : IPackageManager
         return idx > 0 ? (spec[..idx], spec[(idx + 1)..]) : (spec, "latest");
     }
 
-    private static bool LooksLikeGithubShorthand(string spec)
+    private static bool IsLocalPath(string spec)
+        => spec.StartsWith("file:", StringComparison.Ordinal)
+            || spec.StartsWith(".", StringComparison.Ordinal)
+            || spec.StartsWith("~", StringComparison.Ordinal)
+            || Path.IsPathRooted(spec);
+
+    private static bool IsExactNpmVersion(string version)
+        => version.Length > 0 && char.IsDigit(version[0]) && !version.Contains('*') && !version.Contains('^') && !version.Contains('~');
+
+    private List<JsonNode?> GetPackageNodes(bool local)
+        => [.. (local ? _settings.GetProjectSettings().Packages : _settings.GetGlobalSettings().Packages) ?? []];
+
+    private void WritePackageNodes(bool local, IReadOnlyList<JsonNode?> nodes)
     {
-        if (spec.StartsWith('@'))
+        if (local)
+        {
+            _settings.SetProjectPackages(nodes);
+        }
+        else
+        {
+            _settings.SetPackages(nodes);
+        }
+    }
+
+    private string NormalizePackageSourceForSettings(string source, string scope)
+    {
+        var parsed = ParseSource(source);
+        if (parsed.Type != "local" || string.IsNullOrEmpty(parsed.Path))
+        {
+            return source;
+        }
+
+        var absolute = Path.IsPathRooted(parsed.Path) ? parsed.Path : Path.GetFullPath(Path.Combine(_cwd, parsed.Path));
+        var baseDir = scope == "project" ? Path.Combine(_cwd, Config.ConfigDirName) : _agentDir;
+        var rel = Path.GetRelativePath(baseDir, absolute);
+        return rel.StartsWith('.') ? rel : Path.Combine(".", rel);
+    }
+
+    private bool PackageSourcesMatch(JsonNode? existing, string incoming, string scope)
+    {
+        var existingSource = GetPackageSourceString(existing);
+        if (existingSource is null)
         {
             return false;
         }
 
-        if (spec.StartsWith("git@", StringComparison.Ordinal))
+        var left = ParseSource(existingSource);
+        var right = ParseSource(incoming);
+        if (left.Type != right.Type)
         {
-            return true;
+            return false;
         }
 
-        var slash = spec.IndexOf('/');
-        return slash > 0 && !spec.Contains("://", StringComparison.Ordinal) && spec.Count(c => c == '/') == 1;
+        if (left.Type == "git")
+        {
+            return string.Equals(left.Host, right.Host, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(left.Path, right.Path, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (left.Type == "local")
+        {
+            return string.Equals(
+                NormalizePackageSourceForSettings(existingSource, scope),
+                NormalizePackageSourceForSettings(incoming, scope),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(left.Name, right.Name, StringComparison.Ordinal);
+    }
+
+    private static string? GetPackageSourceString(JsonNode? node)
+    {
+        if (node is JsonValue value && value.TryGetValue<string>(out var text))
+        {
+            return text;
+        }
+
+        return node is JsonObject obj ? obj["source"]?.GetValue<string>() : null;
+    }
+
+    private static JsonNode? ReplacePackageSource(JsonNode? existing, string source)
+    {
+        if (existing is JsonObject obj)
+        {
+            var copy = obj.DeepClone().AsObject();
+            copy["source"] = source;
+            return copy;
+        }
+
+        return JsonValue.Create(source);
     }
 
     private static string Sanitize(string value)
