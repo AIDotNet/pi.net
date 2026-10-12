@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑**（2026-10-12）完成；余 4e-3e-9b～g（prompt 主循环 / compaction+retry+bash / 扩展绑定 / 树导航导出 / 会话装配层 / 扩展运行时）。`update`/`hasAvailableUpdate` 未做。`collectBugReport`/streamSimple 顺延 4e-3e-9b，完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑** + **4e-3e-9b prompt 主循环纯决策逻辑**（2026-10-12）完成；余 4e-3e-9c～g（compaction+retry+bash / 扩展绑定 / 树导航导出 / 会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延。`update`/`hasAvailableUpdate` 未做。`collectBugReport`/streamSimple 顺延 4e-3e-9c，完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -1630,9 +1630,83 @@ branchPrepare / skillsFormat / systemPrompt / systemPromptDiff。
 - `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
 - `Pi.CodingAgent.Tests` → **1002 项（新增 20）/ 1002 通过 / 0 失败**。
 
+## 4e-3e-9b 进度（2026-10-12）：prompt 主循环的纯决策逻辑
+
+4e-3e-9a 的结论在 9b 得到复核：`AgentSession` 的**实例层**无法在本批落地。构造器（`agent-session.ts`
+L462–498）在 `this.agent.subscribe(...)` 之后连续安装 6 个钩子，其中
+`_beforeToolCall` / `_afterToolCall`（L630–696）读 `this._extensionRunner.hasHandlers(...)`，
+`_dispatchTurnEndBoundary`（L818–856）读 `emitBoundary` / `emitError`，
+`prompt`（L1921–2064）读 `_tryExecuteExtensionCommand` / `emitBeforeAgentStart`，
+`_handleAgentEvent` → `_emitExtensionEvent`（L1074–1332）逐事件调 `_extensionRunner.emit`。
+而 `ExtensionRunner`（`extensions/runner.ts`，1,560 行）是 4e-3e-9g 的范围，端口尚未落地
+（`src/Pi.CodingAgent/Core/Extensions/` 只有 loader / contexts / events，无 runner）。
+
+故本批沿用「叶子先行」：把循环控制流、边界判定、输入归一化、重试与压缩门抽成显式入参的静态函数。
+新增 `src/Pi.CodingAgent/Core/AgentSessionLoop.cs`（`AgentSession` 的第三个 partial 半边）。
+
+已落地（逐条对照 TS）：
+
+| TS | C# | 要点 |
+|---|---|---|
+| `_runAgentPrompt` 的 `while` 循环 | `PostAgentRunLeadsToContinue` / `BeforeSettleLeadsToContinue` / `ResolvePromptLoopStep` | 两个谓词即两处 `break` 判定；`ResolvePromptLoopStep` 按 TS 分支顺序合成，锁死 `||` 短路语义 |
+| `message.role` 判别符 | `GetMessageRole` | TS 单一字符串 → C# 运行时类型映射（含 4 个 coding-agent 自定义 role） |
+| `_dispatchTurnEndBoundary` 的 `_lastActivityOutcome` | `OutcomeFromStopReason` | `aborted` / `error` / 其余 `completed` |
+| `_dispatchTurnEndBoundary` 收尾 | `ResolveTurnEndBoundaryResult` | 请求继续但上下文不可继续 → 放弃 + 上报 |
+| `_buildBoundaryContext` 的 `canContinue` | `ComputeBoundaryCanContinue` | `contextCanContinue \|\| pendingCustomContext \|\| 边界分支` |
+| `finishTurn` 的返回值合成 | `ResolveFinishTurnDecision` | `end` 优先；否则 `extensionContinue \|\| continue`；否则 `undefined` |
+| `_getPendingBoundaryMessages` | 同名 | 队列在前、待发自定义消息在后 |
+| `_resolveIdleWaitIfIdle` 守卫 | `CanResolveIdleWait` | `isIdle && hasResolveCallback` |
+| `prompt` 的 `preflightResult` | `ResolvePromptDisposition` | `handled` > `queued` > `started` |
+| `prompt` 的扩展命令入口 | `ShouldTryExecuteExtensionCommand` | `expandPromptTemplates && startsWith("/")` |
+| `_runInputHandlers` | `ResolveInputHandlerOutcome` | `handled` → `null`；`transform` → 文本用返回、图片「返回 ?? 原图」；否则透传 |
+| `_normalizePromptImages` | `NormalizePromptImagesAsync` | 失败只记 hint；成功产出图片并追加自身 hints |
+| `sendUserMessage` 的入参归一化 | `NormalizeUserMessageContent` | 文本按 `"\n"` 拼接；无图片块时回到 `null` |
+| `prompt` 的 `handlerEditedTools` | `HandlerEditedSelectedTools` / `ResolveSelectedTools` | 长度或任一位置不等即「被编辑过」；未编辑则以实时活跃工具为准 |
+| `_throwIfExtensionCommand` | `FormatQueuedExtensionCommandError` | 文案逐字对齐 |
+| `_queueUserInput` 的 `streamingBehavior` | `ResolveQueueStreamingBehavior` | 非流式时为 `null` |
+| `clearQueue()` | 同名 | 返回副本并清空入参队列 |
+| `_willRetryAfterAgentEnd` 的前置门 | `ShouldConsiderRetryAfterAgentEnd` | 补齐 `settings.enabled` / `retryAttempt >= maxRetries` |
+| `_findLastAssistantMessage` | 同名 | 含被中止的助手 |
+| `_exceedsCompactionThreshold` | 同名 | `contextWindow <= 0` 直接为假，否则走 `Compaction.ShouldCompact` |
+| `_compactBeforeNextAssistantResponse` 早退 | `ShouldCompactBeforeNextAssistantResponse` | 无模型 / 虚拟模型 / 未超阈值 |
+| `_installAgentRequestProjection` 的 `userTurn` | `HasUserTurnAfterLastAssistant` | 只看最后一个助手**之后**；无助手时扫描全量 |
+| `reason: failed ? "retry" : userTurn ? "user" : "continuation"` | `ResolveRouteReason` | 三档优先级 |
+
+### 4e-3e-9b 设计差异（文档化）
+
+- **C92**：TS 的 `message.role` 是数据字段，端口 `ChatMessage` 用运行时类型判别（基类判别符即 role），
+  故新增 `GetMessageRole` 做映射。这是 4e-2b 既定设计（见 `Core/Messages.cs` 头部注释）的延续，
+  在此显式落成 API 以便边界判定复用。
+- **C93**：`_runAgentPrompt` 的 `while` 循环在 TS 里是命令式控制流（`break` / `continue` 交错）。
+  端口不复制该形状，而是抽成 `PromptLoopIteration` 快照 + `ResolvePromptLoopStep` 判定，
+  使 `||` 短路（起始已中止时不调用 `_runBeforeSettleBoundary()`）与「postRun 为真但随后中止」
+  两条易错路径可被单测穷举。语义等价，形状不同。
+- **C94**：`_normalizePromptImages` 里 `processImage` 是异步的。端口把它作为
+  `Func<ImageContent, Task<ProcessImageResult>>` 注入，累加逻辑保持同步纯函数；
+  TS 里 `Buffer.from(image.data, "base64")` 的解码属于 `processImage` 的入参准备，
+  端口由调用方在委托内完成（`ReadTool` 已有同样用法）。
+- **C95**：`clearQueue()` 在 TS 里直接给字段重新赋值（`this._steeringMessages = []`）。
+  端口的队列由实例层持有，故改为接收两个 `List<string>` 就地清空并返回副本。
+- **C96**：`_exceedsCompactionThreshold` 的 `settingsManager.getCompactionSettings(this.model)` 取值
+  由调用方算好后以 `CompactionSettings` 传入（同 C87 的 `_limitsModel()` 处理）。
+- `ContextUsage` / `ToolDefinition` 的别名与复用约定同 4e-3e-9a，本批未新增类型冲突。
+- 未落地（依赖实例层，顺延 4e-3e-9d/9g）：构造器、`subscribe` / `dispose` / `refreshContext`、
+  `_handleAgentEvent` / `_emitExtensionEvent`、`_emitAgentSettled` 的实际调度、
+  `_replaceMessageInPlace`（TS 用 `delete` + `Object.assign` 原地改写对象，C# record 无对应形态，
+  待实例层确定消息可变性策略后处理）。
+
+### 4e-3e-9b 验证
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- `Pi.CodingAgent.Tests` → **1041 项（新增 39）/ 1041 通过 / 0 失败**。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9b prompt 主循环 → 4e-3e-9c compaction / retry / bash → 4e-3e-9d 扩展绑定与运行时重建 →
+4e-3e-9c compaction / retry / bash → 4e-3e-9d 扩展绑定与运行时重建 →
 4e-3e-9e 树导航 / 导出 / 报告 → 4e-3e-9f 会话装配层（`agent-session-services` / `agent-session-runtime`
 / `sdk`）→ 4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）。
+
+**接线依赖**：`AgentSession` 实例层必须在 4e-3e-9g（`ExtensionRunner`）之后才能整体落地；
+建议在 4e-3e-9g 完成后追加一个 **4e-3e-9h**（实例层接线：构造器 + 6 个 installers +
+`_eventListeners` + `_handleAgentEvent`），把 9a/9b 的静态半边接上实例状态。
 
