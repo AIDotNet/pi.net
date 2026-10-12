@@ -2149,7 +2149,48 @@ C# 允许同一个类里混放静态与实例成员，故 9a～9e 落地的全�
 （`createAgentSessionServices` / `AgentSessionRuntime` 类本体 / `createAgentSession` /
 `buildRequestOptions` 余下字段 / `CreateAgentSessionRuntimeResult`）。
 
+### 4e-3e-9h-2 勘察结论与已修缺陷（2026-10-12）
+
+**已修：`IExtensionContext.Model` 的类型错配。**
+
+TS 的 `ExtensionContext.model` 是 `Model<any> | undefined`，即**运行时模型**；端口把它声明成了
+`Pi.Ai.Types.Model`（一个 `Id/Name/Api/Provider/Reasoning/Metadata` 的瘦描述记录），而真正的运行时模型是
+`Pi.Ai.Models.ModelSpec`（`ModelRuntime.GetModel(provider, id)` 返回的就是它，也是 `IToolContext.Model` 用的类型）。
+扩展拿到的因此不是它声明的那类对象。已把三处统一为 `ModelSpec?`：
+`IExtensionContext.Model`、`ExtensionContextActions.GetModel`、`ExtensionRunner.getModel` 字段
+（`RunnerContext.Model` 随之修正）。零行为变化，仅类型纠正；测试改为断言
+`ctx.Model` 与绑定时的 `ModelSpec` **引用同一**（TS 返回的是活对象，不是拷贝）。
+
+**9h-2 的真实阻塞（三个前置，均未移植）：**
+
+| 前置 | 用途 | 现状 |
+| --- | --- | --- |
+| `DefaultResourceLoader.GetExtensions()` | `_buildRuntime` 取 `extensionsResult`（扩展 + runtime） | `DefaultResourceLoader` 只有 skills/prompts/themes/context-files/diagnostics，**扩展加载整块未移植**（4d-3d-2 顺延项） |
+| `createAllToolDefinitions(cwd, …)` | `_buildRuntime` 造内置工具定义表 | 不存在 |
+| `wrapRegisteredTools(tools, runner)` | `_refreshToolRegistry` 把定义包成 `AgentTool` | 不存在（`wrapper.ts` 仅 29 行，但见下） |
+
+**`wrapper.ts` 的移植被一处契约不一致卡住：**
+
+TS 里 `ToolContextFactory = (toolCallId, signal) => ExtensionToolContext`，而 `wrapToolDefinition` 把该
+上下文直接交给工具的 `execute()`。TS 靠**结构类型**让 `ExtensionToolContext` 满足工具侧所需。
+端口为此发明了一个 TS 里**并不存在**的 `IToolContext`（`Cwd` / `Model: ModelSpec?` / `ThinkingLevel: string?` /
+`SessionId` / `SessionFile`），共 7 处引用、1 个真实消费者（`BashTool`）。
+于是「让 `IExtensionToolContext : IToolContext`」这条路被两处类型冲突挡住：
+
+1. **`Model`**：`IToolContext.Model` 是 `ModelSpec?`，而 `IExtensionContext.Model` 曾是 `Pi.Ai.Types.Model`
+   → **本批已修**（现两侧一致）。
+2. **`ThinkingLevel`**：`IToolContext.ThinkingLevel` 是 `string?`（`BashTool` 直接写进 `PI_REASONING_LEVEL`
+   环境变量，与 TS 的字符串联合一致），而 `IExtensionContext.ThinkingLevel` 是
+   `Pi.Ai.Types.ThinkingLevel` **枚举**（并被 `ExtensionEvents.ThinkingLevelSelect` 复用）。
+   → **未决**：需在「扩展契约暴露字符串（贴 TS）」与「暴露枚举（贴 C#）」之间做一次决定；
+   改动会波及 `ThinkingLevelSelect` 事件类型，故不在本批仓促处理。
+
+**结论**：`wrapper.ts` → `_refreshToolRegistry` → `_buildRuntime` 这条链要等 `ThinkingLevel` 的决定 +
+三个前置落地。建议 9h-2 拆为：**9h-2a**（`ThinkingLevel` 决策 + `IToolContext` 收口 + `wrapper.ts`）→
+**9h-2b**（`GetExtensions` + `createAllToolDefinitions`）→ **9h-2c**（`_buildRuntime` + `_refreshToolRegistry`
++ `_bindExtensionCore`）。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9h 实例层接线（见上）。**前置（9d + 9g）已全部满足**，9h-2 可直接开工。
+4e-3e-9h 实例层接线（见上）。**前置（9d + 9g）已全部满足**，9h-2a 可直接开工。
 

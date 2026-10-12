@@ -97,7 +97,7 @@ public sealed record ExtensionActions
 /// </remarks>
 public sealed record ExtensionContextActions
 {
-    public required Func<Model?> GetModel { get; init; }
+    public required Func<ModelSpec?> GetModel { get; init; }
 
     public required Func<IReadOnlyList<ScopedModel>> GetScopedModels { get; init; }
 

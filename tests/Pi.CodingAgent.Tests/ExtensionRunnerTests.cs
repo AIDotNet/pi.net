@@ -261,6 +261,8 @@ public sealed class ExtensionRunnerTests
         Assert.Equal("/work", ctx.Cwd);
         Assert.Equal(ExtensionMode.Print, ctx.Mode);
         Assert.False(ctx.HasUI);
+        // The live runtime model, by reference — same type ModelRuntime.GetModel returns.
+        Assert.Same(BoundModel, ctx.Model);
         Assert.True(ctx.IsIdle());
         Assert.True(ctx.IsProjectTrusted());
         Assert.Equal(ThinkingLevel.Off, ctx.ThinkingLevel);
@@ -1305,9 +1307,23 @@ public sealed class ExtensionRunnerTests
         SetThinkingLevel = _ => { },
     };
 
+    /// <summary>
+    /// The runtime model the bound context actions report. TS's <c>ExtensionContext.model</c> is the
+    /// live <c>Model&lt;any&gt;</c>, i.e. the port's <see cref="ModelSpec"/>, so the context must hand back
+    /// that same instance rather than a copy or a description.
+    /// </summary>
+    private static readonly ModelSpec BoundModel = new()
+    {
+        Id = "claude-test",
+        Name = "Claude Test",
+        Api = "anthropic-messages",
+        Provider = "anthropic",
+        BaseUrl = "https://api.anthropic.com",
+    };
+
     private static ExtensionContextActions DefaultContextActions() => new()
     {
-        GetModel = () => null,
+        GetModel = () => BoundModel,
         GetScopedModels = () => [],
         IsIdle = () => true,
         IsProjectTrusted = () => true,

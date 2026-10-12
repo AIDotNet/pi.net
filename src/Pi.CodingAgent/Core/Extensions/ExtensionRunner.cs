@@ -107,7 +107,7 @@ public sealed class ExtensionRunner
 
     private IExtensionUIContext uiContext = NoOpUIContext.Instance;
     private string mode = ExtensionMode.Print;
-    private Func<Model?> getModel = () => null;
+    private Func<ModelSpec?> getModel = () => null;
     private Func<IReadOnlyList<ScopedModel>> getScopedModels = () => [];
     private Func<bool> isIdleFn = () => true;
     private Func<bool> isProjectTrustedFn = () => true;
@@ -1681,7 +1681,7 @@ public sealed class ExtensionRunner
             }
         }
 
-        public Model? Model
+        public ModelSpec? Model
         {
             get
             {

@@ -1,4 +1,5 @@
 using Pi.Agent.Types;
+using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions.Types;
@@ -286,8 +287,12 @@ public interface IExtensionContext
     /// <summary>Model registry for API key resolution.</summary>
     ModelRegistry ModelRegistry { get; }
 
-    /// <summary>Current model (may be null).</summary>
-    Model? Model { get; }
+    /// <summary>
+    /// Current model (may be null). TS <c>ExtensionContext.model: Model&lt;any&gt; | undefined</c> is the
+    /// runtime model, i.e. the port's <see cref="Pi.Ai.Models.ModelSpec"/> — the same type
+    /// <see cref="Pi.CodingAgent.Core.ModelRuntime.GetModel"/> and <see cref="IToolContext.Model"/> use.
+    /// </summary>
+    ModelSpec? Model { get; }
 
     /// <summary>Models scoped to this session. Empty when no scoping is configured.</summary>
     IReadOnlyList<ScopedModel> ScopedModels { get; }
