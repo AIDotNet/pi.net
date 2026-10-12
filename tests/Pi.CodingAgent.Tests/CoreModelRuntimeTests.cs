@@ -286,6 +286,7 @@ public class CoreModelRuntimeTests
             ModelsStore = modelsStore ?? new InMemoryCodingAgentModelsStore(),
             RefreshOnCreate = false,
             Env = env ?? (name => name == "PI_OFFLINE" ? "1" : null),
+            AuthContext = new StubAuthContext(env ?? (name => name == "PI_OFFLINE" ? "1" : null)),
         });
 
     private static async Task SettleAsync(ModelRuntime runtime)

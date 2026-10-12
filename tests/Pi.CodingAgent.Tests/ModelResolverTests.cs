@@ -102,6 +102,7 @@ public class ModelResolverTests
             ModelsStore = new InMemoryCodingAgentModelsStore(),
             RefreshOnCreate = false,
             Env = name => name == "PI_OFFLINE" ? "1" : null,
+            AuthContext = new StubAuthContext(name => name == "PI_OFFLINE" ? "1" : null),
         });
         runtime.RegisterNativeProvider(new TestProvider
         {

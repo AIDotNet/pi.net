@@ -55,6 +55,16 @@ public sealed record CreateModelRuntimeOptions
     /// Used for <c>PI_OFFLINE</c>, which TS tests with <c>process.env.PI_OFFLINE === undefined</c>.
     /// </summary>
     public Func<string, string?>? Env { get; init; }
+
+    /// <summary>
+    /// 认证上下文接缝（测试）。TS 的 <c>model-runtime.ts</c> 不暴露该缝（其 <c>createModels()</c>
+    /// 调用不带 <c>authContext</c>，回落到读进程真实环境的 <c>defaultAuthContext()</c>），但底层的
+    /// <c>ai</c> 包 <c>CreateModelsOptions.authContext</c> 一直支持注入。在默认
+    /// <see cref="DefaultAuthContext.Instance"/> 下，开发机上存在的 <c>ANTHROPIC_AUTH_TOKEN</c> /
+    /// <c>OPENAI_API_KEY</c> 等环境变量会让 builtin provider 被判为「已配置」，污染可用性快照断言
+    /// —— TS 测试套件隐式假设 CI 环境干净，移植侧测试必须自密封，故开放此接缝（生产默认行为不变）。
+    /// </summary>
+    public Pi.Ai.Auth.IAuthContext? AuthContext { get; init; }
 }
 
 /// <summary>Per-request auth overrides. Port of the TS <c>ModelRuntimeAuthOverrides</c>.</summary>
@@ -229,7 +239,8 @@ public sealed class ModelRuntime : IModelResolverRuntime
         string? modelsPath,
         IModelsStore modelsStore,
         IReadOnlyList<IProvider> providers,
-        bool modelNetworkEnabled)
+        bool modelNetworkEnabled,
+        Pi.Ai.Auth.IAuthContext? authContext = null)
     {
         _credentials = credentials;
         _config = config;
@@ -237,7 +248,12 @@ public sealed class ModelRuntime : IModelResolverRuntime
         _modelNetworkEnabled = modelNetworkEnabled;
         foreach (var provider in providers) _defaultBuiltins[provider.Id] = provider;
         foreach (var (providerId, provider) in _defaultBuiltins) _builtins[providerId] = provider;
-        _models = new Models(new CreateModelsOptions { Credentials = credentials, ModelsStore = modelsStore });
+        _models = new Models(new CreateModelsOptions
+        {
+            Credentials = credentials,
+            ModelsStore = modelsStore,
+            AuthContext = authContext,
+        });
         RebuildProviders();
     }
 
@@ -264,7 +280,7 @@ public sealed class ModelRuntime : IModelResolverRuntime
 
         // TS: `process.env.PI_OFFLINE === undefined` — presence, not truthiness.
         var runtime = new ModelRuntime(
-            credentials, config, modelsPath, modelsStore, providers, env("PI_OFFLINE") is null);
+            credentials, config, modelsPath, modelsStore, providers, env("PI_OFFLINE") is null, options.AuthContext);
         runtime.ConfigureRadiusProviders();
         runtime.RebuildProviders();
 

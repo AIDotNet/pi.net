@@ -15,7 +15,9 @@ public static partial class ToolExecution
 {
     public sealed record ExecutedToolCallBatch(List<ToolResultMessage> Messages, bool Terminate);
 
-    /// <summary>按配置的模式分发执行。</summary>
+    /// <summary>
+    /// 按配置的模式分发执行。
+    /// </summary>
     public static async Task<ExecutedToolCallBatch> ExecuteToolCalls(
         AgentContext context,
         AssistantMessage assistantMessage,
@@ -30,6 +32,64 @@ public static partial class ToolExecution
         if (config.ToolExecution == ToolExecutionMode.Sequential || hasSequentialToolCall)
             return await ExecuteSequential(context, assistantMessage, toolCalls, config, signal, emit).ConfigureAwait(false);
         return await ExecuteParallel(context, assistantMessage, toolCalls, config, signal, emit).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 单次工具调用走与模型发起调用完全相同的管线：参数准备、schema 准备、
+    /// <c>beforeToolCall</c>、执行、<c>afterToolCall</c>。对应 TS <c>runToolCall</c>
+    /// （agent-loop.ts）。不发事件、不加消息——供「工具再调工具」（ctx.executeTool）使用，
+    /// 使钩子（如权限检查）对那些调用同样生效。
+    /// <para>工具失败永不抛错：未知工具、参数错误、被阻断、执行抛异常都以
+    /// <c>IsError = true</c> 返回。<paramref name="onUpdate"/> 的流式部分结果直接转发给调用方
+    /// （TS 同款：runToolCall 不产生事件，onUpdate 由调用方决定去向）。</para>
+    /// </summary>
+    public static async Task<AgentToolCallOutcome> RunToolCallAsync(
+        AgentContext context,
+        AssistantMessage assistantMessage,
+        ToolCallContent toolCall,
+        AgentLoopConfig config,
+        CancellationToken signal,
+        AgentToolUpdateCallback? onUpdate = null)
+    {
+        var prepared = await PrepareToolCall(context, assistantMessage, toolCall, config, signal).ConfigureAwait(false);
+        if (prepared is PreparedCall.Blocked blocked)
+        {
+            return new AgentToolCallOutcome(toolCall, blocked.Result, blocked.Result.IsError);
+        }
+
+        if (prepared is not PreparedCall.Ready ready)
+        {
+            throw new InvalidOperationException("Unknown prepared call");
+        }
+
+        var executed = await ExecutePreparedAsync(ready, signal, onUpdate).ConfigureAwait(false);
+        return await Finalize(executed, ready, context, assistantMessage, config, signal).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <see cref="ExecutePrepared"/> 的 onUpdate 直通变体：<see cref="RunToolCallAsync"/>
+    /// 不经过事件槽，流式增量按 TS 的 <c>onUpdate</c> 回调转发。
+    /// </summary>
+    private static async Task<AgentToolResult> ExecutePreparedAsync(
+        PreparedCall.Ready prepared,
+        CancellationToken signal,
+        AgentToolUpdateCallback? onUpdate)
+    {
+        try
+        {
+            return await prepared.Tool.Execute(
+                prepared.ToolCall.Id, prepared.Args, signal, onUpdate).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 中止沿取消路径传播（由上层运行决定退出方式）。
+            throw;
+        }
+        catch (Exception error)
+        {
+            // 抛出的错误视为失败结果（模型可见文本，UI 可读异常）。
+            return AgentToolResult.FromError(error.Message);
+        }
     }
 
     /// <summary>

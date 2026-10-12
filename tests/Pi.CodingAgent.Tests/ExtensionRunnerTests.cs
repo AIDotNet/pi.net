@@ -1472,6 +1472,7 @@ public sealed class ExtensionRunnerTests
             ModelsStore = new InMemoryCodingAgentModelsStore(),
             RefreshOnCreate = false,
             Env = _ => null,
+            AuthContext = new StubAuthContext(_ => null),
         });
 
         return new ExtensionRunner(
