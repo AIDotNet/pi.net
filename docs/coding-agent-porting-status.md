@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑** + **4e-3e-9b prompt 主循环纯决策逻辑**（2026-10-12）完成；余 4e-3e-9c～g（compaction+retry+bash / 扩展绑定 / 树导航导出 / 会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延。`update`/`hasAvailableUpdate` 未做。`collectBugReport`/streamSimple 顺延 4e-3e-9c，完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑** + **4e-3e-9b prompt 主循环纯决策逻辑** + **4e-3e-9c compaction/retry/bash 纯决策逻辑**（2026-10-12）完成；余 4e-3e-9d～g（扩展绑定 / 树导航导出 / 会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -1700,13 +1700,84 @@ L462–498）在 `this.agent.subscribe(...)` 之后连续安装 6 个钩子，�
 - `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
 - `Pi.CodingAgent.Tests` → **1041 项（新增 39）/ 1041 通过 / 0 失败**。
 
+---
+
+## 4e-3e-9c 进度（2026-10-12）：compaction / retry / bash 的纯决策逻辑
+
+延续 9a/9b 的判断：实例层仍不可落地（`_compactionAbortController` / `_autoCompactionAbortController` /
+`_retryAbortController` / `_bashAbortControllers` / `_pendingBashMessages` / `_emit` 全在实例上）。
+本批把 `_checkCompaction`（L2900–3038）、`_runAutoCompaction`（L3050–3197）、`compact`（L2717–2862）、
+`_prepareRetry` / `_finishCancelledRetry`（L3697–3753）、`_isRetryableError`（L3660–3664）、
+`executeBash` / `recordBashResult`（L3792–3884）里的判定、返回与文案抽成静态函数。
+
+新增 `src/Pi.CodingAgent/Core/AgentSessionCompaction.cs`（`AgentSession` 的第四个 partial 半边）。
+
+已落地（逐条对照 TS）：
+
+| TS | C# | 要点 |
+|---|---|---|
+| `new Date(entry.timestamp).getTime()` | `ParseEntryTimestampMs` | 解析失败为 `NaN` → 端口用 `null` |
+| `compactionEntry !== null && msg.timestamp <= compactionTs` | `IsAtOrBeforeCompaction` | 两处 stale 短路共用 |
+| 案例 3 的 stale-usage 短路 | `IsStaleUsageSource` | 额外要求 usage 来源是**助手**消息 |
+| `!settings.enabled` / `skipAbortedCheck && aborted` | `ShouldSkipCompactionCheck` | 两处早退 |
+| `assistantIsProjected` | `IsAssistantProjected` | 条目未落盘视为在投影里 |
+| `entriesAfterAssistant.some(type === "context_edit")` | `HasContextEditEntry` | |
+| `.filter(targetId === id).at(-1)` | `FindLatestContextEditFor` | 取最后一条命中 |
+| `assistantRetainedForExplicitRecovery` | `IsAssistantRetainedForExplicitRecovery` | `latestEdit?.replacement !== null` 在「无编辑」时为真 |
+| `explicitOverflow` | `IsExplicitOverflow` | `stopReason === "error"` 前置 |
+| `contextOverflow` | `IsContextOverflowDetected` | `sameModel` 前置 + 两条路径取或 |
+| `recoverableLength` | `IsRecoverableLengthDetected` | `sameModel && isProjected` 前置 |
+| `willRetry = stopReason !== "stop"` | `ShouldRetryAfterOverflow` | 只有自然结束不可 `continue()` |
+| 溢出恢复失败的两种文案 | `FormatOverflowRecoveryFailureMessage` | 溢出 vs 截断 |
+| 案例 3 的 `contextTokens` 来源 | `ResolveCompactionTokenSource` | context_edit → 投影估算；错误/零用量 → 消息估算；否则取 usage |
+| `_runAutoCompaction` 收尾 | `ShouldContinueAfterAutoCompaction` | `willRetry \|\| hasQueuedMessages` |
+| 自动压缩失败文案 | `FormatAutoCompactionFailureMessage` | `aborted` → `undefined`；overflow 用另一句 |
+| `finally` 里的 controller 判定 | `ShouldClearAutoCompactionController` | `===` 引用同一性 |
+| `compact()` 的 `!preparation` 文案 | `FormatManualCompactionPreparationFailure` | Already compacted / Nothing to compact |
+| `aborted = signal.aborted \|\| cancelledByExtension` | `IsManualCompactionAborted` | |
+| `compact()` 的失败文案 | `FormatManualCompactionFailureMessage` | `aborted` → `undefined` |
+| `_modelForMessage` 的非虚拟分支 | `IsModelForMessage` | provider + id 双等 |
+| `_recordSelection` 的判定链 | `ShouldRecordSelection` | 需「选择不同」且「有一侧是虚拟模型」 |
+| `_finishCancelledRetry` 的 `retryAttempt === 0` 守卫 | `ShouldEmitCancelledRetry` | |
+| `_prepareRetry` 的计数推进 | `AdvanceRetryAttempt` | 超预算时**回退**原值 |
+| `errorMessage \|\| "Unknown error"` | `ResolveRetryErrorMessage` | JS 空串为假 → `IsNullOrEmpty` |
+| `_isRetryableError` | `IsRetryableError` | 溢出优先于可重试 |
+| `_summarizationRetryCallbacks` | `CreateSummarizationRetryCallbacks` | 三类事件接线 |
+| `prefix ? \`${prefix}\n${command}\` : command` | `ApplyShellCommandPrefix` | 空前缀不拼接 |
+| `recordBashResult` 的消息构造 | `CreateBashExecutionMessage` | `excludeFromContext` 可空 |
+| `if (this.isStreaming)` 分流 | `ShouldDeferBashMessage` | |
+| `_flushPendingBashMessages` | `TakePendingBashMessages` | 取出副本并清空 |
+
+### 4e-3e-9c 设计差异（文档化）
+
+- **C97**：`_runAutoCompaction` 的 `finally` 用 `this._autoCompactionAbortController === abortController`
+  （引用同一性），端口用 `ReferenceEquals`（同 C89）。
+- **C98**：`_isRetryableError` 里 `(this._modelForMessage(message) ?? this.model)?.contextWindow ?? 0`
+  的取值由调用方算好后传入（同 C87 / C96）。
+- **C99**：`_summarizationRetryCallbacks` 在 TS 里返回闭包；端口返回 `RetryCallbacks` 记录，
+  由 `CreateSummarizationRetryCallbacks` 把三个 `Action` 适配成 `Func<…, Task>`
+  （`Pi.Ai.Utils.Retry.RetryCallbacks` 已是异步签名）。TS 的 `onRetryFinished` 忽略入参，
+  端口同样忽略。
+- **C100**：`_checkCompaction` 的 `_overflowRecoveryAttempted`、`_failedResponse` 是实例状态，
+  本批只落地其**判定**（`ShouldRetryAfterOverflow` 等）；置位/复位与 `_failedResponse` 的写入
+  随 4e-3e-9h 接线。
+- 未落地（依赖实例层，顺延 4e-3e-9h）：`_getRequiredRequestAuth` / `_getSummarizationRequestAuth`
+  的 I/O（`withoutDeletedHeaders` 已在 4e-3e-6 落地并复用）、`_runDefaultCompaction` 的实际调用、
+  `abortCompaction` / `abortBranchSummary` / `abortRetry` / `abortBash` 的 controller 操作、
+  `isRetrying` / `autoRetryEnabled` / `isBashRunning` / `hasPendingBashMessages` 等一行式 getter。
+
+### 4e-3e-9c 验证
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- `Pi.CodingAgent.Tests` → **1073 项（新增 32）/ 1073 通过 / 0 失败**。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9c compaction / retry / bash → 4e-3e-9d 扩展绑定与运行时重建 →
-4e-3e-9e 树导航 / 导出 / 报告 → 4e-3e-9f 会话装配层（`agent-session-services` / `agent-session-runtime`
-/ `sdk`）→ 4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）。
+4e-3e-9d 扩展绑定与运行时重建 → 4e-3e-9e 树导航 / 导出 / 报告 →
+4e-3e-9f 会话装配层（`agent-session-services` / `agent-session-runtime` / `sdk`）→
+4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）→ **4e-3e-9h**。
 
 **接线依赖**：`AgentSession` 实例层必须在 4e-3e-9g（`ExtensionRunner`）之后才能整体落地；
-建议在 4e-3e-9g 完成后追加一个 **4e-3e-9h**（实例层接线：构造器 + 6 个 installers +
-`_eventListeners` + `_handleAgentEvent`），把 9a/9b 的静态半边接上实例状态。
+**4e-3e-9h**（实例层接线：构造器 + 6 个 installers + `_eventListeners` + `_handleAgentEvent` +
+四个 abort controller + `_pendingBashMessages`）负责把 9a/9b/9c 的静态半边接上实例状态。
 
