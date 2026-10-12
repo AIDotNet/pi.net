@@ -108,10 +108,13 @@ public sealed class PackageManagerTests : IDisposable
     {
         var (cwd, agentDir, settings) = NewEnv();
         settings.SetExclude("extensions", ["mcp"]);
-        var result = await new DefaultPackageManager(settings, cwd, agentDir, ["mcp.ts"]).ResolveAsync();
+        var result = await new DefaultPackageManager(settings, cwd, agentDir, ["mcp"]).ResolveAsync();
         var mcp = Assert.Single(result.Extensions);
         Assert.False(mcp.Enabled);
-        Assert.StartsWith(SourceInfos.BuiltinPathPrefix, mcp.Metadata.Source);
+        // TS registers built-ins as `builtin:<name>` with source "builtin" (not a path and not
+        // `builtin:<name>` as the source tag).
+        Assert.Equal("builtin:mcp", mcp.Path);
+        Assert.Equal("builtin", mcp.Metadata.Source);
     }
 
     [Fact]

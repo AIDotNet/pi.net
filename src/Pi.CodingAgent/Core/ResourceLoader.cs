@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Utils;
+using static Pi.CodingAgent.Core.ResourceLoaderExtensions;
 
 namespace Pi.CodingAgent.Core;
 
@@ -57,6 +58,12 @@ public sealed class DefaultResourceLoader
     private readonly IReadOnlyList<string> _additionalSkillPaths;
     private readonly IReadOnlyList<string> _additionalPromptPaths;
     private readonly IReadOnlyList<string> _additionalThemePaths;
+    private readonly EventBus _eventBus;
+    private readonly IReadOnlyList<InlineExtension> _extensionFactories;
+    private readonly Dictionary<string, InlineExtension.Described> _builtinExtensions;
+    private readonly bool _noExtensions;
+    private readonly HashSet<string> _disabledBuiltinExtensions;
+    private readonly Func<LoadExtensionsResult, LoadExtensionsResult>? _extensionsOverride;
     private readonly Func<SkillLoadOutcome, SkillLoadOutcome>? _skillsOverride;
     private readonly Func<PromptLoadOutcome, PromptLoadOutcome>? _promptsOverride;
     private readonly Func<ThemeLoadOutcome, ThemeLoadOutcome>? _themesOverride;
@@ -94,6 +101,11 @@ public sealed class DefaultResourceLoader
         IReadOnlyList<string>? additionalSkillPaths = null,
         IReadOnlyList<string>? additionalPromptTemplatePaths = null,
         IReadOnlyList<string>? additionalThemePaths = null,
+        EventBus? eventBus = null,
+        IReadOnlyList<InlineExtension>? extensionFactories = null,
+        bool noExtensions = false,
+        IReadOnlyList<string>? disabledBuiltinExtensions = null,
+        Func<LoadExtensionsResult, LoadExtensionsResult>? extensionsOverride = null,
         Func<SkillLoadOutcome, SkillLoadOutcome>? skillsOverride = null,
         Func<PromptLoadOutcome, PromptLoadOutcome>? promptsOverride = null,
         Func<ThemeLoadOutcome, ThemeLoadOutcome>? themesOverride = null)
@@ -101,7 +113,20 @@ public sealed class DefaultResourceLoader
         _cwd = cwd;
         _agentDir = agentDir;
         _settings = settingsManager;
-        _packages = new DefaultPackageManager(settingsManager, cwd, agentDir);
+        _eventBus = eventBus ?? EventBusController.CreateEventBus();
+
+        // TS splits the inline factories in two: built-in ones become the `builtin:<name>` registry
+        // (and are *not* also loaded as inline extensions), the rest are the inline factory list. The
+        // built-in names are handed to the package manager so it can emit `builtin:<name>` resources.
+        var factories = extensionFactories ?? [];
+        _extensionFactories = [.. factories.Where(factory => !IsBuiltinExtension(factory))];
+        _builtinExtensions = factories
+            .OfType<InlineExtension.Described>()
+            .Where(described => described.Builtin)
+            .ToDictionary(described => described.Name, StringComparer.Ordinal);
+
+        _packages = new DefaultPackageManager(
+            settingsManager, cwd, agentDir, builtinExtensions: [.. _builtinExtensions.Keys]);
         _noSkills = noSkills;
         _noPromptTemplates = noPromptTemplates;
         _noThemes = noThemes;
@@ -109,6 +134,10 @@ public sealed class DefaultResourceLoader
         _additionalSkillPaths = additionalSkillPaths ?? [];
         _additionalPromptPaths = additionalPromptTemplatePaths ?? [];
         _additionalThemePaths = additionalThemePaths ?? [];
+        _noExtensions = noExtensions;
+        _disabledBuiltinExtensions = new HashSet<string>(
+            disabledBuiltinExtensions ?? [], StringComparer.Ordinal);
+        _extensionsOverride = extensionsOverride;
         _skillsOverride = skillsOverride;
         _promptsOverride = promptsOverride;
         _themesOverride = themesOverride;
@@ -169,12 +198,26 @@ public sealed class DefaultResourceLoader
         return files;
     }
 
-    public async Task ReloadAsync(CancellationToken cancellationToken = default)
+    public async Task ReloadAsync(
+        ResourceLoaderReloadOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
         var diagnostics = new List<ResourceDiagnostic>();
 
+        // The pre-trust bootstrap pass loads the extension set with project trust forced off, so the
+        // caller can decide whether to trust the project before project-local extensions are allowed
+        // in. It reloads settings itself, which is why TS reloads again below.
+        LoadExtensionsResult? preTrustExtensions = null;
+        if (options?.ResolveProjectTrust is { } resolveProjectTrust)
+        {
+            preTrustExtensions = await LoadProjectTrustExtensionsAsync().ConfigureAwait(false);
+            var projectTrusted = await resolveProjectTrust(
+                new ProjectTrustRequest(preTrustExtensions)).ConfigureAwait(false);
+            _settings.SetProjectTrusted(projectTrusted);
+        }
+
         // TS: `await this.settingsManager.reload()`. The trust state is preserved by SettingsManager
-        // itself, so the pre-trust bootstrap pass (extensions, 9h-2b-2) can simply reload again.
+        // itself, so the pre-trust bootstrap pass can simply reload again.
         await _settings.ReloadAsync().ConfigureAwait(false);
 
         var resolved = await _packages.ResolveAsync(cancellationToken).ConfigureAwait(false);
@@ -200,6 +243,7 @@ public sealed class DefaultResourceLoader
         IReadOnlyList<string> GetEnabledPaths(IReadOnlyList<ResolvedResource> resources) =>
             GetEnabledResources(resources).Select(resource => resource.Path).ToArray();
 
+        var enabledExtensions = GetEnabledPaths(resolved.Extensions);
         var enabledSkillResources = GetEnabledResources(resolved.Skills);
         var enabledPrompts = GetEnabledPaths(resolved.Prompts);
         var enabledThemes = GetEnabledPaths(resolved.Themes);
@@ -211,10 +255,29 @@ public sealed class DefaultResourceLoader
             .ToArray();
 
         // CLI extension sources (`packageManager.resolveExtensionSources(additionalExtensionPaths, …)`)
-        // arrive with 4e-3e-9h-2b-2, which is also when `additionalExtensionPaths` enters the ctor.
+        // are blocked: the port's `DefaultPackageManager` does not resolve package sources at all
+        // (no `resolvePackageSources`), so `-e <pkg>` cannot be honoured yet. See porting-status
+        // "4e-3e-9h-2b-2 阻塞". Until then these four lists are empty, which is what TS produces when
+        // `additionalExtensionPaths` is empty.
+        string[] cliEnabledExtensions = [];
         string[] cliEnabledSkills = [];
         string[] cliEnabledPrompts = [];
         string[] cliEnabledThemes = [];
+
+        // Built-in extensions are filtered here (not in the loader) so `disabledBuiltinExtensions` can
+        // veto them by bare name, e.g. `builtin:mcp` disabled as `mcp`.
+        var extensionPaths = (_noExtensions
+                ? cliEnabledExtensions
+                : MergePaths(cliEnabledExtensions, enabledExtensions))
+            .Where(path =>
+                !path.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal)
+                || !_disabledBuiltinExtensions.Contains(path[SourceInfos.BuiltinPathPrefix.Length..]))
+            .ToArray();
+
+        var extensionsResult = await LoadFinalExtensionSetAsync(extensionPaths, preTrustExtensions)
+            .ConfigureAwait(false);
+        _extensionsResult = _extensionsOverride is null ? extensionsResult : _extensionsOverride(extensionsResult);
+        ApplyExtensionSourceInfo(_extensionsResult.Extensions, metadataByPath);
 
         var skillPaths = _noSkills
             ? MergePaths(cliEnabledSkills, _additionalSkillPaths)
@@ -240,12 +303,20 @@ public sealed class DefaultResourceLoader
         UpdateThemesFromPaths(themePaths, metadataByPath);
         diagnostics.AddRange(_themeDiagnostics);
 
-        // TS applies extension provenance right after the extension set is finalised. The set is empty
-        // until 9h-2b-2 lands the loader, so this is a no-op that keeps the ordering visible.
-        ApplyExtensionSourceInfo(_extensionsResult.Extensions, metadataByPath);
-
         AgentsFiles = _noContextFiles ? [] : LoadProjectContextFiles(_cwd, _agentDir);
         Diagnostics = diagnostics;
+    }
+
+    /// <summary>
+    /// TS <c>loadProjectTrustExtensions</c>: force untrusted project settings for the bootstrap pass,
+    /// so project-local extensions and packages stay out while user/global and temporary CLI
+    /// extensions still load.
+    /// </summary>
+    public async Task<LoadExtensionsResult> LoadProjectTrustExtensionsAsync()
+    {
+        _settings.SetProjectTrusted(false);
+        await _settings.ReloadAsync().ConfigureAwait(false);
+        return await LoadCurrentExtensionSetAsync(includeInlineFactories: true).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -780,4 +851,387 @@ public sealed class DefaultResourceLoader
     /// <summary>TS <c>resolveResourcePath</c>: synthetic paths are left alone, everything else resolves against cwd.</summary>
     private string ResolveResourcePath(string p) =>
         SourceInfos.IsSyntheticPath(p) ? p : Paths.ResolvePath(p, _cwd, new PathInputOptions(Trim: true));
+
+    // ========================================================================
+    // 扩展装载（TS loadCurrentExtensionSet / loadFinalExtensionSet / loadExtensionPaths）
+    // ========================================================================
+
+    /// <summary>TS <c>resolveExtensionLoadPath</c>: synthetic paths are already "resolved".</summary>
+    private string ResolveExtensionLoadPath(string path) =>
+        SourceInfos.IsSyntheticPath(path)
+            ? path
+            : Paths.ResolvePath(path, _cwd, new PathInputOptions(NormalizeUnicodeSpaces: true));
+
+    /// <summary>
+    /// TS <c>loadCurrentExtensionSet</c>: the pass used for the pre-trust bootstrap. Built-in
+    /// extensions are deliberately excluded — project settings can still disable them, and a loaded
+    /// extension cannot be unloaded.
+    /// </summary>
+    private async Task<LoadExtensionsResult> LoadCurrentExtensionSetAsync(bool includeInlineFactories)
+    {
+        var resolved = await _packages.ResolveAsync().ConfigureAwait(false);
+        var enabledExtensions = resolved.Extensions
+            .Where(resource => resource.Enabled)
+            .Select(resource => resource.Path)
+            .ToArray();
+
+        // No CLI sources yet (see the blocker note in ReloadAsync), and `noExtensions` keeps only CLI.
+        var extensionPaths = (_noExtensions ? Array.Empty<string>() : enabledExtensions)
+            .Where(path => !path.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal))
+            .ToArray();
+
+        var extensionsResult = await ExtensionLoader
+            .LoadExtensionsCached(extensionPaths, _cwd, _eventBus)
+            .ConfigureAwait(false);
+
+        if (!includeInlineFactories)
+        {
+            return extensionsResult;
+        }
+
+        var (inlineExtensions, inlineErrors) = await LoadExtensionFactoriesAsync(extensionsResult.Runtime)
+            .ConfigureAwait(false);
+        var replacementWarnings = new List<ExtensionLoadWarning>();
+        return extensionsResult with
+        {
+            Extensions = OmitReplacedExtensions(
+                [.. extensionsResult.Extensions, .. inlineExtensions], replacementWarnings),
+            Errors = [.. extensionsResult.Errors, .. inlineErrors],
+            Warnings = MergeWarnings(extensionsResult.Warnings, replacementWarnings),
+        };
+    }
+
+    /// <summary>
+    /// TS <c>loadExtensionPaths</c>: disk paths through the loader, <c>builtin:&lt;name&gt;</c> paths
+    /// through the built-in registry.
+    /// </summary>
+    private async Task<LoadExtensionsResult> LoadExtensionPathsAsync(
+        IReadOnlyList<string> paths,
+        IExtensionRuntime? runtime)
+    {
+        var diskPaths = paths.Where(path => !path.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal))
+            .ToArray();
+        var result = await ExtensionLoader
+            .LoadExtensionsCached(diskPaths, _cwd, _eventBus, runtime)
+            .ConfigureAwait(false);
+
+        var extensions = new List<Extension>(result.Extensions);
+        var errors = new List<ExtensionLoadError>(result.Errors);
+
+        foreach (var path in paths.Where(path => path.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal)))
+        {
+            var name = path[SourceInfos.BuiltinPathPrefix.Length..];
+            if (!_builtinExtensions.TryGetValue(name, out var described))
+            {
+                errors.Add(new ExtensionLoadError(path, $"Unknown built-in extension: {path}"));
+                continue;
+            }
+
+            try
+            {
+                var extension = await ExtensionLoader
+                    .LoadExtensionFromFactory(described.Factory, _cwd, _eventBus, result.Runtime, path)
+                    .ConfigureAwait(false);
+                extension.Hidden = true;
+                extension.Replaceable = described.Replaceable;
+                extensions.Add(extension);
+            }
+            catch (Exception ex)
+            {
+                errors.Add(new ExtensionLoadError(path, ex.Message));
+            }
+        }
+
+        return result with { Extensions = extensions, Errors = errors };
+    }
+
+    /// <summary>
+    /// TS <c>loadFinalExtensionSet</c>: reuse whatever the pre-trust pass already loaded (its runtime
+    /// in particular), load only the paths it did not cover, then order everything by
+    /// <paramref name="extensionPaths"/>.
+    /// </summary>
+    private async Task<LoadExtensionsResult> LoadFinalExtensionSetAsync(
+        IReadOnlyList<string> extensionPaths,
+        LoadExtensionsResult? preTrustExtensions)
+    {
+        var preloaded = preTrustExtensions?.Extensions ?? [];
+        var preloadedByPath = preloaded
+            .Where(extension => !extension.Path.StartsWith(InlinePathPrefix, StringComparison.Ordinal))
+            .ToDictionary(extension => extension.ResolvedPath, StringComparer.Ordinal);
+        var failedPreloadPaths = new HashSet<string>(
+            (preTrustExtensions?.Errors ?? []).Select(error => ResolveExtensionLoadPath(error.Path)),
+            StringComparer.Ordinal);
+
+        var remainingPaths = extensionPaths
+            .Where(path =>
+            {
+                var resolvedPath = ResolveExtensionLoadPath(path);
+                return !preloadedByPath.ContainsKey(resolvedPath) && !failedPreloadPaths.Contains(resolvedPath);
+            })
+            .ToArray();
+
+        var remainingExtensions = await LoadExtensionPathsAsync(remainingPaths, preTrustExtensions?.Runtime)
+            .ConfigureAwait(false);
+
+        var loadedByPath = new Dictionary<string, Extension>(preloadedByPath, StringComparer.Ordinal);
+        foreach (var extension in remainingExtensions.Extensions)
+        {
+            loadedByPath[extension.ResolvedPath] = extension;
+        }
+
+        List<Extension> inlineExtensions;
+        List<ExtensionLoadError> inlineErrors;
+        if (preTrustExtensions is not null)
+        {
+            // The pre-trust pass already ran the inline factories; reuse its results rather than
+            // registering the same tools and commands twice.
+            inlineExtensions = [.. preloaded.Where(
+                extension => extension.Path.StartsWith(InlinePathPrefix, StringComparison.Ordinal))];
+            inlineErrors = [];
+        }
+        else
+        {
+            (inlineExtensions, inlineErrors) = await LoadExtensionFactoriesAsync(remainingExtensions.Runtime)
+                .ConfigureAwait(false);
+        }
+
+        var ordered = new List<Extension>();
+        foreach (var path in extensionPaths)
+        {
+            if (loadedByPath.TryGetValue(ResolveExtensionLoadPath(path), out var extension))
+            {
+                ordered.Add(extension);
+            }
+        }
+
+        ordered.AddRange(inlineExtensions);
+
+        var replacementWarnings = new List<ExtensionLoadWarning>();
+        var extensionsResult = new LoadExtensionsResult(
+            OmitReplacedExtensions(ordered, replacementWarnings),
+            [.. preTrustExtensions?.Errors ?? [], .. remainingExtensions.Errors, .. inlineErrors],
+            MergeWarnings(
+                [.. preTrustExtensions?.Warnings ?? [], .. remainingExtensions.Warnings],
+                replacementWarnings),
+            remainingExtensions.Runtime);
+
+        return AddExtensionConflictDiagnostics(extensionsResult);
+    }
+
+    /// <summary>TS <c>loadExtensionFactories</c>: run the inline factories in registration order.</summary>
+    private async Task<(List<Extension> Extensions, List<ExtensionLoadError> Errors)> LoadExtensionFactoriesAsync(
+        IExtensionRuntime runtime)
+    {
+        var extensions = new List<Extension>();
+        var errors = new List<ExtensionLoadError>();
+
+        for (var index = 0; index < _extensionFactories.Count; index++)
+        {
+            var input = _extensionFactories[index];
+            var isNamed = input is InlineExtension.Described;
+            var factory = input switch
+            {
+                InlineExtension.Described described => described.Factory,
+                InlineExtension.Direct direct => direct.Factory,
+                _ => throw new InvalidOperationException($"unknown inline extension form: {input.GetType()}"),
+            };
+            var extensionPath = isNamed
+                ? $"<inline:{((InlineExtension.Described)input).Name}>"
+                : $"<inline:{index + 1}>";
+
+            try
+            {
+                var extension = await ExtensionLoader
+                    .LoadExtensionFromFactory(factory, _cwd, _eventBus, runtime, extensionPath)
+                    .ConfigureAwait(false);
+                extension.Hidden = isNamed && ((InlineExtension.Described)input).Hidden;
+                extension.Replaceable = isNamed && ((InlineExtension.Described)input).Replaceable;
+                extensions.Add(extension);
+            }
+            catch (Exception ex)
+            {
+                errors.Add(new ExtensionLoadError(extensionPath, ex.Message));
+            }
+        }
+
+        return (extensions, errors);
+    }
+
+    /// <summary>
+    /// TS <c>addExtensionConflictDiagnostics</c>: keep every extension loaded (load order decides
+    /// precedence) and report the clashes as errors. Returns the updated result — TS mutates
+    /// <c>extensionsResult.errors</c> in place, but the port's record is immutable.
+    /// </summary>
+    private static LoadExtensionsResult AddExtensionConflictDiagnostics(LoadExtensionsResult extensionsResult)
+    {
+        var conflicts = DetectExtensionConflicts(extensionsResult.Extensions);
+        if (conflicts.Count == 0)
+        {
+            return extensionsResult;
+        }
+
+        return extensionsResult with
+        {
+            Errors =
+            [
+                .. extensionsResult.Errors,
+                .. conflicts.Select(conflict => new ExtensionLoadError(conflict.Path, conflict.Message)),
+            ],
+        };
+    }
+
+    /// <summary>TS <c>detectExtensionConflicts</c>: tools and flags registered under the same name.</summary>
+    internal static IReadOnlyList<(string Path, string Message)> DetectExtensionConflicts(
+        IReadOnlyList<Extension> extensions)
+    {
+        var conflicts = new List<(string Path, string Message)>();
+        var toolOwners = new Dictionary<string, string>(StringComparer.Ordinal);
+        var flagOwners = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var extension in extensions)
+        {
+            foreach (var toolName in extension.Tools.Keys)
+            {
+                if (toolOwners.TryGetValue(toolName, out var owner) && owner != extension.Path)
+                {
+                    conflicts.Add((extension.Path, $"Tool \"{toolName}\" conflicts with {owner}"));
+                }
+                else
+                {
+                    toolOwners[toolName] = extension.Path;
+                }
+            }
+
+            foreach (var flagName in extension.Flags.Keys)
+            {
+                if (flagOwners.TryGetValue(flagName, out var owner) && owner != extension.Path)
+                {
+                    conflicts.Add((extension.Path, $"Flag \"--{flagName}\" conflicts with {owner}"));
+                }
+                else
+                {
+                    flagOwners[flagName] = extension.Path;
+                }
+            }
+        }
+
+        return conflicts;
+    }
+}
+
+// ============================================================================
+// 扩展装载的模块级辅助（TS resource-loader.ts 顶部）
+// ============================================================================
+
+/// <summary>Options for <see cref="DefaultResourceLoader.ReloadAsync"/>. Port of <c>ResourceLoaderReloadOptions</c>.</summary>
+public sealed record ResourceLoaderReloadOptions
+{
+    /// <summary>
+    /// Decide whether to trust the project, given the pre-trust extension set. Returning true keeps
+    /// project-local extensions; false drops them for the rest of the load.
+    /// </summary>
+    public Func<ProjectTrustRequest, Task<bool>>? ResolveProjectTrust { get; init; }
+}
+
+/// <summary>Payload of <see cref="ResourceLoaderReloadOptions.ResolveProjectTrust"/>.</summary>
+public sealed record ProjectTrustRequest(LoadExtensionsResult ExtensionsResult);
+
+/// <summary>
+/// Module-level helpers of <c>core/resource-loader.ts</c> that the loader class shares. TS keeps them
+/// as file-scoped functions; the port puts them on a static class so they stay testable.
+/// </summary>
+internal static class ResourceLoaderExtensions
+{
+    /// <summary>Prefix of inline extension paths, e.g. <c>&lt;inline:mcp&gt;</c>. TS inline literal.</summary>
+    public const string InlinePathPrefix = "<inline:";
+
+    /// <summary>
+    /// TS <c>isBuiltinExtension</c>: a built-in extension is a described (non-function) inline entry
+    /// with <c>builtin === true</c>.
+    /// </summary>
+    public static bool IsBuiltinExtension(InlineExtension input) =>
+        input is InlineExtension.Described { Builtin: true };
+
+    /// <summary>
+    /// TS <c>mergeExtensionWarnings</c>: dedupe by path, later entries winning. Returns the merged
+    /// list — TS mutates <c>result.warnings</c>, but the port's record is immutable.
+    /// </summary>
+    public static IReadOnlyList<ExtensionLoadWarning> MergeWarnings(
+        IReadOnlyList<ExtensionLoadWarning> baseWarnings,
+        IReadOnlyList<ExtensionLoadWarning> extra)
+    {
+        var merged = new Dictionary<string, ExtensionLoadWarning>(StringComparer.Ordinal);
+        foreach (var warning in baseWarnings.Concat(extra))
+        {
+            merged[warning.Path] = warning;
+        }
+
+        return [.. merged.Values];
+    }
+
+    /// <summary>
+    /// TS <c>omitReplacedExtensions</c>: drop a replaceable extension when another extension already
+    /// claims one of its tool, command or flag names — so a third-party MCP extension registering
+    /// <c>/mcp</c> replaces the built-in one instead of both connecting the same servers.
+    /// </summary>
+    public static IReadOnlyList<Extension> OmitReplacedExtensions(
+        IReadOnlyList<Extension> extensions,
+        List<ExtensionLoadWarning>? warnings = null)
+    {
+        static IEnumerable<string> Names(Extension extension) =>
+            extension.Tools.Keys.Select(name => $"tool:{name}")
+                .Concat(extension.Commands.Keys.Select(name => $"command:{name}"))
+                .Concat(extension.Flags.Keys.Select(name => $"flag:{name}"));
+
+        var taken = new Dictionary<string, Extension>(StringComparer.Ordinal);
+        foreach (var extension in extensions.Where(extension => !extension.Replaceable))
+        {
+            foreach (var name in Names(extension))
+            {
+                taken.TryAdd(name, extension);
+            }
+        }
+
+        var kept = new List<Extension>();
+        foreach (var extension in extensions)
+        {
+            if (!extension.Replaceable)
+            {
+                kept.Add(extension);
+                continue;
+            }
+
+            var replacement = Names(extension)
+                .Select(name => (Name: name, Extension: taken.TryGetValue(name, out var owner) ? owner : null))
+                .FirstOrDefault(candidate => candidate.Extension is not null);
+            if (replacement.Extension is null)
+            {
+                kept.Add(extension);
+                continue;
+            }
+
+            if (extension.Path.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal))
+            {
+                var builtinName = extension.Path[SourceInfos.BuiltinPathPrefix.Length..];
+                var separator = replacement.Name.IndexOf(':');
+                var kind = replacement.Name[..separator];
+                var rawName = replacement.Name[(separator + 1)..];
+                var registeredName = kind switch
+                {
+                    "command" => $"/{rawName}",
+                    "flag" => $"--{rawName}",
+                    _ => rawName,
+                };
+                warnings?.Add(new ExtensionLoadWarning(
+                    extension.Path,
+                    $"Extension {replacement.Extension.Path} registers {kind} `{registeredName}`, so " +
+                    $"built-in extension `{builtinName}` was not loaded. To use `{builtinName}`, run " +
+                    "`pi config` and make sure it is enabled under Built-in extensions, then disable or " +
+                    "remove the existing extension. We recommend only having one or the other loaded at " +
+                    "a time."));
+            }
+        }
+
+        return kept;
+    }
 }

@@ -1,6 +1,13 @@
 using System.Text.Json.Nodes;
+using Pi.Agent.Types;
+using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Core.Extensions;
 using Xunit;
+
+// `Pi.CodingAgent.Core` also declares ToolDefinition-shaped names; inside the test namespace both
+// usings are in scope, so alias the extension-contract type explicitly.
+using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
 
 namespace Pi.CodingAgent.Tests;
 
@@ -242,5 +249,288 @@ public sealed class ResourceLoaderTests : IDisposable
 
         Assert.Equal("default-one", Assert.Single(loader.Skills).Name);
         Assert.DoesNotContain(loader.Diagnostics, diagnostic => diagnostic.Type == ResourceDiagnosticType.Collision);
+    }
+
+    // ------------------------------------------------------------------ extension loading (9h-2b-2)
+
+    private static ExtensionFactory DemoFactory(Action<IExtensionApi>? configure = null) => pi =>
+    {
+        configure?.Invoke(pi);
+        return Task.CompletedTask;
+    };
+
+    private (string Cwd, string AgentDir) NewProject(string name)
+    {
+        var cwd = Path.Combine(_root, "projects", name);
+        var agentDir = Path.Combine(cwd, "agent");
+        Directory.CreateDirectory(cwd);
+        Directory.CreateDirectory(agentDir);
+        return (cwd, agentDir);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_LoadsBuiltinExtensionFromTheRegistry()
+    {
+        // A built-in factory is registered as `builtin:<name>` by the package manager and loaded by
+        // the resource loader; it is hidden and never also loaded as an inline extension.
+        var (cwd, agentDir) = NewProject("builtin");
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            SettingsManager.Create(cwd, agentDir),
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            extensionFactories:
+            [
+                new InlineExtension.Described("demo", DemoFactory(), Builtin: true),
+            ]);
+
+        await loader.ReloadAsync();
+
+        var extension = Assert.Single(loader.GetExtensions().Extensions);
+        Assert.Equal("builtin:demo", extension.Path);
+        Assert.True(extension.Hidden);
+        Assert.False(extension.Replaceable);
+        Assert.Equal("builtin", extension.SourceInfo.Source);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_DisabledBuiltinExtensionsAreNotLoaded()
+    {
+        var (cwd, agentDir) = NewProject("builtin-disabled");
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            SettingsManager.Create(cwd, agentDir),
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            disabledBuiltinExtensions: ["demo"],
+            extensionFactories:
+            [
+                new InlineExtension.Described("demo", DemoFactory(), Builtin: true),
+            ]);
+
+        await loader.ReloadAsync();
+
+        Assert.Empty(loader.GetExtensions().Extensions);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_LoadsInlineExtensionFactoryAsAnInlinePath()
+    {
+        var (cwd, agentDir) = NewProject("inline");
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            SettingsManager.Create(cwd, agentDir),
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            extensionFactories:
+            [
+                new InlineExtension.Described("third-party", DemoFactory(), Hidden: true),
+            ]);
+
+        await loader.ReloadAsync();
+
+        var extension = Assert.Single(loader.GetExtensions().Extensions);
+        Assert.Equal("<inline:third-party>", extension.Path);
+        Assert.True(extension.Hidden);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_FailingExtensionFactoryBecomesALoadError()
+    {
+        var (cwd, agentDir) = NewProject("inline-fail");
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            SettingsManager.Create(cwd, agentDir),
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            extensionFactories:
+            [
+                new InlineExtension.Described(
+                    "broken",
+                    _ => throw new InvalidOperationException("factory exploded")),
+            ]);
+
+        await loader.ReloadAsync();
+
+        var result = loader.GetExtensions();
+        Assert.Empty(result.Extensions);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal("<inline:broken>", error.Path);
+        Assert.Equal("factory exploded", error.Error);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_ExtensionsOverrideCanReplaceTheLoadedSet()
+    {
+        var (cwd, agentDir) = NewProject("override");
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            SettingsManager.Create(cwd, agentDir),
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            extensionsOverride: baseResult => baseResult with
+            {
+                Errors = [.. baseResult.Errors, new ExtensionLoadError("<override>", "added by override")],
+            });
+
+        await loader.ReloadAsync();
+
+        Assert.Equal("added by override", Assert.Single(loader.GetExtensions().Errors).Error);
+    }
+
+    [Fact]
+    public async Task LoadProjectTrustExtensionsAsync_ForcesUntrustedAndLoadsInlineFactories()
+    {
+        var (cwd, agentDir) = NewProject("trust");
+        var settings = SettingsManager.Create(cwd, agentDir);
+        settings.SetProjectTrusted(true);
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            settings,
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            extensionFactories:
+            [
+                new InlineExtension.Described("inline-one", DemoFactory()),
+            ]);
+
+        var result = await loader.LoadProjectTrustExtensionsAsync();
+
+        // The bootstrap pass keeps user/global and temporary (inline) extensions but forces the
+        // project untrusted so project-local settings cannot contribute extensions yet.
+        Assert.False(settings.IsProjectTrusted());
+        Assert.Equal("<inline:inline-one>", Assert.Single(result.Extensions).Path);
+    }
+
+    [Fact]
+    public void DetectExtensionConflicts_ReportsToolAndFlagClashes()
+    {
+        var first = NewExtensionFor("a.ts", toolNames: ["read"], flagNames: ["verbose"]);
+        var second = NewExtensionFor("b.ts", toolNames: ["read"], flagNames: ["verbose"]);
+        var third = NewExtensionFor("c.ts", toolNames: ["write"]);
+
+        var conflicts = DefaultResourceLoader.DetectExtensionConflicts([first, second, third]);
+
+        Assert.Equal(2, conflicts.Count);
+        Assert.Contains(conflicts, c => c.Message == "Tool \"read\" conflicts with a.ts");
+        Assert.Contains(conflicts, c => c.Message == "Flag \"--verbose\" conflicts with a.ts");
+    }
+
+    [Fact]
+    public void DetectExtensionConflicts_SameExtensionReRegisteringIsNotAConflict()
+    {
+        var extension = NewExtensionFor("a.ts", toolNames: ["read"], flagNames: ["verbose"]);
+        Assert.Empty(DefaultResourceLoader.DetectExtensionConflicts([extension]));
+    }
+
+    [Fact]
+    public void OmitReplacedExtensions_DropsReplaceableBuiltinAndWarns()
+    {
+        // A third-party extension registering /mcp replaces the built-in `mcp` extension rather than
+        // both connecting the same servers.
+        var builtin = NewExtensionFor("builtin:mcp", commandNames: ["mcp"], replaceable: true);
+        var thirdParty = NewExtensionFor("/tmp/ext.ts", commandNames: ["mcp"]);
+        var unrelated = NewExtensionFor("builtin:tool-search", commandNames: ["search"], replaceable: true);
+
+        var warnings = new List<ExtensionLoadWarning>();
+        var kept = ResourceLoaderExtensions.OmitReplacedExtensions([builtin, thirdParty, unrelated], warnings);
+
+        Assert.DoesNotContain(kept, extension => extension.Path == "builtin:mcp");
+        Assert.Contains(kept, extension => extension.Path == "/tmp/ext.ts");
+        Assert.Contains(kept, extension => extension.Path == "builtin:tool-search");
+
+        var warning = Assert.Single(warnings);
+        Assert.Equal("builtin:mcp", warning.Path);
+        Assert.Contains("registers command `/mcp`", warning.Warning, StringComparison.Ordinal);
+        Assert.Contains("built-in extension `mcp` was not loaded", warning.Warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OmitReplacedExtensions_KeepsReplaceableWhenNothingClaimsItsNames()
+    {
+        var builtin = NewExtensionFor("builtin:mcp", commandNames: ["mcp"], replaceable: true);
+        var warnings = new List<ExtensionLoadWarning>();
+
+        var kept = ResourceLoaderExtensions.OmitReplacedExtensions([builtin], warnings);
+
+        Assert.Single(kept);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void MergeWarnings_DedupesByPathWithLaterEntryWinning()
+    {
+        var merged = ResourceLoaderExtensions.MergeWarnings(
+            [new ExtensionLoadWarning("a.ts", "first")],
+            [new ExtensionLoadWarning("a.ts", "second"), new ExtensionLoadWarning("b.ts", "other")]);
+
+        Assert.Equal(2, merged.Count);
+        Assert.Equal("second", merged.Single(w => w.Path == "a.ts").Warning);
+    }
+
+    private static Extension NewExtensionFor(
+        string path,
+        IReadOnlyList<string>? toolNames = null,
+        IReadOnlyList<string>? commandNames = null,
+        IReadOnlyList<string>? flagNames = null,
+        bool replaceable = false)
+    {
+        var extension = new Extension
+        {
+            Path = path,
+            ResolvedPath = path,
+            SourceInfo = SourceInfos.CreateSynthetic(path, "test"),
+            Replaceable = replaceable,
+        };
+
+        foreach (var name in toolNames ?? [])
+        {
+            extension.Tools[name] = new RegisteredTool
+            {
+                Definition = new ToolDefinition
+                {
+                    Name = name,
+                    Label = name,
+                    Description = name,
+                    Parameters = new ToolSchema(new Dictionary<string, object?> { ["type"] = "object" }),
+                    Execute = (_, _, _, _, _) => Task.FromResult(new AgentToolResult([])),
+                },
+                SourceInfo = extension.SourceInfo,
+            };
+        }
+
+        foreach (var name in commandNames ?? [])
+        {
+            extension.Commands[name] = new RegisteredCommand
+            {
+                Name = name,
+                SourceInfo = extension.SourceInfo,
+                Handler = (_, _) => Task.CompletedTask,
+            };
+        }
+
+        foreach (var name in flagNames ?? [])
+        {
+            extension.Flags[name] = new ExtensionFlag
+            {
+                Name = name,
+                Type = FlagType.Boolean,
+                ExtensionPath = path,
+            };
+        }
+
+        return extension;
     }
 }

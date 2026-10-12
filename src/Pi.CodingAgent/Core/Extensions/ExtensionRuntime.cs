@@ -155,11 +155,17 @@ public sealed class Extension
     /// <summary>Resolved file path (equal to <see cref="Path"/> for synthetic paths).</summary>
     public required string ResolvedPath { get; init; }
 
-    /// <summary>Hidden extensions load but are not listed.</summary>
-    public bool Hidden { get; init; }
+    /// <summary>
+    /// Hidden extensions load but are not listed. Settable: TS's <c>loadExtensionPaths</c> and
+    /// <c>loadExtensionFactories</c> set it on the freshly loaded extension.
+    /// </summary>
+    public bool Hidden { get; set; }
 
-    /// <summary>See <see cref="InlineExtension.Described.Replaceable"/>.</summary>
-    public bool Replaceable { get; init; }
+    /// <summary>
+    /// See <see cref="InlineExtension.Described.Replaceable"/>. Settable for the same reason as
+    /// <see cref="Hidden"/>.
+    /// </summary>
+    public bool Replaceable { get; set; }
 
     /// <summary>
     /// Where the extension came from. Settable, not <c>init</c>: TS's <c>applyExtensionSourceInfo</c>

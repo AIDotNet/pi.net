@@ -2343,15 +2343,62 @@ CLI 扩展源（`packageManager.resolveExtensionSources`）留给 9h-2b-2。
 验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`Pi.CodingAgent.Tests` 1252 项全通过
 （1247 + 5 项新增）。
 
+### 4e-3e-9h-2b-2 已落地（2026-10-12）：扩展加载本体 + 3 处新发现的阻塞
+
+**新落地：**
+
+| TS 符号 | 端口 | 说明 |
+| --- | --- | --- |
+| `reload(options?)` 的扩展段 | `DefaultResourceLoader.ReloadAsync` | 补 `enabledExtensions` → `extensionPaths`（按 `disabledBuiltinExtensions` 过滤 `builtin:`）→ `loadFinalExtensionSet` → `extensionsOverride` → `applyExtensionSourceInfo` |
+| `loadProjectTrustExtensions` | `LoadProjectTrustExtensionsAsync` | 强制 `SetProjectTrusted(false)` + reload + `loadCurrentExtensionSet(includeInlineFactories: true)` |
+| `loadCurrentExtensionSet` | `LoadCurrentExtensionSetAsync` | 预信任通路的装载；**刻意排除** `builtin:`（项目设置仍可禁用，而已加载的扩展无法卸载） |
+| `loadExtensionPaths` | `LoadExtensionPathsAsync` | 磁盘路径走 loader，`builtin:<name>` 走内置注册表 |
+| `loadFinalExtensionSet` | `LoadFinalExtensionSetAsync` | 复用预信任通路已加载的扩展（**尤其是它的 runtime**），只补未覆盖的路径，最后按 `extensionPaths` 排序 |
+| `loadExtensionFactories` | `LoadExtensionFactoriesAsync` | 内联工厂按注册顺序执行；命名形式用 `<inline:name>`，否则 `<inline:N>` |
+| `addExtensionConflictDiagnostics` / `detectExtensionConflicts` | `AddExtensionConflictDiagnostics`（static）/ `DetectExtensionConflicts`（internal static） | 工具/flag 同名冲突上报为错误，但**全部保留**（优先级由装载顺序决定） |
+| `resolveExtensionLoadPath` | `ResolveExtensionLoadPath` | 合成路径原样返回，其余按 `normalizeUnicodeSpaces` 解析 |
+| `mergeExtensionWarnings` / `isBuiltinExtension` / `omitReplacedExtensions` | `ResourceLoaderExtensions` 静态类 | 可替换扩展被顶替时给出提示（含 built-in 的 `pi config` 文案） |
+| `ResourceLoaderReloadOptions.resolveProjectTrust` | 同名记录 + `ProjectTrustRequest` | TS 的匿名形参形状在 C# 需具名 |
+| 构造器的 `eventBus` / `extensionFactories` / `noExtensions` / `disabledBuiltinExtensions` / `extensionsOverride` | 同名参数 | 见下「工厂二分」 |
+
+**构造器的「工厂二分」**（易漏）：TS 把 `extensionFactories` 拆成两半 —— 内置的进
+`builtinExtensions` **名字映射**（并把名字交给 package manager，使其产出 `builtin:<name>` 资源），
+其余才是内联工厂列表。端口此前没做这个拆分，于是 `resolved.Extensions` 里永远不会出现 `builtin:`。
+
+**顺带修掉的两处缺陷：**
+
+1. **`PackageManager.AddBuiltinExtensions` 把「名字」当「路径」。** TS 里 `builtinExtensions` 是**名字**列表，
+   TS 自己拼出 `builtin:<name>`；端口却把传入值当路径用，还再拼一次前缀（`Source = "builtin:" + 无扩展名文件名`），
+   且 `Scope = "global"` / `Origin = "package"` 也与 TS 的 `"user"` / `"top-level"` 不符。
+   现按 TS 改为：`Path = "builtin:<name>"`、`Source = "builtin"`、`Scope = "user"`、`Origin = "top-level"`。
+   受影响的既有测试 `Resolve_ExcludesBuiltinExtensionsWhenPatternMatches` 原先传 `["mcp.ts"]`（借文件名 stem
+   凑出 `"mcp"` 以命中 exclude 模式），已改为传名字 `["mcp"]` 并断言真实路径与 source。
+2. **`MatchCandidates` 看不穿 `builtin:` 前缀。** TS 的 override 模式是**对解析后的路径**做匹配
+   （`matchesAnyPattern(path, patterns, baseDir)`），所以 `-builtin:mcp` 能命中内置扩展。端口的匹配器比较
+   文件名/stem/source，`builtin:mcp` 这三个候选都不是 `mcp`，导致 `extensions: ["-mcp"]` **无法禁用内置扩展**。
+   已在 `MatchCandidates` 里对 `builtin:` 路径补上裸名候选。
+
+**本批新发现的 3 处阻塞（均属 package-manager，未移植）：**
+
+| 阻塞 | 影响 |
+| --- | --- |
+| `resolvePackageSources` 未移植（`settings.packages` 完全没被处理） | 来自已安装包的扩展/skills/prompts/themes **永远加载不到**；`resolveExtensionSources` 的非 builtin 分支无法实现 |
+| `PathMetadata.packageRoot` 缺失 | `collectExtensionPackageWarnings` 无法移植（它按 packageRoot 读 `package.json` 检查 host 依赖误声明） |
+| `applyAutoloadDisabledPatterns` / `isEnabledByOverrides` / `getOverridePatterns` / `matchesAnyPattern` 被简化 | TS 的 `+`/`-`/`!` 前缀与路径模式语义没有移植；端口用文件名/stem/source 候选匹配近似 |
+
+**因此本批顺延：** `additionalExtensionPaths`（CLI `-e`）与它派生的 `cliEnabledExtensions/Skills/Prompts/Themes`
+（现为空数组，与 TS 在 `additionalExtensionPaths` 为空时同结果）、`collectExtensionPackageWarnings`、
+`additionalExtensionPaths` 的「路径不存在」错误上报。**`_buildRuntime` 不受影响** —— 它需要的是
+设置/自动发现/内置这三条通路，本批已全部打通。
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`Pi.CodingAgent.Tests` 1263 项全通过
+（1252 + 11 项新增）；全套回归 **25,937 项 / 0 失败**。
+
 ### 4e-3e-9 剩余
 
-- **4e-3e-9h-2b-2**：`DefaultResourceLoader` 扩展加载本体 —— `loadExtensionPaths` /
-  `loadFinalExtensionSet` / `loadExtensionFactories` / `addExtensionConflictDiagnostics` +
-  `detectExtensionConflicts` / `loadProjectTrustExtensions`，模块级 `collectExtensionPackageWarnings` /
-  `mergeExtensionWarnings` / `isBuiltinExtension` / `omitReplacedExtensions`，构造器补
-  `additionalExtensionPaths` / `extensionFactories` / `noExtensions` / `disabledBuiltinExtensions` /
-  `extensionsOverride`，以及 `PackageManager.ResolveExtensionSources`。
-- **4e-3e-9h-2c**：`createAllToolDefinitions` + `_buildRuntime` + `_refreshToolRegistry` +
-  `_bindExtensionCore`。
+- **4e-3e-9h-2c**：`createAllToolDefinitions`（`core/tools/index.ts`）+ `_buildRuntime` +
+  `_refreshToolRegistry` + `_bindExtensionCore`。
 - 之后：9h-3（6 个 installers + `_handleAgentEvent` + 事件类型族）→ 9h-4（9f 顺延的编排本体）。
+- 独立缺口（不阻塞 9h）：package manager 的包解析（`resolvePackageSources`、`packageRoot`、
+  完整 override 语义）。
 

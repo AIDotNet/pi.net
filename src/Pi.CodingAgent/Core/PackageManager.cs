@@ -409,18 +409,25 @@ public sealed class DefaultPackageManager : IPackageManager
         public bool Pinned { get; init; }
     }
 
+    /// <summary>
+    /// Register the built-in extensions as <c>builtin:&lt;name&gt;</c> resources. TS's <c>resolve</c>
+    /// computes each one's enabled flag from the project/global `extensions` override patterns
+    /// (<c>applyAutoloadDisabledPatterns</c> + <c>isEnabledByOverrides</c>); the port applies the
+    /// (simplified) <see cref="ApplyAutoloadDisabledPatterns"/> pass afterwards instead, and otherwise
+    /// enables them — a built-in extension is on unless something disables it.
+    /// </summary>
     private void AddBuiltinExtensions(Accumulator acc)
     {
-        foreach (var path in _builtinExtensions)
+        foreach (var name in _builtinExtensions)
         {
             acc.Add(PackageResourceKind.Extensions, new ResolvedResource
             {
-                Path = path,
+                Path = SourceInfos.BuiltinPathPrefix + name,
                 Metadata = new PathMetadata
                 {
-                    Source = SourceInfos.BuiltinPathPrefix + Path.GetFileNameWithoutExtension(path),
-                    Scope = "global",
-                    Origin = "package",
+                    Source = "builtin",
+                    Scope = SourceScope.User,
+                    Origin = SourceOrigin.TopLevel,
                 },
                 Enabled = true,
             });
@@ -592,6 +599,15 @@ public sealed class DefaultPackageManager : IPackageManager
         if (resource.Metadata.BaseDir is { Length: > 0 } baseDir)
         {
             candidates.Insert(0, Path.GetRelativePath(baseDir, resource.Path).Replace('\\', '/'));
+        }
+
+        // TS matches override patterns against resolved *paths* (`matchesAnyPattern` with a baseDir),
+        // so `-builtin:mcp` targets a built-in. The port's matcher compares file name, stem and source
+        // instead, which cannot see through the `builtin:` prefix — add the bare name so
+        // `extensions: ["-mcp"]` still disables the built-in `mcp` extension.
+        if (resource.Path.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal))
+        {
+            candidates.Insert(0, resource.Path[SourceInfos.BuiltinPathPrefix.Length..]);
         }
 
         return candidates;
