@@ -9,10 +9,28 @@ public sealed class PackageManagerTests : IDisposable
     private readonly string _root =
         Path.Combine(Path.GetTempPath(), "pi-pkg-" + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8]);
 
+    private readonly List<SettingsManager> _managers = [];
+
     public PackageManagerTests() => Directory.CreateDirectory(_root);
 
     public void Dispose()
     {
+        // SettingsManager persists through an async write queue (the port of TS's enqueueWrite/flush).
+        // Drain it before deleting the temp tree: otherwise a queued write can still be creating
+        // settings.json.lock while Directory.Delete walks the directory, which on Windows fails with
+        // UnauthorizedAccessException on the momentarily open lock file.
+        foreach (var manager in _managers)
+        {
+            try
+            {
+                manager.FlushAsync().GetAwaiter().GetResult();
+            }
+            catch
+            {
+                // A failed write is surfaced through the manager's own error reporting.
+            }
+        }
+
         try
         {
             if (Directory.Exists(_root))
@@ -21,6 +39,9 @@ public sealed class PackageManagerTests : IDisposable
             }
         }
         catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
         {
         }
     }
@@ -32,6 +53,7 @@ public sealed class PackageManagerTests : IDisposable
         Directory.CreateDirectory(agentDir);
         Directory.CreateDirectory(cwd);
         var settings = SettingsManager.Create(cwd, agentDir);
+        _managers.Add(settings);
         return (cwd, agentDir, settings);
     }
 

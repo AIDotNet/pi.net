@@ -29,13 +29,11 @@ public sealed class AgentSessionLeafTests : IDisposable
     [Fact]
     public void ParseSkillBlock_ExtractsNameLocationContentAndUserMessage()
     {
-        var text = """
-            <skill name="review" location="/skills/review.md">
-            body
-            </skill>
-
-            please run it
-            """;
+        // Written with explicit "\n" instead of a raw string literal: a literal inherits the
+        // checkout's line endings (core.autocrlf=true gives CRLF on Windows), while TS's
+        // parseSkillBlock regex is written against "\n" only. The port is faithful to TS, so the
+        // input has to be LF for the test to be checkout-independent.
+        var text = "<skill name=\"review\" location=\"/skills/review.md\">\nbody\n</skill>\n\nplease run it";
         var parsed = AgentSession.ParseSkillBlock(text);
         Assert.NotNull(parsed);
         Assert.Equal("review", parsed!.Name);
