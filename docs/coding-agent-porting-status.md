@@ -2121,6 +2121,30 @@ TS **同时声明了两个同形记录**，端口的两个记录是忠实的，�
 SDK 工具的 / 内置定义的），靠结构类型通过。C# 无结构类型，故 `Wrapper` 取签名写明的
 `RegisteredTool`，`agent-session.ts` 的两处字面量调用点在 9h-2c 构造 `RegisteredTool` 传入。
 
+### 4e-3e-9h-2b-1 设计差异与修复（文档化）
+
+- **C143**：`DefaultResourceLoader` 的 theme 去重**方向曾反**，现按 TS 改为**首者胜**。
+  TS 的 `dedupeThemes` 是 `if (existing) push collision else seen.set`（先到者留在集合里）；
+  端口把去重写在 `LoadThemes` 内并用 `themes[name] = …` 覆盖，即**末者胜**，且把**后来者**报为
+  winner —— 同名 theme 的优先级整个反了。现在 `LoadThemes` 只收集（与 TS `loadThemes` 同形），
+  去重在 `DedupeThemes` 里做。原测试 `LoadThemes_LastPathWinsWithCollision` 把这个错误行为钉住了，
+  已改写为 `DedupeThemes_FirstPathWins`（同时断言 winner/loser 路径）。
+- **C144**：`getDefaultSourceInfoForPath` 的兜底分支用 `Directory.Exists` 而非 TS 的 `statSync`。
+  TS 对不存在的路径会抛异常（`statSync` 抛错会让整个 `reload()` 失败），端口退化为「取父目录」。
+  实际不可达（每个调用方传入的都是刚读过的路径），是健壮性选择而非行为差异。
+- **`skillsOverride` / `promptsOverride` / `themesOverride` 用具名记录**：TS 的形参是匿名
+  `{ skills; diagnostics }` 形状，C# 需具名 → `SkillLoadOutcome` / `PromptLoadOutcome` /
+  `ThemeLoadOutcome`。
+
+### 4e-3e-9h-2b-1 修复的行为缺陷
+
+- **`includeDefaults` 重复装载默认 skills**：TS `updateSkillsFromPaths` 传
+  `includeDefaults: false`，因为路径表里已含自动发现的默认目录（来自 `packageManager.resolve()`）。
+  端口此前传 `true`，每个默认 skill 被装载两次并各产生一条假 collision 诊断。已改 `false`，
+  回归守卫 `ReloadAsync_DoesNotDoubleLoadDefaultSkills`。
+- **漏调 `settingsManager.reload()`**：TS 的 `reload()` 第 3 步就是它，端口此前没有。
+  现已补上（`_settings.ReloadAsync()`），与 TS 同序。
+
 ### 4e-3e-9g 验证
 
 - `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
@@ -2271,7 +2295,63 @@ TS **确实同时声明了两个同形记录**（第二个私有于 `agent-sessi
 （1243 + 4 个新增 `Wrapper` 测试）。新增测试含一条**回归守卫**
 `Wrapper_WrappedTool_CanRunNestedTool`：它针对旧 `IToolContext` 缝会失败（缝下无 `ExecuteTool`）。
 
+### 4e-3e-9h-2b-1 已落地（2026-10-12）：资源溯源 + `extendResources` + 两处逆序缺陷修复
+
+`_buildRuntime` 需要 `resourceLoader.getExtensions()`，而 TS 的 `reload()` 在扩展段前后还夹着
+**资源溯源**（`applyExtensionSourceInfo` / `update*FromPaths` / `extendResources`）。本批先把这半边补齐，
+扩展加载本体留给 9h-2b-2。
+
+**新落地：**
+
+| TS 符号 | 端口 | 说明 |
+| --- | --- | --- |
+| `createSourceInfo` | `SourceInfos.CreateSourceInfo` | 4d-2b 标注「随 4e 落地」，本批兑现 |
+| `getExtensions()` | `DefaultResourceLoader.GetExtensions()` | 返回 `_extensionsResult`；构造器按 TS 初值给空集 + 活 runtime |
+| `extendResources` | `DefaultResourceLoader.ExtendResources` | 新增；把扩展发现的路径**并入**上次装载集，而非替换 |
+| `updateSkillsFromPaths` / `updatePromptsFromPaths` / `updateThemesFromPaths` | 同名私有方法 | 三条资源通路从 `ReloadAsync` 内联代码提出来 |
+| `mapSkillPath` / `normalizeExtensionPaths` / `mergePaths` / `resolveResourcePath` | 同名私有方法 | 路径工具 |
+| `findSourceInfoForPath` / `getDefaultSourceInfoForPath` / `applyExtensionSourceInfo` / `isUnderPath` | 同名私有方法 | 溯源 |
+| `dedupePrompts` / `dedupeThemes` | `DedupePrompts` / `DedupeThemes` | **均为首者胜**（见 C143） |
+| `skillsOverride` / `promptsOverride` / `themesOverride` | 构造器同名参数 + `SkillLoadOutcome` 等三个记录 | TS 的匿名结果类型在 C# 需具名 |
+| `await settingsManager.reload()` | `_settings.ReloadAsync()` | 此前漏调用，`ReloadAsync` 现在与 TS 同序 |
+
+**修复的两处真实缺陷（本批的核心价值）：**
+
+1. **C143 —— theme 去重方向反了。** TS 的 `dedupeThemes` 是**首者胜**（`if (existing) push collision
+   else seen.set`），而端口把去重写在 `LoadThemes` 里、用 `themes[name] = ...` 覆盖，即**末者胜**，
+   并且把**后来者**报为 winner。也就是说同名 theme 的优先级整个反了。
+   现有测试 `LoadThemes_LastPathWinsWithCollision` 正是把这个错误行为**钉住**了（测试名里写着
+   `LastPathWins`），已改写为 `DedupeThemes_FirstPathWins` 并断言 winner/loser 路径。
+   `LoadThemes` 现在只收集（与 TS `loadThemes` 一致），去重交给 `DedupeThemes`。
+
+2. **`includeDefaults` 重复装载默认 skills。** TS `updateSkillsFromPaths` 用
+   `includeDefaults: false`，因为路径表里**已经**含自动发现的默认目录（它们来自
+   `packageManager.resolve()`）。端口此前传 `true`，于是每个默认 skill 被装载两次，
+   并各产生一条假的 collision 诊断。已按 TS 改为 `false`，并加回归守卫
+   `ReloadAsync_DoesNotDoubleLoadDefaultSkills`。
+
+**`init` → `set` 的三处：** `Extension.SourceInfo`、`RegisteredCommand.SourceInfo`、
+`RegisteredTool.SourceInfo`。TS 的 `applyExtensionSourceInfo` 会**就地改写**这三者
+（`extension.sourceInfo = …` / `command.sourceInfo = …` / `tool.sourceInfo = …`），
+`init` 无法表达。
+
+**顺延：** 完整 theme 装载（目录遍历、缺失路径告警、`Theme.sourcePath`）仍随 4f；
+`LoadedTheme` 新增可空 `SourceInfo`，`sourcePath` 由 `Path` 承担。
+`agentsFilesOverride` / `systemPrompt` / `appendSystemPrompt` 的发现与覆盖、
+CLI 扩展源（`packageManager.resolveExtensionSources`）留给 9h-2b-2。
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`Pi.CodingAgent.Tests` 1252 项全通过
+（1247 + 5 项新增）。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9h 实例层接线（见上）。**前置（9d + 9g）已全部满足**，9h-2a 可直接开工。
+- **4e-3e-9h-2b-2**：`DefaultResourceLoader` 扩展加载本体 —— `loadExtensionPaths` /
+  `loadFinalExtensionSet` / `loadExtensionFactories` / `addExtensionConflictDiagnostics` +
+  `detectExtensionConflicts` / `loadProjectTrustExtensions`，模块级 `collectExtensionPackageWarnings` /
+  `mergeExtensionWarnings` / `isBuiltinExtension` / `omitReplacedExtensions`，构造器补
+  `additionalExtensionPaths` / `extensionFactories` / `noExtensions` / `disabledBuiltinExtensions` /
+  `extensionsOverride`，以及 `PackageManager.ResolveExtensionSources`。
+- **4e-3e-9h-2c**：`createAllToolDefinitions` + `_buildRuntime` + `_refreshToolRegistry` +
+  `_bindExtensionCore`。
+- 之后：9h-3（6 个 installers + `_handleAgentEvent` + 事件类型族）→ 9h-4（9f 顺延的编排本体）。
 

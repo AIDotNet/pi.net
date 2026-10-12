@@ -53,7 +53,11 @@ public record RegisteredCommand
 {
     public required string Name { get; init; }
 
-    public required SourceInfo SourceInfo { get; init; }
+    /// <summary>
+    /// Where the command came from. Settable because TS's <c>applyExtensionSourceInfo</c> copies the
+    /// owning extension's source info onto every command.
+    /// </summary>
+    public required SourceInfo SourceInfo { get; set; }
 
     public string? Description { get; init; }
 
@@ -93,7 +97,11 @@ public sealed record RegisteredTool
 {
     public required ToolDefinition Definition { get; init; }
 
-    public required SourceInfo SourceInfo { get; init; }
+    /// <summary>
+    /// Where the tool came from. Settable because TS's <c>applyExtensionSourceInfo</c> copies the
+    /// owning extension's source info onto every tool.
+    /// </summary>
+    public required SourceInfo SourceInfo { get; set; }
 }
 
 /// <summary>TS <c>ExtensionFlag</c>.</summary>

@@ -1,11 +1,12 @@
 // ============================================================================
-// Source info — port of core/source-info.ts (4d-2b, loader subset)
+// Source info — port of core/source-info.ts (4d-2b loader subset; completed in 4e-3e-9h-2b-1)
 // ============================================================================
 //
 // The extension loader stamps every extension/tool/command/renderer with where it came from.
-// TS `createSourceInfo(path, metadata)` needs `PathMetadata` from `core/package-manager.ts`
-// (sub-phase 4e), so only the loader-relevant half lands here: the record, the two path
-// predicates, and the synthetic-path factory. `createSourceInfo` arrives with 4e.
+// 4d-2b landed the loader-relevant half only (the record, the two path predicates and the
+// synthetic-path factory) because `createSourceInfo` needs `PathMetadata` from
+// `core/package-manager.ts`, which arrived in 4e. `CreateSourceInfo` lands with the resource-loader
+// provenance work (4e-3e-9h-2b-1), which is its first consumer.
 
 namespace Pi.CodingAgent.Core;
 
@@ -102,5 +103,18 @@ public static class SourceInfos
             Scope = scope ?? SourceScope.Temporary,
             Origin = origin ?? SourceOrigin.TopLevel,
             BaseDir = baseDir,
+        };
+
+    /// <summary>
+    /// Source info from a resolved resource's metadata. Port of TS <c>createSourceInfo</c>.
+    /// </summary>
+    public static SourceInfo CreateSourceInfo(string path, PathMetadata metadata) =>
+        new()
+        {
+            Path = path,
+            Source = metadata.Source,
+            Scope = metadata.Scope,
+            Origin = metadata.Origin,
+            BaseDir = metadata.BaseDir,
         };
 }

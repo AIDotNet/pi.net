@@ -161,7 +161,11 @@ public sealed class Extension
     /// <summary>See <see cref="InlineExtension.Described.Replaceable"/>.</summary>
     public bool Replaceable { get; init; }
 
-    public required SourceInfo SourceInfo { get; init; }
+    /// <summary>
+    /// Where the extension came from. Settable, not <c>init</c>: TS's <c>applyExtensionSourceInfo</c>
+    /// overwrites it once the final extension set is known (see <c>DefaultResourceLoader</c>).
+    /// </summary>
+    public required SourceInfo SourceInfo { get; set; }
 
     /// <summary>Event handlers by event name, in registration order.</summary>
     public Dictionary<string, List<ExtensionEventHandler>> Handlers { get; } = new(StringComparer.Ordinal);
