@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a～9e 纯决策逻辑** + **4e-3e-9-0 基线对齐（参照检出落后 29 提交，端口混用两修订版，已按 origin/main 回审工具 allow/deny 与 MCP 注册）**（2026-10-12）完成；余 4e-3e-9f～g（会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a～9e 纯决策逻辑** + **4e-3e-9-0 基线对齐（参照检出落后 29 提交，端口混用两修订版，已按 origin/main 回审工具 allow/deny 与 MCP 注册）** + **4e-3e-9f 会话装配层叶子（services / runtime / sdk）**（2026-10-12）完成；余 4e-3e-9g（扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）**以及 `AgentSessionServices` / `AgentSessionRuntime` / `createAgentSession` 的编排本体**依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -1967,12 +1967,89 @@ skills `indirect`）、`Skills.SkillFileReadTool.Indirect`、`IToolLoadout.GetPr
 - 受影响三类（`AgentSessionCoreTests` / `AgentSessionExtensionTests` / `SdkTests`）→ 55 项全绿。
 - `Pi.CodingAgent.Tests` → **1142 项（较 9e 后 +9）/ 1142 通过 / 0 失败**。
 
+### 4e-3e-9f 会话装配层（2026-10-12）：services / runtime / sdk 的装配叶子
+
+**范围**：`core/agent-session-services.ts`（233 行）+ `core/agent-session-runtime.ts`（447 行）+
+`core/sdk.ts` 的 `createAgentSession`（462 行）。沿用「叶子先行」惯例（同 9a～9e），
+本批落地**实例 / IO 无关**的决策与文案，编排本体顺延 4e-3e-9h。
+
+**新增 `Core/AgentSessionServices.cs`（对应 `agent-session-services.ts`）**
+
+| 成员 | 对应 TS |
+|---|---|
+| `AgentSessionDiagnosticType`（`info`/`warning`/`error` 枚举） | `AgentSessionRuntimeDiagnostic["type"]` |
+| `AgentSessionRuntimeDiagnostic` | 同名接口（**从 `SettingsDiagnostics.cs` 迁回本文件并收紧 `Type` 为枚举**） |
+| `AgentSessionServices`（+ 新增 `Diagnostics` 字段） | 同名接口 |
+| `ResolvedServicePaths` / `ResolveServicePaths` | `createAgentSessionServices` 首两行 |
+| `ModelRuntimeFilePaths` / `ResolveModelRuntimeFilePaths` | `createAgentSession` 的 `authPath` / `modelsPath` |
+| `ExtensionFlagInput`（`boolean \| string` 值域） | `Map<string, boolean \| string>` |
+| `BuildRegisteredFlagTypes` / `ApplyExtensionFlagValues` / `ExtensionFlagResolution` | `applyExtensionFlagValues` |
+| `RegistrationFailureDiagnostic` | 三处 `Extension "${path}" error: ${message}` |
+
+**`Core/AgentSessionRuntime.cs` 追加**
+
+| 成员 | 对应 TS |
+|---|---|
+| `ResolveImportDestination` + `ImportDestination` | `importFromJsonl` 的 mkdir → 去重 → `sourceAlreadyStored` |
+| `ResolveBeforeHookCancellation` | `session_before_switch` / `session_before_fork` 的 `result?.cancel === true` |
+| `ResolveForkPosition` | `options?.position ?? "before"` |
+| `RequireForkedSessionPath` | `if (!forkedSessionPath) throw new Error("Failed to create forked session")` |
+| `BuildSessionStartEvent` / `BuildSessionShutdownEvent` | 四处 `session_start` + `teardownCurrent` / `dispose` 的 `session_shutdown` |
+
+**`Core/Sdk.cs` 追加**
+
+| 成员 | 对应 TS |
+|---|---|
+| `ResolveSessionCwd` | `options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd()` |
+| `ResolveSessionAgentDir` | `options.agentDir ? resolvePath(...) : getDefaultAgentDir()` |
+| `ResolveSessionModel` + `RestoredSessionModel` | 「restore model from session」段（含 `hasConfiguredAuth` 双条件） |
+| `AppendFallbackModel` | `modelFallbackMessage += \`. Using ${provider}/${id}\`` |
+| `HasThinkingLevelChangeEntry` | `sessionManager.getBranch().some(entry => entry.type === "thinking_level_change")` |
+| `ResolveThinkingLevel` | thinking level 的四级回退链 + `clampThinkingLevel` |
+| `ResolveRequestTimeouts` + `ResolvedRequestTimeouts` + `MaxHttpIdleTimeoutMs` | `buildRequestOptions` 的超时 / 重试四字段（含 `httpIdleTimeoutMs === 0 → 2147483647` 哨兵） |
+| `ConvertToLlmWithBlockImages` / `FilterBlockedImages` / `ImageReadingDisabledText` | `convertToLlmWithBlockImages`（图片替换 + 相邻占位去重） |
+
+### 4e-3e-9f 设计差异（文档化）
+
+- **C109**：TS 的 `extensionFlagValues` 是 `Map`（保留插入顺序）；端口用
+  `IEnumerable<KeyValuePair<string, ExtensionFlagInput>>` 承载。原因：`--flag` 缺值的错误
+  消息顺序与输入顺序绑定，无序字典会破坏可观测行为。
+- **C110**：`ResolveThinkingLevel` 在 TS 里全程在字符串域运算（`ThinkingLevel` 是字符串联合）；
+  端口在**边界**处经 `Pi.CodingAgent.Core.ThinkingLevels` 与枚举互转，中间仍保留字符串，
+  以便承载旧会话文件里的未知档位（`Clamp` 会把它收敛到首个可用档位，与 TS 一致）。
+- **C111**：`AgentSessionRuntimeDiagnostic.Type` 由 4e-3a 的裸 `string` 收紧为
+  `AgentSessionDiagnosticType` 枚举（4e-3a 只用到 `warning`/`error`，未覆盖 TS 的 `info`）。
+- **C112**：`process.cwd()` 由调用方以 `processCwd` 参数显式传入，避免叶子函数静态依赖进程状态。
+
+### 4e-3e-9f 验证
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- 新增 `AgentSessionServicesTests` 16 项；`SdkTests` 由 12 项扩到 36 项。
+- `Pi.CodingAgent.Tests` → **1182 项（较 9-0 后 +40）/ 1182 通过 / 0 失败**。
+
+### 4e-3e-9f 未覆盖（记为缺口 / 顺延）
+
+- **`createAgentSessionServices` / `createAgentSessionFromServices` 的编排本体**：
+  需要 `ModelRuntime.create` 的异步装配、`DefaultResourceLoader.reload`、
+  `pendingProviderRegistrations` 三类排空 —— 依赖扩展加载（4e-3e-9g）→ 顺延 4e-3e-9h。
+- **`AgentSessionRuntime` 类本体**（`switchSession` / `newSession` / `fork` / `importFromJsonl` /
+  `dispose`）：依赖 `session.extensionRunner` 与 `emitSessionShutdownEvent`（4e-3e-9g）→ 顺延 4e-3e-9h。
+- **`CreateAgentSessionRuntimeResult`**：TS 侧 `extends CreateAgentSessionResult`，含实例化的
+  `AgentSession`。端口 `AgentSession` 目前仍是 `static partial class`，无法作为字段类型 → 顺延 4e-3e-9h。
+- **`buildRequestOptions` 余下字段**：`transformHeaders` 闭包（`ProviderAttribution.MergeHeaders` +
+  `before_provider_headers` 钩子）、`onPayload` / `onResponse` / `onProviderStreamEvent` 三钩子
+  需要 `ExtensionRunner` → 顺延 4e-3e-9h。
+- **`createAgentSession` 的 `Agent` 构造与 `AgentSession` 构造**：同上。
+- **`getBranchSelection`**（`sessionModel` 的来源）仍是既有缺口 G-4b-VM；本批把会话模型作为
+  参数传入，接线时再接。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9f 会话装配层（`agent-session-services` / `agent-session-runtime` / `sdk`）→
-4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）→ **4e-3e-9h**。
+4e-3e-9g 扩展运行时（`extensions/runner.ts` 1,560 行剩余 + `loader.ts` 876 行剩余，含
+`DefaultResourceLoader` 的扩展加载与 `disabledBuiltinExtensions`）→ **4e-3e-9h**。
 
 **接线依赖**：`AgentSession` 实例层必须在 4e-3e-9g（`ExtensionRunner`）之后才能整体落地；
 **4e-3e-9h**（实例层接线：构造器 + 6 个 installers + `_eventListeners` + `_handleAgentEvent` +
-四个 abort controller + `_pendingBashMessages`）负责把 9a/9b/9c/9d/9e 的静态半边接上实例状态。
+四个 abort controller + `_pendingBashMessages` + **`AgentSessionServices` / `AgentSessionRuntime` /
+`createAgentSession` 的编排本体**）负责把 9a～9f 的静态半边接上实例状态。
 

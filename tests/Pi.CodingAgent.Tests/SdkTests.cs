@@ -1,11 +1,16 @@
+using System.Text.Json.Nodes;
+using Pi.Ai.Models;
+using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Utils;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;
 
 /// <summary>
-/// <c>core/sdk.ts</c> 的工具选择与 <c>core/mcp-servers.ts</c> 的工具名匹配。
-/// 2026-10-12 基线对齐后重写（原版混用了两个 TS 修订版，见 <see cref="Sdk"/> 的 remarks）。
+/// <c>core/sdk.ts</c> 的工具选择、装配叶子与 <c>core/mcp-servers.ts</c> 的工具名匹配。
+/// 2026-10-12 基线对齐后重写（原版混用了两个 TS 修订版，见 <see cref="Sdk"/> 的 remarks）；
+/// 4e-3e-9f 追加 <c>createAgentSession</c> 的装配叶子用例。
 /// </summary>
 public sealed class SdkTests
 {
@@ -153,5 +158,405 @@ public sealed class SdkTests
 
         Assert.Equal(["read", "edit"], resolved.InitialActiveToolNames);
         Assert.Equal(["read", "bash", "edit"], resolved.AllowedToolNames);
+    }
+
+    // ---------------------------------------------------------------------
+    // createAgentSession 装配叶子（4e-3e-9f）
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void ResolveSessionCwd_PrefersOptionsThenSessionManagerThenProcess()
+    {
+        Assert.Equal(
+            Paths.ResolvePath("/opt"),
+            Sdk.ResolveSessionCwd("/opt", "/sess", "/proc"));
+        Assert.Equal(
+            Paths.ResolvePath("/sess"),
+            Sdk.ResolveSessionCwd(null, "/sess", "/proc"));
+        Assert.Equal(
+            Paths.ResolvePath("/proc"),
+            Sdk.ResolveSessionCwd(null, null, "/proc"));
+    }
+
+    [Fact]
+    public void ResolveSessionAgentDir_ResolvesOnlyWhenProvided()
+    {
+        Assert.Equal(Paths.ResolvePath("/explicit"), Sdk.ResolveSessionAgentDir("/explicit", "/default"));
+        Assert.Equal("/default", Sdk.ResolveSessionAgentDir(null, "/default"));
+    }
+
+    [Fact]
+    public void ResolveSessionModel_RestoresWhenAuthIsConfigured()
+    {
+        var runtime = new FakeModelResolverRuntime(Models("anthropic"), configuredProviders: ["anthropic"]);
+
+        var result = Sdk.ResolveSessionModel(
+            explicitModel: null,
+            hasExistingSession: true,
+            sessionModel: new BranchModelSelection("anthropic", "claude-opus-4-5"),
+            modelRuntime: runtime);
+
+        Assert.Equal("claude-opus-4-5", result.Model!.Id);
+        Assert.Null(result.FallbackMessage);
+    }
+
+    [Fact]
+    public void ResolveSessionModel_ReportsFallbackWhenAuthMissing()
+    {
+        var runtime = new FakeModelResolverRuntime(Models("anthropic"), configuredProviders: []);
+
+        var result = Sdk.ResolveSessionModel(
+            explicitModel: null,
+            hasExistingSession: true,
+            sessionModel: new BranchModelSelection("anthropic", "claude-opus-4-5"),
+            modelRuntime: runtime);
+
+        Assert.Null(result.Model);
+        Assert.Equal("Could not restore model anthropic/claude-opus-4-5", result.FallbackMessage);
+    }
+
+    [Fact]
+    public void ResolveSessionModel_SkipsRestoreWithoutExistingSession()
+    {
+        var runtime = new FakeModelResolverRuntime(Models("anthropic"), configuredProviders: ["anthropic"]);
+
+        var result = Sdk.ResolveSessionModel(
+            explicitModel: null,
+            hasExistingSession: false,
+            sessionModel: new BranchModelSelection("anthropic", "claude-opus-4-5"),
+            modelRuntime: runtime);
+
+        Assert.Null(result.Model);
+        Assert.Null(result.FallbackMessage);
+    }
+
+    [Fact]
+    public void ResolveSessionModel_ExplicitModelWins()
+    {
+        var explicitModel = Models("openai")[0];
+        var runtime = new FakeModelResolverRuntime(Models("anthropic"), configuredProviders: ["anthropic"]);
+
+        var result = Sdk.ResolveSessionModel(
+            explicitModel,
+            hasExistingSession: true,
+            sessionModel: new BranchModelSelection("anthropic", "claude-opus-4-5"),
+            modelRuntime: runtime);
+
+        Assert.Same(explicitModel, result.Model);
+        Assert.Null(result.FallbackMessage);
+    }
+
+    [Fact]
+    public void AppendFallbackModel_AppendsOnlyForNonEmpty()
+    {
+        var model = Models("anthropic")[0];
+
+        Assert.Equal(
+            "Could not restore model anthropic/x. Using anthropic/claude-opus-4-5",
+            Sdk.AppendFallbackModel("Could not restore model anthropic/x", model));
+
+        // JS 的真值判断：空串与 null 都不追加。
+        Assert.Equal("", Sdk.AppendFallbackModel("", model));
+        Assert.Null(Sdk.AppendFallbackModel(null, model));
+    }
+
+    [Fact]
+    public void HasThinkingLevelChangeEntry_DetectsTheEntry()
+    {
+        Assert.False(Sdk.HasThinkingLevelChangeEntry([]));
+        Assert.False(Sdk.HasThinkingLevelChangeEntry(
+            [new ModelChangeEntry { Provider = "anthropic", ModelId = "x" }]));
+        Assert.True(Sdk.HasThinkingLevelChangeEntry(
+            [new ThinkingLevelChangeEntry { ThinkingLevel = "high" }]));
+    }
+
+    [Fact]
+    public void ResolveThinkingLevel_ExplicitWins()
+    {
+        var model = Models("anthropic")[0];
+
+        var level = Sdk.ResolveThinkingLevel(
+            ThinkingLevel.High,
+            hasExistingSession: true,
+            hasThinkingEntry: true,
+            existingSessionThinkingLevel: "low",
+            settingsDefaultThinkingLevel: "low",
+            perModelThinkingLevel: "low",
+            model);
+
+        Assert.Equal(ThinkingLevel.High, level);
+    }
+
+    [Fact]
+    public void ResolveThinkingLevel_RestoresFromSessionWhenThinkingEntryPresent()
+    {
+        var model = Models("anthropic")[0];
+
+        var level = Sdk.ResolveThinkingLevel(
+            null, true, hasThinkingEntry: true, existingSessionThinkingLevel: "high",
+            settingsDefaultThinkingLevel: "low", perModelThinkingLevel: null, model);
+
+        Assert.Equal(ThinkingLevel.High, level);
+    }
+
+    [Fact]
+    public void ResolveThinkingLevel_UsesSettingsDefaultWhenNoThinkingEntry()
+    {
+        var model = Models("anthropic")[0];
+
+        var level = Sdk.ResolveThinkingLevel(
+            null, true, hasThinkingEntry: false, existingSessionThinkingLevel: "high",
+            settingsDefaultThinkingLevel: "low", perModelThinkingLevel: null, model);
+
+        Assert.Equal(ThinkingLevel.Low, level);
+    }
+
+    [Fact]
+    public void ResolveThinkingLevel_PerModelOverrideBeatsGlobalDefault()
+    {
+        var model = Models("anthropic")[0];
+
+        var level = Sdk.ResolveThinkingLevel(
+            null, false, false, null,
+            settingsDefaultThinkingLevel: "low", perModelThinkingLevel: "high", model);
+
+        Assert.Equal(ThinkingLevel.High, level);
+    }
+
+    [Fact]
+    public void ResolveThinkingLevel_FallsBackToBuiltInDefault()
+    {
+        var model = Models("anthropic")[0];
+
+        var level = Sdk.ResolveThinkingLevel(null, false, false, null, null, null, model);
+
+        Assert.Equal(Defaults.DefaultThinkingLevel, level);
+    }
+
+    [Fact]
+    public void ResolveThinkingLevel_WithoutModelIsOff()
+    {
+        var level = Sdk.ResolveThinkingLevel(null, false, false, null, "high", null, model: null);
+
+        Assert.Equal(ThinkingLevel.Off, level);
+    }
+
+    [Fact]
+    public void ResolveThinkingLevel_ClampsToModelSupport()
+    {
+        // levelMap 显式把 high 置 null → 禁用；向上无可用档位，回落 medium。
+        var model = ReasoningModelWithMap(new JsonObject { ["high"] = null });
+
+        var level = Sdk.ResolveThinkingLevel(null, false, false, null, "high", null, model);
+
+        Assert.Equal(ThinkingLevel.Medium, level);
+    }
+
+    [Fact]
+    public void FilterBlockedImages_ReplacesImagesAndDedupesConsecutivePlaceholders()    {
+        var messages = new ChatMessage[]
+        {
+            new UserMessage(
+                MessageContent.BlocksOf(
+                [
+                    new TextContent("look"),
+                    new ImageContent("AAAA", "image/png"),
+                    new ImageContent("BBBB", "image/png"),
+                ]),
+                0),
+        };
+
+        var filtered = Sdk.FilterBlockedImages(messages, blockImages: true);
+
+        var user = Assert.IsType<UserMessage>(Assert.Single(filtered));
+        var blocks = Assert.IsType<MessageContent.Blocks>(user.Content).Value;
+        // 两张相邻图片 → 一个占位（第二张被去重）。
+        Assert.Equal(2, blocks.Count);
+        Assert.Equal("look", Assert.IsType<TextContent>(blocks[0]).Text);
+        Assert.Equal(Sdk.ImageReadingDisabledText, Assert.IsType<TextContent>(blocks[1]).Text);
+    }
+
+    [Fact]
+    public void FilterBlockedImages_KeepsNonConsecutivePlaceholders()
+    {
+        var messages = new ChatMessage[]
+        {
+            new ToolResultMessage(
+                "call-1",
+                "read",
+                [
+                    new ImageContent("AAAA", "image/png"),
+                    new TextContent("between"),
+                    new ImageContent("BBBB", "image/png"),
+                ]),
+        };
+
+        var filtered = Sdk.FilterBlockedImages(messages, blockImages: true);
+
+        var toolResult = Assert.IsType<ToolResultMessage>(Assert.Single(filtered));
+        Assert.Equal(3, toolResult.Content.Count);
+        Assert.Equal(Sdk.ImageReadingDisabledText, Assert.IsType<TextContent>(toolResult.Content[0]).Text);
+        Assert.Equal("between", Assert.IsType<TextContent>(toolResult.Content[1]).Text);
+        Assert.Equal(Sdk.ImageReadingDisabledText, Assert.IsType<TextContent>(toolResult.Content[2]).Text);
+    }
+
+    [Fact]
+    public void FilterBlockedImages_IsNoOpWhenDisabled()
+    {
+        var messages = new ChatMessage[]
+        {
+            new UserMessage(MessageContent.BlocksOf([new ImageContent("AAAA", "image/png")]), 0),
+        };
+
+        var filtered = Sdk.FilterBlockedImages(messages, blockImages: false);
+
+        Assert.Same(messages, filtered);
+    }
+
+    [Fact]
+    public void FilterBlockedImages_LeavesImageFreeMessagesIdentical()
+    {
+        var textOnly = new UserMessage("hello", 0);
+        var toolResult = new ToolResultMessage("call-1", "read", [new TextContent("out")]);
+
+        var filtered = Sdk.FilterBlockedImages([textOnly, toolResult], blockImages: true);
+
+        // TS 只在 hasImages 时重建对象；无图片时返回同一个实例。
+        Assert.Same(textOnly, filtered[0]);
+        Assert.Same(toolResult, filtered[1]);
+    }
+
+    [Fact]
+    public void ConvertToLlmWithBlockImages_ConvertsThenFilters()
+    {
+        var messages = new ChatMessage[]
+        {
+            // bashExecution 会被 convertToLlm 折成 user 文本消息（无图片，不受影响）。
+            new BashExecutionMessage("ls", "out", 0, false, false, 0),
+            new UserMessage(MessageContent.BlocksOf([new ImageContent("AAAA", "image/png")]), 1),
+        };
+
+        var converted = Sdk.ConvertToLlmWithBlockImages(messages, blockImages: true);
+
+        Assert.Equal(2, converted.Count);
+        var user = Assert.IsType<UserMessage>(converted[1]);
+        var blocks = Assert.IsType<MessageContent.Blocks>(user.Content).Value;
+        Assert.Equal(Sdk.ImageReadingDisabledText, Assert.IsType<TextContent>(Assert.Single(blocks)).Text);
+    }
+
+    // ---------------------------------------------------------------------
+    // buildRequestOptions 的超时 / 重试解析
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void ResolveRequestTimeouts_OptionsWinOverSettings()
+    {
+        var resolved = Sdk.ResolveRequestTimeouts(
+            optionsTimeoutMs: 1_000,
+            optionsWebsocketConnectTimeoutMs: 2_000,
+            optionsMaxRetries: 5,
+            optionsMaxRetryDelayMs: 9_000,
+            providerRetrySettings: (30_000, 3, 60_000),
+            httpIdleTimeoutMs: 120_000,
+            websocketConnectTimeoutMs: 7_000);
+
+        Assert.Equal(1_000, resolved.TimeoutMs);
+        Assert.Equal(2_000, resolved.WebsocketConnectTimeoutMs);
+        Assert.Equal(5, resolved.MaxRetries);
+        Assert.Equal(9_000, resolved.MaxRetryDelayMs);
+    }
+
+    [Fact]
+    public void ResolveRequestTimeouts_FallsBackToProviderRetrySettings()
+    {
+        var resolved = Sdk.ResolveRequestTimeouts(
+            null, null, null, null,
+            providerRetrySettings: (30_000, 3, 60_000),
+            httpIdleTimeoutMs: 120_000,
+            websocketConnectTimeoutMs: 7_000);
+
+        Assert.Equal(30_000, resolved.TimeoutMs);
+        Assert.Equal(3, resolved.MaxRetries);
+        // maxRetryDelayMs 在 settings 侧恒有值（缺省 60000），所以不会落到 HTTP 空闲超时。
+        Assert.Equal(60_000, resolved.MaxRetryDelayMs);
+        Assert.Equal(7_000, resolved.WebsocketConnectTimeoutMs);
+    }
+
+    [Fact]
+    public void ResolveRequestTimeouts_FallsBackToHttpIdleTimeout()
+    {
+        var resolved = Sdk.ResolveRequestTimeouts(
+            null, null, null, null,
+            providerRetrySettings: (null, null, 60_000),
+            httpIdleTimeoutMs: 120_000,
+            websocketConnectTimeoutMs: null);
+
+        Assert.Equal(120_000, resolved.TimeoutMs);
+        Assert.Null(resolved.MaxRetries);
+        Assert.Null(resolved.WebsocketConnectTimeoutMs);
+    }
+
+    [Fact]
+    public void ResolveRequestTimeouts_ZeroHttpIdleTimeoutBecomesInt32Max()
+    {
+        // TS：`httpIdleTimeoutMs === 0 ? 2147483647 : httpIdleTimeoutMs`。
+        var resolved = Sdk.ResolveRequestTimeouts(
+            null, null, null, null,
+            providerRetrySettings: (null, null, 60_000),
+            httpIdleTimeoutMs: 0,
+            websocketConnectTimeoutMs: null);
+
+        Assert.Equal(Sdk.MaxHttpIdleTimeoutMs, resolved.TimeoutMs);
+        Assert.Equal(2147483647L, resolved.TimeoutMs);
+    }
+
+    // ---------------------------------------------------------------------
+    // 夹具
+    // ---------------------------------------------------------------------
+
+    private static IReadOnlyList<ModelSpec> Models(string provider)
+        => [new ModelSpec
+        {
+            Id = "claude-opus-4-5",
+            Name = "Opus 4.5",
+            Api = "anthropic-messages",
+            Provider = provider,
+            BaseUrl = "https://example.invalid",
+            Reasoning = true,
+            ContextWindow = 200_000,
+            MaxTokens = 8_192,
+        }];
+
+    private static ModelSpec ReasoningModelWithMap(JsonObject levelMap)
+        => new()
+        {
+            Id = "claude-opus-4-5",
+            Name = "Opus 4.5",
+            Api = "anthropic-messages",
+            Provider = "anthropic",
+            BaseUrl = "https://example.invalid",
+            Reasoning = true,
+            ContextWindow = 200_000,
+            MaxTokens = 8_192,
+            ThinkingLevelMap = ThinkingLevelMap.FromJsonObject(levelMap),
+        };
+
+    private sealed class FakeModelResolverRuntime(
+        IReadOnlyList<ModelSpec> models,
+        IReadOnlyList<string> configuredProviders) : IModelResolverRuntime
+    {
+        public IReadOnlyList<ModelSpec> GetModels() => models;
+
+        public ModelSpec? GetModel(string providerId, string modelId)
+            => models.FirstOrDefault(model => model.Provider == providerId && model.Id == modelId);
+
+        public bool HasConfiguredAuth(string providerId) => configuredProviders.Contains(providerId);
+
+        public IReadOnlyList<ModelSpec> GetAvailableSnapshot() => models;
+
+        public Task<IReadOnlyList<ModelSpec>> GetAvailableAsync(
+            string? providerId,
+            CancellationToken signal = default)
+            => Task.FromResult(models);
     }
 }

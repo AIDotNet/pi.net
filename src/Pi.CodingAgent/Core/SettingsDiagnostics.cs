@@ -1,17 +1,7 @@
 namespace Pi.CodingAgent.Core;
 
-/// <summary>
-/// 会话运行时诊断条目。TS 定义在 <c>agent-session-services.ts</c> 的
-/// <c>AgentSessionRuntimeDiagnostic</c>；4e-3a 先落在这里供 settings-diagnostics 使用，
-/// 4e-3e 移植 agent-session 三件套时继续复用。
-/// </summary>
-public sealed record AgentSessionRuntimeDiagnostic
-{
-    /// <summary><c>warning</c> 或 <c>error</c>。</summary>
-    public required string Type { get; init; }
-
-    public required string Message { get; init; }
-}
+// `AgentSessionRuntimeDiagnostic` / `AgentSessionDiagnosticType` 已迁回 TS 的定义文件
+// （AgentSessionServices.cs，对应 agent-session-services.ts），Type 由裸字符串收紧为枚举。
 
 /// <summary>设置加载错误转会话诊断。对应 TS <c>core/settings-diagnostics.ts</c>。</summary>
 public static class SettingsDiagnostics
@@ -20,7 +10,7 @@ public static class SettingsDiagnostics
     public static IReadOnlyList<AgentSessionRuntimeDiagnostic> CollectSettingsDiagnostics(SettingsManager settingsManager)
         => [.. settingsManager.DrainErrors().Select(error => new AgentSessionRuntimeDiagnostic
         {
-            Type = "warning",
+            Type = AgentSessionDiagnosticType.Warning,
             Message = error.Path is { Length: > 0 } path
                 ? $"Invalid settings file {path}: {error.Error.Message}"
                 : $"Invalid {ScopeName(error.Scope)} settings: {error.Error.Message}",

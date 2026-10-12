@@ -586,7 +586,7 @@ public sealed class SessionRuntimeLeafTests : IDisposable
         var manager = SettingsManager.Create(tempDir, agentDir);
         var diagnostics = SettingsDiagnostics.CollectSettingsDiagnostics(manager);
         Assert.Single(diagnostics);
-        Assert.Equal("warning", diagnostics[0].Type);
+        Assert.Equal(AgentSessionDiagnosticType.Warning, diagnostics[0].Type);
         Assert.Contains("Invalid settings file", diagnostics[0].Message);
         Assert.Contains("settings.json", diagnostics[0].Message);
         Assert.Empty(SettingsDiagnostics.CollectSettingsDiagnostics(manager));
@@ -597,13 +597,15 @@ public sealed class SessionRuntimeLeafTests : IDisposable
     {
         var diagnostics = new AgentSessionRuntimeDiagnostic[]
         {
-            new() { Type = "warning", Message = "Invalid settings file /tmp/settings.json: Unexpected end of JSON" },
-            new() { Type = "error", Message = "other" },
-            new() { Type = "warning", Message = "Invalid settings file /tmp/settings.json: Unexpected end of JSON" },
+            new() { Type = AgentSessionDiagnosticType.Warning, Message = "Invalid settings file /tmp/settings.json: Unexpected end of JSON" },
+            new() { Type = AgentSessionDiagnosticType.Error, Message = "other" },
+            new() { Type = AgentSessionDiagnosticType.Warning, Message = "Invalid settings file /tmp/settings.json: Unexpected end of JSON" },
         };
         var unique = SettingsDiagnostics.DeduplicateDiagnostics(diagnostics);
         Assert.Equal(2, unique.Count);
-        Assert.Equal(["warning", "error"], unique.Select(item => item.Type).ToArray());
+        Assert.Equal(
+            [AgentSessionDiagnosticType.Warning, AgentSessionDiagnosticType.Error],
+            unique.Select(item => item.Type).ToArray());
     }
 
     // ---- bash-executor -----------------------------------------------------
