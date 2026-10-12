@@ -47,6 +47,45 @@ public static partial class McpServers
         public const string ReadMcpResource = "read_mcp_resource";
     }
 
+    // -------------------------------------------------------------------------
+    // 工具名模式匹配（对应 TS mcp-servers.ts 顶部两个导出）
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// <c>*</c> 匹配任意字符的工具名模式正则。
+    /// 对应 TS <c>toolPatternRegExp</c>（转义 <c>[.+?^${}()|[\]\\]</c>，<c>*</c> 由 split 先行切分）。
+    /// </summary>
+    /// <remarks>
+    /// 差异 C107：TS 手写字符类；端口用 <see cref="Regex.Escape"/>，它额外转义 <c>#</c> 与空白。
+    /// 工具名只含 <c>[A-Za-z0-9_]</c> 与 <c>*</c>，两者等价。
+    /// </remarks>
+    public static Regex ToolPatternRegex(string pattern)
+    {
+        var source = string.Join(".*", pattern.Split('*').Select(Regex.Escape));
+        return new Regex($"^{source}$", RegexOptions.Compiled);
+    }
+
+    /// <summary>
+    /// 判定一个工具名是否命中给定条目（每条是精确名或含 <c>*</c> 的模式）。
+    /// 对应 TS <c>createToolNameMatcher</c>。
+    /// </summary>
+    public static Func<string, bool> CreateToolNameMatcher(IReadOnlyList<string> entries)
+    {
+        var names = entries.Where(entry => !entry.Contains('*')).ToHashSet(StringComparer.Ordinal);
+        var patterns = entries.Where(entry => entry.Contains('*')).Select(ToolPatternRegex).ToArray();
+        return name => names.Contains(name) || patterns.Any(pattern => pattern.IsMatch(name));
+    }
+
+    /// <summary>
+    /// 该工具名是否来自 MCP：服务工具（<c>mcp__&lt;server&gt;__&lt;tool&gt;</c>）或资源工具。
+    /// 对应 TS <c>isMcpToolName</c>。
+    /// </summary>
+    public static bool IsMcpToolName(string name)
+        => name.StartsWith("mcp__", StringComparison.Ordinal)
+            || name == ToolNames.ListMcpResources
+            || name == ToolNames.ListMcpResourceTemplates
+            || name == ToolNames.ReadMcpResource;
+
     /// <summary>Older exposure names, accepted in configs and replaced by their current name when validated.</summary>
     private static readonly Dictionary<string, string> ExposureAliases = new(StringComparer.Ordinal)
     {

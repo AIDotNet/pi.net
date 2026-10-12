@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑** + **4e-3e-9b prompt 主循环纯决策逻辑** + **4e-3e-9c compaction/retry/bash 纯决策逻辑** + **4e-3e-9d 扩展绑定与运行时重建纯决策逻辑** + **4e-3e-9e 树导航/fork 投影/导出主题名 + bug-report 摘要纯逻辑**（2026-10-12）完成；余 4e-3e-9f～g（会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a～9e 纯决策逻辑** + **4e-3e-9-0 基线对齐（参照检出落后 29 提交，端口混用两修订版，已按 origin/main 回审工具 allow/deny 与 MCP 注册）**（2026-10-12）完成；余 4e-3e-9f～g（会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -1892,6 +1892,80 @@ L462–498）在 `this.agent.subscribe(...)` 之后连续安装 6 个钩子，�
 - `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
 - `Pi.CodingAgent.Tests` → **1133 项（新增 40）/ 1133 通过 / 0 失败**。
   其中 `AgentSessionTreeTests` 23 项、`BugReportSummaryTests` 17 项。
+
+### 4e-3e-9-0 基线对齐（2026-10-12）：参照检出落后 29 提交，端口混用两个修订版
+
+**背景（阻断级发现）**：TS 参照检出 `D:\AI\参考项目\pi` 当时停在 `5b6c792b4`，
+**落后 `origin/main` 29 个提交**（最新 `428a12bc7`）。而端口代码已**混用两个修订版**：
+
+| 端口产物 | 实际对应的修订 |
+|---|---|
+| `Sdk.CreateToolNameMatcher`（4e-3e-2） | **origin/main**（新） |
+| `AgentSession.IsAllowedTool`（9a，`IReadOnlySet` 版） | 旧 HEAD |
+| `AgentSession.ResolveNextActiveToolNames`（9d） | 旧 HEAD |
+| `Sdk.GetToolListError`（4e-3e-2） | **两者都不是——杜撰** |
+| `SystemPrompt` 的 `HiddenTools` / `Skills` 的 `Indirect` | **origin/main**（新） |
+| `Tools/ReadTool` 的 `OutputSchema` / `StructuredContent` | **origin/main**（新） |
+
+29 个提交只改 18 个文件（+295/−81），但含**载荷性语义变更**，集中在工具 allow/deny 与 MCP 注册。
+用户确认后已 `git merge --ff-only origin/main` 快进到 `428a12bc7`。
+
+### 受影响的语义（origin/main vs 旧 HEAD）
+
+1. `_allowedToolNames` / `_excludedToolNames` 由 `Set<string>` 改为
+   `createToolNameMatcher` 产出的**匹配函数**（`*` 匹配任意字符）。
+2. 新增 `_allowlistFiltersMcp`：allowlist 为空（`--no-tools`）或点名了 `mcp__*` 时才连 MCP 一起过滤；
+   否则 MCP 工具为 codemode / tool_search 保持注册。
+3. 新增 `_isActivatable(name)`：allowlist 保留但未命中的 MCP 工具**不可活跃**，除非
+   exposure 非 `direct` 且 `tool_search` 已注册。`_applyToolLoadout` 的过滤条件加了它。
+4. `_rebuildSystemPrompt` 不再从 snippets 里剔除隐藏工具，改为把 `hiddenTools` 传给
+   `buildSystemPromptSections`（由 `declaredTools` 统一过滤工具列表与 rules）。
+5. `skills.formatSkillsForPrompt` 的 `fileReadTool` 增加 `"indirect"`。
+6. `IToolLoadout` 新增 `getPromptGuidelines(name)`（读**归一化**后的准则表）。
+7. `sdk.ts` 的 `noTools` 是 `"all" | "builtin"`（不是布尔）；`options.tools` 是纯 allowlist，
+   **不**支持 `+name`/`-name`（那是 `defaultTools` **设置项**的语法）。
+8. `resource-loader.ts` 新增 `disabledBuiltinExtensions`。
+9. `tools/read.ts` 新增 `outputSchema` 与 `structuredContent`。
+
+### 本批修正（对齐 origin/main）
+
+| 文件 | 改动 |
+|---|---|
+| `Core/McpServers.cs` | 新增 `ToolPatternRegex` / `CreateToolNameMatcher` / `IsMcpToolName`（TS 里它们在 `mcp-servers.ts`） |
+| `Core/AgentSessionCore.cs` | 新增 `ToolFilter` 记录（承载 `_allowedTools`/`_excludedTools`/`_allowlistFiltersMcp` 三元组 + `From` 工厂）；`IsAllowedTool` 改收 `ToolFilter` 并加 MCP 豁免；**新增 `IsActivatable`**；`ApplyToolLoadout` 加 `filter` 参数与 `IsActivatable` 过滤；`LoadoutView.GetPromptGuidelines` 改读**归一化**准则 |
+| `Core/AgentSessionExtension.cs` | `BuildDefinitionRegistry` / `ResolveNextActiveToolNames` 的 `allowed/excluded` 由 `IReadOnlySet<string>?` 改为 `ToolFilter` |
+| `Core/Sdk.cs` | **重写**：`NoTools` 由 `bool` 改为 `NoToolsMode`（`All`/`Builtin`）；**删除杜撰的 `GetToolListError`**；`options.tools` 不再当修饰符；`CreateToolNameMatcher` 下沉到 `McpServers` |
+| `Core/SettingsManager.cs` | **删除杜撰的 `GetToolListError`**（TS 无此校验）；`ApplyToolModifiers` 的文档改为「TS 内联循环的抽取」 |
+| `tests/SdkTests.cs` | 重写（含 `NoToolsMode` 两分支、glob、MCP 工具名判定） |
+| `tests/AgentSessionCoreTests.cs` | `IsAllowedTool` 用例改为 `ToolFilter`；新增 glob / MCP 豁免 / `IsActivatable` 三组用例 |
+
+**已核对无需改动**（端口已是新版）：`SystemPrompt`（`HiddenTools` + `declaredTools` +
+skills `indirect`）、`Skills.SkillFileReadTool.Indirect`、`IToolLoadout.GetPromptGuidelines` 成员、
+`AgentSessionExtension.BuildPromptSnippets`（新版不再过滤隐藏工具，端口本就没有）、
+`Tools/ReadTool` 的 `ReadOutputSchema` / `ToReadOutput` / `StructuredContent`。
+
+### 尚未覆盖（记为缺口）
+
+- **`DefaultResourceLoader.disabledBuiltinExtensions`**：它过滤的是**扩展路径**
+  （`BUILTIN_PATH_PREFIX` + `noExtensions` / `loadFinalExtensionSet`），而端口的
+  `DefaultResourceLoader`（276 行）目前只覆盖 skills / prompts / themes / context-files / diagnostics，
+  **扩展加载整块未移植**。该开关随扩展加载一起落地（归 **4e-3e-9g**），不在本批。
+- `extensions/codemode/*`、`extensions/llama/provider.ts`、`extensions/mcp/*`、`main.ts`、
+  `package-manager-cli.ts` 的改动分别归 4d-5 / 4d-7b / 4d-4 / 4g。
+
+### 4e-3e-9-0 设计差异（文档化）
+
+- **C107**：`toolPatternRegExp` 的转义——TS 手写字符类 `[.+?^${}()|[\]\\]`；端口用
+  `Regex.Escape`（额外转义 `#` 与空白）。工具名只含 `[A-Za-z0-9_]` 与 `*`，两者等价。
+- **C108**：`ToolFilter` 是端口新增的载体类型，把 TS `AgentSession` 上三个实例字段
+  （`_allowedTools` / `_excludedTools` / `_allowlistFiltersMcp`）打包成一个值对象，
+  以便静态半边显式传参。语义与 TS 构造器逐行对应。
+
+### 4e-3e-9-0 验证
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- 受影响三类（`AgentSessionCoreTests` / `AgentSessionExtensionTests` / `SdkTests`）→ 55 项全绿。
+- `Pi.CodingAgent.Tests` → **1142 项（较 9e 后 +9）/ 1142 通过 / 0 失败**。
 
 ### 4e-3e-9 剩余
 

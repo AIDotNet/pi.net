@@ -490,25 +490,11 @@ public sealed class SettingsManager
     internal static bool IsToolModifier(string? entry)
         => entry is { Length: > 0 } && (entry[0] is '+' or '-');
 
-    /// <summary>对应 TS <c>getToolListError</c>。</summary>
-    internal static string? GetToolListError(IReadOnlyList<string> entries)
-    {
-        var modifiers = entries.Where(IsToolModifier).ToList();
-        if (modifiers.Count == 0)
-        {
-            return null;
-        }
-
-        if (modifiers.Count < entries.Count)
-        {
-            return "tool names cannot be mixed with +name or -name entries";
-        }
-
-        var pattern = modifiers.FirstOrDefault(entry => entry.Contains('*'));
-        return pattern is null ? null : $"+name and -name entries take exact tool names, not patterns: {pattern}";
-    }
-
-    /// <summary>对应 TS <c>applyToolModifiers</c>。</summary>
+    /// <summary>
+    /// 应用 <c>+name</c> / <c>-name</c> 修饰符。对应 TS <c>resolveDefaultTools</c> 里的内联循环
+    /// （TS 没有独立的 <c>applyToolModifiers</c> 导出，端口为便于 <see cref="ResolveDefaultTools"/>
+    /// 复用而抽出）。
+    /// </summary>
     internal static List<string> ApplyToolModifiers(IReadOnlyList<string> @base, IReadOnlyList<string> entries)
     {
         var tools = @base.ToList();

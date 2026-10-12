@@ -184,7 +184,7 @@ public sealed class AgentSessionExtensionTests
         };
 
         var registry = AgentSession.BuildDefinitionRegistry(
-            builtins, custom, allowedToolNames: null, excludedToolNames: null);
+            builtins, custom, ToolFilter.None);
 
         Assert.Equal(["read", "bash", "mytool"], registry.Keys);
 
@@ -205,10 +205,8 @@ public sealed class AgentSessionExtensionTests
             new("edit", Def("edit")),
         };
 
-        var allowed = new HashSet<string>(["read", "bash"], StringComparer.Ordinal);
-        var excluded = new HashSet<string>(["bash"], StringComparer.Ordinal);
-
-        var registry = AgentSession.BuildDefinitionRegistry(builtins, [], allowed, excluded);
+        var registry = AgentSession.BuildDefinitionRegistry(
+            builtins, [], ToolFilter.From(["read", "bash"], ["bash"]));
 
         Assert.Equal(["read"], registry.Keys);
         Assert.Equal("builtin:read", registry["read"].SourceInfo.Path);
@@ -267,8 +265,7 @@ public sealed class AgentSessionExtensionTests
             previousActiveToolNames: ["read"],
             toolRegistryNames: ["read", "bash"],
             wrappedExtensionToolNames: [],
-            allowedToolNames: null,
-            excludedToolNames: null,
+            filter: ToolFilter.None,
             includeAllExtensionTools: false,
             previousActivatedOnRegistration: previouslyActivated,
             pendingToolNames: [],
@@ -280,8 +277,7 @@ public sealed class AgentSessionExtensionTests
             previousActiveToolNames: ["read"],
             toolRegistryNames: ["read", "bash"],
             wrappedExtensionToolNames: [],
-            allowedToolNames: null,
-            excludedToolNames: null,
+            filter: ToolFilter.None,
             includeAllExtensionTools: false,
             previousActivatedOnRegistration: previouslyActivated,
             pendingToolNames: [],
@@ -299,8 +295,7 @@ public sealed class AgentSessionExtensionTests
             toolRegistryNames: ["read", "bash", "edit"],
             wrappedExtensionToolNames: [],
             // allowlist 非 null 会走「点名即激活」分支；用 deny 排除 bash。
-            allowedToolNames: null,
-            excludedToolNames: new HashSet<string>(["bash"], StringComparer.Ordinal),
+            filter: ToolFilter.From(null, ["bash"]),
             includeAllExtensionTools: false,
             previousActivatedOnRegistration: new HashSet<string>(StringComparer.Ordinal),
             pendingToolNames: [],
@@ -318,15 +313,13 @@ public sealed class AgentSessionExtensionTests
             Entry("modelOnly", exposure: ToolExposure.ModelOnly),
             Entry("inactive", defaultActive: false));
 
-        var allowed = new HashSet<string>(["read", "hidden", "modelOnly", "inactive"], StringComparer.Ordinal);
 
         var result = AgentSession.ResolveNextActiveToolNames(
             requestedActiveToolNames: [],
             previousActiveToolNames: [],
             toolRegistryNames: ["read", "hidden", "modelOnly", "inactive"],
             wrappedExtensionToolNames: [],
-            allowedToolNames: allowed,
-            excludedToolNames: null,
+            filter: ToolFilter.From(["read", "hidden", "modelOnly", "inactive"], null),
             includeAllExtensionTools: false,
             previousActivatedOnRegistration: new HashSet<string>(StringComparer.Ordinal),
             pendingToolNames: [],
@@ -351,8 +344,7 @@ public sealed class AgentSessionExtensionTests
             previousActiveToolNames: [],
             toolRegistryNames: ["builtin-read", "ext-on", "ext-off", "ext-hidden"],
             wrappedExtensionToolNames: ["ext-on", "ext-off", "ext-hidden"],
-            allowedToolNames: null,
-            excludedToolNames: null,
+            filter: ToolFilter.None,
             includeAllExtensionTools: true,
             previousActivatedOnRegistration: new HashSet<string>(StringComparer.Ordinal),
             pendingToolNames: [],
@@ -375,8 +367,7 @@ public sealed class AgentSessionExtensionTests
             previousActiveToolNames: ["read"],
             toolRegistryNames: ["read", "already", "fresh"],
             wrappedExtensionToolNames: [],
-            allowedToolNames: null,
-            excludedToolNames: null,
+            filter: ToolFilter.None,
             includeAllExtensionTools: false,
             // 上一轮就已「注册即激活」的 only already。
             previousActivatedOnRegistration: new HashSet<string>(["already"], StringComparer.Ordinal),
@@ -396,8 +387,7 @@ public sealed class AgentSessionExtensionTests
             previousActiveToolNames: [],
             toolRegistryNames: ["read", "restored"],
             wrappedExtensionToolNames: [],
-            allowedToolNames: null,
-            excludedToolNames: null,
+            filter: ToolFilter.None,
             includeAllExtensionTools: false,
             previousActivatedOnRegistration: new HashSet<string>(StringComparer.Ordinal),
             // 待激活工具无论默认是否活跃都转正。
@@ -417,8 +407,7 @@ public sealed class AgentSessionExtensionTests
             previousActiveToolNames: [],
             toolRegistryNames: ["read", "bash"],
             wrappedExtensionToolNames: [],
-            allowedToolNames: null,
-            excludedToolNames: null,
+            filter: ToolFilter.None,
             includeAllExtensionTools: false,
             previousActivatedOnRegistration: new HashSet<string>(StringComparer.Ordinal),
             // 与起点重复。

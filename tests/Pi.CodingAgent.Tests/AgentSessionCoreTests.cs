@@ -86,18 +86,78 @@ public sealed class AgentSessionCoreTests
     [Fact]
     public void IsAllowedTool_RespectsAllowAndDenyLists()
     {
-        var allowed = new HashSet<string>(["read", "write"], StringComparer.Ordinal);
-        var excluded = new HashSet<string>(["write"], StringComparer.Ordinal);
+        var filter = ToolFilter.From(["read", "write"], ["write"]);
 
         // 无 allowlist 时按 denylist 判定。
-        Assert.True(AgentSession.IsAllowedTool("bash", null, null));
-        Assert.True(AgentSession.IsAllowedTool("read", null, excluded));
-        Assert.False(AgentSession.IsAllowedTool("write", null, excluded));
+        Assert.True(AgentSession.IsAllowedTool("bash", ToolFilter.None));
+        Assert.True(AgentSession.IsAllowedTool("read", ToolFilter.From(null, ["write"])));
+        Assert.False(AgentSession.IsAllowedTool("write", ToolFilter.From(null, ["write"])));
 
         // 有 allowlist 时先过白名单，再过黑名单。
-        Assert.True(AgentSession.IsAllowedTool("read", allowed, null));
-        Assert.False(AgentSession.IsAllowedTool("bash", allowed, null));
-        Assert.False(AgentSession.IsAllowedTool("write", allowed, excluded));
+        Assert.True(AgentSession.IsAllowedTool("read", ToolFilter.From(["read", "write"], null)));
+        Assert.False(AgentSession.IsAllowedTool("bash", ToolFilter.From(["read", "write"], null)));
+        Assert.False(AgentSession.IsAllowedTool("write", filter));
+    }
+
+    [Fact]
+    public void IsAllowedTool_SupportsGlobPatterns()
+    {
+        // 2026-10-12 基线对齐：TS 的 allow/deny 已从 Set.has 改为模式匹配。
+        var filter = ToolFilter.From(["mcp__*"], null);
+
+        Assert.True(AgentSession.IsAllowedTool("mcp__srv__tool", filter));
+        Assert.False(AgentSession.IsAllowedTool("read", filter));
+    }
+
+    [Fact]
+    public void IsAllowedTool_KeepsMcpToolsUnlessAllowlistFiltersMcp()
+    {
+        // allowlist 是纯内置名单（无 mcp__ 条目）→ MCP 工具保持注册，供 codemode / tool_search。
+        var builtinOnly = ToolFilter.From(["read", "bash"], null);
+        Assert.True(builtinOnly.AllowlistFiltersMcp is false);
+        Assert.True(AgentSession.IsAllowedTool("read", builtinOnly));
+        Assert.False(AgentSession.IsAllowedTool("write", builtinOnly));
+        Assert.True(AgentSession.IsAllowedTool("mcp__srv__tool", builtinOnly));
+        Assert.True(AgentSession.IsAllowedTool("list_mcp_resources", builtinOnly));
+
+        // allowlist 为空（--no-tools）→ 连 MCP 一起过滤。
+        var empty = ToolFilter.From([], null);
+        Assert.True(empty.AllowlistFiltersMcp);
+        Assert.False(AgentSession.IsAllowedTool("mcp__srv__tool", empty));
+        Assert.False(AgentSession.IsAllowedTool("read", empty));
+
+        // allowlist 点名了某个 MCP 工具 → 同样连 MCP 一起过滤。
+        var namesMcp = ToolFilter.From(["mcp__srv__tool"], null);
+        Assert.True(namesMcp.AllowlistFiltersMcp);
+        Assert.True(AgentSession.IsAllowedTool("mcp__srv__tool", namesMcp));
+        Assert.False(AgentSession.IsAllowedTool("mcp__other__tool", namesMcp));
+    }
+
+    [Fact]
+    public void IsActivatable_KeepsUnnamedMcpToolsInactiveUnlessToolSearchCanLoadThem()
+    {
+        var definitions = new Dictionary<string, ToolDefinitionEntry>(StringComparer.Ordinal)
+        {
+            ["mcp__srv__deferred"] = Entry("mcp__srv__deferred", ToolExposure.Deferred),
+            ["mcp__srv__direct"] = Entry("mcp__srv__direct", ToolExposure.Direct),
+            ["read"] = Entry("read"),
+        };
+        var builtinOnly = ToolFilter.From(["read"], null);
+
+        // tool_search 未注册 → 未命名的 MCP 工具不可活跃。
+        var withoutToolSearch = new HashSet<string>(["read"], StringComparer.Ordinal);
+        Assert.False(AgentSession.IsActivatable("mcp__srv__deferred", builtinOnly, definitions, withoutToolSearch));
+
+        // tool_search 已注册且 exposure 非 direct → 可活跃（由 tool_search 加载）。
+        var withToolSearch = new HashSet<string>(["read", "tool_search"], StringComparer.Ordinal);
+        Assert.True(AgentSession.IsActivatable("mcp__srv__deferred", builtinOnly, definitions, withToolSearch));
+
+        // exposure 是 direct → 即使 tool_search 在也不可活跃。
+        Assert.False(AgentSession.IsActivatable("mcp__srv__direct", builtinOnly, definitions, withToolSearch));
+
+        // 非 MCP 工具与已被 allowlist 命名的工具不受限。
+        Assert.True(AgentSession.IsActivatable("read", builtinOnly, definitions, withoutToolSearch));
+        Assert.True(AgentSession.IsActivatable("mcp__srv__direct", ToolFilter.None, definitions, withoutToolSearch));
     }
 
     [Fact]
@@ -194,7 +254,7 @@ public sealed class AgentSessionCoreTests
         };
         var errors = new List<LoadoutHookError>();
 
-        var result = AgentSession.ApplyToolLoadout(["boom"], registry, definitions, errors.Add);
+        var result = AgentSession.ApplyToolLoadout(["boom"], registry, definitions, onHookError: errors.Add);
 
         var error = Assert.Single(errors);
         Assert.Equal("builtin:boom", error.ExtensionPath);

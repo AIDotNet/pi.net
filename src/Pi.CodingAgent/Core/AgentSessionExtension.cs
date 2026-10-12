@@ -166,14 +166,13 @@ public static partial class AgentSession
     public static IReadOnlyDictionary<string, ToolDefinitionEntry> BuildDefinitionRegistry(
         IEnumerable<KeyValuePair<string, ToolDefinition>> baseToolDefinitions,
         IEnumerable<ToolDefinitionEntry> customTools,
-        IReadOnlySet<string>? allowedToolNames,
-        IReadOnlySet<string>? excludedToolNames)
+        ToolFilter filter)
     {
         var registry = new Dictionary<string, ToolDefinitionEntry>(StringComparer.Ordinal);
 
         foreach (var (name, definition) in baseToolDefinitions)
         {
-            if (!IsAllowedTool(name, allowedToolNames, excludedToolNames))
+            if (!IsAllowedTool(name, filter))
             {
                 continue;
             }
@@ -262,8 +261,7 @@ public static partial class AgentSession
         IReadOnlyList<string> previousActiveToolNames,
         IReadOnlyList<string> toolRegistryNames,
         IReadOnlyList<string> wrappedExtensionToolNames,
-        IReadOnlySet<string>? allowedToolNames,
-        IReadOnlySet<string>? excludedToolNames,
+        ToolFilter filter,
         bool includeAllExtensionTools,
         IReadOnlySet<string> previousActivatedOnRegistration,
         IReadOnlyList<string> pendingToolNames,
@@ -275,18 +273,19 @@ public static partial class AgentSession
         var next = new List<string>();
         foreach (var name in candidates)
         {
-            if (IsAllowedTool(name, allowedToolNames, excludedToolNames))
+            if (IsAllowedTool(name, filter))
             {
                 next.Add(name);
             }
         }
 
-        if (allowedToolNames is not null)
+        if (filter.Allowed is not null)
         {
-            // 点名即激活——即便该工具默认不活跃。
+            // 点名或命中模式即激活——即便该工具默认不活跃。
+            // allowlist 保留但未命中的 MCP 工具保持不活跃。
             foreach (var name in toolRegistryNames)
             {
-                if (allowedToolNames.Contains(name) && IsDeclarable(definitions, name))
+                if (filter.Allowed(name) && IsDeclarable(definitions, name))
                 {
                     next.Add(name);
                 }

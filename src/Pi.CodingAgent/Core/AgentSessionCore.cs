@@ -31,6 +31,42 @@ public sealed record ToolLoadoutApplication(
     IReadOnlySet<string> HiddenDeclarations);
 
 /// <summary>
+/// 工具 allow/deny 过滤。对应 TS <c>AgentSession</c> 的
+/// <c>_allowedTools</c> / <c>_excludedTools</c> / <c>_allowlistFiltersMcp</c> 三元组。
+/// </summary>
+/// <param name="Allowed">
+/// allowlist 匹配函数（<c>createToolNameMatcher</c> 产出，支持 <c>*</c> 模式）；
+/// <c>null</c> 表示没有 allowlist。
+/// </param>
+/// <param name="Excluded">denylist 匹配函数；<c>null</c> 表示没有 denylist。</param>
+/// <param name="AllowlistFiltersMcp">
+/// allowlist 是否连 MCP 工具一起过滤：allowlist 为空（<c>--no-tools</c>）或点名了某个 MCP 工具
+/// （<c>mcp__*</c>）时为 <c>true</c>；否则 MCP 工具为 codemode / tool_search 保持注册。
+/// </param>
+public sealed record ToolFilter(
+    Func<string, bool>? Allowed,
+    Func<string, bool>? Excluded,
+    bool AllowlistFiltersMcp)
+{
+    /// <summary>无 allowlist、无 denylist。</summary>
+    public static ToolFilter None { get; } = new(null, null, false);
+
+    /// <summary>
+    /// 由原始名字列表构造。对应 TS 构造器里 <c>createToolNameMatcher</c> 的两次调用与
+    /// <c>_allowlistFiltersMcp</c> 的赋值。
+    /// </summary>
+    public static ToolFilter From(
+        IReadOnlyList<string>? allowedToolNames,
+        IReadOnlyList<string>? excludedToolNames)
+        => new(
+            allowedToolNames is not null ? McpServers.CreateToolNameMatcher(allowedToolNames) : null,
+            excludedToolNames is not null ? McpServers.CreateToolNameMatcher(excludedToolNames) : null,
+            allowedToolNames is not null
+                && (allowedToolNames.Count == 0
+                    || allowedToolNames.Any(entry => entry.StartsWith("mcp__", StringComparison.Ordinal))));
+}
+
+/// <summary>
 /// <c>core/agent-session.ts</c> 中**不依赖 <c>AgentSession</c> 实例状态**的纯逻辑（4e-3e-9a）。
 /// 已落地：会话统计（<c>getSessionStats</c> / <c>getContextUsage</c> / <c>estimateMessagesTokens</c>）、
 /// 工具装载（<c>getCallableToolNames</c> / <c>_isAllowedTool</c> / <c>_getToolExposure</c> /
@@ -233,9 +269,50 @@ public static partial class AgentSession
             ? exposure
             : ToolExposure.Direct;
 
-    /// <summary>对应 TS <c>_isAllowedTool</c>。</summary>
-    public static bool IsAllowedTool(string name, IReadOnlySet<string>? allowed, IReadOnlySet<string>? excluded)
-        => (allowed is null || allowed.Contains(name)) && !(excluded is not null && excluded.Contains(name));
+    /// <summary>
+    /// 对应 TS <c>_isAllowedTool</c>：<c>--tools</c> / <c>--exclude-tools</c> 是否让工具保持注册。
+    /// MCP 工具在被 allowlist 显式过滤掉之前一直保持注册（见 <see cref="ToolFilter.AllowlistFiltersMcp"/>）。
+    /// </summary>
+    /// <remarks>
+    /// 2026-10-12 基线对齐：TS 的 <c>_allowedToolNames</c> / <c>_excludedToolNames</c> 已由
+    /// <c>Set&lt;string&gt;</c> 改为 <c>createToolNameMatcher</c> 产出的**匹配函数**（支持 <c>*</c> 模式），
+    /// 并新增 MCP 豁免。旧端口的 <c>IReadOnlySet</c> 版已废弃。
+    /// </remarks>
+    public static bool IsAllowedTool(string name, ToolFilter filter)
+    {
+        if (filter.Excluded is not null && filter.Excluded(name))
+        {
+            return false;
+        }
+
+        if (filter.Allowed is null || filter.Allowed(name))
+        {
+            return true;
+        }
+
+        return !filter.AllowlistFiltersMcp && McpServers.IsMcpToolName(name);
+    }
+
+    /// <summary>
+    /// 对应 TS <c>_isActivatable</c>：工具是否可以**活跃**（活跃即向模型声明）。
+    /// allowlist 保留但未命中的 MCP 工具只供 codemode / tool_search 使用——只有当
+    /// tool_search 能加载它们时（exposure 非 <c>direct</c> 且 <c>tool_search</c> 已注册）才可声明。
+    /// 该规则同样适用于从 transcript 恢复或被扩展设置的工具。
+    /// </summary>
+    public static bool IsActivatable(
+        string name,
+        ToolFilter filter,
+        IReadOnlyDictionary<string, ToolDefinitionEntry> definitions,
+        IReadOnlySet<string> registeredNames)
+    {
+        if (filter.Allowed is null || filter.Allowed(name) || !McpServers.IsMcpToolName(name))
+        {
+            return true;
+        }
+
+        return GetToolExposure(definitions, name) != ToolExposure.Direct
+            && registeredNames.Contains("tool_search");
+    }
 
     /// <summary>
     /// 对应 TS <c>_getCallableTools</c>：活跃的 <c>direct</c> 工具，加上**全部**已注册的
@@ -273,13 +350,21 @@ public static partial class AgentSession
     /// <param name="toolNames">请求的活跃工具名；重复项按首次出现去重（TS <c>[...new Set(...)]</c>）。</param>
     /// <param name="registry">已注册工具，按注册顺序（TS <c>Map.values()</c> 的插入序 load-bearing）。</param>
     /// <param name="definitions">工具定义表。</param>
+    /// <param name="filter">
+    /// 工具 allow/deny 过滤。2026-10-12 基线对齐新增：TS 的过滤条件加了 <c>_isActivatable(name)</c>——
+    /// allowlist 保留但未命中的 MCP 工具不能活跃（只供 codemode / tool_search）。
+    /// </param>
     /// <param name="onHookError">钩子抛错时的上报回调；<c>null</c> 表示吞掉（TS 会经扩展运行时报错）。</param>
     public static ToolLoadoutApplication ApplyToolLoadout(
         IReadOnlyList<string> toolNames,
         IReadOnlyDictionary<string, AgentTool> registry,
         IReadOnlyDictionary<string, ToolDefinitionEntry> definitions,
+        ToolFilter? filter = null,
         Action<LoadoutHookError>? onHookError = null)
     {
+        var effectiveFilter = filter ?? ToolFilter.None;
+        var registeredNames = registry.Keys.ToHashSet(StringComparer.Ordinal);
+
         var requested = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var name in toolNames)
@@ -293,7 +378,9 @@ public static partial class AgentSession
         var tools = new List<AgentTool>();
         foreach (var name in requested)
         {
-            if (registry.TryGetValue(name, out var tool) && GetToolExposure(definitions, name) != ToolExposure.Hidden)
+            if (registry.TryGetValue(name, out var tool)
+                && GetToolExposure(definitions, name) != ToolExposure.Hidden
+                && IsActivatable(name, effectiveFilter, definitions, registeredNames))
             {
                 tools.Add(tool);
             }
@@ -314,11 +401,23 @@ public static partial class AgentSession
         if (hooks.Count > 0)
         {
             var activeNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+            // TS 的 getPromptGuidelines 读 _toolPromptGuidelines（归一化后的表），不是定义原值。
+            var promptGuidelines = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+            foreach (var entry in definitions.Values)
+            {
+                var normalized = NormalizePromptGuidelines(entry.Definition.PromptGuidelines);
+                if (normalized.Count > 0)
+                {
+                    promptGuidelines[entry.Definition.Name] = normalized;
+                }
+            }
+
             var view = new LoadoutView(
                 tools,
                 BuildCallableTools(registry, definitions, activeNames),
                 [.. registry.Values],
-                definitions);
+                definitions,
+                promptGuidelines);
 
             var descriptions = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var (_, entry) in hooks)
@@ -390,11 +489,16 @@ public static partial class AgentSession
     }
 
     /// <summary><see cref="IToolLoadout"/> 的只读实现，对应 TS <c>_applyToolLoadout</c> 里的字面量对象。</summary>
+    /// <remarks>
+    /// <see cref="GetPromptGuidelines"/> 取的是**归一化后**的准则（TS 读 <c>_toolPromptGuidelines</c>，
+    /// 而不是 <c>definition.promptGuidelines</c> 原值）——两者在 trim / 去重 / 丢空上有差别。
+    /// </remarks>
     private sealed class LoadoutView(
         IReadOnlyList<AgentTool> declared,
         IReadOnlyList<AgentTool> callable,
         IReadOnlyList<AgentTool> registered,
-        IReadOnlyDictionary<string, ToolDefinitionEntry> definitions) : IToolLoadout
+        IReadOnlyDictionary<string, ToolDefinitionEntry> definitions,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> promptGuidelines) : IToolLoadout
     {
         public IReadOnlyList<AgentTool> Declared { get; } = declared;
 
@@ -408,7 +512,7 @@ public static partial class AgentSession
             => definitions.TryGetValue(name, out var entry) ? entry.Definition.Namespace : null;
 
         public IReadOnlyList<string> GetPromptGuidelines(string name)
-            => definitions.TryGetValue(name, out var entry) ? entry.Definition.PromptGuidelines ?? [] : [];
+            => promptGuidelines.TryGetValue(name, out var guidelines) ? guidelines : [];
     }
 
     // =========================================================================
