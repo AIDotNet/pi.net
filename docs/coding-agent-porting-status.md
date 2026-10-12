@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑** + **4e-3e-9b prompt 主循环纯决策逻辑** + **4e-3e-9c compaction/retry/bash 纯决策逻辑** + **4e-3e-9d 扩展绑定与运行时重建纯决策逻辑**（2026-10-12）完成；余 4e-3e-9e～g（树导航导出 / 会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑** + **4e-3e-9b prompt 主循环纯决策逻辑** + **4e-3e-9c compaction/retry/bash 纯决策逻辑** + **4e-3e-9d 扩展绑定与运行时重建纯决策逻辑** + **4e-3e-9e 树导航/fork 投影/导出主题名 + bug-report 摘要纯逻辑**（2026-10-12）完成；余 4e-3e-9f～g（会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -1828,13 +1828,77 @@ L462–498）在 `this.agent.subscribe(...)` 之后连续安装 6 个钩子，�
   （与当前活跃集无关），稳态下必然包含已注册的 `read`/`bash`，故两者被正确地当成新注册工具激活。
   已改为传入稳态集合，并补一条「有请求时请求覆盖上一轮活跃集」的对照断言。
 
+## 4e-3e-9e 进度（2026-10-12）：树导航 / fork 投影 / 导出主题名 + bug-report 摘要的纯决策逻辑
+
+延续 9a～9d 的判断：实例层仍不可落地。`navigateTree` 依赖 `_extensionRunner`（`session_before_tree` /
+`session_tree` 两个事件的发射）、`_branchSummaryAbortController`、`_refreshFinalizedContext` /
+`_restoreToolsFromTranscript`、`_resolveIdleWaitIfIdle`；`exportToHtml` 依赖 `_extensionRunner`
+（自定义工具渲染器）与 `theme`；`summarizeForBugReport` 依赖 `_getSummarizationRequestAuth` 与
+`this.messages`。故本批继续「叶子先行」，落地判定、投影与文案。
+
+新增：
+- `src/Pi.CodingAgent/Core/AgentSessionTree.cs`（`AgentSession` 的第六个 partial 半边）
+- `src/Pi.CodingAgent/Core/BugReportSummary.cs`（`BugReport` 的第二个 partial 半边——
+  `generateBugReportSummary` 在 TS 里属 `bug-report.ts`，故按源文件归位）
+
+已落地（逐条对照 TS）：
+
+| TS | C# | 要点 |
+|---|---|---|
+| `navigateTree` 的两条守卫 | `ThrowIfTreeNavigationBlocked` | 先判 `isStreaming` 再判 `isCompacting`，两条文案逐字 |
+| `targetId === oldLeafId` | `IsTreeNavigationNoOp` | 空操作 → `{ cancelled: false }` |
+| `options.summarize && !this.model` | `ThrowIfNoModelForSummarization` | |
+| `Entry ${targetId} not found` | `ThrowIfTreeTargetMissing` | |
+| 三处 `if (result?.X !== undefined) X = result.X` | `ApplyTreeExtensionOverrides` | 扩展给了才覆盖（含显式 `false`） |
+| `if (result?.cancel)` | `ShouldCancelTreeNavigation` | |
+| `result?.summary && options.summarize` | `ShouldTakeExtensionSummary` | |
+| 摘要来源 `if / else if` 两分支 | `ResolveTreeSummarySource` | 默认摘要器优先于扩展摘要 |
+| `result.readFiles \|\| []` | `ResolveTreeSummaryDetails` | 两个文件列表各带回退 |
+| 按 `targetEntry.type` 决定新叶 | `ResolveTreeNavigationLeaf` | 用户/自定义消息挂父节点 + 文本回填；其余以目标为叶 |
+| 末尾三分支 | `ResolveTreeSwitchKind` | `branchWithSummary` / `resetLeaf` / `branch` |
+| `if (label)` 摘要条目 | `ShouldLabelSummaryEntry` | |
+| `if (label && !summaryText)` 目标条目 | `ShouldLabelTargetEntry` | 有摘要时不重复挂 |
+| `fromExtension: summaryText ? fromExtension : undefined` | `ResolveTreeEventFromExtension` | 无摘要时为 `undefined`（端口 `null`） |
+| `getUserMessagesForForking` | `ProjectUserMessagesForForking` | 只留 role=user 且文本非空的消息条目 |
+| `exportToHtml` 的 `themeName` 解析 | `ResolveExportThemeName` | 显式名优先，其次设置；都查不到 → `undefined` |
+| `selectMessages` | `BugReport.SelectBugSummaryMessages` | 尾部累积，越界即 break，首条无条件收录 |
+| `contextWindow > 0 ? … : 128_000` 后 `floor(×0.6)` | `BugReport.ResolveBugSummaryTokenBudget` | |
+| `Math.min(4096, maxTokens > 0 ? maxTokens : Infinity)` | `BugReport.ResolveBugSummaryMaxTokens` | |
+| `prompt` 数组装配 | `BugReport.BuildBugSummaryPrompt` | 截断提示 → conversation → user-report → 说明，空行连接 |
+| `BUG_SUMMARY_SYSTEM_PROMPT` / `BUG_SUMMARY_INSTRUCTIONS` | `BugReport.BugSummarySystemPrompt` / `BugSummaryInstructions` | 经 `ReplaceLineEndings("\n")` 归一（本机 CRLF） |
+| 末尾校验链 | `BugReport.ValidateBugSummaryResponse` | 中止 → 失败分类 → 调工具 → 空文本 |
+
+### 4e-3e-9e 设计差异（文档化）
+
+- **C104**：TS 的扩展覆盖判据是「字段 `!== undefined`」；端口的 `null` 即 `undefined`，故用 `??` 表达。
+  注意 `replaceInstructions` 是 `bool?`——显式 `false` 必须生效，不能被当成「没给」。
+- **C105**：`ResolveTreeNavigationLeaf` 里 TS 的 `contentText(content, "")` 分隔符是**空串**
+  （不是 `contentText` 的默认 `"\n"`），端口照抄；`CustomMessageEntry.Content` 在端口可空而 TS 必填，
+  端口对 `null` 取空串。
+- **C106**：`ProjectUserMessagesForForking` 里 TS 的 `entry.id` 类型上必填，端口
+  `SessionEntry.Id` 可空（v1 文件缺该字段、迁移时补齐）。端口跳过 `Id` 为 `null` 的条目——
+  迁移后不可达，属防御性分支。
+- **`getSummarizationFailure` 不认 `aborted`**：TS 与端口都只认 `error` / `length`。因此
+  `ValidateBugSummaryResponse` 里**中止必须先判**——中止的响应内容通常为空，若空文本检查提前，
+  用户看到的会是 `was empty` 而不是 `was cancelled`。校验顺序 load-bearing，已在 XML remark 标注。
+- 未落地（依赖实例层 / 4e-3e-9g，顺延 4e-3e-9h）：`navigateTree` 的编排本体（两个扩展事件的发射、
+  `_branchSummaryAbortController` 的建立与清理、`generateBranchSummary` 调用、
+  `branchWithSummary` / `resetLeaf` / `branch` / `appendLabelChange` 的落盘、`_refreshFinalizedContext` /
+  `_restoreToolsFromTranscript`）、`setSessionName`（`appendSessionInfo` + 两个事件发射）、
+  `exportToHtml` / `exportToJsonl` / `summarizeForBugReport` 的 I/O 调用。
+
+### 4e-3e-9e 验证
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- `Pi.CodingAgent.Tests` → **1133 项（新增 40）/ 1133 通过 / 0 失败**。
+  其中 `AgentSessionTreeTests` 23 项、`BugReportSummaryTests` 17 项。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9e 树导航 / 导出 / 报告 → 4e-3e-9f 会话装配层（`agent-session-services` /
-`agent-session-runtime` / `sdk`）→ 4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）→
-**4e-3e-9h**。
+4e-3e-9f 会话装配层（`agent-session-services` / `agent-session-runtime` / `sdk`）→
+4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）→ **4e-3e-9h**。
 
 **接线依赖**：`AgentSession` 实例层必须在 4e-3e-9g（`ExtensionRunner`）之后才能整体落地；
 **4e-3e-9h**（实例层接线：构造器 + 6 个 installers + `_eventListeners` + `_handleAgentEvent` +
-四个 abort controller + `_pendingBashMessages`）负责把 9a/9b/9c/9d 的静态半边接上实例状态。
+四个 abort controller + `_pendingBashMessages`）负责把 9a/9b/9c/9d/9e 的静态半边接上实例状态。
 
