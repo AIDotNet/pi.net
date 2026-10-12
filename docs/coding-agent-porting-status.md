@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑** + **4e-3e-9b prompt 主循环纯决策逻辑** + **4e-3e-9c compaction/retry/bash 纯决策逻辑**（2026-10-12）完成；余 4e-3e-9d～g（扩展绑定 / 树导航导出 / 会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑** + **4e-3e-9b prompt 主循环纯决策逻辑** + **4e-3e-9c compaction/retry/bash 纯决策逻辑** + **4e-3e-9d 扩展绑定与运行时重建纯决策逻辑**（2026-10-12）完成；余 4e-3e-9e～g（树导航导出 / 会话装配层 / 扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -1771,13 +1771,70 @@ L462–498）在 `this.agent.subscribe(...)` 之后连续安装 6 个钩子，�
 - `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
 - `Pi.CodingAgent.Tests` → **1073 项（新增 32）/ 1073 通过 / 0 失败**。
 
+## 4e-3e-9d 进度（2026-10-12）：扩展绑定与运行时重建的纯决策逻辑
+
+延续 9a/9b/9c 的判断：实例层仍不可落地。`_buildRuntime` 会 `new ExtensionRunner(...)`，而
+`ExtensionRunner` 本身属 4e-3e-9g；`_bindExtensionCore` 的 4 组上下文对象、`_refreshToolRegistry` 的
+`wrapRegisteredTools`、`extendResourcesFromExtensions` 的 `resourceLoader.extendResources` 同样依赖它。
+故本批继续「叶子先行」，把资源路径映射、命令清单合成、工具注册表与活跃工具名解析、
+`reload` 的增量计算抽成静态函数。
+
+新增 `src/Pi.CodingAgent/Core/AgentSessionExtension.cs`（`AgentSession` 的第五个 partial 半边）。
+
+已落地（逐条对照 TS）：
+
+| TS | C# | 要点 |
+|---|---|---|
+| `getExtensionSourceLabel` | `GetExtensionSourceLabel` | 合成路径删**所有**尖括号；文件路径取 basename 剥 `.ts`/`.js` |
+| `buildExtensionResourcePaths` | `BuildExtensionResourcePaths` | 每条补 `scope: temporary` + `origin: top-level`；合成路径 `baseDir` 为 `undefined` |
+| `_bindExtensionCore` 的 `getCommands` | `BuildSlashCommandInfos` | 扩展命令 → 提示词模板 → 技能，技能名加 `skill:` 前缀 |
+| `_refreshToolRegistry` 的 `definitionRegistry` | `BuildDefinitionRegistry` | 内置经 allow/deny 过滤后以 `builtin:<name>` 落表，自定义工具覆盖同名 |
+| `_refreshToolRegistry` 的 `_toolPromptSnippets` | `BuildPromptSnippets` | 归一化后非空才收录 |
+| `_refreshToolRegistry` 的 `_toolPromptGuidelines` | `BuildPromptGuidelines` | 归一化后非空才收录 |
+| `_refreshToolRegistry` 的 `nextActiveToolNames` | `ResolveNextActiveToolNames` | 起点 → allow 点名激活 / includeAll / 仅新注册三分支 → pending 转正 → 去重 |
+| `_buildRuntime` 的 `baseActiveToolNames` | `ResolveBaseActiveToolNames` | `options.activeToolNames ?? baseToolsOverride 键 ?? 默认四件套` |
+| `reload` 的 `previousDefaultTools` | `ResolvePreviousDefaultTools` | 未使用默认工具集 → 空集 |
+| `reload` 的 `addedDefaultTools` | `ResolveAddedDefaultTools` | 只算「本轮新出现」的名字 |
+| `reload` 的 `hasBindings` | `HasExtensionBindings` | 四个绑定取或 |
+| `_refreshCurrentModelFromRegistry` 的两处早退 | `ShouldRefreshModelFromRegistry` | 无当前模型 / 注册表查不到 / 同一引用 → 都不动 |
+
+新增类型：`RegisteredExtensionCommand`、`ExtensionResourcePath`、`ResourceExtensionPaths`、
+`ExtensionResourceEntry`。
+
+### 4e-3e-9d 设计差异（文档化）
+
+- **C101**：TS 的 `PathMetadata` 不含 `path`（路径在旁边的 `path` 字段上），而端口的
+  `SourceInfo.Path` 是必填——`BuildExtensionResourcePaths` 取资源自身的 `entry.path` 填进去。
+- **C102**：`_refreshCurrentModelFromRegistry` 的 `refreshedModel === currentModel` 是**引用同一性**，
+  端口用 `ReferenceEquals`（同 C89 / C97）。该判定被抽成 `ShouldRefreshModelFromRegistry` 的
+  `sameModelReference` 参数，由调用方（4e-3e-9h 接线）传入。
+- **C103**：TS `_buildRuntime` 里 `defaultActiveToolNames` 写的是**字面量** `["read","bash","edit","write"]`，
+  而 `reload` 用的是 `DEFAULT_TOOL_NAMES` 常量。端口两处统一取 `SettingsManager.DefaultToolNames`
+  （当前值同为该四件套）。理论上若 TS 改动常量，其 `_buildRuntime` 不会跟随而端口会——已知差异，接受。
+- **`ResourceExtensionPaths` 的位置**：该类型在 TS 里属 `resource-loader.ts`。端口的
+  `DefaultResourceLoader` 尚未落地 `extendResources()`，故本批先随 `AgentSessionExtension.cs`
+  落地形状（带 `// 接线时再下沉` 语义的 XML remark），待 4e-3e-9h 接线时再决定是否下沉。
+- 未落地（依赖实例层 / 4e-3e-9g，顺延 4e-3e-9h）：`bindExtensions` / `_applyExtensionBindings` /
+  `_bindExtensionCore` 的 4 组上下文对象与 `getCommands` 闭包装配、`_buildRuntime` 的
+  `baseToolDefinitions` 构造与 `new ExtensionRunner`、`reload` 的 shutdown/invalidate/settings 重载、
+  `_refreshToolRegistry` 的 `wrapRegisteredTools` 与 `_setActiveTools`。
+
+### 4e-3e-9d 验证
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- `Pi.CodingAgent.Tests` → **1093 项（新增 20）/ 1093 通过 / 0 失败**。
+- 本批修复 1 处**测试自身**的缺陷（非实现缺陷）：`ResolveNextActiveToolNames_FallsBackToPreviousWhenNoRequest`
+  传了空的 `previousActivatedOnRegistration`，却期望「稳态」结果。TS 的该集合由**注册表**推导
+  （与当前活跃集无关），稳态下必然包含已注册的 `read`/`bash`，故两者被正确地当成新注册工具激活。
+  已改为传入稳态集合，并补一条「有请求时请求覆盖上一轮活跃集」的对照断言。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9d 扩展绑定与运行时重建 → 4e-3e-9e 树导航 / 导出 / 报告 →
-4e-3e-9f 会话装配层（`agent-session-services` / `agent-session-runtime` / `sdk`）→
-4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）→ **4e-3e-9h**。
+4e-3e-9e 树导航 / 导出 / 报告 → 4e-3e-9f 会话装配层（`agent-session-services` /
+`agent-session-runtime` / `sdk`）→ 4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）→
+**4e-3e-9h**。
 
 **接线依赖**：`AgentSession` 实例层必须在 4e-3e-9g（`ExtensionRunner`）之后才能整体落地；
 **4e-3e-9h**（实例层接线：构造器 + 6 个 installers + `_eventListeners` + `_handleAgentEvent` +
-四个 abort controller + `_pendingBashMessages`）负责把 9a/9b/9c 的静态半边接上实例状态。
+四个 abort controller + `_pendingBashMessages`）负责把 9a/9b/9c/9d 的静态半边接上实例状态。
 
