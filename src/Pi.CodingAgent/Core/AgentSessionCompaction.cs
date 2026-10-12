@@ -61,7 +61,7 @@ public enum CompactionTokenSource
 /// `_bashAbortControllers` / `_pendingBashMessages` / `_emit`）要等 4e-3e-9g 的扩展运行时与 4e-3e-9h 的接线；
 /// 本批沿用「叶子先行」惯例（同 4e-3e-9a / 9b），把判定与文案抽成显式入参的静态函数。
 /// </remarks>
-public static partial class AgentSession
+public partial class AgentSession
 {
     /// <summary>TS <c>compact()</c> 与 <c>_runAutoCompaction()</c> 的取消文案。</summary>
     public const string CompactionCancelledMessage = "Compaction cancelled";

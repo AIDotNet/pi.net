@@ -2113,11 +2113,43 @@ skills `indirect`）、`Skills.SkillFileReadTool.Indirect`、`IToolLoadout.GetPr
   前置条件（`ExtensionRunner`）本批已满足。
 - **`resource-loader.ts` 的 `disabledBuiltinExtensions` 与完整扩展集加载**：4d-3d-2 顺延项，不在 9g 范围。
 
+### 4e-3e-9h 勘察（2026-10-12，9g 完成后立即进行）
+
+**9h-1 已完成：实例化地基。** `AgentSession` 在 6 个 partial 文件里都是 `public static partial class`，
+而 TS 的 `AgentSession` 是实例类（~50 个私有字段）。已改为 `public partial class AgentSession`。
+C# 允许同一个类里混放静态与实例成员，故 9a～9e 落地的全部静态叶子函数**保持不变**、调用点无需改动。
+解掉两个阻塞：
+
+1. 静态类无法承载实例状态 —— 9a～9e 全部被迫「叶子先行」的根因；
+2. 4e-3e-9f 顺延的 `CreateAgentSessionRuntimeResult`（TS 侧含实例化 `AgentSession` 字段）此前因
+   `AgentSession` 是静态类而 CS0722，现已可落地。
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`Pi.CodingAgent.Tests` 1243 项全通过（行为零变化）。
+
+**9h-2 起的勘察结论（避免下次重新推导）：**
+
+| 符号 | 端口现状 | 说明 |
+| --- | --- | --- |
+| `_buildRuntime` | **只有注释，无实现** | 所有实例方法（installers / `_handleAgentEvent` / 边界派发）的汇聚前置；必须最先落地 |
+| `_restoreToolsFromTranscript` | **只有注释，无实现** | 仅在 `initialActiveToolNames === undefined` 时调用 |
+| 6 个 installers | **全部无实现** | 均依赖 `this._extensionRunner`（即依赖 `_buildRuntime`） |
+| `_handleAgentEvent` / `_emitExtensionEvent` / `_replaceMessageInPlace` | **无实现** | 事件订阅与持久化 |
+| `AgentSessionEventListener` / `AgentSessionEvent` | **类型不存在** | TS 的事件类型族尚未移植，是实例字段与 `subscribe` 的前置 |
+| `AbortController` | — | 端口对应 `CancellationTokenSource`（TS 的 `AbortSignal` → `CancellationToken`） |
+| `_entryIdsByMessage` / `_boundaryDispatchedMessages` | — | TS 是 `WeakMap`/`WeakSet`（引用同一性）；端口需引用同一性映射，不可用默认值相等的 `Dictionary` |
+
+**新发现的既有缺口**：`CacheWarmer` 缺 `onWarmed` 字段与 `onModeChanged()`，且 `onAgentSettled()` 不完整
+（缺 `run.phase = "idle"` 与 30 分钟空闲上限分支）。TS 构造器需要
+`this._cacheWarmer.onWarmed = (entry) => this._emit({ type: "entry_appended", entry })`。
+该模块的刷新流本就记为「顺延 4e-3e」，故 `onWarmed` 接线随刷新流一起落地，不在 9h-1 内半途实现。
+
+**建议的 9h 切片顺序**：9h-1 实例化地基（已完成）→ 9h-2 `_buildRuntime` + 扩展绑定
+（`new ExtensionRunner` + 4 组上下文对象 + `wrapRegisteredTools`）→ 9h-3 6 个 installers +
+`_handleAgentEvent` + 事件类型族 → 9h-4 4e-3e-9f 顺延的编排本体
+（`createAgentSessionServices` / `AgentSessionRuntime` 类本体 / `createAgentSession` /
+`buildRequestOptions` 余下字段 / `CreateAgentSessionRuntimeResult`）。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9h 实例层接线（`AgentSession` 构造器 + 6 个 installers + `_eventListeners` + `_handleAgentEvent` +
-四个 abort controller + `_pendingBashMessages` + `AgentSessionServices` / `AgentSessionRuntime` /
-`createAgentSession` 的编排本体）。
-
-**接线依赖**：`ExtensionRunner` 已落地，4e-3e-9h 可直接开工。
+4e-3e-9h 实例层接线（见上）。**前置（9d + 9g）已全部满足**，9h-2 可直接开工。
 

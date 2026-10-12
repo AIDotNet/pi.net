@@ -79,7 +79,7 @@ public sealed record ToolFilter(
 /// 4e-3e-9b～4e-3e-9e 落地；本文件按仓库既有的「叶子先行」惯例，先把算法与投影抽成显式入参的
 /// 静态函数，实例层再接线。
 /// </remarks>
-public static partial class AgentSession
+public partial class AgentSession
 {
     private static readonly Regex PromptSnippetNewlines = new(@"[\r\n]+", RegexOptions.Compiled);
 

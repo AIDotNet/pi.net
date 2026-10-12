@@ -43,7 +43,7 @@ public sealed record ResourceExtensionPaths
 /// <c>resourceLoader.extendResources</c> 也都依赖它。故本批沿用「叶子先行」惯例，
 /// 把资源路径映射、命令清单合成、工具注册表与活跃工具名解析、reload 的增量计算抽成静态函数。
 /// </remarks>
-public static partial class AgentSession
+public partial class AgentSession
 {
     private static readonly Regex ExtensionSuffixPattern = new(@"\.(ts|js)$", RegexOptions.Compiled);
 

@@ -111,7 +111,7 @@ public sealed record ClearedQueue(
 /// 4e-3e-9g 的扩展运行时落地；本批沿用仓库既有的「叶子先行」惯例（同 4e-3e-9a），把循环控制流、
 /// 边界判定、输入归一化、重试/压缩门抽成显式入参的静态函数，实例层再接线。
 /// </remarks>
-public static partial class AgentSession
+public partial class AgentSession
 {
     // =========================================================================
     // 消息 role

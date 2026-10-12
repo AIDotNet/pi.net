@@ -55,7 +55,7 @@ public sealed record UserMessageForForking(string EntryId, string Text);
 /// <c>_restoreToolsFromTranscript</c> 与 <c>_resolveIdleWaitIfIdle</c>，全部是实例状态且前者属 4e-3e-9g。
 /// 故本批沿用「叶子先行」，只落地判定、投影与文案；编排顺延 4e-3e-9h。
 /// </remarks>
-public static partial class AgentSession
+public partial class AgentSession
 {
     // =========================================================================
     // navigateTree —— 前置守卫
