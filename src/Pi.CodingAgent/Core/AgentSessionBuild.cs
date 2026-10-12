@@ -232,14 +232,13 @@ public partial class AgentSession
 
     /// <summary>对应 TS <c>constructor(config: AgentSessionConfig)</c>。</summary>
     /// <remarks>
-    /// <b>缝（9h-3）</b>：TS 构造器在 <c>_buildRuntime</c> 前调用 6 个 installer
+    /// TS 构造器在 <c>_buildRuntime</c> 前订阅 <c>_handleAgentEvent</c>（TS 501）并调用 6 个 installer
     /// （<c>_installAgentToolHooks</c> / <c>_installAgentNextTurnRefresh</c> /
     /// <c>_installAgentRequestProjection</c> / <c>_installAgentBoundaryHooks</c> /
-    /// <c>_installHiddenDeclarationsProjection</c> / <c>_installAgentForcedPromptProjection</c>，
-    /// TS 502-507）并订阅 <c>_handleAgentEvent</c>（TS 501）；在 <c>_buildRuntime</c> 后当
-    /// <c>initialActiveToolNames === undefined</c> 时调用 <c>_restoreToolsFromTranscript</c>
-    /// （TS 513）。以上四者随 9h-3 落地，本批调用点以注释占位——本批测试不经过 agent 循环，
-    /// 故无观测差异。
+    /// <c>_installHiddenDeclarationsProjection</c> / <c>_installAgentForcedPromptProjection</c>，TS 502-507），
+    /// 在 <c>_buildRuntime</c> 后当 <c>initialActiveToolNames === undefined</c> 时调用
+    /// <c>_restoreToolsFromTranscript</c>（TS 513）。以上均随 9h-3 落地，实现在
+    /// <c>AgentSessionInstallers.cs</c>。
     /// </remarks>
     public AgentSession(AgentSessionConfig config)
     {
@@ -267,8 +266,15 @@ public partial class AgentSession
         _sessionStartEvent = config.SessionStartEvent
             ?? new ExtensionEvent.SessionStart(SessionEventReason.Startup);
 
-        // TS 501: this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);   → 9h-3
-        // TS 502-507: 6 个 installer 调用                                                  → 9h-3
+        // TS 501: this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
+        _unsubscribeAgent = _agent.Subscribe(HandleAgentEventAsync);
+        // TS 502-507: 6 个 installer
+        InstallAgentToolHooks();
+        InstallAgentNextTurnRefresh();
+        InstallAgentRequestProjection();
+        InstallAgentBoundaryHooks();
+        InstallHiddenDeclarationsProjection();
+        InstallAgentForcedPromptProjection();
 
         BuildRuntime(new BuildRuntimeOptions
         {
@@ -276,7 +282,10 @@ public partial class AgentSession
             IncludeAllExtensionTools = true,
         });
         // TS 513: if (this._initialActiveToolNames === undefined) this._restoreToolsFromTranscript();
-        // → 9h-3（该方法本身也随 9h-3 落地；9h-2c 批次的测试一律显式传 InitialActiveToolNames）。
+        if (_initialActiveToolNames is null)
+        {
+            RestoreToolsFromTranscript();
+        }
     }
 
     // =========================================================================
@@ -1283,17 +1292,6 @@ public partial class AgentSession
     // =========================================================================
     // 缝（后续批次落地；调用即显式抛错，不静默）
     // =========================================================================
-
-    /// <summary>
-    /// <b>缝（9h-3）</b>：TS <c>_executeNestedToolCall()</c>（TS 718-746）。其 <c>runToolCall</c> 回调
-    /// 依赖 <c>_beforeToolCall</c> / <c>_afterToolCall</c>（TS 640-776，installer 系），随 9h-3 落地。
-    /// </summary>
-    internal Task<AgentToolCallOutcome> ExecuteNestedToolCallAsync(
-        string callerId,
-        string name,
-        object? args,
-        ExecuteToolOptions options)
-        => throw new NotSupportedException("AgentSession._executeNestedToolCall lands with 4e-3e-9h-3 (installer family).");
 
     /// <summary>
     /// <b>缝（9h-4）</b>：TS <c>compact()</c>（TS 2750-2895）。其执行半边依赖

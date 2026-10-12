@@ -2394,11 +2394,82 @@ CLI 扩展源（`packageManager.resolveExtensionSources`）留给 9h-2b-2。
 验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`Pi.CodingAgent.Tests` 1263 项全通过
 （1252 + 11 项新增）；全套回归 **25,937 项 / 0 失败**。
 
+### 4e-3e-9h-2c 已落地（2026-10-12）：工具目录收口 + `AgentSession` 运行时装配
+
+**新落地：**
+
+| TS 符号 | 端口 | 说明 |
+| --- | --- | --- |
+| `core/tools/index.ts`（`ALL_TOOL_NAMES` / `createToolDefinition` / `createTool` / `createCodingTools` / `createReadOnlyTools` / `createAllToolDefinitions` / `createAllTools`） | `ToolIndex`（新建） | 八个内置工具的名字与插入顺序逐字对齐（`read, bash, powershell, edit, write, grep, find, ls`）；未知名字抛 `Unknown tool name: <name>` |
+| `core/tools/powershell.ts` | `PowerShellTool` | `snippet` / `guidelines` / `createPowerShellToolDefinition`（`operations` 可选注入）+ `createLocalPowerShellOperations`（UTF-8 输出前缀） |
+| `AgentSession` 构造器字段区 | `AgentSessionBuild.cs` | 1464 行：全部实例字段 + 构造器 + `_buildRuntime` / `_refreshToolRegistry` / `_bindExtensionCore` / `_applyExtensionBindings` / `_rebuildSystemPrompt` / `_applyToolLoadout` |
+| `AgentSessionEvent` 联合（含 `parentToolCallId`） | `AgentSessionEvents.cs`（新建） | 差异 C147：TS 会话侧直接复用 `AgentEvent` 对象，端口另立联合后需要显式映射 |
+| `AgentSession` 的纯决策半边 | `AgentSession.cs` 拆分 | 事件订阅 / `_emit` / `getMessageRole` / `parseSkillBlock` 等 |
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`AgentSessionBuildTests` 24 项全通过。
+
+### 4e-3e-9h-3 已落地（2026-10-12）：6 个 installer + `_handleAgentEvent` + 生命周期叶子
+
+**新落地（`src/Pi.CodingAgent/Core/AgentSessionInstallers.cs`，1281 行）：**
+
+| TS 符号 | 端口方法 | 说明 |
+| --- | --- | --- |
+| `_installAgentToolHooks`（652） | `InstallAgentToolHooks` | 把 `BeforeToolCall` / `AfterToolCall` 接到 `_beforeToolCall` / `_afterToolCall`（parentToolCallId = null） |
+| `_installAgentNextTurnRefresh`（898） | `InstallAgentNextTurnRefresh` | 包装 `agent.prepareNextTurn`：先压缩门 → 串上一个钩子 → 重算提示词装载（`selectedTools` / `hiddenTools` / snippet / guideline 合并）→ 返回 `AgentLoopTurnUpdate`，`context.tools` 换成 agent 镜像 |
+| `_installAgentRequestProjection`（787） | `InstallAgentRequestProjection` | 请求上下文换成会话投影；虚拟模型时查路由状态、必要时落 `virtual_model_state` 自定义条目、超阈值触发自动压缩 |
+| `_installAgentBoundaryHooks`（886） | `InstallAgentBoundaryHooks` | 包装 `agent.finishTurn`：派发 `turn_end` 边界 → 串上一个钩子 → `ResolveFinishTurnDecision` 合成 `AgentTurnDecision` |
+| `_installHiddenDeclarationsProjection`（1766） | `InstallHiddenDeclarationsProjection` | 包装 `agent.transformContext`：把 `_hiddenDeclarations` 从每条 system 消息的 `toolsAdded` / `toolsRemoved` 里剔除 |
+| `_installAgentForcedPromptProjection`（1786） | `InstallAgentForcedPromptProjection` | 包装 `agent.transformContext`：`_runSystemPromptOptions.forceSystemPrompt` 非空时折成请求头部唯一 system 消息 |
+| `_beforeToolCall` / `_afterToolCall`（658 / 684） | `BeforeToolCallAsync` / `AfterToolCallAsync` | 扩展 `tool_call` / `tool_result` 派发 + 结果图片归一化（在扩展钩子之后跑，故扩展注入的图片也被归一化） |
+| `_executeNestedToolCall`（730） | `ExecuteNestedToolCallAsync` + `SessionNestedToolCallHost` | 工具经 `ctx.executeTool()` 发起的调用走 `NestedToolCallRunner`，事件同时发往扩展与会话监听器 |
+| `_limitsModel` / `_exceedsCompactionThreshold` / `_compactBeforeNextAssistantResponse`（640 / 749 / 771） | 同名方法 | 压缩门取**会话当前模型**（而非被路由到的模型）的按模型覆盖 |
+| `_dispatchTurnEndBoundary`（838）/ `_applyBoundaryDrafts`（944）/ `_createBoundaryPreviewManager`（997）/ `_getPendingBoundaryMessages`（1006）/ `_buildBoundaryContext`（1010）/ `_commitBoundaryDrafts`（1033）/ `_reportInvalidBoundaryContinuation`（1040）/ `_emitAgentSettled`（1085） | 同名方法 | 边界草稿四种（custom / customMessage / contextEdit / compaction）落库 + `entry_appended` 事件 |
+| `_handleAgentEvent`（1102） | `HandleAgentEventAsync` | 嵌套记录回收 → user 消息出队 → `_emitExtensionEvent` → `_emit` → `message_end` 落库 → `turn_end` 冲刷待发自定义消息 |
+| `_willRetryAfterAgentEnd`（1197）/ `_modelForMessage`（615） | `WillRetryAfterAgentEnd` / `ModelForMessage` | 虚拟选择下响应记的是物理模型，按 provider/id 回查目录 |
+| `_replaceMessageInPlace`（1266）/ `_emitExtensionEvent`（1283） | `ReplaceMessageInPlace` / `EmitExtensionEventAsync` | 见差异 C152 / C157 |
+| `_preparePromptAndToolLoadout`（1737）/ `_restoreToolsFromTranscript`（1808） | `PreparePromptAndToolLoadout` / `RestoreToolsFromTranscript` | 见差异 C156 |
+| `_disconnectFromAgent`（1381）/ `dispose`（1393）/ `refreshContext`（1420）/ `abortBash` / `_flushPendingBashMessages`（3924） | `DisconnectFromAgent` / `Dispose` / `RefreshContext` / `AbortBash` / `FlushPendingBashMessages` | 构造器已接线：`_agent.Subscribe(HandleAgentEventAsync)` + 6 个 installer + `BuildRuntime` + `_restoreToolsFromTranscript` |
+
+**本批新登记的 6 处忠实性差异：**
+
+| 编号 | 差异 | 影响 |
+| --- | --- | --- |
+| C152 | `_replaceMessageInPlace` 的**引用同一性**。TS 就地改写消息对象本身（删自有属性 + `Object.assign`），于是 agent 状态、后续事件、监听器与落库共用同一对象、一起看到新内容。端口的消息记录是**不可变快照**，只能换槽位。 | **真实缺口**：`ConditionalWeakTable` 记 target → replacement，并替换 `agent.messages` 里指向 target 的槽位；`HandleAgentEventAsync` 用 replacement 落库、`WithMessage` 投影后续事件。唯一覆盖不到的观察者是 `AgentLoopRunner` 自己的局部变量（TS 靠同一性看到新内容，端口看不到）。 |
+| C153 | `runToolCall` 的「查找用工具集」与「钩子可见上下文」在 TS 是分开的两份（`options.tools` vs `context.tools = agent.state.tools`）；端口的 `ToolExecution.RunToolCallAsync` 从 `context.Tools` 取查找集。 | 端口把可调用集同时作为查找集与上下文工具集传入；在「agent 镜像 ⊇ 可调用集」时无差异。 |
+| C154 | TS 的 `tool_call` 事件 `input` 就是 `args` 本身，处理器**就地改写 input 即可改参数**。端口的 `ExtensionEvent.CustomToolCall.Input` 是 `IReadOnlyDictionary`（9g 的契约决定），既无写入口、也不是同一个对象。 | **真实缺口**：扩展只能用 `ToolCallEventResult` 的 `Block` / `Reason` / `Terminate`，无法改写入参。 |
+| C155 | TS 的 `prepareNextTurnWithContext ?? (prepareNextTurn ? … : undefined)` 三层融合，在端口的 `Agent.PrepareNextTurn` 已合并为单钩子（Pi.Agent 移植时的既定决定）。 | 无行为差异，只剩「串上一个」。 |
+| C156 | TS 就地改写 `options.selectedTools` / `options.hiddenTools`（`NormalizedBuildSystemPromptOptions` 的这两个成员是 `init` 的），端口用 `with` 产出新值并一并返回。 | 无行为差异，只有写法差别。 |
+| C157 | TS 在 `message_end` 替换后把「role ∈ {user, assistant, toolResult, custom} 且 `content == null`」的返回值归一化成 `content: []`；端口这四个 role 的 `Content` 都是非空类型，构造不出 content 缺失的消息。 | 归一化分支**不可达**，端口直接 `ReplaceMessageInPlace(messageEnd.Message, replacement)`。 |
+
+**本批顺延（不阻塞 9h）：**
+
+- **`_runAutoCompaction(reason, willRetry)`**（TS 2985-3120）仍为显式 `NotSupportedException` 缝：它自己还要
+  `_runDefaultCompaction` / `_getSummarizationRequestAuth` / 重试与 `compaction_start|end` 事件，属编排本体。
+  本批两个调用点（`_compactBeforeNextAssistantResponse` 与 `_installAgentRequestProjection`）的上游
+  `prompt` / `compact` 同样是 9h-4 缝，故 9h-3 期间**无可观测差异**。
+- **`_installAgentForcedPromptProjection` 的强制分支不可达**：`_runSystemPromptOptions` 只在 `prompt`
+  编排（9h-4）里被 `before_agent_start` 的结果写入，`_baseSystemPromptOptions.ForceSystemPrompt` 恒为
+  `null`。9h-3 期间该 installer 等价于透传（测试已锁住这一半）。
+- **package manager 的包解析**（`resolvePackageSources` / `packageRoot` / 完整 override 语义）仍为独立缺口。
+
+**新增测试**（`tests/Pi.CodingAgent.Tests/AgentSessionInstallerTests.cs`，26 项）：工具钩子（阻断 / 替换内容 /
+无处理器返回 null / 嵌套 parentToolCallId）、`prepareNextTurn`（镜像 agent 状态 / 串上一个钩子）、
+`prepareRequest`（会话投影 / 可执行工具保留）、`finishTurn`（无处理器 null / 上下文不可继续时上报 / 有排队消息时
+Continue / 上一个 End 优先）、隐藏声明投影（剔除 + 透传）、强制提示词透传、嵌套工具调用端到端（经
+`IExtensionToolContext.ExecuteTool` 并验证两侧事件）、`_handleAgentEvent`（事件族映射 + 落库 / `message_end`
+替换投影与落库 / 工具回合落库 / user 消息出队）、生命周期（dispose 幂等 + 解绑 + 使扩展上下文陈旧 /
+`refreshContext` / `abortBash`）。
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`AgentSessionInstallerTests` 26/26；
+`Pi.CodingAgent.Tests` 全类 **1313 项 / 0 失败**（1287 + 26 项新增）。
+
 ### 4e-3e-9 剩余
 
-- **4e-3e-9h-2c**：`createAllToolDefinitions`（`core/tools/index.ts`）+ `_buildRuntime` +
-  `_refreshToolRegistry` + `_bindExtensionCore`。
-- 之后：9h-3（6 个 installers + `_handleAgentEvent` + 事件类型族）→ 9h-4（9f 顺延的编排本体）。
+- **4e-3e-9h-4**：9f 顺延的编排本体（`prompt` / `compact` / `_runAutoCompaction` /
+  `_handlePostAgentRun` / `_runBeforeSettle` / `createAgentSession` 等）。
+- 之后：4f（模式层 `modes/interactive` + `modes/rpc`，~23.7k 行）→ 4g（入口与实验层 `cli` / `main` /
+  `experimental`，~12k 行）→ evals（1,446 行）。
 - 独立缺口（不阻塞 9h）：package manager 的包解析（`resolvePackageSources`、`packageRoot`、
   完整 override 语义）。
+
 

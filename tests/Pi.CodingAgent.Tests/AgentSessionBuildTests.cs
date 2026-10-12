@@ -354,8 +354,6 @@ public sealed class AgentSessionBuildTests : IDisposable
         var session = await CreateSessionAsync(initialActiveToolNames: []);
         await Assert.ThrowsAsync<NotSupportedException>(() => session.PromptAsync("hi"));
         await Assert.ThrowsAsync<NotSupportedException>(() => session.CompactAsync(null));
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => session.ExecuteNestedToolCallAsync("parent", "read", null, new ExecuteToolOptions()));
     }
 
     [Fact]

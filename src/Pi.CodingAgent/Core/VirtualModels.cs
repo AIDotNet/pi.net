@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Pi.Ai.Api;
 using Pi.Ai.Auth;
@@ -16,10 +17,10 @@ namespace Pi.CodingAgent.Core;
 /// The selection (<c>model_change</c>, <c>agent.state.model</c>, <c>ctx.model</c>) may name a virtual
 /// model. Everything below the routing step only sees physical models: providers stream them and
 /// assistant messages record them. A virtual model never reaches a provider.
-/// /// <para>
-/// Not ported here (needs the 4e session layer, tracked as gap G-4b-VM):
-/// <c>getBranchSelection</c>/<c>getVirtualModelState</c> (need <c>SessionEntry</c>). The
-/// <c>findLatestResponse</c> overload the router needs is ported below over <see cref="ChatMessage"/>.
+/// <para>
+/// 9h-3 兑现了缺口 G-4b-VM 的一半：<c>getVirtualModelState</c>（需要 <c>SessionEntry</c>，此前因
+/// 会话层未落地而顺延）。<c>getBranchSelection</c> 仍留给编排本体（9h-4 的 <c>_recordSelection</c>）。
+/// <c>findLatestResponse</c> 的 router 用重载在下面（<see cref="ChatMessage"/> 版）。
 /// </para>
 /// <para>Difference C40: router state is <see cref="JsonNode"/> (TS <c>TState = unknown</c>, documented as
 /// JSON-serializable), and provider capability checks that TS expresses as absent members surface here as
@@ -38,6 +39,61 @@ public static class VirtualModels
 
     /// <summary>Whether an assistant message names a virtual model (failed routing leaves it on the message).</summary>
     public static bool IsVirtualModel(AssistantMessage message) => message.Api == Api;
+
+    /// <summary>
+    /// Whether the thin runtime model (<see cref="Pi.Ai.Types.Model"/>) names a virtual model.
+    /// 会话的 <c>prepareRequest</c> 投影拿到的模型是 Agent 镜像的瘦形状（差异 C148），
+    /// TS 那边是同一个活对象，故需要这条重载补上判别。
+    /// </summary>
+    public static bool IsVirtualModel(Pi.Ai.Types.Model model) => model.Api == Api;
+
+    /// <summary>
+    /// Latest router state a session branch stores for a virtual model. Port of the TS
+    /// <c>getVirtualModelState</c>；差异 G-4b-VM 的兑现（9h-3 落地，此前记为缺口）。
+    /// </summary>
+    /// <returns>
+    /// 分支上最后一条匹配的自定义条目的 <c>state</c>；无匹配时为 <c>null</c>
+    /// （TS 的 <c>undefined</c>，端口以 <c>JsonNode?</c> 承载，两者在调用点同为「保持当前状态」）。
+    /// </returns>
+    public static JsonNode? GetVirtualModelState(
+        IReadOnlyList<SessionEntry> branch, string provider, string modelId)
+    {
+        for (var i = branch.Count - 1; i >= 0; i--)
+        {
+            if (branch[i] is not CustomEntry entry || entry.CustomType != StateEntry)
+            {
+                continue;
+            }
+
+            // TS 的 `entry.data as VirtualModelStateData | undefined`：载荷不是该形状时按不匹配处理。
+            var data = entry.Data switch
+            {
+                VirtualModelStateData typed => typed,
+                JsonNode node => DeserializeStateData(node),
+                _ => null,
+            };
+            if (data is not null
+                && string.Equals(data.Provider, provider, StringComparison.Ordinal)
+                && string.Equals(data.ModelId, modelId, StringComparison.Ordinal))
+            {
+                return data.State;
+            }
+        }
+
+        return null;
+    }
+
+    private static VirtualModelStateData? DeserializeStateData(JsonNode node)
+    {
+        try
+        {
+            return node.Deserialize<VirtualModelStateData>();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// Latest successful assistant response in <paramref name="messages"/>, skipping failed and aborted turns.
