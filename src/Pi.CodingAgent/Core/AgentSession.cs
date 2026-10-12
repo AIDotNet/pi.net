@@ -77,6 +77,9 @@ public sealed record SessionStats
     public required SessionTokenStats Tokens { get; init; }
 
     public double Cost { get; init; }
+
+    /// <summary>上下文用量；无法判定时为 <c>null</c>。对应 TS <c>SessionStats.contextUsage?</c>。</summary>
+    public Pi.CodingAgent.Core.Extensions.ContextUsage? ContextUsage { get; init; }
 }
 
 /// <summary>对应 TS <c>AgentSessionConfig</c> 的已落地子集。</summary>
@@ -108,7 +111,7 @@ public sealed record AgentSessionConfig
 /// 4e-3e-1：parseSkillBlock。4e-3e-3：getLastAssistantText / cycle。4e-3e-6：slash/skill 展开。
 /// 4e-3e-7：agent_end 重试判定。4e-3e-8：prompt 预检（压缩/流式排队/出队）。prompt 循环主体顺延 4e-3e-9。
 /// </summary>
-public static class AgentSession
+public static partial class AgentSession
 {
     private static readonly Regex SkillBlockPattern = new(
         @"^<skill name=""([^""]+)"" location=""([^""]+)"">\n([\s\S]*?)\n</skill>(?:\n\n([\s\S]+))?$",

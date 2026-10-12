@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-7 + **4e-3e-8 prompt 预检叶子**（2026-10-11）完成；余 4e-3e-9 prompt 循环/完整 createAgentSession/extensions runner。`update`/`hasAvailableUpdate` 未做。`collectBugReport`/streamSimple 顺延 4e-3e-9，完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a 会话统计/工具装载/消息溯源纯逻辑**（2026-10-12）完成；余 4e-3e-9b～g（prompt 主循环 / compaction+retry+bash / 扩展绑定 / 树导航导出 / 会话装配层 / 扩展运行时）。`update`/`hasAvailableUpdate` 未做。`collectBugReport`/streamSimple 顺延 4e-3e-9b，完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -1573,3 +1573,66 @@ branchPrepare / skillsFormat / systemPrompt / systemPromptDiff。
   `IReadOnlyList<ContentBlock>`（string | blocks 联合化是 4e-2b 待办），估算 / 序列化值等价。
 - `{"__pad": {p, n, s}}` 超长 fixture 压缩惯例延续，C# ExpandPads 重建（需 `ReferenceEquals` 防
   JsonNode re-parent）。
+
+## 4e-3e-9a 进度（2026-10-12）：会话统计 / 工具装载 / 消息溯源 的纯逻辑
+
+`core/agent-session.ts`（4,349 行）的实例类需要构造器 + 一组 installers
+（`_installAgentToolHooks` / `_installAgentRequestProjection` / `_installAgentBoundaryHooks` /
+`_installAgentNextTurnRefresh`）才能落地，而那些 installers 属于 prompt 循环与扩展绑定
+（4e-3e-9b～d）。故本批按仓库既有的「叶子先行」惯例，先把**不依赖实例状态**的算法与投影
+抽成显式入参的静态函数，实例层（4e-3e-9b 起）再接线。
+
+新增 / 改动文件：
+
+| 文件 | 内容 |
+|---|---|
+| 新建 `src/Pi.CodingAgent/Core/AgentSessionCore.cs`（约 470 行） | `AgentSession` 的 partial 静态半边；`ToolDefinitionEntry` / `LoadoutHookError` / `ToolLoadoutApplication` 三个记录 |
+| 改 `src/Pi.CodingAgent/Core/AgentSession.cs` | `public static class` → `public static partial class`；`SessionStats` 增 `ContextUsage?` |
+| 新建 `tests/Pi.CodingAgent.Tests/AgentSessionCoreTests.cs`（20 项） | 纯逻辑差分测试 |
+
+已落地（逐条对照 TS）：
+
+| TS | C# | 要点 |
+|---|---|---|
+| `estimateMessagesTokens` | `EstimateMessagesTokens` | 逐消息 `estimateTokens` 求和 |
+| `getSessionStats` | `GetSessionStats` | `usage` / `branch_summary` / `compaction` 三类用量归集 + 消息与工具调用计数 |
+| `getContextUsage` | `GetContextUsage` | 压缩后「无压缩后 usage」→ tokens / percent 双 null；否则走投影估算 |
+| `_getToolExposure` | `GetToolExposure` | 未注册或未声明 → `direct` |
+| `_isAllowedTool` | `IsAllowedTool` | allow / deny 两表 |
+| `_getCallableTools` | `GetCallableToolNames` | 活跃 direct + 全部 codemode / deferred |
+| `_applyToolLoadout` | `ApplyToolLoadout` | 去重 → 剔除 `hidden` → 跑 `prepareLoadout`（描述覆盖 / 隐藏声明 / 异常上报） |
+| `_isDeclarable` / `_isActivatedOnRegistration` | 同名 | `defaultActive !== false` |
+| `_findPersistedMessageEntryId` | `FindPersistedMessageEntryId` | 记忆表 → 分支反查 → 投影下标对齐 |
+| `_omitRecoveryAttempt` 的前置判定 | `HasUnresolvedProjectedTarget` | 投影消息无源条目时 TS 抛错 |
+| `_normalizePromptSnippet` / `_normalizePromptGuidelines` | 同名 | 单行折叠 / trim + 按首次出现去重 |
+
+### 4e-3e-9a 设计差异（文档化）
+
+- **C86**：TS 直接读 `message.usage`（类型必填，缺失会在 `calculateContextTokens` 抛错）；C# 的
+  `AssistantMessage.UsageStats` 可空，按「无 usage 即不计入」处理。
+- **C87**：`_limitsModel()` 的取值由调用方算好后以 `contextWindow` 传入（避免本批拉入 `routedModel`
+  与 `isVirtualModel`）。
+- **C88**：`_getCallableTools` 在 TS 返回 `AgentTool[]`；端口只返回名字，工具对象由
+  `ApplyToolLoadout` 内部按同一规则重建（`BuildCallableTools`）。
+- **C89**：TS 的 `===` / `indexOf` 是**引用同一性**，而 C# record 默认**值相等**——两条内容相同的
+  消息会互相误判，故一律用 `ReferenceEquals`（`FindPersistedMessageEntryId_UsesReferenceIdentityNotValueEquality`
+  专门锁定该语义）。
+- **C90**：`_entryIdsByMessage`（`WeakMap`）的记忆命中项由调用方以 `memoizedId` 传入，端口不自持该表。
+- **C91**：TS `.trim()` 用 JS 空白集，此处用 .NET `Trim()`（多含 U+0085 等少数码点）；前置的 `\s+`
+  折叠已把 JS 空白压成普通空格，实际差异仅剩「整串只由 .NET 特有空白构成」。
+- `ContextUsage` **不另建**：TS 的 `ContextUsage` 定义在 `core/extensions/types.ts`，端口已在
+  `Core/Extensions/ExtensionContexts.cs` 落地，本批直接复用（首版误建同名类型触发 CS0104）。
+- `ToolDefinition` 在 `Pi.Ai.Types`（AI 层元数据声明）与 `Pi.CodingAgent.Core.Extensions`（可执行
+  工具定义）各有一个，本文件用 `using` 别名钉死为后者。
+
+### 4e-3e-9a 验证
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- `Pi.CodingAgent.Tests` → **1002 项（新增 20）/ 1002 通过 / 0 失败**。
+
+### 4e-3e-9 剩余
+
+4e-3e-9b prompt 主循环 → 4e-3e-9c compaction / retry / bash → 4e-3e-9d 扩展绑定与运行时重建 →
+4e-3e-9e 树导航 / 导出 / 报告 → 4e-3e-9f 会话装配层（`agent-session-services` / `agent-session-runtime`
+/ `sdk`）→ 4e-3e-9g 扩展运行时（`extensions/runner` / `loader` 剩余）。
+
