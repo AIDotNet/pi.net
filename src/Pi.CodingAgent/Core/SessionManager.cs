@@ -29,7 +29,12 @@ namespace Pi.CodingAgent.Core;
 /// <summary>
 /// 以 append-only 树的形式管理会话（JSONL 文件）。对应 TS <c>SessionManager</c>。
 /// </summary>
-public sealed partial class SessionManager
+/// <remarks>
+/// 4e-3e-9h-2c 起实现 <see cref="Pi.CodingAgent.Core.Extensions.Types.IReadonlySessionManager"/>
+/// （扩展运行时 <c>ExtensionRunner</c> 构造入参）。TS 的 ReadonlySessionManager 是结构类型——
+/// SessionManager 天然满足；C# 需要显式声明，占位注释（"4e/4f 接入后替换"）在此兑现。
+/// </remarks>
+public sealed partial class SessionManager : Pi.CodingAgent.Core.Extensions.Types.IReadonlySessionManager
 {
     private string _sessionId = "";
     private string? _sessionFile;
@@ -42,6 +47,14 @@ public sealed partial class SessionManager
     /// <summary>条目索引。TS <c>byId: Map</c>；伴随的 <see cref="_byIdOrder"/> 复现 Map 的插入序迭代。</summary>
     private readonly Dictionary<string, SessionEntry> _byId = new(StringComparer.Ordinal);
     private readonly List<string> _byIdOrder = [];
+
+    // ---- IReadonlySessionManager（显式实现，避免与同名方法混淆） ----
+
+    string Pi.CodingAgent.Core.Extensions.Types.IReadonlySessionManager.SessionId => GetSessionId();
+
+    string? Pi.CodingAgent.Core.Extensions.Types.IReadonlySessionManager.SessionFile => GetSessionFile();
+
+    IReadOnlyList<SessionEntry> Pi.CodingAgent.Core.Extensions.Types.IReadonlySessionManager.Entries => GetEntries();
 
     /// <summary>标签索引。TS <c>labelsById</c>/<c>labelTimestampsById</c>；同样维护插入序。</summary>
     private readonly Dictionary<string, string> _labelsById = new(StringComparer.Ordinal);

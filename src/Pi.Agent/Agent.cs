@@ -59,7 +59,11 @@ public sealed class Agent
     // ---------- 状态（对应 TS AgentState） ----------
 
     /// <summary>当前对话 transcript（replay 基线：首条 system 消息保留 prompt 与工具声明）。</summary>
-    public IReadOnlyList<ChatMessage> Messages => _messages;
+    /// <remarks>
+    /// 赋值替换整个集合。TS 的 <c>agent.state.messages = …</c> 是会话投影（4e-3e-9h-2c 的
+    /// <c>_refreshFinalizedContext</c>）与请求投影的写入点；与 <see cref="Tools"/> 同款语义。
+    /// </remarks>
+    public IReadOnlyList<ChatMessage> Messages { get => _messages; set { _messages.Clear(); _messages.AddRange(value); } }
 
     /// <summary>当前使用的模型。</summary>
     public Model Model { get => _model; set => _model = value; }

@@ -1,8 +1,13 @@
 using System.Text.RegularExpressions;
+using Pi.Agent.Types;
 using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Ai.Utils;
+using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Utils;
+// `ToolDefinition` 在 Pi.Ai.Types（AI 层的元数据声明）与 Pi.CodingAgent.Core.Extensions（可执行工具定义）
+// 各有一个，本文件的语义一律是后者。
+using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
 
 namespace Pi.CodingAgent.Core;
 
@@ -82,9 +87,19 @@ public sealed record SessionStats
     public Pi.CodingAgent.Core.Extensions.ContextUsage? ContextUsage { get; init; }
 }
 
-/// <summary>对应 TS <c>AgentSessionConfig</c> 的已落地子集。</summary>
+/// <summary>对应 TS <c>AgentSessionConfig</c>。</summary>
+/// <remarks>
+/// 差异 C148：TS 的 <c>agent</c> 是 pi-agent-core 的 <see cref="Pi.Agent.Agent"/> 实例；
+/// TS 的 <c>Model&lt;any&gt;</c> 在端口分成 <see cref="Pi.Ai.Models.ModelSpec"/>（会话/目录层流通的
+/// 运行时形状）与 <see cref="Pi.Ai.Types.Model"/>（Agent 低层持有的瘦形状，经
+/// <see cref="CompatShims.ToModel"/> 桥接），会话自己的模型状态（<c>Model</c> getter / 扩展
+/// <c>getModel</c>）以 <see cref="Pi.Ai.Models.ModelSpec"/> 为准——与 9h-2 的
+/// <c>IExtensionContext.Model</c> 统一口径一致。
+/// </remarks>
 public sealed record AgentSessionConfig
 {
+    public required Pi.Agent.Agent Agent { get; init; }
+
     public required SessionManager SessionManager { get; init; }
 
     public required SettingsManager SettingsManager { get; init; }
@@ -95,15 +110,35 @@ public sealed record AgentSessionConfig
 
     public required ModelRuntime ModelRuntime { get; init; }
 
+    /// <summary>Ctrl+P 循环用的模型组（TS <c>scopedModels</c>，<c>--models</c> 旗标）。</summary>
+    public IReadOnlyList<ScopedModel>? ScopedModels { get; init; }
+
+    /// <summary>SDK 在扩展之外注册的自定义工具（TS <c>customTools</c>）。</summary>
+    public IReadOnlyList<ToolDefinition>? CustomTools { get; init; }
+
+    /// <summary>保持上一条请求的提示缓存温热（TS <c>cacheWarmer</c>）。</summary>
+    public CacheWarmer? CacheWarmer { get; init; }
+
+    /// <summary>初始活跃内置工具名。默认 read/bash/edit/write（TS <c>initialActiveToolNames</c>）。</summary>
     public IReadOnlyList<string>? InitialActiveToolNames { get; init; }
 
+    /// <summary>初始工具是否来自 <c>defaultTools</code> 设置（TS <c>usesDefaultTools</c>）。</summary>
     public bool UsesDefaultTools { get; init; }
 
-    public IReadOnlyList<string>? DefaultToolModifiers { get; init; }
-
+    /// <summary><c>--tools</c> allowlist：工具名或 <c>*</c> 模式（TS <c>allowedToolNames</c>）。</summary>
     public IReadOnlyList<string>? AllowedToolNames { get; init; }
 
+    /// <summary><c>--exclude-tools</c> denylist（TS <c>excludedToolNames</c>）。</summary>
     public IReadOnlyList<string>? ExcludedToolNames { get; init; }
+
+    /// <summary>覆盖内置工具（自定义运行时用；TS <c>baseToolsOverride</c>）。</summary>
+    public IReadOnlyDictionary<string, AgentTool>? BaseToolsOverride { get; init; }
+
+    /// <summary>Agent 侧读取当前 ExtensionRunner 的可变引用（TS <c>extensionRunnerRef</c>）。</summary>
+    public ExtensionRunnerRef? ExtensionRunnerRef { get; init; }
+
+    /// <summary>扩展绑定本运行时发出的 session_start 元数据（TS <c>sessionStartEvent</c>）。</summary>
+    public ExtensionEvent.SessionStart? SessionStartEvent { get; init; }
 }
 
 /// <summary>
