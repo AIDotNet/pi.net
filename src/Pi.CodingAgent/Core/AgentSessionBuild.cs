@@ -353,11 +353,11 @@ public partial class AgentSession
     /// <summary>TS <c>get messages()</c>：含 bash / custom 等全部消息。</summary>
     public IReadOnlyList<ChatMessage> Messages => _agent.Messages;
 
-    /// <summary>TS <c>get steeringMode()</c>。</summary>
-    public string SteeringMode => _agent.SteeringMode.ToString();
+    /// <summary>TS <c>get steeringMode()</c>：<c>"all" | "one-at-a-time"</c>（差异 C158）。</summary>
+    public string SteeringMode => QueueModes.ToText(_agent.SteeringMode);
 
-    /// <summary>TS <c>get followUpMode()</c>。</summary>
-    public string FollowUpMode => _agent.FollowUpMode.ToString();
+    /// <summary>TS <c>get followUpMode()</c>：<c>"all" | "one-at-a-time"</c>（差异 C158）。</summary>
+    public string FollowUpMode => QueueModes.ToText(_agent.FollowUpMode);
 
     /// <summary>TS <c>get sessionFile()</c>。</summary>
     public string? SessionFile => SessionManager.GetSessionFile();
