@@ -167,6 +167,30 @@ public static class SystemPrompt
             Skills = [.. (input.Skills ?? [])],
         };
 
+    /// <summary>
+    /// Widen the collection-complete shape back to the input shape. TS gets this for free from
+    /// structural typing — <c>NormalizedBuildSystemPromptOptions</c> is an intersection type that
+    /// still satisfies <c>BuildSystemPromptOptions</c>, so <c>buildSystemPrompt(normalized)</c>
+    /// type-checks. C# records are nominal, so the widening is an explicit call. Only the caller
+    /// knows it has normalized the input, hence no implicit conversion.
+    /// </summary>
+    public static BuildSystemPromptOptions ToBuildSystemPromptOptions(NormalizedBuildSystemPromptOptions input) =>
+        new()
+        {
+            CustomPrompt = input.CustomPrompt,
+            ForceSystemPrompt = input.ForceSystemPrompt,
+            SelectedTools = input.SelectedTools,
+            HiddenTools = input.HiddenTools,
+            ToolSnippets = input.ToolSnippets,
+            ToolGuidelines = input.ToolGuidelines,
+            PromptGuidelines = input.PromptGuidelines,
+            AppendSystemPrompt = input.AppendSystemPrompt,
+            Sections = input.Sections,
+            Cwd = input.Cwd,
+            ContextFiles = input.ContextFiles,
+            Skills = input.Skills,
+        };
+
     private static string RenderProjectContext(IReadOnlyList<ContextFile> contextFiles) =>
         string.Join("\n\n",
         [

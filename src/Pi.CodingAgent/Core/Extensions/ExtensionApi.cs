@@ -375,7 +375,7 @@ public interface IExtensionApi
     // ---- Provider registration ----
 
     /// <summary>Register or override a native pi-ai provider.</summary>
-    void RegisterProvider(Provider provider);
+    void RegisterProvider(IProvider provider);
 
     /// <summary>Register or override a provider from extension configuration.</summary>
     void RegisterProvider(string name, ProviderConfigInput config);

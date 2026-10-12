@@ -217,10 +217,14 @@ public static partial class AgentLoop
 
         // TS 这里固定 content: ""（工具变更只由 toolsAdded 承载）；端口额外把变更写进 content，
         // 便于模型理解——差异记入 Pi.Agent 的移植差异表。
+        // Timestamp 必须给出：TS 的 SystemMessage.timestamp 是必填字段（这里写 Date.now()），而
+        // Transcript.GetCurrentSystemMessage 只在「没有任何带时间戳的 system 消息且没有工具」时才判定
+        // 前导 system 消息不存在——端口把 Timestamp 放宽为可空，漏写就会让该消息被当成不存在。
         var changeNote = BuildToolChangeNote(added, removed);
         var declaration = new SystemMessage(
             Content: changeNote,
-            ToolsAdded: newDeclaration);
+            ToolsAdded: newDeclaration,
+            Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         var withInsert = pendingMessages.ToList();
         withInsert.Insert(insertIndex, declaration);
         return withInsert;

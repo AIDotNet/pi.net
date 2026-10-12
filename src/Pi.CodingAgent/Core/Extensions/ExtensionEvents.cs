@@ -146,6 +146,58 @@ public static class ExtensionEventNames
     public const string Input = "input";
     public const string ToolCall = "tool_call";
     public const string ToolResult = "tool_result";
+
+    /// <summary>
+    /// The wire name of <paramref name="event"/>. Replaces the TS <c>event.type</c> discriminant:
+    /// the runner keys handlers by name, so every dispatch needs it. The <c>tool_call</c> and
+    /// <c>tool_result</c> unions share one name across all their variants, as in TS.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The event type has no wire name.</exception>
+    public static string For(ExtensionEvent @event) => @event switch
+    {
+        ExtensionEvent.ProjectTrust => ProjectTrust,
+        ExtensionEvent.ResourcesDiscover => ResourcesDiscover,
+        ExtensionEvent.McpServersChange => McpServersChange,
+        ExtensionEvent.SessionStart => SessionStart,
+        ExtensionEvent.SessionInfoChanged => SessionInfoChanged,
+        ExtensionEvent.SessionBeforeSwitch => SessionBeforeSwitch,
+        ExtensionEvent.SessionBeforeFork => SessionBeforeFork,
+        ExtensionEvent.SessionBeforeCompact => SessionBeforeCompact,
+        ExtensionEvent.SessionCompact => SessionCompact,
+        ExtensionEvent.SessionCompactFailed => SessionCompactFailed,
+        ExtensionEvent.SessionShutdown => SessionShutdown,
+        ExtensionEvent.SessionBeforeTree => SessionBeforeTree,
+        ExtensionEvent.SessionTree => SessionTree,
+        ExtensionEvent.ContextEvent => Context,
+        ExtensionEvent.ContextWithSystemEvent => ContextWithSystem,
+        ExtensionEvent.CacheWarmingDecision => CacheWarmingDecision,
+        ExtensionEvent.BeforeProviderRequest => BeforeProviderRequest,
+        ExtensionEvent.BeforeProviderHeaders => BeforeProviderHeaders,
+        ExtensionEvent.AfterProviderResponse => AfterProviderResponse,
+        ExtensionEvent.ProviderStream => ProviderStreamEvent,
+        ExtensionEvent.BeforeAgentStart => BeforeAgentStart,
+        ExtensionEvent.AgentStart => AgentStart,
+        ExtensionEvent.AgentEnd => AgentEnd,
+        ExtensionEvent.AgentBeforeSettle => AgentBeforeSettle,
+        ExtensionEvent.AgentSettled => AgentSettled,
+        ExtensionEvent.UiPromptStart => UiPromptStart,
+        ExtensionEvent.UiPromptEnd => UiPromptEnd,
+        ExtensionEvent.TurnStart => TurnStart,
+        ExtensionEvent.TurnEnd => TurnEnd,
+        ExtensionEvent.MessageStart => MessageStart,
+        ExtensionEvent.MessageUpdate => MessageUpdate,
+        ExtensionEvent.MessageEnd => MessageEnd,
+        ExtensionEvent.ToolExecutionStart => ToolExecutionStart,
+        ExtensionEvent.ToolExecutionUpdate => ToolExecutionUpdate,
+        ExtensionEvent.ToolExecutionEnd => ToolExecutionEnd,
+        ExtensionEvent.ModelSelect => ModelSelect,
+        ExtensionEvent.ThinkingLevelSelect => ThinkingLevelSelect,
+        ExtensionEvent.UserBash => UserBash,
+        ExtensionEvent.InputEvent => Input,
+        IToolCallEvent => ToolCall,
+        IToolResultEvent => ToolResult,
+        _ => throw new ArgumentOutOfRangeException(nameof(@event), @event.GetType().Name, "Unknown extension event type"),
+    };
 }
 
 /// <summary>Marker for the TS <c>SessionEvent</c> subgroup of <see cref="ExtensionEvent"/>.</summary>
@@ -155,7 +207,87 @@ public interface ISessionEvent;
 public interface IToolCallEvent;
 
 /// <summary>Marker for the TS <c>ToolResultEvent</c> subgroup of <see cref="ExtensionEvent"/>.</summary>
-public interface IToolResultEvent;
+/// <remarks>
+/// Difference C117: TS's <c>tool_result</c> handlers mutate the event's fields in place, so the
+/// runner only needs the field *names*, which a marker interface would not provide. The port's
+/// records are immutable, so the interface exposes the five patchable fields read-only and the
+/// runner merges a handler's <see cref="ToolResultEventResult"/> into locals instead of mutating.
+/// <c>details</c> is erased to <see cref="object"/> because each variant narrows it.
+/// </remarks>
+public interface IToolResultEvent
+{
+    IReadOnlyList<ContentBlock> Content { get; }
+
+    /// <summary>Tool-specific details, erased: each variant declares its own concrete type.</summary>
+    object? Details { get; }
+
+    JsonNode? StructuredContent { get; }
+
+    bool IsError { get; }
+
+    Usage? UsageStats { get; }
+
+    /// <summary>
+    /// Apply one handler's patch and return the event the next handler sees. TS spreads the event
+    /// into a mutable object and assigns each present field in place, so later handlers observe
+    /// earlier handlers' changes; the port's records are immutable, so each variant rebuilds itself.
+    /// </summary>
+    IToolResultEvent ApplyResultPatch(ToolResultEventResult patch);
+}
+
+/// <summary>
+/// The four patchable <c>tool_result</c> fields whose types are identical across every variant of the
+/// union. Keeps the merge order — and the "replacing content drops structured content that was not
+/// replaced with it" rule — in one place, so the nine
+/// <see cref="IToolResultEvent.ApplyResultPatch"/> implementations cannot drift apart.
+/// </summary>
+public readonly record struct ToolResultFields(
+    IReadOnlyList<ContentBlock> Content,
+    JsonNode? StructuredContent,
+    bool IsError,
+    Usage? UsageStats)
+{
+    /// <summary>Merge <paramref name="patch"/> into the given values, in the TS assignment order.</summary>
+    /// <remarks>
+    /// Difference C118: TS tests <c>field !== undefined</c>, so a handler can pass an explicit
+    /// <c>null</c> to clear <c>structuredContent</c> or <c>details</c>. A nullable C# member cannot
+    /// distinguish "absent" from "explicitly null", so <c>null</c> means "leave unchanged" here.
+    /// </remarks>
+    public static ToolResultFields Merge(
+        IReadOnlyList<ContentBlock> content,
+        JsonNode? structuredContent,
+        bool isError,
+        Usage? usage,
+        ToolResultEventResult patch)
+    {
+        if (patch.Content is not null)
+        {
+            content = patch.Content;
+            // Structured content that is not replaced along with the content may no longer match it.
+            if (patch.StructuredContent is null)
+            {
+                structuredContent = null;
+            }
+        }
+
+        if (patch.StructuredContent is not null)
+        {
+            structuredContent = patch.StructuredContent;
+        }
+
+        if (patch.IsError is not null)
+        {
+            isError = patch.IsError.Value;
+        }
+
+        if (patch.UsageStats is not null)
+        {
+            usage = patch.UsageStats;
+        }
+
+        return new ToolResultFields(content, structuredContent, isError, usage);
+    }
+}
 
 /// <summary>
 /// Union of all extension event types. Port of the TS <c>ExtensionEvent</c> union; the variants
@@ -237,8 +369,17 @@ public abstract record ExtensionEvent
     /// <summary>TS <c>ContextWithSystemEvent</c>.</summary>
     public sealed record ContextWithSystemEvent(IReadOnlyList<ChatMessage> Messages) : ExtensionEvent;
 
-    /// <summary>TS <c>CacheWarmingDecisionEvent</c> — 4e 占位，见 <see cref="Types.CacheWarmingDecisionEvent"/>。</summary>
-    // (cache-warmer.ts 尚未移植；占位事件记录在 Types/Placeholders.cs)
+    /// <summary>
+    /// TS <c>CacheWarmingDecisionEvent</c>: fired before each cache refresh with pi's own decision
+    /// already filled in. A handler may override <paramref name="Action"/> via
+    /// <see cref="CacheWarmingDecisionEventResult"/>.
+    /// </summary>
+    public sealed record CacheWarmingDecision(
+        double WarmCost,
+        double MissCost,
+        double ContinuationProbability,
+        string Action) : ExtensionEvent;
+
     /// <summary>TS <c>BeforeProviderRequestEvent</c>. Can replace the payload.</summary>
     public sealed record BeforeProviderRequest(object? Payload) : ExtensionEvent;
 
@@ -416,7 +557,23 @@ public abstract record ExtensionEvent
         BashToolDetails? Details = null,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        object? IToolResultEvent.Details => Details;
+
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                Details = patch.Details as BashToolDetails ?? Details,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 
     /// <summary>TS <c>PowerShellToolResultEvent</c>.</summary>
     public sealed record PowerShellToolResult(
@@ -427,7 +584,23 @@ public abstract record ExtensionEvent
         BashToolDetails? Details = null,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        object? IToolResultEvent.Details => Details;
+
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                Details = patch.Details as BashToolDetails ?? Details,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 
     /// <summary>TS <c>ReadToolResultEvent</c>.</summary>
     public sealed record ReadToolResult(
@@ -438,7 +611,23 @@ public abstract record ExtensionEvent
         ReadToolDetails? Details = null,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        object? IToolResultEvent.Details => Details;
+
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                Details = patch.Details as ReadToolDetails ?? Details,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 
     /// <summary>TS <c>EditToolResultEvent</c>.</summary>
     public sealed record EditToolResult(
@@ -449,7 +638,23 @@ public abstract record ExtensionEvent
         EditToolDetails? Details = null,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        object? IToolResultEvent.Details => Details;
+
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                Details = patch.Details as EditToolDetails ?? Details,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 
     /// <summary>TS <c>WriteToolResultEvent</c>. TS types <c>details</c> as always-undefined, so the port omits it.</summary>
     public sealed record WriteToolResult(
@@ -459,7 +664,23 @@ public abstract record ExtensionEvent
         bool IsError,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        object? IToolResultEvent.Details => null;
+
+        /// <summary>TS lets a handler add <c>details</c> to this variant even though it is typed as always-undefined; a C# record cannot gain a property, so the patch is dropped.</summary>
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 
     /// <summary>TS <c>GrepToolResultEvent</c>.</summary>
     public sealed record GrepToolResult(
@@ -470,7 +691,23 @@ public abstract record ExtensionEvent
         GrepToolDetails? Details = null,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        object? IToolResultEvent.Details => Details;
+
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                Details = patch.Details as GrepToolDetails ?? Details,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 
     /// <summary>TS <c>FindToolResultEvent</c>.</summary>
     public sealed record FindToolResult(
@@ -481,7 +718,23 @@ public abstract record ExtensionEvent
         FindToolDetails? Details = null,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        object? IToolResultEvent.Details => Details;
+
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                Details = patch.Details as FindToolDetails ?? Details,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 
     /// <summary>TS <c>LsToolResultEvent</c>.</summary>
     public sealed record LsToolResult(
@@ -492,7 +745,23 @@ public abstract record ExtensionEvent
         LsToolDetails? Details = null,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        object? IToolResultEvent.Details => Details;
+
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                Details = patch.Details as LsToolDetails ?? Details,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 
     /// <summary>TS <c>CustomToolResultEvent</c>.</summary>
     public sealed record CustomToolResult(
@@ -504,7 +773,21 @@ public abstract record ExtensionEvent
         object? Details = null,
         JsonNode? StructuredContent = null,
         Usage? UsageStats = null,
-        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent;
+        string? ParentToolCallId = null) : ExtensionEvent, IToolResultEvent
+    {
+        public IToolResultEvent ApplyResultPatch(ToolResultEventResult patch)
+        {
+            var merged = ToolResultFields.Merge(Content, StructuredContent, IsError, UsageStats, patch);
+            return this with
+            {
+                Content = merged.Content,
+                Details = patch.Details ?? Details,
+                StructuredContent = merged.StructuredContent,
+                IsError = merged.IsError,
+                UsageStats = merged.UsageStats,
+            };
+        }
+    };
 }
 
 /// <summary>Preparation data for tree navigation. TS <c>TreePreparation</c>.</summary>
@@ -645,11 +928,26 @@ public sealed record ToolCallEventResult
 }
 
 /// <summary>TS <c>UserBashEventResult</c> union (operations XOR result).</summary>
+/// <remarks>
+/// Difference C116: the TS union's <c>operations</c> member is typed with <c>BashOperations</c> from
+/// <c>tools/bash.ts</c>. The port uses the already-ported <see cref="IBashToolOperations"/> (4d/4e)
+/// instead of a second placeholder of the same shape, so a handler that returns custom operations
+/// hands back the real remote-execution backend.
+/// </remarks>
 public abstract record UserBashEventResult
 {
-    public sealed record WithOperations(BashOperations Operations) : UserBashEventResult;
+    public sealed record WithOperations(IBashToolOperations Operations) : UserBashEventResult;
 
     public sealed record WithResult(BashResult Result) : UserBashEventResult;
+}
+
+/// <summary>
+/// TS <c>CacheWarmingDecisionEventResult</c>: an override for pi's warm-or-stop decision.
+/// </summary>
+public sealed record CacheWarmingDecisionEventResult
+{
+    /// <summary><see cref="CacheWarmingAction.Warm"/> or <see cref="CacheWarmingAction.Stop"/>.</summary>
+    public string? Action { get; init; }
 }
 
 /// <summary>TS <c>ToolResultEventResult</c>.</summary>
@@ -680,14 +978,25 @@ public sealed record BeforeAgentStartEventResult
     public string? SystemPrompt { get; init; }
 }
 
+/// <summary>
+/// Common surface of the four <c>session_before_*</c> results. TS models them as a union and
+/// <c>ExtensionRunner.emit</c> only ever reads <c>cancel</c> generically; the port keeps that
+/// generic read available through this interface while the four records stay distinct.
+/// </summary>
+public interface ISessionBeforeResult
+{
+    /// <summary>Cancel the pending operation.</summary>
+    bool? Cancel { get; }
+}
+
 /// <summary>TS <c>SessionBeforeSwitchResult</c>.</summary>
-public sealed record SessionBeforeSwitchResult
+public sealed record SessionBeforeSwitchResult : ISessionBeforeResult
 {
     public bool? Cancel { get; init; }
 }
 
 /// <summary>TS <c>SessionBeforeForkResult</c>.</summary>
-public sealed record SessionBeforeForkResult
+public sealed record SessionBeforeForkResult : ISessionBeforeResult
 {
     public bool? Cancel { get; init; }
 
@@ -695,7 +1004,7 @@ public sealed record SessionBeforeForkResult
 }
 
 /// <summary>TS <c>SessionBeforeCompactResult</c>.</summary>
-public sealed record SessionBeforeCompactResult
+public sealed record SessionBeforeCompactResult : ISessionBeforeResult
 {
     public bool? Cancel { get; init; }
 
@@ -703,7 +1012,7 @@ public sealed record SessionBeforeCompactResult
 }
 
 /// <summary>TS <c>SessionBeforeTreeResult</c>.</summary>
-public sealed record SessionBeforeTreeResult
+public sealed record SessionBeforeTreeResult : ISessionBeforeResult
 {
     public bool? Cancel { get; init; }
 

@@ -1,4 +1,4 @@
-using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Core.Extensions;
 
 namespace Pi.CodingAgent.Core;
 
@@ -11,54 +11,13 @@ public static class AppModes
     public const string Rpc = "rpc";
 }
 
-/// <summary>
-/// The UI surface the trust prompt needs. Port of the <c>ui</c> member of the TS
-/// <c>ProjectTrustContext</c>.
-/// </summary>
-public interface IProjectTrustUi
-{
-    /// <summary>Whether a UI is available at all; without one the trust prompt is skipped.</summary>
-    bool HasUI { get; }
-
-    /// <summary>Ask the user to pick one label; null when the prompt is dismissed.</summary>
-    Task<string?> SelectAsync(
-        string prompt,
-        IReadOnlyList<string> options,
-        CancellationToken cancellationToken = default);
-}
-
-/// <summary>Port of the TS <c>ProjectTrustContext</c>.</summary>
-public sealed record ProjectTrustContext(IProjectTrustUi Ui)
-{
-    public bool HasUI => Ui.HasUI;
-}
-
-/// <summary>
-/// Marker for the loaded-extensions handle the trust gate consults. The TS signature takes
-/// <c>LoadExtensionsResult</c>, which belongs to the extension system (sub-phase 4d); the coding agent
-/// declares the seam here so the trust gate can land before it, and 4d's result type implements this.
-/// </summary>
-public interface IProjectTrustExtensions
-{
-}
-
-/// <summary>An extension error surfaced while emitting <c>project_trust</c>. Port of the TS error entry.</summary>
-public sealed record ProjectTrustExtensionError(string ExtensionPath, string Error);
-
-/// <summary>What an extension decided for the <c>project_trust</c> event.</summary>
-public sealed record ProjectTrustEventOutcome(bool Trusted, bool Remember);
-
-/// <summary>
-/// Emits the <c>project_trust</c> event to the loaded extensions and reports their outcome. The real
-/// implementation is <c>core/extensions/runner.ts</c>, which lands in sub-phase 4d; until then the seam
-/// is left unset and the trust gate falls through to the stored decision.
-/// </summary>
-public delegate Task<(ProjectTrustEventOutcome? Result, IReadOnlyList<ProjectTrustExtensionError> Errors)>
-    ProjectTrustEventEmitter(
-        IProjectTrustExtensions extensionsResult,
-        string cwd,
-        ProjectTrustContext context,
-        CancellationToken cancellationToken);
+// The seam types this file used to declare (`IProjectTrustUi`, `ProjectTrustContext`,
+// `IProjectTrustExtensions`, `ProjectTrustExtensionError`, `ProjectTrustEventOutcome`,
+// `ProjectTrustEventEmitter`) are gone: TS declares a single `ProjectTrustContext` in
+// core/extensions/types.ts and a single error type (`ExtensionError`), and both now have faithful ports
+// in Pi.CodingAgent.Core.Extensions. Keeping the seam alongside them meant two records with the same TS
+// name but different shapes, which shadowed each other at every use site (and collapsed TS's
+// `trusted: "yes" | "no"` string into a bool one layer too early).
 
 /// <summary>Options for <see cref="ProjectTrust.ResolveProjectTrustedAsync"/>. Port of <c>ResolveProjectTrustedOptions</c>.</summary>
 public sealed record ResolveProjectTrustedOptions
@@ -72,14 +31,12 @@ public sealed record ResolveProjectTrustedOptions
 
     public string? DefaultProjectTrust { get; init; }
 
-    public IProjectTrustExtensions? ExtensionsResult { get; init; }
+    /// <summary>Loaded extensions whose <c>project_trust</c> handlers get the first say, when present.</summary>
+    public LoadExtensionsResult? ExtensionsResult { get; init; }
 
     public required ProjectTrustContext ProjectTrustContext { get; init; }
 
     public Action<string>? OnExtensionError { get; init; }
-
-    /// <summary>Emits the <c>project_trust</c> extension event. Unset until the extension system lands (4d).</summary>
-    public ProjectTrustEventEmitter? EmitProjectTrustEvent { get; init; }
 }
 
 /// <summary>Port of <c>core/project-trust.ts</c>.</summary>
@@ -101,13 +58,14 @@ public static class ProjectTrust
         if (options.TrustOverride is bool overrideValue) return overrideValue;
         if (!TrustManager.HasTrustRequiringProjectResources(options.Cwd)) return true;
 
-        if (options.ExtensionsResult is not null && options.EmitProjectTrustEvent is not null)
+        if (options.ExtensionsResult is { } extensionsResult)
         {
-            var (result, errors) = await options.EmitProjectTrustEvent(
-                options.ExtensionsResult,
-                options.Cwd,
-                options.ProjectTrustContext,
-                cancellationToken).ConfigureAwait(false);
+            // TS calls the imported `emitProjectTrustEvent` directly; there is no injectable hook, so the
+            // port does the same now that runner.ts has landed.
+            var (result, errors) = await ExtensionRunner.EmitProjectTrustEventAsync(
+                extensionsResult,
+                new ExtensionEvent.ProjectTrust(options.Cwd),
+                options.ProjectTrustContext).ConfigureAwait(false);
             foreach (var error in errors)
             {
                 options.OnExtensionError?.Invoke(
@@ -116,8 +74,10 @@ public static class ProjectTrust
 
             if (result is not null)
             {
-                if (result.Remember) options.TrustStore.Set(options.Cwd, result.Trusted);
-                return result.Trusted;
+                // TS: `const trusted = result.trusted === "yes"`.
+                var trusted = result.Trusted == ProjectTrustDecision.Yes;
+                if (result.Remember == true) options.TrustStore.Set(options.Cwd, trusted);
+                return trusted;
             }
         }
 
@@ -153,8 +113,8 @@ public static class ProjectTrust
     {
         var options = TrustManager.GetProjectTrustOptions(cwd, includeSessionOnly: true);
         var labels = options.Select(option => option.Label).ToList();
-        var selected = await context.Ui.SelectAsync(FormatProjectTrustPrompt(cwd), labels, cancellationToken)
-            .ConfigureAwait(false);
+        var selected = await context.Ui.Select(FormatProjectTrustPrompt(cwd), labels, null)
+            .WaitAsync(cancellationToken).ConfigureAwait(false);
         return selected is null ? null : options.FirstOrDefault(option => option.Label == selected);
     }
 

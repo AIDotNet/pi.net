@@ -8,6 +8,7 @@
 
 using System.Text.Json.Nodes;
 using Pi.Agent.Types;
+using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions.Types;
@@ -16,8 +17,15 @@ namespace Pi.CodingAgent.Core.Extensions;
 
 /// <summary>
 /// The loader's runtime: shared state plus throwing action stubs. The runner replaces the stubs
-/// when it binds (sub-phase 4e). Port of the object <c>createExtensionRuntime</c> returns.
+/// when it binds (sub-phase 4e-3e-9g). Port of the object <c>createExtensionRuntime</c> returns.
 /// </summary>
+/// <remarks>
+/// TS <c>createExtensionRuntime</c> returns a plain object whose action properties the runner
+/// overwrites in place. The port cannot reassign interface methods, so the actions live in the
+/// <see cref="ExtensionActions"/> bag that <see cref="BindActions"/> installs and every method
+/// forwards to; before the bind the forwarding target is missing and the method throws exactly like
+/// the TS stub. <c>refreshTools</c> is the one exception: TS stubs it as a no-op, not a throw.
+/// </remarks>
 internal sealed class ExtensionRuntimeImpl : IExtensionRuntime
 {
     private static InvalidOperationException NotInitialized() => new(
@@ -25,6 +33,17 @@ internal sealed class ExtensionRuntimeImpl : IExtensionRuntime
 
     private string? staleMessage;
     private readonly HashSet<Action> eventBusUnsubscribers = [];
+    private ExtensionActions? actions;
+    private Func<IExtensionContext>? contextFactory;
+    private ProviderRegistration? providerRegistration;
+
+    /// <summary>The five post-bind provider registration delegates, all non-null.</summary>
+    private sealed record ProviderRegistration(
+        Action<string, ProviderConfigInput> RegisterProvider,
+        Action<IProvider> RegisterNativeProvider,
+        Action<string> UnregisterProvider,
+        Action<VirtualModelDefinition> RegisterVirtualModel,
+        Action<string, string> UnregisterVirtualModel);
 
     public IDictionary<string, object> FlagValues { get; } = new Dictionary<string, object>(StringComparer.Ordinal);
 
@@ -36,46 +55,70 @@ internal sealed class ExtensionRuntimeImpl : IExtensionRuntime
 
     public McpServerRegistry McpServers { get; } = new();
 
-    // ---- ExtensionActions: throwing stubs until the runner binds ----
+    /// <summary>The bound actions, or a throw when the runner has not bound yet.</summary>
+    private ExtensionActions Actions => actions ?? throw NotInitialized();
 
-    public void SendMessage(CustomMessageDraft message, SendMessageOptions? options) => throw NotInitialized();
+    // ---- binding ----
 
-    public void SendUserMessage(MessageContent content, SendUserMessageOptions? options) => throw NotInitialized();
+    public void BindActions(ExtensionActions actions) => this.actions = actions;
 
-    public void AppendEntry(string customType, object? data) => throw NotInitialized();
+    public void BindContextFactory(Func<IExtensionContext> factory) => contextFactory = factory;
 
-    public void SetSessionName(string name) => throw NotInitialized();
+    public void BindProviderRegistration(
+        Action<string, ProviderConfigInput> registerProvider,
+        Action<IProvider> registerNativeProvider,
+        Action<string> unregisterProvider,
+        Action<VirtualModelDefinition> registerVirtualModel,
+        Action<string, string> unregisterVirtualModel) =>
+        providerRegistration = new ProviderRegistration(
+            registerProvider,
+            registerNativeProvider,
+            unregisterProvider,
+            registerVirtualModel,
+            unregisterVirtualModel);
 
-    public string? GetSessionName() => throw NotInitialized();
+    // ---- ExtensionActions: forward to the bound bag ----
 
-    public void SetLabel(string entryId, string? label) => throw NotInitialized();
+    public void SendMessage(CustomMessageDraft message, SendMessageOptions? options) =>
+        Actions.SendMessage(message, options);
 
-    public IReadOnlyList<string> GetActiveTools() => throw NotInitialized();
+    public void SendUserMessage(MessageContent content, SendUserMessageOptions? options) =>
+        Actions.SendUserMessage(content, options);
 
-    public IReadOnlyList<ToolInfo> GetAllTools() => throw NotInitialized();
+    public void AppendEntry(string customType, object? data) => Actions.AppendEntry(customType, data);
 
-    public Settings GetSettings() => throw NotInitialized();
+    public void SetSessionName(string name) => Actions.SetSessionName(name);
 
-    public void SetActiveTools(IReadOnlyList<string> toolNames) => throw NotInitialized();
+    public string? GetSessionName() => Actions.GetSessionName();
 
-    /// <summary>No-op stub: refreshing is only needed post-bind (TS <c>refreshTools: () =&gt; {}</c>).</summary>
-    public void RefreshTools()
-    {
-    }
+    public void SetLabel(string entryId, string? label) => Actions.SetLabel(entryId, label);
 
-    public IReadOnlyList<SlashCommandInfo> GetCommands() => throw NotInitialized();
+    public IReadOnlyList<string> GetActiveTools() => Actions.GetActiveTools();
+
+    public IReadOnlyList<ToolInfo> GetAllTools() => Actions.GetAllTools();
+
+    public Settings GetSettings() => Actions.GetSettings();
+
+    public void SetActiveTools(IReadOnlyList<string> toolNames) => Actions.SetActiveTools(toolNames);
+
+    /// <summary>No-op until bound: refreshing is only needed post-bind (TS <c>refreshTools: () =&gt; {}</c>).</summary>
+    public void RefreshTools() => actions?.RefreshTools();
+
+    public IReadOnlyList<SlashCommandInfo> GetCommands() => Actions.GetCommands();
 
     /// <summary>TS returns a rejected promise; the port returns a faulted task.</summary>
     public Task<bool> SetModel(Model model) =>
-        Task.FromException<bool>(new InvalidOperationException("Extension runtime not initialized"));
+        actions is null
+            ? Task.FromException<bool>(new InvalidOperationException("Extension runtime not initialized"))
+            : actions.SetModel(model);
 
-    public ThinkingLevel GetThinkingLevel() => throw NotInitialized();
+    public ThinkingLevel GetThinkingLevel() => Actions.GetThinkingLevel();
 
-    public void SetThinkingLevel(ThinkingLevel level) => throw NotInitialized();
+    public void SetThinkingLevel(ThinkingLevel level) => Actions.SetThinkingLevel(level);
 
     // ---- lifecycle ----
 
-    public IExtensionContext CreateContext() => throw NotInitialized();
+    public IExtensionContext CreateContext() => contextFactory is null ? throw NotInitialized() : contextFactory();
 
     public void AssertActive()
     {
@@ -114,29 +157,67 @@ internal sealed class ExtensionRuntimeImpl : IExtensionRuntime
 
     // ---- provider / virtual-model registration: queue until the runner binds ----
 
-    public void RegisterProvider(string name, ProviderConfigInput config, string? extensionPath = null) =>
+    public void RegisterProvider(string name, ProviderConfigInput config, string? extensionPath = null)
+    {
+        if (providerRegistration is { } bound)
+        {
+            bound.RegisterProvider(name, config);
+            return;
+        }
+
         PendingProviderRegistrations.Add(
             new PendingProviderRegistration(name, config, extensionPath ?? ExtensionLoader.UnknownExtensionPath));
+    }
 
-    public void RegisterNativeProvider(Provider provider, string? extensionPath = null) =>
+    public void RegisterNativeProvider(IProvider provider, string? extensionPath = null)
+    {
+        if (providerRegistration is { } bound)
+        {
+            bound.RegisterNativeProvider(provider);
+            return;
+        }
+
         PendingNativeProviderRegistrations.Add(
             new PendingNativeProviderRegistration(provider, extensionPath ?? ExtensionLoader.UnknownExtensionPath));
+    }
 
     public void UnregisterProvider(string name, string? extensionPath = null)
     {
+        if (providerRegistration is { } bound)
+        {
+            bound.UnregisterProvider(name);
+            return;
+        }
+
         // TS filters by name only; the extensionPath parameter exists for signature parity.
         RemoveWhere(PendingProviderRegistrations, registration => registration.Name == name);
         RemoveWhere(PendingNativeProviderRegistrations, registration => registration.Provider.Id == name);
     }
 
-    public void RegisterVirtualModel(VirtualModelDefinition definition, string? extensionPath = null) =>
+    public void RegisterVirtualModel(VirtualModelDefinition definition, string? extensionPath = null)
+    {
+        if (providerRegistration is { } bound)
+        {
+            bound.RegisterVirtualModel(definition);
+            return;
+        }
+
         PendingVirtualModelRegistrations.Add(
             new PendingVirtualModelRegistration(definition, extensionPath ?? ExtensionLoader.UnknownExtensionPath));
+    }
 
-    public void UnregisterVirtualModel(string provider, string id) =>
+    public void UnregisterVirtualModel(string provider, string id)
+    {
+        if (providerRegistration is { } bound)
+        {
+            bound.UnregisterVirtualModel(provider, id);
+            return;
+        }
+
         RemoveWhere(
             PendingVirtualModelRegistrations,
             registration => registration.Definition.Provider == provider && registration.Definition.Id == id);
+    }
 
     private static void RemoveWhere<T>(IList<T> list, Func<T, bool> predicate)
     {
@@ -453,7 +534,7 @@ internal sealed class ExtensionApiImpl : IExtensionApi
 
     // ---- providers ----
 
-    public void RegisterProvider(Provider provider)
+    public void RegisterProvider(IProvider provider)
     {
         AssertActive();
         ApplyRuntimeChange(() => runtime.RegisterNativeProvider(provider, extension.Path));

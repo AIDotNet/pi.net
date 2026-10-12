@@ -7,6 +7,7 @@
 // loader-facing types land here because `ExtensionLoader` (4d-2b) is their first consumer. The
 // runner (4e) completes the runtime by replacing the loader's throwing action stubs.
 
+using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions.Types;
@@ -70,6 +71,35 @@ public interface IExtensionRuntime
 
     void SetThinkingLevel(ThinkingLevel level);
 
+    // ---- Binding: the runner copies its implementations into this shared runtime ----
+
+    /// <summary>
+    /// Copy the runner's <c>pi.*</c> action implementations into this runtime. Port of the
+    /// field-by-field assignment at the top of the TS <c>ExtensionRunner.bindCore</c>: extension API
+    /// objects created while loading hold this same runtime instance, so they observe the bound
+    /// actions afterwards.
+    /// </summary>
+    void BindActions(ExtensionActions actions);
+
+    /// <summary>
+    /// Rebind the <c>ctx</c> factory used by <c>pi.registerVirtualModel()</c> routing. Port of the
+    /// TS <c>runtime.createContext = () =&gt; this.createContext()</c> assignment.
+    /// </summary>
+    void BindContextFactory(Func<IExtensionContext> factory);
+
+    /// <summary>
+    /// Rebind provider registration so it takes effect immediately instead of queueing. Port of the
+    /// post-flush reassignments at the end of the TS <c>ExtensionRunner.bindCore</c>. The runner
+    /// resolves every optional override against its <see cref="ModelRegistry"/> before binding, so
+    /// all five delegates are non-null.
+    /// </summary>
+    void BindProviderRegistration(
+        Action<string, ProviderConfigInput> registerProvider,
+        Action<IProvider> registerNativeProvider,
+        Action<string> unregisterProvider,
+        Action<VirtualModelDefinition> registerVirtualModel,
+        Action<string, string> unregisterVirtualModel);
+
     // ---- ExtensionRuntimeState lifecycle ----
 
     /// <summary>Create an extension context. Throws before the runner binds.</summary>
@@ -88,7 +118,7 @@ public interface IExtensionRuntime
 
     void RegisterProvider(string name, ProviderConfigInput config, string? extensionPath = null);
 
-    void RegisterNativeProvider(Provider provider, string? extensionPath = null);
+    void RegisterNativeProvider(IProvider provider, string? extensionPath = null);
 
     void UnregisterProvider(string name, string? extensionPath = null);
 
@@ -101,7 +131,7 @@ public interface IExtensionRuntime
 public sealed record PendingProviderRegistration(string Name, ProviderConfigInput Config, string ExtensionPath);
 
 /// <summary>A native provider registration queued during extension loading. TS inline record.</summary>
-public sealed record PendingNativeProviderRegistration(Provider Provider, string ExtensionPath);
+public sealed record PendingNativeProviderRegistration(IProvider Provider, string ExtensionPath);
 
 /// <summary>A virtual model registration queued during extension loading. TS inline record.</summary>
 public sealed record PendingVirtualModelRegistration(VirtualModelDefinition Definition, string ExtensionPath);

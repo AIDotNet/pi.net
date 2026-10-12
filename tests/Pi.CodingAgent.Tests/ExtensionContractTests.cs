@@ -4,6 +4,7 @@ using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Core.Extensions.Types;
+using Pi.CodingAgent.Core.Tools;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;
@@ -68,14 +69,14 @@ public class ExtensionContractTests
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
 
-        // Every TS member of the ExtensionEvent union, minus the 4e placeholder
-        // (cache_warming_decision has no payload yet).
+        // Every TS member of the ExtensionEvent union. cache_warming_decision used to be excluded here
+        // while it was still a 4e placeholder; 4e-3e-9g gave it a real nested variant, so it is in.
         Assert.Equal(
             ["AfterProviderResponse", "AgentBeforeSettle", "AgentEnd", "AgentSettled", "AgentStart",
                 "BashToolCall", "BashToolResult", "BeforeAgentStart", "BeforeProviderHeaders",
-                "BeforeProviderRequest", "ContextEvent", "ContextWithSystemEvent", "CustomToolCall",
-                "CustomToolResult", "EditToolCall", "EditToolResult", "FindToolCall", "FindToolResult",
-                "GrepToolCall", "GrepToolResult", "InputEvent", "LsToolCall", "LsToolResult",
+                "BeforeProviderRequest", "CacheWarmingDecision", "ContextEvent", "ContextWithSystemEvent",
+                "CustomToolCall", "CustomToolResult", "EditToolCall", "EditToolResult", "FindToolCall",
+                "FindToolResult", "GrepToolCall", "GrepToolResult", "InputEvent", "LsToolCall", "LsToolResult",
                 "McpServersChange", "MessageEnd", "MessageStart", "MessageUpdate", "ModelSelect",
                 "PowerShellToolCall", "PowerShellToolResult", "ProjectTrust", "ProviderStream",
                 "ReadToolCall", "ReadToolResult", "ResourcesDiscover", "SessionBeforeCompact",
@@ -280,8 +281,9 @@ public class ExtensionContractTests
         Assert.NotNull(new Theme());
         Assert.NotNull(new OverlayHandle());
         Assert.NotNull(new CustomMessage("t", new MessageContent.Text("c"), false, 0));
-        Assert.NotNull(new Provider { Id = "p" });
-        Assert.NotNull(new BashOperations());
+        Assert.NotNull(BashTool.CreateLocalBashOperations());
+        // 4e-3e-9g 移除了两个重复占位：`Provider`（真实类型是 Pi.Ai.Models.IProvider，由
+        // CoreModelRegistryTests 覆盖）与 `BashOperations`（真实类型是 IBashToolOperations）。
     }
 
     // ------------------------------------------------------------------ API surface

@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a～9e 纯决策逻辑** + **4e-3e-9-0 基线对齐（参照检出落后 29 提交，端口混用两修订版，已按 origin/main 回审工具 allow/deny 与 MCP 注册）** + **4e-3e-9f 会话装配层叶子（services / runtime / sdk）**（2026-10-12）完成；余 4e-3e-9g（扩展运行时）。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）**以及 `AgentSessionServices` / `AgentSessionRuntime` / `createAgentSession` 的编排本体**依赖 `ExtensionRunner`（4e-3e-9g），整体顺延 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a～9e 纯决策逻辑** + **4e-3e-9-0 基线对齐（参照检出落后 29 提交，端口混用两修订版，已按 origin/main 回审工具 allow/deny 与 MCP 注册）** + **4e-3e-9f 会话装配层叶子（services / runtime / sdk）** + **4e-3e-9g 扩展运行时（`ExtensionRunner`，并退役 3 组缝时代重复类型）**（2026-10-12）完成；余 4e-3e-9h。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）**以及 `AgentSessionServices` / `AgentSessionRuntime` / `createAgentSession` 的编排本体**的前置（`ExtensionRunner`）已满足，整体落到 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -2043,13 +2043,81 @@ skills `indirect`）、`Skills.SkillFileReadTool.Indirect`、`IToolLoadout.GetPr
 - **`getBranchSelection`**（`sessionModel` 的来源）仍是既有缺口 G-4b-VM；本批把会话模型作为
   参数传入，接线时再接。
 
+### 4e-3e-9g 扩展运行时（2026-10-12）：`extensions/runner.ts` + 契约层收口
+
+本批落地 `ExtensionRunner`（TS `core/extensions/runner.ts`，1,560 行）及其契约依赖，并把三处
+「缝时代占位」换成真实类型。范围核对结论：`loader.ts`（876 行）在 4d-2b 已全部落地，
+`resource-loader.ts` 在 4d-3d-2 已落地（其 `disabledBuiltinExtensions` 不在本批范围内），
+故 9g 的实际范围就是 `runner.ts` 一个模块。
+
+新增 / 修改文件：
+
+| 文件 | 内容 |
+| --- | --- |
+| `src/Pi.CodingAgent/Core/Extensions/ExtensionActions.cs`（新） | TS `types.ts` 的三组 action 包 + provider 注册 action + `ExtensionError` / `ExtensionErrorListener`；`NewSessionHandler` / `ForkHandler` / `NavigateTreeHandler` / `SwitchSessionHandler` / `ReloadHandler` / `ShutdownHandler` 六个委托 |
+| `src/Pi.CodingAgent/Core/Extensions/ExtensionRunner.cs`（新，~1,900 行） | `ExtensionRunner` 主体：注册表查询（flags / tools / commands / shortcuts / renderers）、`BindCore` / `BindCommandContext` / `SetUIContext`、`CreateContext` / `CreateToolContext` / `CreateCommandContext`、18 个 `Emit*Async`、模块级 `EmitSessionShutdownEventAsync` / `EmitProjectTrustEventAsync`，以及 `RunnerContext` / `RunnerToolContext` / `RunnerCommandContext` / `UIPromptWrappingContext` / `NoOpUIContext` 五个嵌套上下文 |
+| `src/Pi.CodingAgent/Core/Extensions/ExtensionEvents.cs`（改） | 新增 `ExtensionEventNames.For(ExtensionEvent)`（替代 TS 的 `event.type` 判别）、`CacheWarmingDecision` 事件变体、`ISessionBeforeResult`、`IToolResultEvent` 接口化、`ToolResultFields.Merge` |
+| `src/Pi.CodingAgent/Core/Extensions/ExtensionRuntime.cs`（改） | `IExtensionRuntime` 新增 `BindActions` / `BindContextFactory` / `BindProviderRegistration`；`RegisterNativeProvider(IProvider, …)` |
+| `src/Pi.CodingAgent/Core/Extensions/ExtensionLoaderImpl.cs`（改） | `ExtensionRuntimeImpl` 持有绑定的 actions / contextFactory / providerRegistration，未绑定时按 TS 语义排队或抛错 |
+| `src/Pi.CodingAgent/Core/Extensions/Types/Placeholders.cs`（改） | 删除 5 个**已有真实实现却仍在遮蔽**的占位：`BuildSystemPromptOptions` / `NormalizedBuildSystemPromptOptions`（→ `Core/SystemPrompt.cs`）、`CompactionPreparation` / `CompactionResult`（→ `Core/Compaction.cs`）、`AppKeybinding`（本移植用 `AppKeybindings` 字符串常量建模，无消费者） |
+| `src/Pi.CodingAgent/Core/ProjectTrust.cs`（改） | 删除 6 个缝时代重复声明（`IProjectTrustUi` / `ProjectTrustContext` / `IProjectTrustExtensions` / `ProjectTrustExtensionError` / `ProjectTrustEventOutcome` / `ProjectTrustEventEmitter`），改为直接调用 `ExtensionRunner.EmitProjectTrustEventAsync`（TS 正是直接 import 调用，无可注入钩子） |
+| `src/Pi.Agent/AgentLoopRunner.cs`（改） | `DeclareToolChanges` 插入工具变更声明时补上 `Timestamp`（TS 此处写 `timestamp: Date.now()`） |
+
+### 4e-3e-9g 修正的两处忠实性缺陷
+
+1. **`ProjectTrustContext` 双定义**：`Core/ProjectTrust.cs` 曾声明 `ProjectTrustContext(IProjectTrustUi Ui)`，
+   而 TS 只在 `core/extensions/types.ts` 声明**一个** `ProjectTrustContext{cwd, mode, hasUI, ui}`，
+   真实端口在 `Core/Extensions/ExtensionEvents.cs`。两个同名不同形的记录互相遮蔽，并且缝版本
+   把 TS 的 `trusted: "yes" | "no"` 提前压成 `bool`（`ProjectTrustEventOutcome(bool Trusted, …)`）。
+   经核查该缝**零生产消费者**，已整体退役。
+2. **`SystemMessage.Timestamp` 可空导致的判定偏移**：TS 的 `SystemMessage.timestamp` 是**必填**
+   `number`，故 `getCurrentSystemMessage` 的守卫 `timestamp === undefined && tools.length === 0`
+   实际等价于「没有任何 system 消息且没有工具」。端口把 `Timestamp` 放宽为 `long?`（便于回放旧会话
+   文件），于是**漏写时间戳的 system 消息会被判为不存在**。`AgentLoopRunner.DeclareToolChanges`
+   正是一处真实可达的漏写点（TS 在那里写 `Date.now()`），已补上；其余构造点（`Transcript`、
+   `SystemPrompt`、`Compaction`、`Prompt`）本就显式给值。
+
+### 4e-3e-9g 设计差异（文档化）
+
+- **C140**：`ProjectTrustContext.Ui` 的类型是完整 `IExtensionUIContext`，而非 TS 的
+  `Pick<ExtensionUIContext, "select" | "confirm" | "input" | "notify">`。原因：C# 无法表达
+  `Pick`；结构类型在 TS 里是「接受任何超集」，端口取最宽的具体接口即可保持调用点兼容
+  （trust 门实际只调 `select`）。
+- **C141**：`ExtensionRunner.EmitBoundaryAsync` 以 `BoundaryState` 为形参、在内部用 `with` 投影出
+  `TurnEnd` / `AgentBeforeSettle` 变体；TS 用对象字面量展开 `{...baseEvent, entries, continue, context}`。
+  原因：C# 的 `record with` 要求静态类型已知，`BoundaryState` 是抽象基类，故用 `switch` 落到两个具体
+  变体，其余情况回落到基类对象（与 TS 的展开结果在字段集上等价）。
+
+### 4e-3e-9g 验证
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- 新增 `tests/Pi.CodingAgent.Tests/ExtensionRunnerTests.cs`（61 项），逐条对照 TS `runner.ts` 转录：
+  保留键位冲突与迭代顺序无关性、扩展快捷键冲突、命令 `invocationName` 去重与后缀跳过、flags 先注册者胜、
+  tools 先注册者胜、`ResolveToolRenderers` 链、上下文反射与失效守卫、工具上下文的嵌套调用报错与信号默认值、
+  命令上下文惰性默认与转发、UI 上下文包装与 no-op、通用 `emit` 吞错 + `session_before_*` 取消短路、
+  cache-warming 后者胜、`message_end` 替换与角色拒绝、`tool_result` 的 content→structuredContent 丢弃、
+  `tool_call` 阻断短路与错误外抛、`user_bash` 合法/非法、`context` 不变/变更/系统头回放、
+  provider request 链式改写与头变更、`before_agent_start` 累积、`resources_discover` 归属、
+  `input` 链式/已处理/继续/报错、边界累积与非法、project trust 首个决定者胜、MCP 只报一次、
+  `session_shutdown` 的 handler 判定、`OnError` 退订。
+- 全量回归（11 个测试工程）：**25,917 项 / 0 失败**（`Pi.CodingAgent` 1243、`Pi.Tui` 23812、
+  `Pi.Ai` 301、`Pi.Durable` 339、`Pi.Chord` 93、`Pi.Codemode` 39、`Pi.Server` 27、`Pi.Mcp` 19、
+  `Pi.Agent` 18、`Pi.Protocol` 14、`Pi.Telemetry` 12）。
+
+### 4e-3e-9g 未覆盖（记为缺口 / 顺延）
+
+- **实例层接线**：构造器 + 6 个 installers + `_eventListeners` / `subscribe` / `dispose` /
+  `refreshContext` / `_handleAgentEvent` / `_replaceMessageInPlace`，以及 4e-3e-9f 顺延的编排本体
+  （`createAgentSessionServices` / `createAgentSessionFromServices` / `AgentSessionRuntime` 类本体 /
+  `createAgentSession` 的实例构造 / `buildRequestOptions` 余下字段）→ **4e-3e-9h**。
+  前置条件（`ExtensionRunner`）本批已满足。
+- **`resource-loader.ts` 的 `disabledBuiltinExtensions` 与完整扩展集加载**：4d-3d-2 顺延项，不在 9g 范围。
+
 ### 4e-3e-9 剩余
 
-4e-3e-9g 扩展运行时（`extensions/runner.ts` 1,560 行剩余 + `loader.ts` 876 行剩余，含
-`DefaultResourceLoader` 的扩展加载与 `disabledBuiltinExtensions`）→ **4e-3e-9h**。
+4e-3e-9h 实例层接线（`AgentSession` 构造器 + 6 个 installers + `_eventListeners` + `_handleAgentEvent` +
+四个 abort controller + `_pendingBashMessages` + `AgentSessionServices` / `AgentSessionRuntime` /
+`createAgentSession` 的编排本体）。
 
-**接线依赖**：`AgentSession` 实例层必须在 4e-3e-9g（`ExtensionRunner`）之后才能整体落地；
-**4e-3e-9h**（实例层接线：构造器 + 6 个 installers + `_eventListeners` + `_handleAgentEvent` +
-四个 abort controller + `_pendingBashMessages` + **`AgentSessionServices` / `AgentSessionRuntime` /
-`createAgentSession` 的编排本体**）负责把 9a～9f 的静态半边接上实例状态。
+**接线依赖**：`ExtensionRunner` 已落地，4e-3e-9h 可直接开工。
 

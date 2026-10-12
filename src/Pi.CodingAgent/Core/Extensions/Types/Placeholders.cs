@@ -22,23 +22,10 @@ namespace Pi.CodingAgent.Core.Extensions.Types;
 // - 命名空间固定在 Pi.CodingAgent.Core.Extensions.Types，真实类型落地后删除对应占位即可。
 
 // ---------------------------------------------------------------------------
-// bash-executor.ts（4e）
+// bash-executor.ts / tools/bash.ts（4e）—— 占位已移除：
+//   `BashResult` 真实实现见 Core/BashExecutor.cs；
+//   `BashOperations` 真实实现为 Core/Tools/BashTool.cs 的 IBashToolOperations。
 // ---------------------------------------------------------------------------
-
-/// <summary>TS <c>BashResult</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record BashResult
-{
-    public string Output { get; init; } = "";
-
-    public int? ExitCode { get; init; }
-}
-
-/// <summary>
-/// TS <c>BashOperations</c>（bash 执行的后端操作集）占位。// 4e/4f 接入后替换
-/// </summary>
-public sealed record BashOperations
-{
-}
 
 // ---------------------------------------------------------------------------
 // footer-data-provider.ts（4f）
@@ -55,42 +42,14 @@ public interface IReadonlyFooterDataProvider
 // compaction/index.ts（4e）
 // ---------------------------------------------------------------------------
 
-/// <summary>TS <c>CompactionPreparation</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record CompactionPreparation
-{
-    public IReadOnlyList<string> BranchEntries { get; init; } = Array.Empty<string>();
-}
-
-/// <summary>TS <c>CompactionResult</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record CompactionResult
-{
-    public string Summary { get; init; } = "";
-
-    public bool Aborted { get; init; }
-}
+// `CompactionPreparation` / `CompactionResult` 占位已移除：真实实现见 Core/Compaction.cs，
+// 且它们在 Pi.CodingAgent.Core.Extensions 内一律被父命名空间遮蔽，占位版本不可达。
 
 // ---------------------------------------------------------------------------
-// cache-warmer.ts（4e）
+// cache-warmer.ts（4e）—— 占位已移除：`CacheWarmingDecisionEvent` 现在是
+// ExtensionEvent 的嵌套变体、`CacheWarmingDecisionEventResult` 与它同处
+// Core/Extensions/ExtensionEvents.cs；`CacheWarmingAction` 见 Core/CacheWarmer.cs。
 // ---------------------------------------------------------------------------
-
-/// <summary>
-/// TS <c>CacheWarmingDecisionEvent</c> 占位。它是 <see cref="ExtensionEvent"/> 联合的成员，
-/// 因此这里派生自占位事件基类。// 4e/4f 接入后替换
-/// </summary>
-public sealed record CacheWarmingDecisionEvent : ExtensionEvent
-{
-    private CacheWarmingDecisionEvent()
-    {
-    }
-
-    /// <summary>占位实例；真实负载随 cache-warmer 移植补齐。</summary>
-    public static readonly CacheWarmingDecisionEvent Instance = new();
-}
-
-/// <summary>TS <c>CacheWarmingDecisionEventResult</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record CacheWarmingDecisionEventResult
-{
-}
 
 // ---------------------------------------------------------------------------
 // messages.ts（4e-2b）—— CustomMessage / UserMessageContent 占位已移除，
@@ -130,28 +89,14 @@ public interface ISessionManager : IReadonlySessionManager
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// system-prompt.ts（4e）
+// system-prompt.ts（4e）—— 占位已移除：真实类型见 Core/SystemPrompt.cs 的
+// BuildSystemPromptOptions / NormalizedBuildSystemPromptOptions。此前的空占位与真实类型同名，
+// 在 Pi.CodingAgent.Core.Extensions 内被父命名空间遮蔽（不可达），在测试命名空间里则造成歧义。
+//
+// keybindings.ts（4e）—— `AppKeybinding` 占位已移除：本移植把 app 级 keybinding id 建模为
+// Core/Keybindings.cs 的 AppKeybindings 字符串常量（对齐 TuiKeybindingIds 的既有做法），
+// 该记录无任何消费者。
 // ---------------------------------------------------------------------------
-
-/// <summary>TS <c>BuildSystemPromptOptions</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record BuildSystemPromptOptions
-{
-}
-
-/// <summary>TS <c>NormalizedBuildSystemPromptOptions</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record NormalizedBuildSystemPromptOptions
-{
-}
-
-// ---------------------------------------------------------------------------
-// keybindings.ts（4e）
-// ---------------------------------------------------------------------------
-
-/// <summary>TS <c>AppKeybinding</c> 占位。// 4e/4f 接入后替换</summary>
-public sealed record AppKeybinding
-{
-    public required string Id { get; init; }
-}
 
 // ---------------------------------------------------------------------------
 // pi-tui 中尚未落地的类型（4f）
@@ -191,21 +136,8 @@ public sealed class ProviderHeaders
     public IReadOnlyDictionary<string, string?> AsDictionary() => _headers;
 }
 
-/// <summary>
-/// TS pi-ai <c>Provider</c>（原生 provider 注册单元）占位。// 4e/4f 接入后替换
-/// </summary>
-public sealed record Provider
-{
-    public required string Id { get; init; }
-
-    public string? BaseUrl { get; init; }
-
-    public string? ApiKey { get; init; }
-
-    public string? Api { get; init; }
-
-    public IReadOnlyList<ModelSpec>? Models { get; init; }
-}
+// TS pi-ai `Provider` 占位已移除：真实类型是 Pi.Ai.Models.IProvider
+// （ModelRegistry.RegisterProvider 与 ModelRuntime.RegisterNativeProvider 都收它）。
 
 // ---------------------------------------------------------------------------
 // modes/interactive/theme/theme.ts（4f）

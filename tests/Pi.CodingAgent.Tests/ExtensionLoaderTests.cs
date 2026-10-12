@@ -396,7 +396,7 @@ public class ExtensionLoaderTests : IDisposable
         await ExtensionLoader.LoadExtensionFromFactory(
             pi =>
             {
-                pi.RegisterProvider(new Provider { Id = "test-provider" });
+                pi.RegisterProvider(new FakeNativeProvider());
                 return Task.CompletedTask;
             },
             NewTempDir(),
@@ -939,5 +939,29 @@ public class ExtensionLoaderTests : IDisposable
             ExtensionLoader.CreateExtensionRuntime()));
 
         return thrown.Message;
+    }
+
+    /// <summary>
+    /// Minimal native provider. 4e-3e-9g removed the duplicate <c>Provider</c> placeholder record in
+    /// favour of the real <see cref="IProvider"/>, so the queue test now needs a stand-in object.
+    /// The streaming members are never reached by the loader.
+    /// </summary>
+    private sealed class FakeNativeProvider : IProvider
+    {
+        public string Id => "test-provider";
+
+        public string Name => "Test Provider";
+
+        public string? BaseUrl => null;
+
+        public IReadOnlyList<ModelSpec> GetModels() => [];
+
+        public IAssistantMessageEventStream Stream(
+            ModelSpec model, IReadOnlyList<ChatMessage> context, IReadOnlyDictionary<string, object?>? options = null) =>
+            throw new NotSupportedException();
+
+        public IAssistantMessageEventStream StreamSimple(
+            ModelSpec model, IReadOnlyList<ChatMessage> context, IReadOnlyDictionary<string, object?>? options = null) =>
+            throw new NotSupportedException();
     }
 }
