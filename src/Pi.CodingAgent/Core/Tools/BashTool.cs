@@ -314,7 +314,7 @@ public static class BashTool
         string cwd,
         BashSpawnHook? spawnHook,
         bool exposeSessionEnvironment,
-        IToolContext? ctx)
+        IExtensionToolContext? ctx)
     {
         var env = new Dictionary<string, string?>(Shell.GetShellEnv(), StringComparer.Ordinal);
         env.Remove("PI_SESSION_ID");
@@ -325,8 +325,9 @@ public static class BashTool
         if (exposeSessionEnvironment && ctx is not null)
         {
             var model = ctx.Model;
-            env["PI_SESSION_ID"] = ctx.SessionId;
-            var sessionFile = ctx.SessionFile;
+            // TS: `ctx.sessionManager.getSessionId()` / `getSessionFile()`.
+            env["PI_SESSION_ID"] = ctx.SessionManager.SessionId;
+            var sessionFile = ctx.SessionManager.SessionFile;
             if (sessionFile is not null)
             {
                 env["PI_SESSION_FILE"] = sessionFile;
@@ -338,9 +339,11 @@ public static class BashTool
                 env["PI_MODEL"] = model.Id;
             }
 
-            if (ctx.ThinkingLevel is not null)
+            // TS reads the string union directly. The port's enum also carries `off`, which the TS
+            // `ExtensionContext.thinkingLevel` union cannot express — a known widening (see C142).
+            if (ctx.ThinkingLevel is { } thinkingLevel)
             {
-                env["PI_REASONING_LEVEL"] = ctx.ThinkingLevel;
+                env["PI_REASONING_LEVEL"] = Core.ThinkingLevels.ToText(thinkingLevel);
             }
         }
 

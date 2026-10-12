@@ -159,51 +159,32 @@ public sealed record ToolRenderContext
     public bool IsError { get; init; }
 }
 
-/// <summary>
-/// The slice of TS <c>ExtensionToolContext</c> that the built-in tools actually read. Difference C84.
-/// </summary>
+/// <summary>Helpers shared by tools that read an optional <see cref="IExtensionToolContext"/>.</summary>
 /// <remarks>
-/// <para>
-/// The full context (<c>core/extensions/types.ts</c>) carries the UI surface, the session manager, the
-/// model registry and the nested-tool entry point, all of which belong to later subphases (4d/4e/4f).
-/// The tools need exactly five members — <c>cwd</c>, <c>model</c>, <c>thinkingLevel</c>, and the session
-/// id/file pair — so the port declares them here and lets the full context implement the interface later,
-/// the same device as <c>IModelResolverRuntime</c> (difference C81). It also keeps the tool tests free
-/// of the session runtime.
-/// </para>
-/// <para>
-/// TS passes <c>ctx</c> as <c>ExtensionToolContext</c> but every built-in tool writes it optional
-/// (<c>ctx?:</c>) because <c>wrapToolDefinition</c> may have no context factory. The port therefore
-/// passes <see cref="IToolContext"/>? and each tool falls back to its own <c>cwd</c>.
-/// </para>
+/// Difference C84 declared a narrow <c>IToolContext</c> seam here (the five members the built-in tools
+/// read) so the tool layer could land before the extension system, mirroring <c>IModelResolverRuntime</c>.
+/// That seam is retired as of 4e-3e-9h-2: <see cref="IExtensionToolContext"/> now exists, so tools take
+/// the real context. The seam was not merely redundant — it was <em>missing</em> <c>tools</c> and
+/// <c>executeTool()</c>, which TS's <c>ExtensionToolContext</c> gives every tool, so an extension tool
+/// registered through <c>registerTool()</c> could not run a nested tool.
 /// </remarks>
-public interface IToolContext
-{
-    /// <summary>Current working directory.</summary>
-    string Cwd { get; }
-
-    /// <summary>Current model, when the session has one.</summary>
-    ModelSpec? Model { get; }
-
-    /// <summary>Current thinking level, when provided by the session runtime.</summary>
-    string? ThinkingLevel { get; }
-
-    /// <summary>The TS <c>sessionManager.getSessionId()</c>.</summary>
-    string SessionId { get; }
-
-    /// <summary>The TS <c>sessionManager.getSessionFile()</c>.</summary>
-    string? SessionFile { get; }
-}
-
-/// <summary>Helpers shared by tools that read an optional <see cref="IToolContext"/>.</summary>
 public static class ToolContexts
 {
     /// <summary>
     /// The TS <c>ctx?.cwd || cwd</c>: an absent context <em>or an empty cwd</em> falls back to the
     /// tool's own working directory, because JS <c>||</c> is a truthiness test.
     /// </summary>
-    public static string ResolveCwd(IToolContext? context, string fallback) =>
+    public static string ResolveCwd(IExtensionToolContext? context, string fallback) =>
         !string.IsNullOrEmpty(context?.Cwd) ? context.Cwd : fallback;
+
+    /// <summary>
+    /// The TS <c>sessionManager.getSessionId()</c> read through an optional context, or null when no
+    /// context was supplied.
+    /// </summary>
+    public static string? ResolveSessionId(IExtensionToolContext? context) => context?.SessionManager.SessionId;
+
+    /// <summary>The TS <c>sessionManager.getSessionFile()</c> read through an optional context.</summary>
+    public static string? ResolveSessionFile(IExtensionToolContext? context) => context?.SessionManager.SessionFile;
 }
 
 /// <summary>
@@ -298,7 +279,7 @@ public sealed record ToolDefinition
         IReadOnlyDictionary<string, object?>,
         CancellationToken,
         AgentToolUpdateCallback?,
-        IToolContext?,
+        IExtensionToolContext?,
         Task<AgentToolResult>> Execute { get; init; }
 }
 
@@ -312,5 +293,8 @@ public sealed record ToolRenderers
     public string? RenderShell { get; init; }
 }
 
-/// <summary>Creates the context for one tool call. Port of the TS <c>ToolContextFactory</c>.</summary>
-public delegate IToolContext ToolContextFactory(string toolCallId, CancellationToken signal);
+/// <summary>
+/// Creates the context for one tool call. Port of the TS <c>ToolContextFactory</c>, which TS declares as
+/// <c>(toolCallId, signal) =&gt; ExtensionToolContext</c>.
+/// </summary>
+public delegate IExtensionToolContext ToolContextFactory(string toolCallId, CancellationToken signal);

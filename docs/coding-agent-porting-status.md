@@ -2088,6 +2088,39 @@ skills `indirect`）、`Skills.SkillFileReadTool.Indirect`、`IToolLoadout.GetPr
   原因：C# 的 `record with` 要求静态类型已知，`BoundaryState` 是抽象基类，故用 `switch` 落到两个具体
   变体，其余情况回落到基类对象（与 TS 的展开结果在字段集上等价）。
 
+### 4e-3e-9h-2a 设计差异（文档化）
+
+- **C142**：`IExtensionContext.ThinkingLevel` 的类型是端口的 `ThinkingLevel` **枚举**，而 TS 的
+  `ExtensionContext.thinkingLevel` 是 **6 值字符串联合**（`minimal|low|medium|high|xhigh|max`，
+  **无 `off`**）。即端口比 TS **多一个取值**。原因：`off` 在端口里是 `AgentSession` 会真实写入的取值，
+  照抄 TS 的联合就需要额外一层投影来表达「TS 表达不了的 `off`」，多出虚构层；而
+  `Core.ThinkingLevels` 已同时建模两套集合（`IsValidWithoutOff` 即 TS 的联合），是现成的转换点。
+  写环境变量等需要字符串处经 `Core.ThinkingLevels.ToText(...)` 转换（TS 直接写字符串）。
+  该加宽在 TS 侧消费方出现前无可观测差异。
+
+### 4e-3e-9h-2a 退役的缝类型
+
+- **`IToolContext`（C84 缝）已退役**。它是 4d 期为让工具层先于扩展系统落地而造的窄接口（5 个成员），
+  TS 里**不存在**。退役理由不止冗余：它没有 `tools` / `executeTool()`，所以通过 `registerTool()`
+  注册的扩展工具**无法运行嵌套工具**，而 TS 的 `ExtensionToolContext` 把这两个成员给了每个工具。
+  现 `IExtensionToolContext` 是唯一上下文类型；`ToolContexts` 新增 `ResolveSessionId` /
+  `ResolveSessionFile` 桥接 `ctx.SessionManager.SessionId`，供工具的「无上下文则回退」路径使用。
+  回归守卫见 `Wrapper_WrappedTool_CanRunNestedTool`（对旧缝会失败）。
+
+### 4e-3e-9h-2a 留档：`RegisteredTool` 与 `ToolDefinitionEntry` **不合并**
+
+TS **同时声明了两个同形记录**，端口的两个记录是忠实的，不是缝时代残留：
+
+| 类型 | 声明位置 | 用途 |
+| --- | --- | --- |
+| `Extensions.RegisteredTool` | `extensions/types.ts:2042` | 扩展 `registerTool()` 登记的东西 |
+| `ToolDefinitionEntry` | `agent-session.ts:351`（**模块私有**） | 会话自己的 `_toolDefinitions` 注册表 |
+
+`wrapRegisteredTool(registeredTool: RegisteredTool, …)` 的形参写的是 `RegisteredTool`，但
+`agent-session.ts` 传进来的 `allCustomTools` 混了三种**结构相同、声明类型不同**的值（扩展注册的 /
+SDK 工具的 / 内置定义的），靠结构类型通过。C# 无结构类型，故 `Wrapper` 取签名写明的
+`RegisteredTool`，`agent-session.ts` 的两处字面量调用点在 9h-2c 构造 `RegisteredTool` 传入。
+
 ### 4e-3e-9g 验证
 
 - `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
@@ -2189,6 +2222,54 @@ TS 里 `ToolContextFactory = (toolCallId, signal) => ExtensionToolContext`，而
 三个前置落地。建议 9h-2 拆为：**9h-2a**（`ThinkingLevel` 决策 + `IToolContext` 收口 + `wrapper.ts`）→
 **9h-2b**（`GetExtensions` + `createAllToolDefinitions`）→ **9h-2c**（`_buildRuntime` + `_refreshToolRegistry`
 + `_bindExtensionCore`）。
+
+### 4e-3e-9h-2a 已落地（2026-10-12）：`ThinkingLevel` 决策 + `IToolContext` 退役 + `wrapper.ts`
+
+**决策 1 —— `ThinkingLevel` 保留枚举，把加宽记为 C142。**
+
+TS 的 `ThinkingLevel` 是 **6 值字符串联合**（`minimal|low|medium|high|xhigh|max`，**没有 `off`**）；
+端口的 `Pi.Ai.Types.ThinkingLevel` 是 7 成员枚举（多一个 `Off`）。两种做法各有代价：
+
+- 改成字符串联合 → 贴 TS，但 `ThinkingLevelSelect` 事件类型、`AgentSession` 的 7 个取值点、
+  `Core.ThinkingLevels` 全部要跟着改，且会丢掉「枚举成员穷尽性」这个 C# 侧优势；
+- 保留枚举 → 端口在**已经走得更远的地方**保持结构保真。
+
+选**保留枚举**。理由不是「改动小」，而是 `off` 在端口里是**可达**的真实取值（`AgentSession` 会把它
+写进会话），若照抄 TS 的联合就需要一层投影去表达「TS 表达不了的 `off`」，反而多出一层虚构。
+`Core.ThinkingLevels` 已经同时建模两套集合（`IsValidWithoutOff` 就是 TS 的联合），是天然的转换点。
+故 `IExtensionContext.ThinkingLevel` 维持 `ThinkingLevel?`，`BashTool` 写环境变量时经
+`Core.ThinkingLevels.ToText(...)` 转字符串（TS 直接写字符串）。
+
+**决策 2 —— 退役 `IToolContext`（C84 缝）。**
+
+`IToolContext` 是 4d 期为让工具层先落地而造的窄接口（5 个成员），TS 里**并不存在**。
+退役它的理由不止「冗余」，而是它**有缺陷**：它没有 `tools` / `executeTool()`，
+所以通过 `registerTool()` 注册的扩展工具**无法运行嵌套工具** —— 而 TS 的 `ExtensionToolContext`
+把这两个成员给了每一个工具。现 `IExtensionToolContext` 是唯一上下文类型：
+
+- `ToolDefinition.Execute` 第 5 参、`ToolContextFactory` 返回类型：`IToolContext?` → `IExtensionToolContext?`；
+- `ToolContexts` 新增 `ResolveSessionId` / `ResolveSessionFile`（桥接 `ctx.SessionManager.SessionId`，
+  供工具的「无上下文则回退」路径使用）；
+- `BashTool.ResolveSpawnContext` 改为读真实上下文（`ctx.SessionManager.SessionId` / `SessionFile`）。
+
+**`wrapper.ts` 已落地**（`Core/Extensions/Wrapper.cs`，2 个函数）。移植中发现一处需要留档的取舍：
+
+TS 的 `wrapRegisteredTool(registeredTool: RegisteredTool, ...)` 形参写的是 `RegisteredTool`，
+但 `agent-session.ts` 传进来的 `allCustomTools` 是 `[...registeredTools, ...sdkTools, ...builtinDefinitions]`
+三种**结构相同、声明类型不同**的值，靠结构类型通过。C# 无结构类型，端口必须选一个：
+
+| 类型 | 声明位置 | 用途 |
+| --- | --- | --- |
+| `Extensions.RegisteredTool` | `extensions/types.ts:2042` | 扩展 `registerTool()` 登记的东西 |
+| `ToolDefinitionEntry` | `agent-session.ts:351`（**模块私有**） | 会话自己的 `_toolDefinitions` 注册表 |
+
+TS **确实同时声明了两个同形记录**（第二个私有于 `agent-session.ts`），所以端口的两个记录是**忠实**的、
+不是缝时代残留。`Wrapper` 取签名真正写明的 `RegisteredTool`，`agent-session.ts` 的两处字面量调用点
+在 9h-2c 构造 `RegisteredTool` 传入。**不合并这两个类型**（合并才是偏离 TS）。
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`Pi.CodingAgent.Tests` 1247 项全通过
+（1243 + 4 个新增 `Wrapper` 测试）。新增测试含一条**回归守卫**
+`Wrapper_WrappedTool_CanRunNestedTool`：它针对旧 `IToolContext` 缝会失败（缝下无 `ExecuteTool`）。
 
 ### 4e-3e-9 剩余
 

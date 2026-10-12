@@ -1217,6 +1217,130 @@ public sealed class ExtensionRunnerTests
         Assert.Equal("one", Assert.Single(errors).Error);
     }
 
+    // ------------------------------------------------------------------ wrapper
+    //
+    // Port of core/extensions/wrapper.ts. The module is four lines of TS, but it is the seam where an
+    // extension-registered ToolDefinition becomes an AgentTool, so the tests pin the two things the
+    // seam exists to guarantee: the tool receives the *runner's* context (not a fresh one), and that
+    // context is the full ExtensionToolContext, i.e. it can run a nested tool.
+
+    [Fact]
+    public async Task Wrapper_WrapRegisteredTool_UsesRunnerToolContext()
+    {
+        IExtensionToolContext? captured = null;
+        var entry = RegisteredToolFor("echo", "echo");
+        entry = entry with
+        {
+            Definition = entry.Definition with
+            {
+                Execute = (_, _, _, _, context) =>
+                {
+                    captured = context;
+                    return Task.FromResult(new AgentToolResult([]));
+                },
+            },
+        };
+
+        var runner = await CreateRunnerAsync([]);
+        runner.BindCore(
+            DefaultActions(),
+            DefaultContextActions() with { GetCallableTools = () => [Tool("read")] });
+
+        var wrapped = Wrapper.WrapRegisteredTool(entry, runner);
+        await wrapped.Execute("call-1", new Dictionary<string, object?>(), CancellationToken.None, null);
+
+        var context = Assert.IsAssignableFrom<IExtensionToolContext>(captured);
+        Assert.Equal("/work", context.Cwd);
+        Assert.Equal("read", Assert.Single(context.Tools).Name);
+    }
+
+    [Fact]
+    public async Task Wrapper_WrapRegisteredTool_WithoutContextFactoryPassesNullContext()
+    {
+        // wrapToolDefinition tolerates a missing factory, and every built-in tool declares its context
+        // optional. Pinned because the port made the parameter non-optional in ToolDefinition.Execute.
+        var seen = new List<IExtensionToolContext?>();
+        var definition = new ToolDefinition
+        {
+            Name = "bare",
+            Label = "bare",
+            Description = "bare",
+            Parameters = new ToolSchema(new Dictionary<string, object?> { ["type"] = "object" }),
+            Execute = (_, _, _, _, context) =>
+            {
+                seen.Add(context);
+                return Task.FromResult(new AgentToolResult([]));
+            },
+        };
+
+        var wrapped = Pi.CodingAgent.Core.Tools.ToolDefinitionWrapper.WrapToolDefinition(definition);
+        await wrapped.Execute("call-1", new Dictionary<string, object?>(), CancellationToken.None, null);
+
+        Assert.Null(Assert.Single(seen));
+    }
+
+    [Fact]
+    public async Task Wrapper_WrapRegisteredTools_PreservesOrder()
+    {
+        var runner = await CreateRunnerAsync([]);
+
+        var wrapped = Wrapper.WrapRegisteredTools(
+            [RegisteredToolFor("alpha", "a"), RegisteredToolFor("beta", "b")],
+            runner);
+
+        Assert.Equal(["alpha", "beta"], wrapped.Select(tool => tool.Name));
+    }
+
+    [Fact]
+    public async Task Wrapper_WrappedTool_CanRunNestedTool()
+    {
+        // Regression guard for the IToolContext seam that 4e-3e-9h-2 retired. That interface carried
+        // only the five members the built-in tools read, so a tool registered through registerTool()
+        // had no executeTool() and could not run a nested tool — something TS's ExtensionToolContext
+        // always allows. This test fails against the old seam.
+        string? nestedName = null;
+        object? nestedArgs = null;
+
+        var entry = RegisteredToolFor("outer", "outer");
+        entry = entry with
+        {
+            Definition = entry.Definition with
+            {
+                Execute = async (_, _, _, _, context) =>
+                {
+                    var outcome = await context!.ExecuteTool(
+                        "read",
+                        new Dictionary<string, object?> { ["path"] = "a.txt" });
+                    return outcome.Result;
+                },
+            },
+        };
+
+        var runner = await CreateRunnerAsync([]);
+        runner.BindCore(
+            DefaultActions(),
+            DefaultContextActions() with
+            {
+                GetCallableTools = () => [Tool("read")],
+                ExecuteTool = (callId, name, args, options) =>
+                {
+                    nestedName = name;
+                    nestedArgs = args;
+                    return Task.FromResult(new AgentToolCallOutcome(
+                        new ToolCallContent($"{callId}/0", name, new Dictionary<string, object?>()),
+                        new AgentToolResult([new TextContent("nested")]),
+                        IsError: false));
+                },
+            });
+
+        var wrapped = Wrapper.WrapRegisteredTool(entry, runner);
+        var result = await wrapped.Execute("call-1", new Dictionary<string, object?>(), CancellationToken.None, null);
+
+        Assert.Equal("read", nestedName);
+        Assert.Equal("a.txt", Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(nestedArgs)["path"]);
+        Assert.Equal("nested", Assert.IsType<TextContent>(Assert.Single(result.Content)).Text);
+    }
+
     // ------------------------------------------------------------------ fixtures
 
     private static Extension NewExtension(

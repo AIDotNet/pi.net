@@ -290,7 +290,7 @@ public interface IExtensionContext
     /// <summary>
     /// Current model (may be null). TS <c>ExtensionContext.model: Model&lt;any&gt; | undefined</c> is the
     /// runtime model, i.e. the port's <see cref="Pi.Ai.Models.ModelSpec"/> — the same type
-    /// <see cref="Pi.CodingAgent.Core.ModelRuntime.GetModel"/> and <see cref="IToolContext.Model"/> use.
+    /// <see cref="Pi.CodingAgent.Core.ModelRuntime.GetModel"/> returns and <see cref="ModelSpec"/> carries.
     /// </summary>
     ModelSpec? Model { get; }
 
