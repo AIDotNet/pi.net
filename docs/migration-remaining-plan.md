@@ -208,7 +208,7 @@
 
 | # | 风险 | 影响 | 处置 |
 | --- | --- | --- | --- |
-| R1 | **推送通道不可用** | 阶段产出无法上远端 | 实测（2026-10-13）：`https` 经本机代理（`127.0.0.1:52811`）对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**（`Permission denied`）；直连超时。**处置**：本地提交保证可追溯；推送待用户修复代理或把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git` |
+| R1 | **推送通道曾不可用（已恢复）** | 阶段产出无法上远端 | 实测（2026-10-13 上午）：`https` 经本机代理（`127.0.0.1:52811`）对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**。**2026-10-13 下午代理恢复**：`git push origin main` 成功（`f208567..7b942b3`）。若再次 502，处置：本地提交保证可追溯，或把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git` |
 | R2 | 参照检出漂移 | 语义错位（9-0 已发生过一次） | 每阶段动工前 `git -C D:\AI\参考项目\pi log -1` 确认仍在 `428a12bc7` |
 | R3 | 沙箱构建/测试限制 | 假阳性失败 | 构建必须 `-m:1`；`dotnet test` stdout 为空，改跑 `.exe` + `iconv GBK→UTF-8`；过滤用 `--filter-class` |
 | R4 | `4f` 体量（23.7k 行） | 单会话不可完成 | 已切 5 个子阶段，每子阶段独立提交 |
@@ -221,9 +221,9 @@
 
 | 日期 | 阶段 | 内容 | 提交 | 测试 |
 | --- | --- | --- | --- | --- |
-| 2026-10-13 | 基线 | 修复 `AgentSessionQueue.cs` 缺 `using`（CS0103），构建恢复 0 警告 0 错误 | （随 P1 一并提交） | 1313 / 1313 ✅ |
-| 2026-10-13 | 计划 | 产出本文档 | （随 P1 一并提交） | — |
-| 2026-10-13 | P1 | 4e-3e-9h-4a `AgentSession` 编排本体（`prompt`/`compact`/`_runAgentPrompt`/`_handlePostAgentRun`/`_runBeforeSettleBoundary`/`_runAutoCompaction`/`_checkCompaction`/`_runDefaultCompaction`/认证与重试叶子）；退役 4 处 `NotSupportedException` 缝；补记 C158/C159（上批遗漏）、新登记 C160 | `HEAD+1` | 1323 / 0 失败 ✅ |
+| 2026-10-13 | 基线 | 修复 `AgentSessionQueue.cs` 缺 `using`（CS0103），构建恢复 0 警告 0 错误 | 随 P1 一并提交 | 1313 / 1313 ✅ |
+| 2026-10-13 | 计划 | 产出本文档 | 随 P1 一并提交 | — |
+| 2026-10-13 | P1 | 4e-3e-9h-4a `AgentSession` 编排本体（`prompt`/`compact`/`_runAgentPrompt`/`_handlePostAgentRun`/`_runBeforeSettleBoundary`/`_runAutoCompaction`/`_checkCompaction`/`_runDefaultCompaction`/认证与重试叶子）；退役 4 处 `NotSupportedException` 缝；补记 C158/C159（上批遗漏）、新登记 C160 | `7b942b3`（已推送） | 1323 / 0 失败 ✅ |
 | 2026-10-13 | P2 | 4e-3e-9h-4b SDK 装配本体 | （见下） | 见下 |
 
 （后续阶段完成后逐行追加。）
