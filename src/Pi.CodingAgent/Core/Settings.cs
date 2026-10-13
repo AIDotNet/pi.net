@@ -170,28 +170,10 @@ internal static class SettingsJson
 /// </remarks>
 public static class ThinkingLevels
 {
-    public static string ToText(Pi.Ai.Types.ThinkingLevel level) => level switch
-    {
-        Pi.Ai.Types.ThinkingLevel.Off => "off",
-        Pi.Ai.Types.ThinkingLevel.Minimal => "minimal",
-        Pi.Ai.Types.ThinkingLevel.Low => "low",
-        Pi.Ai.Types.ThinkingLevel.Medium => "medium",
-        Pi.Ai.Types.ThinkingLevel.High => "high",
-        Pi.Ai.Types.ThinkingLevel.XHigh => "xhigh",
-        _ => "max",
-    };
+    /// <remarks>映射本体在 <see cref="Pi.Ai.Types.ThinkingLevelText"/>（Pi.Agent 层也要用），此处仅转发。</remarks>
+    public static string ToText(Pi.Ai.Types.ThinkingLevel level) => Pi.Ai.Types.ThinkingLevelText.ToText(level);
 
-    public static Pi.Ai.Types.ThinkingLevel? Parse(string? text) => text switch
-    {
-        "off" => Pi.Ai.Types.ThinkingLevel.Off,
-        "minimal" => Pi.Ai.Types.ThinkingLevel.Minimal,
-        "low" => Pi.Ai.Types.ThinkingLevel.Low,
-        "medium" => Pi.Ai.Types.ThinkingLevel.Medium,
-        "high" => Pi.Ai.Types.ThinkingLevel.High,
-        "xhigh" => Pi.Ai.Types.ThinkingLevel.XHigh,
-        "max" => Pi.Ai.Types.ThinkingLevel.Max,
-        _ => null,
-    };
+    public static Pi.Ai.Types.ThinkingLevel? Parse(string? text) => Pi.Ai.Types.ThinkingLevelText.Parse(text);
 
     /// <summary>Whether the text names a thinking level (the pi-ai set, without <c>off</c>).</summary>
     public static bool IsValidWithoutOff(string? text) =>

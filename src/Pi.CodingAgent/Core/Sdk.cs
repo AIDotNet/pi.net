@@ -1,6 +1,11 @@
+using System.Text.Json.Nodes;
 using Pi.Ai.Models;
 using Pi.Ai.Types;
+using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Utils;
+// `ToolDefinition` 在 Pi.Ai.Types（AI 层的元数据声明）与 Pi.CodingAgent.Core.Extensions（可执行工具定义）
+// 各有一个，本文件一律指后者（与 AgentSession 同款）。
+using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
 
 namespace Pi.CodingAgent.Core;
 
@@ -29,6 +34,56 @@ public sealed record CreateAgentSessionOptions
 
     /// <summary>无显式 allowlist 时的默认工具抑制模式。</summary>
     public NoToolsMode? NoTools { get; init; }
+
+    // =====================================================================
+    // createAgentSession 的装配入参（4e-3e-9h-4b）
+    // =====================================================================
+
+    /// <summary>项目本地发现的起点；缺省用会话管理器的 cwd，再退到进程 cwd（TS <c>cwd?</c>）。</summary>
+    public string? Cwd { get; init; }
+
+    /// <summary>全局配置目录；缺省 <c>Config.GetAgentDir()</c>（TS <c>agentDir?</c>）。</summary>
+    public string? AgentDir { get; init; }
+
+    /// <summary>规范模型/认证运行时；缺省按 <see cref="AgentDir"/> 现造一个（TS <c>modelRuntime?</c>）。</summary>
+    public ModelRuntime? ModelRuntime { get; init; }
+
+    /// <summary>指定模型；缺省从设置或会话存档恢复（TS <c>model?</c>）。</summary>
+    public ModelSpec? Model { get; init; }
+
+    /// <summary>思考档位；缺省从设置或会话存档恢复（TS <c>thinkingLevel?</c>）。</summary>
+    public ThinkingLevel? ThinkingLevel { get; init; }
+
+    /// <summary>Ctrl+P 循环用的模型组（TS <c>scopedModels?</c>）。</summary>
+    public IReadOnlyList<ScopedModel>? ScopedModels { get; init; }
+
+    /// <summary>资源加载器；缺省现造 <see cref="DefaultResourceLoader"/> 并 <c>reload</c>（TS <c>resourceLoader?</c>）。</summary>
+    public DefaultResourceLoader? ResourceLoader { get; init; }
+
+    /// <summary>会话管理器；缺省 <c>SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir))</c>。</summary>
+    public SessionManager? SessionManager { get; init; }
+
+    /// <summary>设置管理器；缺省 <c>SettingsManager.create(cwd, agentDir)</c>。</summary>
+    public SettingsManager? SettingsManager { get; init; }
+
+    /// <summary>扩展之外注册的自定义工具（TS <c>customTools?</c>）。</summary>
+    public IReadOnlyList<ToolDefinition>? CustomTools { get; init; }
+
+    /// <summary>扩展绑定会话时发出的 session_start 元数据（TS <c>sessionStartEvent?</c>）。</summary>
+    public ExtensionEvent.SessionStart? SessionStartEvent { get; init; }
+}
+
+/// <summary>对应 TS <c>CreateAgentSessionResult</c>。</summary>
+public sealed record CreateAgentSessionResult
+{
+    /// <summary>创建出的会话。</summary>
+    public required AgentSession Session { get; init; }
+
+    /// <summary>扩展加载结果（交互模式据此建立 UI 上下文）。</summary>
+    public required LoadExtensionsResult ExtensionsResult { get; init; }
+
+    /// <summary>会话按存档模型恢复失败时的警告；否则 <c>null</c>。</summary>
+    public string? ModelFallbackMessage { get; init; }
 }
 
 /// <summary>
@@ -377,5 +432,384 @@ public static class Sdk
         }
 
         return filtered;
+    }
+
+    // =====================================================================
+    // createAgentSession 装配本体（4e-3e-9h-4b）
+    // =====================================================================
+
+    /// <summary>
+    /// 创建 <see cref="AgentSession"/>。对应 TS <c>createAgentSession(options = {})</c>
+    /// （<c>core/sdk.ts:181-468</c>）。
+    /// </summary>
+    /// <param name="options">装配选项；<c>null</c> 等价 TS 的 <c>{}</c>。</param>
+    /// <param name="processCwd">
+    /// TS 的 <c>process.cwd()</c>。端口显式传入以避免静态依赖进程状态（同
+    /// <see cref="ResolveSessionCwd"/>）；缺省取 <see cref="Directory.GetCurrentDirectory"/>。
+    /// </param>
+    /// <param name="cancellationToken">贯穿资源加载与模型运行时创建的取消令牌。</param>
+    /// <remarks>
+    /// <para>
+    /// 求值顺序严格照搬 TS：cwd/agentDir 解析 → <see cref="ModelRuntime"/> → 设置/会话管理器 →
+    /// 资源加载器 reload → 会话存档检查 → 模型恢复 → <c>findInitialModel</c> 兜底 →
+    /// 思考档位四级回退 → 工具解析 → <c>Agent</c> 装配（含 <c>streamFn</c> / 缓存温热 / 扩展钩子）→
+    /// 补写会话元数据 → 构造 <see cref="AgentSession"/>。
+    /// </para>
+    /// <para>
+    /// <b>差异 C161</b>：TS 的会话模型状态住在 <c>agent.state.model</c>，构造会话时已由本函数写入，
+    /// 故 <c>AgentSessionConfig</c> 不含模型字段。端口因模型状态二分（差异 C148）另加
+    /// <see cref="AgentSessionConfig.Model"/>，把同一个 <see cref="ModelSpec"/> 交给会话做真相，
+    /// 再镜像到 <c>agent.Model</c>。
+    /// </para>
+    /// <para>
+    /// <b>已知缺口（顺延 4e-3e-9h-4b-2）</b>：TS 的 <c>CacheWarmer</c> 构造器还要
+    /// <c>modelRuntime</c> / <c>sessionManager</c> / <c>decide</c> 三个入参，并自带定时重放
+    /// （<c>schedule</c> / <c>refresh</c> / 经济学判定）。端口当前只有门闩 + 状态那一半
+    /// （<c>CacheWarmer(Func&lt;string&gt;)</c>），<c>Start</c> 之后不会真的重发请求。
+    /// 本函数按 TS 的位置与时机调用 <c>Start</c>，等 <c>CacheWarmer</c> 完整化后无需改动此处。
+    /// </para>
+    /// </remarks>
+    public static async Task<CreateAgentSessionResult> CreateAgentSessionAsync(
+        CreateAgentSessionOptions? options = null,
+        string? processCwd = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= new CreateAgentSessionOptions();
+
+        var cwd = ResolveSessionCwd(
+            options.Cwd,
+            options.SessionManager?.GetCwd(),
+            processCwd ?? Directory.GetCurrentDirectory());
+        var agentDir = ResolveSessionAgentDir(options.AgentDir, Config.GetAgentDir());
+        var resourceLoader = options.ResourceLoader;
+
+        // TS 只在调用方显式给了 agentDir 时才拼这两个路径，否则交给 ModelRuntime.create 用默认值。
+        var filePaths = AgentSessionServicesBuilder.ResolveModelRuntimeFilePaths(
+            options.AgentDir is not null, agentDir);
+        var modelRuntime = options.ModelRuntime ?? await ModelRuntime.CreateAsync(new CreateModelRuntimeOptions
+        {
+            AuthPath = filePaths.AuthPath,
+            ModelsPath = filePaths.ModelsPath,
+        }).ConfigureAwait(false);
+
+        var settingsManager = options.SettingsManager ?? SettingsManager.Create(cwd, agentDir);
+        var sessionManager = options.SessionManager
+            ?? SessionManager.Create(cwd, SessionFiles.GetDefaultSessionDir(cwd, agentDir));
+
+        if (resourceLoader is null)
+        {
+            resourceLoader = new DefaultResourceLoader(cwd, agentDir, settingsManager);
+            await resourceLoader.ReloadAsync(null, cancellationToken).ConfigureAwait(false);
+            Timings.Time("resourceLoader.reload");
+        }
+
+        // 会话是否已有可恢复的数据。
+        var existingSession = sessionManager.BuildSessionContext();
+        var hasExistingSession = existingSession.Messages.Count > 0;
+        var branch = sessionManager.GetBranch();
+        var hasThinkingEntry = HasThinkingLevelChangeEntry(branch);
+
+        // 助手消息记的是真正作答的物理模型，虚拟选择只出现在 model_change 条目里。
+        var branchSelection = VirtualModels.GetBranchSelection(branch, modelRuntime.GetModel);
+        var sessionModel = branchSelection is { } selection
+            ? new BranchModelSelection(selection.Provider, selection.ModelId)
+            : null;
+        var restored = ResolveSessionModel(options.Model, hasExistingSession, sessionModel, modelRuntime);
+        var model = restored.Model;
+        var modelFallbackMessage = restored.FallbackMessage;
+
+        if (model is null)
+        {
+            var initial = await ModelResolver.FindInitialModelAsync(new InitialModelOptions
+            {
+                ScopedModels = [],
+                IsContinuing = hasExistingSession,
+                DefaultProvider = settingsManager.GetDefaultProvider(),
+                DefaultModelId = settingsManager.GetDefaultModel(),
+                DefaultThinkingLevel = ThinkingLevels.Parse(settingsManager.GetDefaultThinkingLevel()),
+                ModelThinkingLevels = ToThinkingLevelMap(settingsManager.GetAllModelThinkingLevels()),
+                Runtime = modelRuntime,
+            }).ConfigureAwait(false);
+            model = initial.Model;
+            if (model is null)
+            {
+                modelFallbackMessage = AuthGuidance.FormatNoModelsAvailableMessage();
+            }
+            else if (modelFallbackMessage is not null)
+            {
+                modelFallbackMessage = AppendFallbackModel(modelFallbackMessage, model);
+            }
+        }
+
+        var thinkingLevel = ResolveThinkingLevel(
+            options.ThinkingLevel,
+            hasExistingSession,
+            hasThinkingEntry,
+            existingSession.ThinkingLevel,
+            settingsManager.GetDefaultThinkingLevel(),
+            model is null ? null : settingsManager.GetModelThinkingLevel(model.Provider, model.Id),
+            model);
+
+        var resolvedTools = ResolveSessionTools(options, settingsManager.GetDefaultTools());
+
+        // `convertToLlm` 包装：blockImages 开着时把图片换成占位文本（纵深防御）。
+        // TS 每次调用现读设置，好让会话中途改设置立即生效。
+        Task<IReadOnlyList<ChatMessage>> ConvertToLlm(IReadOnlyList<ChatMessage> messages)
+            => Task.FromResult(ConvertToLlmWithBlockImages(messages, settingsManager.GetBlockImages()));
+
+        var extensionRunnerRef = new ExtensionRunnerRef();
+        var cacheWarmer = new CacheWarmer(() => settingsManager.GetCacheWarmingMode());
+
+        Dictionary<string, object?> BuildRequestOptions(
+            ModelSpec requestModel, SimpleStreamOptions? streamOptions)
+        {
+            var providerRetrySettings = settingsManager.GetProviderRetrySettings();
+            var timeouts = ResolveRequestTimeouts(
+                streamOptions?.TimeoutMs,
+                streamOptions?.WebsocketConnectTimeoutMs,
+                streamOptions?.MaxRetries,
+                streamOptions?.MaxRetryDelayMs,
+                providerRetrySettings,
+                settingsManager.GetHttpIdleTimeoutMs(),
+                settingsManager.GetWebSocketConnectTimeoutMs());
+
+            var requestOptions = new Dictionary<string, object?>(
+                CompatShims.ToDictionary(streamOptions ?? new SimpleStreamOptions()),
+                StringComparer.Ordinal);
+            if (timeouts.TimeoutMs is { } timeoutMs) requestOptions["timeoutMs"] = timeoutMs;
+            if (timeouts.WebsocketConnectTimeoutMs is { } websocketTimeoutMs)
+                requestOptions["websocketConnectTimeoutMs"] = websocketTimeoutMs;
+            if (timeouts.MaxRetries is { } maxRetries) requestOptions["maxRetries"] = maxRetries;
+            requestOptions["maxRetryDelayMs"] = timeouts.MaxRetryDelayMs;
+            requestOptions[Pi.Ai.Models.Models.TransformHeadersOptionKey] =
+                new Func<IReadOnlyDictionary<string, string?>, Task<IReadOnlyDictionary<string, string?>>>(
+                    async requestHeaders =>
+                    {
+                        var headers = ProviderAttribution.MergeHeaders(
+                            requestModel, settingsManager, streamOptions?.SessionId, requestHeaders);
+                        var headerRunner = extensionRunnerRef.Current;
+                        if (headerRunner is null
+                            || !headerRunner.HasHandlers(ExtensionEventNames.BeforeProviderHeaders))
+                        {
+                            return headers ?? new Dictionary<string, string?>(StringComparer.Ordinal);
+                        }
+
+                        var mutable = new Pi.CodingAgent.Core.Extensions.Types.ProviderHeaders();
+                        foreach (var (name, value) in headers ?? new Dictionary<string, string?>(StringComparer.Ordinal))
+                        {
+                            mutable[name] = value;
+                        }
+
+                        await headerRunner.EmitBeforeProviderHeadersAsync(mutable).ConfigureAwait(false);
+                        return mutable.AsDictionary();
+                    });
+            return requestOptions;
+        }
+
+        // 只温热选中模型的请求：虚拟选择路由过的、或被扩展改道的请求，下一次未必重复。
+        // TS 在 `agent` 之前定义本闭包、靠调用期再读 `agent.state.messages`；端口显式把 agent
+        // 传进来（局部函数体里 `agent` 尚未赋值，只能晚绑定）。
+        Func<bool> CacheContextIsCurrent(Pi.Agent.Agent owner, Pi.Ai.Types.Model requestModel)
+        {
+            // TS 捕获 `agent.state.messages` 的**当前数组**；端口 Agent 的 Messages 是同一个活 List，
+            // 故显式取快照，才能复现 TS「前缀仍在」的判定。
+            var messages = owner.Messages.ToArray();
+            return () =>
+            {
+                var currentModel = owner.Model;
+                var currentMessages = owner.Messages;
+                if (currentModel.Provider != requestModel.Provider || currentModel.Id != requestModel.Id)
+                {
+                    return false;
+                }
+
+                if (messages.Length > currentMessages.Count)
+                {
+                    return false;
+                }
+
+                for (var index = 0; index < messages.Length; index++)
+                {
+                    if (!ReferenceEquals(currentMessages[index], messages[index]))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            };
+        }
+
+        Task<object?> TransformProviderPayloadAsync(object? payload)
+        {
+            var runner = extensionRunnerRef.Current;
+            if (runner is null || !runner.HasHandlers(ExtensionEventNames.BeforeProviderRequest))
+            {
+                return Task.FromResult(payload);
+            }
+
+            return runner.EmitBeforeProviderRequestAsync(payload);
+        }
+
+        async Task HandleProviderResponseAsync(ProviderResponse response)
+        {
+            var runner = extensionRunnerRef.Current;
+            if (runner is null || !runner.HasHandlers(ExtensionEventNames.AfterProviderResponse))
+            {
+                return;
+            }
+
+            await runner.EmitAsync(new ExtensionEvent.AfterProviderResponse(response.Status, response.Headers))
+                .ConfigureAwait(false);
+        }
+
+        async Task HandleProviderStreamEventAsync(JsonObject data, ModelSpec eventModel)
+        {
+            var runner = extensionRunnerRef.Current;
+            if (runner is null || !runner.HasHandlers(ExtensionEventNames.ProviderStreamEvent))
+            {
+                return;
+            }
+
+            await runner.EmitAsync(new ExtensionEvent.ProviderStream(
+                eventModel.Provider, eventModel.Api, eventModel.Id, data)).ConfigureAwait(false);
+        }
+
+        Pi.Agent.Agent agent = null!;
+        agent = new Pi.Agent.Agent(new Pi.Agent.AgentOptions
+        {
+            SystemPrompt = string.Empty,
+            Model = model is null ? null : CompatShims.ToModel(model),
+            ThinkingLevel = thinkingLevel,
+            Tools = [],
+            Messages = existingSession.Messages,
+            ConvertToLlm = ConvertToLlm,
+            StreamFn = async (streamModel, context, streamOptions, signal) =>
+            {
+                // 差异 C148 的反向桥：agent 持有的是瘦 Model，会话/目录层流通的是 ModelSpec，
+                // 故按 provider/id 回查目录（与 InstallAgentRequestProjection 同一约定）。
+                var spec = modelRuntime.GetModel(streamModel.Provider, streamModel.Id)
+                    ?? throw new InvalidOperationException(
+                        $"Model {streamModel.Provider}/{streamModel.Id} is not registered.");
+                var requestOptions = BuildRequestOptions(spec, streamOptions);
+                // TS 的 signal 住在 options 里；端口的 StreamFn 把它单列成第 4 个入参，故回填。
+                if (signal.CanBeCanceled)
+                {
+                    requestOptions["signal"] = signal;
+                }
+
+                if (streamOptions?.SessionId == sessionManager.GetSessionId())
+                {
+                    cacheWarmer.Start(
+                        new CacheWarmRequest
+                        {
+                            Model = spec,
+                            Options = streamOptions ?? new SimpleStreamOptions(),
+                        },
+                        CacheContextIsCurrent(agent, streamModel));
+                }
+
+                return modelRuntime.StreamSimple(spec, context.Messages, requestOptions);
+            },
+            OnPayload = async (payload, _) =>
+                await TransformProviderPayloadAsync(payload).ConfigureAwait(false) as JsonObject ?? payload,
+            OnResponse = (response, _) => HandleProviderResponseAsync(response),
+            OnProviderStreamEvent = HandleProviderStreamEventAsync,
+            SessionId = sessionManager.GetSessionId(),
+            TransformContext = (messages, _) =>
+            {
+                var runner = extensionRunnerRef.Current;
+                return runner is null ? Task.FromResult(messages) : runner.EmitContextAsync(messages);
+            },
+            SteeringMode = QueueModes.Parse(settingsManager.GetSteeringMode()),
+            FollowUpMode = QueueModes.Parse(settingsManager.GetFollowUpMode()),
+            Transport = settingsManager.GetTransport(),
+            ThinkingBudgets = ToThinkingBudgets(settingsManager.GetThinkingBudgets()),
+            MaxRetryDelayMs = (int)settingsManager.GetProviderRetrySettings().MaxRetryDelayMs,
+        });
+
+        // 给旧会话补上缺失的设置元数据。
+        if (hasExistingSession)
+        {
+            if (!hasThinkingEntry)
+            {
+                sessionManager.AppendThinkingLevelChange(ThinkingLevels.ToText(thinkingLevel));
+            }
+        }
+        else
+        {
+            // 新会话记录初始模型与思考档位，便于下次恢复。
+            if (model is not null)
+            {
+                sessionManager.AppendModelChange(model.Provider, model.Id);
+            }
+
+            sessionManager.AppendThinkingLevelChange(ThinkingLevels.ToText(thinkingLevel));
+        }
+
+        var session = new AgentSession(new AgentSessionConfig
+        {
+            Agent = agent,
+            SessionManager = sessionManager,
+            SettingsManager = settingsManager,
+            Cwd = cwd,
+            Model = model,
+            ScopedModels = options.ScopedModels,
+            ResourceLoader = resourceLoader,
+            CustomTools = options.CustomTools,
+            ModelRuntime = modelRuntime,
+            CacheWarmer = cacheWarmer,
+            InitialActiveToolNames = resolvedTools.InitialActiveToolNames,
+            UsesDefaultTools = resolvedTools.UsesDefaultTools,
+            AllowedToolNames = resolvedTools.AllowedToolNames,
+            ExcludedToolNames = resolvedTools.ExcludedToolNames,
+            ExtensionRunnerRef = extensionRunnerRef,
+            SessionStartEvent = options.SessionStartEvent,
+        });
+
+        return new CreateAgentSessionResult
+        {
+            Session = session,
+            ExtensionsResult = resourceLoader.GetExtensions(),
+            ModelFallbackMessage = modelFallbackMessage,
+        };
+    }
+
+    /// <summary><c>settings.modelThinkingLevels</c>（文本值）→ <see cref="InitialModelOptions"/> 的强类型映射。</summary>
+    private static IReadOnlyDictionary<string, ThinkingLevel> ToThinkingLevelMap(
+        IReadOnlyDictionary<string, string> rawLevels)
+    {
+        var result = new Dictionary<string, ThinkingLevel>(StringComparer.Ordinal);
+        foreach (var (key, text) in rawLevels)
+        {
+            if (ThinkingLevels.Parse(text) is { } level)
+            {
+                result[key] = level;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary><c>settings.thinkingBudgets</c> 的 JSON 对象 → 强类型 <see cref="ThinkingBudgets"/>。</summary>
+    /// <remarks>TS 直接把该对象交给流选项；端口在设置边界做一次字段映射。缺失 / 非数字字段留空。</remarks>
+    private static ThinkingBudgets? ToThinkingBudgets(System.Text.Json.Nodes.JsonObject? raw)
+    {
+        if (raw is null)
+        {
+            return null;
+        }
+
+        long? Read(string name)
+            => raw[name] is System.Text.Json.Nodes.JsonValue value
+                && value.TryGetValue<long>(out var number)
+                ? number
+                : null;
+
+        return new ThinkingBudgets(
+            Minimal: Read("minimal"),
+            Low: Read("low"),
+            Medium: Read("medium"),
+            High: Read("high"));
     }
 }

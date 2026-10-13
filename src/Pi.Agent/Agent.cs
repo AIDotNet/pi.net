@@ -42,6 +42,12 @@ public sealed class Agent
         PrepareNextTurn = options.PrepareNextTurn;
         ToolExecution = options.ToolExecution ?? ToolExecutionMode.Parallel;
         SessionId = options.SessionId;
+        OnPayload = options.OnPayload;
+        OnResponse = options.OnResponse;
+        OnProviderStreamEvent = options.OnProviderStreamEvent;
+        Transport = options.Transport ?? "auto";
+        ThinkingBudgets = options.ThinkingBudgets;
+        MaxRetryDelayMs = options.MaxRetryDelayMs;
 
         // TS createMutableAgentState：初始 transcript 先就位，再把 prompt / 工具折成前导
         // system 消息——仅当 transcript 不以 system 消息开头时插入（messages.unshift）。
@@ -118,6 +124,24 @@ public sealed class Agent
 
     /// <summary>多工具调用执行策略。</summary>
     public ToolExecutionMode ToolExecution { get; set; }
+
+    /// <summary>请求体替换钩子。对应 TS <c>Agent.onPayload</c>。</summary>
+    public Func<System.Text.Json.Nodes.JsonObject, Pi.Ai.Models.ModelSpec, Task<System.Text.Json.Nodes.JsonObject?>>? OnPayload { get; set; }
+
+    /// <summary>HTTP 响应到达回调。对应 TS <c>Agent.onResponse</c>。</summary>
+    public Func<ProviderResponse, Pi.Ai.Models.ModelSpec, Task>? OnResponse { get; set; }
+
+    /// <summary>provider 原始流事件观察回调。对应 TS <c>Agent.onProviderStreamEvent</c>。</summary>
+    public Func<System.Text.Json.Nodes.JsonObject, Pi.Ai.Models.ModelSpec, Task>? OnProviderStreamEvent { get; set; }
+
+    /// <summary>首选传输。对应 TS <c>Agent.transport</c>（缺省 <c>"auto"</c>）。</summary>
+    public string Transport { get; set; } = "auto";
+
+    /// <summary>思考预算覆盖。对应 TS <c>Agent.thinkingBudgets</c>。</summary>
+    public ThinkingBudgets? ThinkingBudgets { get; set; }
+
+    /// <summary>单次重试的最长退避。对应 TS <c>Agent.maxRetryDelayMs</c>。</summary>
+    public int? MaxRetryDelayMs { get; set; }
 
     // ---------- 订阅 ----------
 
@@ -296,7 +320,17 @@ public sealed class Agent
             PrepareRequest = PrepareRequest,
             PrepareNextTurn = PrepareNextTurn,
             ToolExecution = ToolExecution,
-            StreamOptions = new SimpleStreamOptions(SessionId: SessionId),
+            // TS：`reasoning: thinkingLevel === "off" ? undefined : thinkingLevel`。
+            Reasoning = ThinkingLevel == ThinkingLevel.Off ? null : ThinkingLevel,
+            StreamOptions = new SimpleStreamOptions(SessionId: SessionId)
+            {
+                OnPayload = OnPayload,
+                OnResponse = OnResponse,
+                OnProviderStreamEvent = OnProviderStreamEvent,
+                Transport = Transport,
+                ThinkingBudgets = ThinkingBudgets,
+                MaxRetryDelayMs = MaxRetryDelayMs,
+            },
             GetSteeringMessages = () =>
             {
                 if (localSkipInitialSteeringPoll)

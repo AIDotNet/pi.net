@@ -53,8 +53,7 @@ public static class ProviderStreamOptions
             MaxTokens: options.TryGetValue("maxTokens", out var maxTokens) ? maxTokens as int? : null,
             Temperature: options.TryGetValue("temperature", out var temperature) ? temperature as double? : null,
             StopSequences: Get<IReadOnlyList<string>>("stopSequences"),
-            SessionId: Get<string>("sessionId"),
-            ChainOfThought: options.TryGetValue("chainOfThought", out var chainOfThought) ? chainOfThought as bool? : null)
+            SessionId: Get<string>("sessionId"))
         {
             Headers = Get<IReadOnlyDictionary<string, string?>>("headers"),
             SamplingParams = Get<JsonObject>("samplingParams"),

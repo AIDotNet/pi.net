@@ -250,6 +250,13 @@ public partial class AgentSession
         _customTools = config.CustomTools is not null ? [.. config.CustomTools] : [];
         _cwd = config.Cwd;
         _modelRuntime = config.ModelRuntime;
+        // TS 的会话模型状态住在 `agent.state.model`（构造时由 createAgentSession 写入）；
+        // 端口以 _currentModel 为真相，故在此播种。未显式给定时保持原样（_agent.Model 不动），
+        // 与既有「构造后 Model 为 null」的契约一致。差异 C161。
+        if (config.Model is not null)
+        {
+            SetCurrentModel(config.Model);
+        }
         _cacheWarmer = config.CacheWarmer;
         // TS: this._cacheWarmer.onWarmed = (entry) => this._emit({ type: "entry_appended", entry });
         // 端口 CacheWarmer 尚无 onWarmed 字段（9h-1 勘察记录），接线随刷新流批次。

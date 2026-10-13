@@ -4,7 +4,7 @@
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`428a12bc7`（= `origin/main`）**
 > 目标仓库：`D:\AI\参考项目\pi.net`（`src/Pi.CodingAgent`），起始 commit **`f208567`**
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C160`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C161`）。
 
 ---
 
@@ -31,8 +31,11 @@
 | 项目 | 结果 |
 | --- | --- |
 | `dotnet build Pi.slnx -m:1` | ✅ 0 警告 0 错误（**修复后**，见 1.3） |
-| `Pi.CodingAgent.Tests` | ✅ 1313 项 / 1313 通过 / 0 失败（2m21s） |
-| 其余 10 个测试工程 | 见 [porting-status.md](porting-status.md) 的环境限制说明 |
+| `Pi.CodingAgent.Tests` | ✅ 1313 项 / 1313 通过 / 0 失败（2m21s，**起始基线**） |
+| `Pi.CodingAgent.Tests`（P2a 后） | ✅ **1338 项 / 0 失败**（2m54s；1313 + P1 的 10 + P2a 的 15） |
+| `Pi.Agent.Tests`（P2a 后） | ✅ **32 项 / 0 失败**（386ms） |
+| `Pi.Ai.Tests`（P2a 后） | ✅ 301 项 / 0 失败 |
+| 其余 9 个测试工程 | 见 [porting-status.md](porting-status.md) 的环境限制说明 |
 
 ### 1.3 起始状态的一个真实缺陷（本批已修）
 
@@ -68,27 +71,33 @@
 | 4e-3e-9g | `ExtensionRunner`（1,560 行 TS）+ 契约层收口 | C140/C141；61 项新测试 |
 | 4e-3e-9h-1 | 实例化地基（`static partial class` → `partial class`） | 行为零变化 |
 | 4e-3e-9h-2a/2b-1/2b-2/2c/3 | `ThinkingLevel` 决策 + `IToolContext` 退役 + `wrapper.ts` / 资源溯源 + 扩展加载本体 / 工具目录 + 运行时装配 / 6 个 installer + `_handleAgentEvent` | C142–C157 |
+| 4e-3e-9h-4a | `AgentSession` 编排本体（`prompt` / `compact` / `_runAgentPrompt` / `_handlePostAgentRun` / `_runBeforeSettleBoundary` / `_runAutoCompaction` / `_checkCompaction` / `_runDefaultCompaction` / 认证与重试叶子）；退役 4 处 `NotSupportedException` 缝 | C158–C160；`7b942b3` |
+| 4e-3e-9h-4b（第一半） | `createAgentSession` 装配本体（`Sdk.CreateAgentSessionAsync`，TS `sdk.ts:181-468`）；顺带修正三处 reasoning 传递链缺口 | C161；`SdkCreateAgentSessionTests` 15 项 |
 | （未记档） | `AgentSessionQueue`（输入与排队层） | 本批修复其编译错误 |
 
 ### 2.2 未完成（本计划的执行对象）
 
 #### 4e-3e-9h-4：会话编排本体 ★最高优先级
 
+> **进度**：`4a`（`AgentSession` 编排本体）✅ `7b942b3`；`4b` 第一半（`createAgentSession` 装配本体）
+> ✅ 本批。余下见「4e-3e-9h-4b-2」。
+
 | TS 符号 | 行数 | 端口现状 |
 | --- | ---: | --- |
-| `agent-session.ts` `prompt()` | 1954-2096（143 行） | `PromptAsync` 是缝（`NotSupportedException`） |
-| `agent-session.ts` `_runAgentPrompt()` | 1808-1837（30 行） | `RunAgentPromptAsync` 是缝 |
-| `agent-session.ts` `_handlePostAgentRun()` | 1839-1877（39 行） | 未落地 |
-| `agent-session.ts` `_runBeforeSettleBoundary()` | 1879-1910（32 行） | 未落地 |
-| `agent-session.ts` `compact()` | 2750-2895（146 行） | `CompactAsync` 是缝 |
-| `agent-session.ts` `_runAutoCompaction()` | 2985-3120（135 行） | `NotSupportedException` 缝（9h-3 记录） |
-| `agent-session.ts` `_runDefaultCompaction()` / `_getSummarizationRequestAuth()` | 2720-2750 | 未落地 |
-| `agent-session.ts` `_handleAgentEvent` 尾部 / `_flushPendingBashMessages` 等生命周期尾巴 | — | 部分在 9h-3 |
-| `sdk.ts` `createAgentSession()` | 462 行（整文件 468） | 仅叶子（9f） |
-| `agent-session-services.ts` `createAgentSessionServices` 编排本体 | 233 行 | 仅叶子（9f） |
-| `agent-session-runtime.ts` `AgentSessionRuntime` 类本体 | 447 行 | 仅叶子（9f） |
-| `sdk.ts` `buildRequestOptions` 余下字段（`transformHeaders` / `onPayload` / `onResponse` / `onProviderStreamEvent`） | — | 顺延 |
-| `CreateAgentSessionRuntimeResult` | — | 顺延（9h-1 已解阻塞） |
+| `agent-session.ts` `prompt()` | 1954-2096（143 行） | ✅ `PromptAsync`（9h-4a） |
+| `agent-session.ts` `_runAgentPrompt()` | 1808-1837（30 行） | ✅ `RunAgentPromptAsync`（9h-4a） |
+| `agent-session.ts` `_handlePostAgentRun()` | 1839-1877（39 行） | ✅（9h-4a） |
+| `agent-session.ts` `_runBeforeSettleBoundary()` | 1879-1910（32 行） | ✅（9h-4a） |
+| `agent-session.ts` `compact()` | 2750-2895（146 行） | ✅ `CompactAsync`（9h-4a） |
+| `agent-session.ts` `_runAutoCompaction()` | 2985-3120（135 行） | ✅（9h-4a） |
+| `agent-session.ts` `_runDefaultCompaction()` / `_getSummarizationRequestAuth()` | 2720-2750 | ✅（9h-4a） |
+| `agent-session.ts` `_handleAgentEvent` 尾部 / `_flushPendingBashMessages` 等生命周期尾巴 | — | ✅（9h-3） |
+| `sdk.ts` `createAgentSession()` | 462 行（整文件 468） | ✅ **本批**（`Sdk.CreateAgentSessionAsync`） |
+| `sdk.ts` `buildRequestOptions` 余下字段（`transformHeaders` / `onPayload` / `onResponse` / `onProviderStreamEvent`） | — | ✅ **本批** |
+| `agent-session-services.ts` `createAgentSessionServices` 编排本体 | 233 行 | ⬜ 顺延 9h-4b-2（仅叶子 9f） |
+| `agent-session-runtime.ts` `AgentSessionRuntime` 类本体 | 447 行 | ⬜ 顺延 9h-4b-2（仅叶子 9f） |
+| `CacheWarmer` 完整化（`decide` / 定时重放 / 经济学判定 / 回调） | — | ⬜ 顺延 9h-4b-2（现仅门闩 + 状态） |
+| `CreateAgentSessionRuntimeResult` | — | ✅ 类型已就位（`AgentSessionServices.cs`），消费方待 9h-4b-2 |
 
 #### 4d 尾巴：扩展层剩余
 
@@ -167,10 +176,42 @@
 
 ### 阶段 P2（= 4e-3e-9h-4b）：SDK 装配本体
 
-- **目标**：`createAgentSession()` 端到端可创建并驱动一个会话。
-- **文件范围**：`Core/Sdk.cs`、`Core/AgentSessionServices.cs`、`Core/AgentSessionRuntime.cs`、`Core/AgentSessionBuild.cs`（`buildRequestOptions` 余下字段）、`tests/Pi.CodingAgent.Tests/SdkTests.cs`。
-- **验收标准**：`CreateAgentSessionRuntimeResult` 落地；`AgentSessionRuntime` 的 `switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose` 全部落地；`buildRequestOptions` 的 4 个钩子接 `ExtensionRunner`；构建 + 测试全绿。
+拆两批，各自独立提交与推送（`createAgentSession` 与 `AgentSessionRuntime` 的装配本体体量互不相容，
+强行合批会让一致性核对失去粒度）。
+
+#### P2a（已完成）：`createAgentSession` 装配本体
+
+- **目标**：`Sdk.CreateAgentSessionAsync` 端到端可创建并驱动一个会话。
+- **文件范围**：`Core/Sdk.cs`（`CreateAgentSessionOptions` 扩到 TS 全量 + `CreateAgentSessionResult`
+  + `CreateAgentSessionAsync`）、`Core/AgentSession.cs` / `Core/AgentSessionBuild.cs`（差异 C161）、
+  `Core/CompatShims.cs` / `Core/Compaction.cs` / `src/Pi.Ai/Types/AssistantMessageEvent.cs` /
+  `src/Pi.Ai/Api/LazyApis.cs`（reasoning 传递链修正）、
+  `src/Pi.Agent/{Agent,AgentLoopRunner,AgentOptions,Types/AgentTypes}.cs` +
+  `src/Pi.Ai/Types/ThinkingLevelText.cs`（reasoning 链修复）、
+  `tests/Pi.Agent.Tests/AgentReasoningTests.cs`、`tests/Pi.CodingAgent.Tests/SdkCreateAgentSessionTests.cs`。
+- **验收标准**：构建 0 警告 0 错误；`Pi.Agent.Tests` 32/32；`SdkCreateAgentSessionTests` 15/15；
+  `Pi.CodingAgent.Tests` 全量无回归。→ **达成**（见台账）。
 - **前置**：P1。
+
+#### P2b（待办，= 4e-3e-9h-4b-2）：`CacheWarmer` 完整化 + `AgentSessionRuntime` 编排
+
+- **目标**：会话可切换 / 新建 / fork / 导入，且缓存预热真正按 TS 语义重放请求。
+- **文件范围**：`Core/CacheWarmer.cs`（构造器补 `modelRuntime` / `sessionManager` / `decide`；
+  `schedule` / `refresh` 定时重放；`price` / `lastPromptTokens` 经济学判定；`onModeChanged` /
+  `onWarmed` / `onAgentSettled`；`status.decision`）、`Core/AgentSessionRuntime.cs`
+  （`switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose`）、
+  `Core/AgentSessionServices.cs`（`createAgentSessionRuntime` / `createAgentSessionServices` /
+  `createAgentSessionFromServices`，TS `agent-session-services.ts` 233 行）、
+  `tests/Pi.CodingAgent.Tests/AgentSessionRuntimeTests.cs`。
+- **验收标准**：逐条对照 TS `agent-session-runtime.ts` 447 行；构建 + 测试全绿。
+- **已核实的真实缺陷（本批必须修）**：`CacheWarmerMath.GetPromptCacheTtlMs` 在「未显式给
+  `cacheRetention` 且 `PI_CACHE_RETENTION != "long"`」时返回 `null`；TS（`cache-warmer.ts:39-46`）回落
+  `"short"`。后果：**默认配置下缓存预热永远不激活**（`Start` 直接 `stop("cache lifetime unavailable")`）。
+  现有测试 `CacheWarmerTests.GetPromptCacheTtlMs_RequiresRetention` 把这个错误行为写死了
+  （`Assert.Null(... new SimpleStreamOptions())`），需一并改正。另需补 `CacheWarmRequest.Options`
+  的形状差异：TS 传的是 `buildRequestOptions` 产出的**请求选项字典**（含 `context`），端口传的是
+  `SimpleStreamOptions`。
+- **前置**：P2a。
 
 ### 阶段 P3：package-manager 包解析
 
@@ -224,6 +265,7 @@
 | 2026-10-13 | 基线 | 修复 `AgentSessionQueue.cs` 缺 `using`（CS0103），构建恢复 0 警告 0 错误 | 随 P1 一并提交 | 1313 / 1313 ✅ |
 | 2026-10-13 | 计划 | 产出本文档 | 随 P1 一并提交 | — |
 | 2026-10-13 | P1 | 4e-3e-9h-4a `AgentSession` 编排本体（`prompt`/`compact`/`_runAgentPrompt`/`_handlePostAgentRun`/`_runBeforeSettleBoundary`/`_runAutoCompaction`/`_checkCompaction`/`_runDefaultCompaction`/认证与重试叶子）；退役 4 处 `NotSupportedException` 缝；补记 C158/C159（上批遗漏）、新登记 C160 | `7b942b3`（已推送） | 1323 / 0 失败 ✅ |
-| 2026-10-13 | P2 | 4e-3e-9h-4b SDK 装配本体 | （见下） | 见下 |
+| 2026-10-13 | P2a | 4e-3e-9h-4b（第一半）`createAgentSession` 装配本体（`Sdk.CreateAgentSessionAsync`，TS `sdk.ts:181-468`；`CreateAgentSessionOptions` 扩到 TS 全量 + `CreateAgentSessionResult`）；顺带修正三处 reasoning 传递链缺口（`Pi.Agent` 忽略 `ThinkingLevel`、`AgentOptions` 缺 6 字段、`ChainOfThought` 臆造字段）；新登记 C161 | 本次提交 | `Pi.CodingAgent.Tests` **1338 / 0 失败** ✅；`Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301；构建 0 警告 0 错误 |
+| 2026-10-13 | P2b | 4e-3e-9h-4b-2 `CacheWarmer` 完整化（含已核实的 `GetPromptCacheTtlMs` `"short"` 回落缺陷）+ `AgentSessionRuntime` 编排 | ⬜ 待办 | — |
 
 （后续阶段完成后逐行追加。）

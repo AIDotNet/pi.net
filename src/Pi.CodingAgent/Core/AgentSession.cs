@@ -116,6 +116,13 @@ public sealed record AgentSessionConfig
 
     public required ModelRuntime ModelRuntime { get; init; }
 
+    /// <summary>
+    /// 会话初始模型。对应 TS 的 <c>agent.state.model</c>——TS 的会话模型状态就住在 agent 上，
+    /// 构造会话时已由 <c>createAgentSession</c> 写入；端口因模型状态二分（差异 C148 / C161）
+    /// 需要显式带进来，否则 <see cref="AgentSession.Model"/> 在首次 <c>setModel</c> 前为空。
+    /// </summary>
+    public ModelSpec? Model { get; init; }
+
     /// <summary>Ctrl+P 循环用的模型组（TS <c>scopedModels</c>，<c>--models</c> 旗标）。</summary>
     public IReadOnlyList<ScopedModel>? ScopedModels { get; init; }
 

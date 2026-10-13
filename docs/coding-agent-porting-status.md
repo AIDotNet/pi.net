@@ -2532,10 +2532,85 @@ Continue / 上一个 End 优先）、隐藏声明投影（剔除 + 透传）、�
 验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`AgentSessionPromptTests` 10/10；
 `AgentSessionBuildTests` 24/24；`Pi.CodingAgent.Tests` 全类 **1323 项 / 0 失败**（1313 + 10 项新增）。
 
+### 4e-3e-9h-4b（第一半）已落地（2026-10-13）：`createAgentSession` 装配本体
+
+**新落地（`Sdk.cs` +约 470 行）：** `CreateAgentSessionOptions` 由「工具选择子集」扩到 TS 的全量入参、
+新增 `CreateAgentSessionResult`、`Sdk.CreateAgentSessionAsync`（TS `core/sdk.ts:181-468`）。
+
+| TS 片段 | 端口 | 说明 |
+| --- | --- | --- |
+| `sdk.ts:182-183` cwd / agentDir 解析 | `ResolveSessionCwd` / `ResolveSessionAgentDir` | 复用 9f 的叶子；`process.cwd()` 由 `processCwd` 形参显式传入 |
+| `sdk.ts:186-188` authPath / modelsPath + `ModelRuntime.create` | `AgentSessionServicesBuilder.ResolveModelRuntimeFilePaths` + `ModelRuntime.CreateAsync` | 只在显式给了 `agentDir` 时拼路径 |
+| `sdk.ts:190-197` settings / sessionManager / resourceLoader | `SettingsManager.Create` / `SessionManager.Create(cwd, SessionFiles.GetDefaultSessionDir(...))` / `DefaultResourceLoader` + `ReloadAsync` + `Timings.Time("resourceLoader.reload")` | |
+| `sdk.ts:200-202` `hasExistingSession` / `hasThinkingEntry` | `BuildSessionContext` / `HasThinkingLevelChangeEntry` | |
+| `sdk.ts:209-241` 模型恢复 + `findInitialModel` 兜底 | `VirtualModels.GetBranchSelection` → `ResolveSessionModel` → `ModelResolver.FindInitialModelAsync` → `AppendFallbackModel` | 含 `. Using p/id` 追加 |
+| `sdk.ts:243-268` 思考档位四级回退 | `ResolveThinkingLevel` | 复用 9f 叶子 |
+| `sdk.ts:270-276` 工具解析 | `ResolveSessionTools` | 复用 9f 叶子 |
+| `sdk.ts:279-313` `convertToLlmWithBlockImages` | `ConvertToLlmWithBlockImages`（每次调用现读 `getBlockImages()`） | |
+| `sdk.ts:315-321` `extensionRunnerRef` + `CacheWarmer` | `ExtensionRunnerRef` + `CacheWarmer(() => GetCacheWarmingMode())` | 见下方缺口 |
+| `sdk.ts:322-348` `buildRequestOptions` | `Sdk` 内的 `BuildRequestOptions` 局部函数 | `CompatShims.ToDictionary` 打底 + 四字段覆写 + `transformHeaders` 闭包（差异 C45 的字典键） |
+| `sdk.ts:351-363` `cacheContextIsCurrent` | `CacheContextIsCurrent(owner, requestModel)` | 端口显式取消息快照：`Agent.Messages` 是活 List，不能像 TS 那样直接捕获数组引用 |
+| `sdk.ts:364-391` 三个 provider 钩子 | `TransformProviderPayloadAsync` / `HandleProviderResponseAsync` / `HandleProviderStreamEventAsync` | 接到 `before_provider_request` / `after_provider_response` / `provider_stream_event` |
+| `sdk.ts:393-428` `new Agent({...})` | `new Pi.Agent.Agent(new AgentOptions {...})` | `streamFn` 按 provider/id 回查 `ModelSpec`（同 `InstallAgentRequestProjection` 约定），并把 `StreamFn` 第 4 参的 `signal` 回填进选项字典 |
+| `sdk.ts:430-441` 会话元数据补写 | `AppendThinkingLevelChange` / `AppendModelChange` | |
+| `sdk.ts:443-467` `new AgentSession` + `getExtensions()` | `new AgentSession(...)` + `CreateAgentSessionResult` | |
+
+**本批新登记的差异：**
+
+| 编号 | 差异 | 影响 |
+| --- | --- | --- |
+| C161 | TS 的会话模型状态住在 `agent.state.model`，`AgentSessionConfig` 不含模型字段；端口因模型状态二分（C148）需要 `AgentSessionConfig.Model` 显式播种 `_currentModel`。 | 无行为差异；未给定时保持原样（既有「构造后 `Model` 为 `null`」契约不变）。 |
+
+**顺带修正的三处 reasoning 链缺口（不是差异，是此前遗留的真实缺陷）：**
+
+1. `Pi.Agent.AgentLoopRunner` 完全忽略 `AgentLoopTurnUpdate.ThinkingLevel`、`prepareRequest` 入参硬编码
+   `ThinkingLevel.Off`、流选项从不设 `Reasoning` —— 于是**思考档位永远到不了 provider**（只有压缩请求带
+   `reasoning`）。已修：`AgentLoopConfig.Reasoning`（TS `config.reasoning`）、
+   `ApplyThinkingLevelUpdate`、`RecordThinkingLevel`、流选项 `Reasoning` 转文本。
+2. `Pi.Agent.AgentOptions` 缺 `onPayload` / `onResponse` / `onProviderStreamEvent` / `transport` /
+   `thinkingBudgets` / `maxRetryDelayMs` 六个字段（TS `AgentOptions` 有）。已补。
+3. `SimpleStreamOptions.ChainOfThought` 是端口臆造的字段（TS 无此物），`Compaction.CreateSummarizationOptions`
+   把 TS 的 `options.reasoning = thinkingLevel` 错写成 `ChainOfThought = true`，且
+   `CompatShims.ToDictionary` 不写 `reasoning` 键 —— 摘要请求的档位同样到不了 provider。
+   已删字段、改回 `Reasoning`，并把 `ToDictionary` 补成 `ProviderStreamOptions.FromDictionary` 的严格逆
+   （新增 `reasoning` / `websocketConnectTimeoutMs` / `onResponse` / `onProviderStreamEvent` / `toolChoice` /
+   `thinkingBudgets` / `deferred`）。
+
+**新增测试：** `tests/Pi.Agent.Tests/AgentReasoningTests.cs`（14 项）+
+`tests/Pi.CodingAgent.Tests/SdkCreateAgentSessionTests.cs`（15 项：无模型警告文案、显式模型与档位落库、
+存档模型恢复与不可恢复时的 `. Using` 追加、存档消息进 agent、工具 allow/deny/`noTools`、扩展结果透传、
+settings→请求选项（超时/重试/sessionId/signal/`transformHeaders` 摘除）、`reasoning` 抵达 provider、
+`before_provider_headers` 钩子、三个 provider 钩子、默认会话目录）。
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301；
+`SdkCreateAgentSessionTests` 15/15。
+
+**尚未落地的部分（顺延 4e-3e-9h-4b-2）：**
+
+- `CacheWarmer` 的完整化：TS 的构造器还要 `modelRuntime` / `sessionManager` / `decide` 三个入参，自带
+  定时重放（`schedule` / `refresh`）、经济学判定（`price` / `lastPromptTokens`）、`onModeChanged` /
+  `onWarmed` / `onAgentSettled` 与 `status.decision`。端口目前只有门闩 + 状态那一半
+  （`CacheWarmer(Func<string>)`），`Start` 之后不会真的重发请求。
+- **已核实的真实缺陷（下一批必修）**：`CacheWarmerMath.GetPromptCacheTtlMs` 在「未显式给
+  `cacheRetention` 且 `PI_CACHE_RETENTION` 非 `long`」时返回 `null`；TS（`cache-warmer.ts:39-46`）
+  回落 `"short"`：
+  ```ts
+  const retention = options?.cacheRetention
+      ?? (getProviderEnvValue("PI_CACHE_RETENTION", options?.env) === "long" ? "long" : "short");
+  ```
+  后果是**默认配置下缓存预热永不激活**（`CacheWarmer.Start` 直接 `stop("cache lifetime unavailable")`）。
+  现有测试 `CacheWarmerTests.GetPromptCacheTtlMs_RequiresRetention` 把这个错误行为写死了
+  （`Assert.Null(... new SimpleStreamOptions())`），需连同源码一并改正。
+- 另需核对 `CacheWarmRequest` 的形状差异：TS 传的是 `buildRequestOptions` 产出的**请求选项字典**
+  （且带 `context`），端口传的是 `SimpleStreamOptions` 且无 `context` 字段。
+- `AgentSessionRuntime` 的 `switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose`
+  编排本体与 `createAgentSessionRuntime` / `createAgentSessionServices` / `createAgentSessionFromServices`。
+
 ### 4e-3e-9 剩余
 
-- **4e-3e-9h-4b**：`createAgentSession` / `AgentSessionRuntime` 装配本体（`Sdk.cs` 余下字段、
-  `buildRequestOptions` 余下字段、`CreateAgentSessionRuntimeResult`）。
+- **4e-3e-9h-4b-2**：`CacheWarmer` 完整化 + `AgentSessionRuntime` 编排本体 +
+  `createAgentSessionRuntime` / `createAgentSessionServices` / `createAgentSessionFromServices`
+  （`CreateAgentSessionRuntimeResult` 已在 `AgentSessionServices.cs` 就位）。
 - 之后：4f（模式层 `modes/interactive` + `modes/rpc`，~23.7k 行）→ 4g（入口与实验层 `cli` / `main` /
   `experimental`，~12k 行）→ evals（1,446 行）。
 - 独立缺口（不阻塞 9h）：package manager 的包解析（`resolvePackageSources`、`packageRoot`、

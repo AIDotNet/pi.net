@@ -93,8 +93,7 @@ public sealed record SimpleStreamOptions(
     int? MaxTokens = null,
     double? Temperature = null,
     IReadOnlyList<string>? StopSequences = null,
-    string? SessionId = null,
-    bool? ChainOfThought = null)
+    string? SessionId = null)
 {
     /// <summary>附加请求头（调用方值覆盖默认）。</summary>
     public IReadOnlyDictionary<string, string?>? Headers { get; init; }

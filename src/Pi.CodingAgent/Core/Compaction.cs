@@ -456,7 +456,8 @@ public static class Compaction
         };
         if (model.Reasoning && thinkingLevel is not null && thinkingLevel != "off")
         {
-            options = options with { ChainOfThought = true };
+            // TS `options.reasoning = thinkingLevel`：摘要请求沿用会话的思考档位。
+            options = options with { Reasoning = thinkingLevel };
         }
 
         return options;

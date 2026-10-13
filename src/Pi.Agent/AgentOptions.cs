@@ -65,4 +65,22 @@ public sealed class AgentOptions
 
     /// <summary>多工具调用执行策略。</summary>
     public ToolExecutionMode? ToolExecution { get; init; }
+
+    /// <summary>请求体替换钩子（转发给流选项）。对应 TS <c>AgentOptions.onPayload</c>。</summary>
+    public Func<System.Text.Json.Nodes.JsonObject, Pi.Ai.Models.ModelSpec, Task<System.Text.Json.Nodes.JsonObject?>>? OnPayload { get; init; }
+
+    /// <summary>HTTP 响应到达回调（转发给流选项）。对应 TS <c>AgentOptions.onResponse</c>。</summary>
+    public Func<ProviderResponse, Pi.Ai.Models.ModelSpec, Task>? OnResponse { get; init; }
+
+    /// <summary>provider 原始流事件观察回调（转发给流选项）。对应 TS <c>AgentOptions.onProviderStreamEvent</c>。</summary>
+    public Func<System.Text.Json.Nodes.JsonObject, Pi.Ai.Models.ModelSpec, Task>? OnProviderStreamEvent { get; init; }
+
+    /// <summary>首选传输（auto/sse/websocket/websocket-cached）。对应 TS <c>AgentOptions.transport</c>。</summary>
+    public string? Transport { get; init; }
+
+    /// <summary>token 型 provider 的思考预算覆盖。对应 TS <c>AgentOptions.thinkingBudgets</c>。</summary>
+    public ThinkingBudgets? ThinkingBudgets { get; init; }
+
+    /// <summary>单次重试的最长退避。对应 TS <c>AgentOptions.maxRetryDelayMs</c>。</summary>
+    public int? MaxRetryDelayMs { get; init; }
 }

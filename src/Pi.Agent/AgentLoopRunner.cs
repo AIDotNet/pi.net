@@ -49,6 +49,7 @@ public static partial class AgentLoop
                         config = config with
                         {
                             Model = nextTurnSnapshot.Model ?? config.Model,
+                            Reasoning = ApplyThinkingLevelUpdate(config.Reasoning, nextTurnSnapshot.ThinkingLevel),
                         };
                     }
 
@@ -70,12 +71,16 @@ public static partial class AgentLoop
                 pendingMessages.Clear();
 
                 var requestUpdate = await (config.PrepareRequest?.Invoke(
-                        currentContext, config.Model, ThinkingLevel.Off, signal)
+                        currentContext, config.Model, config.Reasoning ?? ThinkingLevel.Off, signal)
                     ?? Task.FromResult<AgentLoopTurnUpdate?>(null)).ConfigureAwait(false);
                 if (requestUpdate is not null)
                 {
                     currentContext = requestUpdate.Context ?? currentContext;
-                    config = config with { Model = requestUpdate.Model ?? config.Model };
+                    config = config with
+                    {
+                        Model = requestUpdate.Model ?? config.Model,
+                        Reasoning = ApplyThinkingLevelUpdate(config.Reasoning, requestUpdate.ThinkingLevel),
+                    };
                 }
 
                 // 流式获取助手响应。
@@ -287,16 +292,22 @@ public static partial class AgentLoop
             : null;
         resolvedApiKey ??= config.StreamOptions?.ApiKey;
 
+        // TS 把 `config.reasoning` 摊进流选项；端口由 AgentLoopConfig.Reasoning 承载，此处转文本。
+        var reasoning = config.Reasoning is { } level ? Pi.Ai.Types.ThinkingLevelText.ToText(level) : null;
         var response = await streamFunction(
             config.Model,
             llmContext,
             config.StreamOptions is null
-                ? new SimpleStreamOptions(ApiKey: resolvedApiKey)
-                : config.StreamOptions with { ApiKey = resolvedApiKey },
+                ? new SimpleStreamOptions(ApiKey: resolvedApiKey) { Reasoning = reasoning }
+                : config.StreamOptions with { ApiKey = resolvedApiKey, Reasoning = reasoning },
             signal).ConfigureAwait(false);
 
         var partialMessage = (AssistantMessage?)null;
         var addedPartial = false;
+
+        // TS `result()`：把终态消息的 thinkingLevel 记为本次请求的档位（覆盖 provider 回传值）。
+        AssistantMessage RecordThinkingLevel(AssistantMessage message)
+            => message with { ThinkingLevel = config.Reasoning ?? ThinkingLevel.Off };
 
         await foreach (var @event in response.WithCancellation(signal).ConfigureAwait(false))
         {
@@ -311,7 +322,7 @@ public static partial class AgentLoop
 
                 case AssistantMessageEvent.Error error:
                 {
-                    var finalMessage = error.Message;
+                    var finalMessage = RecordThinkingLevel(error.Message);
                     if (addedPartial)
                         context.Messages[^1] = finalMessage;
                     else
@@ -324,7 +335,7 @@ public static partial class AgentLoop
 
                 case AssistantMessageEvent.Done done:
                 {
-                    var finalMessage = done.Message;
+                    var finalMessage = RecordThinkingLevel(done.Message);
                     if (addedPartial)
                         context.Messages[^1] = finalMessage;
                     else
@@ -348,12 +359,27 @@ public static partial class AgentLoop
         }
 
         // 流意外结束（无终态事件）：以当前快照收尾。
-        var fallback = partialMessage ?? new AssistantMessage([], StopReason.Error, ErrorMessage: "Stream ended without a terminal event");
+        var fallback = RecordThinkingLevel(
+            partialMessage ?? new AssistantMessage([], StopReason.Error, ErrorMessage: "Stream ended without a terminal event"));
         if (addedPartial)
             context.Messages[^1] = fallback;
         else
             context.Messages.Add(fallback);
         await emit(new AgentEvent.MessageEnd(fallback)).ConfigureAwait(false);
         return fallback;
+    }
+
+    /// <summary>
+    /// TS 里 <c>prepareNextTurn</c> / <c>prepareRequest</c> 对 <c>config.reasoning</c> 的更新规则：
+    /// 更新值未给出（<c>undefined</c>）时保持原值；<c>"off"</c> 归一为 <c>undefined</c>（端口为 <c>null</c>）。
+    /// </summary>
+    private static ThinkingLevel? ApplyThinkingLevelUpdate(ThinkingLevel? current, ThinkingLevel? updated)
+    {
+        if (updated is null)
+        {
+            return current;
+        }
+
+        return updated == ThinkingLevel.Off ? null : updated;
     }
 }

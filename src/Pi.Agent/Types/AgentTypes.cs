@@ -200,6 +200,13 @@ public sealed record AgentLoopConfig
     /// <summary>本次运行的模型。</summary>
     public required Model Model { get; init; }
 
+    /// <summary>
+    /// 本次运行的思考档位，转发为流选项的 <c>reasoning</c>。
+    /// 对应 TS <c>AgentLoopConfig.reasoning</c>：TS 用 <c>undefined</c> 表示「关闭」，
+    /// 端口用 <c>null</c>（<see cref="ThinkingLevel.Off"/> 也归一为 <c>null</c>）。
+    /// </summary>
+    public ThinkingLevel? Reasoning { get; init; }
+
     /// <summary>每次 LLM 调用前把 AgentMessage 列表转换为 LLM 兼容消息（不可抛出）。</summary>
     public required Func<IReadOnlyList<ChatMessage>, Task<IReadOnlyList<ChatMessage>>> ConvertToLlm { get; init; }
 
