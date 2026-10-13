@@ -2585,32 +2585,75 @@ settings→请求选项（超时/重试/sessionId/signal/`transformHeaders` 摘�
 验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301；
 `SdkCreateAgentSessionTests` 15/15。
 
-**尚未落地的部分（顺延 4e-3e-9h-4b-2）：**
+### 4e-3e-9h-4b-2 已落地（2026-10-13）：`CacheWarmer` 完整化 + `AgentSessionRuntime` 编排 + 服务装配
 
-- `CacheWarmer` 的完整化：TS 的构造器还要 `modelRuntime` / `sessionManager` / `decide` 三个入参，自带
-  定时重放（`schedule` / `refresh`）、经济学判定（`price` / `lastPromptTokens`）、`onModeChanged` /
-  `onWarmed` / `onAgentSettled` 与 `status.decision`。端口目前只有门闩 + 状态那一半
-  （`CacheWarmer(Func<string>)`），`Start` 之后不会真的重发请求。
-- **已核实的真实缺陷（下一批必修）**：`CacheWarmerMath.GetPromptCacheTtlMs` 在「未显式给
-  `cacheRetention` 且 `PI_CACHE_RETENTION` 非 `long`」时返回 `null`；TS（`cache-warmer.ts:39-46`）
-  回落 `"short"`：
-  ```ts
-  const retention = options?.cacheRetention
-      ?? (getProviderEnvValue("PI_CACHE_RETENTION", options?.env) === "long" ? "long" : "short");
-  ```
-  后果是**默认配置下缓存预热永不激活**（`CacheWarmer.Start` 直接 `stop("cache lifetime unavailable")`）。
-  现有测试 `CacheWarmerTests.GetPromptCacheTtlMs_RequiresRetention` 把这个错误行为写死了
-  （`Assert.Null(... new SimpleStreamOptions())`），需连同源码一并改正。
-- 另需核对 `CacheWarmRequest` 的形状差异：TS 传的是 `buildRequestOptions` 产出的**请求选项字典**
-  （且带 `context`），端口传的是 `SimpleStreamOptions` 且无 `context` 字段。
-- `AgentSessionRuntime` 的 `switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose`
-  编排本体与 `createAgentSessionRuntime` / `createAgentSessionServices` / `createAgentSessionFromServices`。
+**新落地（`CacheWarmer.cs` 重写 + `AgentSessionRuntime.cs` 重写 + `AgentSessionServices.cs` 追加约 230 行 +
+`Sdk.cs` / `AgentSessionInstallers.cs` / `SessionManager.cs` 接线）：**
+
+| TS 符号 | 端口 | 说明 |
+| --- | --- | --- |
+| `cache-warmer.ts:39-46` `getPromptCacheTtlMs` | `CacheWarmerMath.GetPromptCacheTtlMs` | **修正真实缺陷**：未显式给 `cacheRetention` 时回落 `PI_CACHE_RETENTION === "long" ? "long" : "short"`，不再返回 `null` |
+| `cache-warmer.ts` `CacheWarmer` 类 | `CacheWarmer` | 构造器 `(streamSimple, appendUsage, getBranch, getMode, decide = null)`；`Start` / `OnAgentSettled` / `OnModeChanged` / `Cancel` / `Status` / `OnWarmed` |
+| `schedule()`（~200-250） | `Schedule` | 保留期限推延时；小时/分钟安全窗口检查；`Timer` 单次触发；`RefreshDeadlineAt` 记账 |
+| `refresh()`（~250-330） | `RefreshAsync` | validate → deadline → `Evaluate` → `_decide` → **再** validate/deadline → `extensionOverride` 判定 → `streamSimple`（选项覆写 `maxTokens=1` / `maxRetries=0` / `signal`）→ `WaitForDoneAsync` → 非 error/aborted 才 `appendUsage("cache_warm", …)` + `OnWarmed` → 重新 `Schedule` |
+| `evaluate()` 经济学 | `Evaluate` | `LastPromptTokens` + `Price` 推 `missCost` / `warmCost` / `continuationProbability` |
+| `decide` + `extensionOverride` | `_decide` 委托 | 决策事件经扩展 runner 发出（`EmitCacheWarmingDecision`）；扩展 `warm`/`stop` 覆盖经济学判定 |
+| `agent-session-runtime.ts:196-224` `switchSession` | `SwitchSessionAsync` | 事件 → 解析 → `assertSessionCwdExists` → 拆当前 → 建新 → `apply` → `finishSessionReplacement` |
+| `:226-260` `newSession` | `NewSessionAsync` | persisted / in-memory 两分支；`parentSession` 落头；`setup` + `refreshContext` 在建会话之后 |
+| `:262-350` `fork` | `ForkAsync` | `before` / `at` 两种 position；persisted 与 in-memory 两条路径；`createBranchedSession` |
+| `:359-402` `importFromJsonl` | `ImportFromJsonlAsync` | 去重落盘（`COPYFILE_EXCL` 语义）+ `SessionImportFileNotFoundError` |
+| `:404-411` `dispose` | `DisposeAsync` | `session_shutdown(reason: quit)` → `beforeSessionInvalidate` → `session.dispose()` |
+| `:420-438` `createAgentSessionRuntime` | `CreateAgentSessionRuntimeAsync` | 先 `assertSessionCwdExists`，再调工厂；工厂存进运行时供后续复用 |
+| `agent-session-services.ts:135-205` `createAgentSessionServices` | `AgentSessionServicesBuilder.CreateAgentSessionServicesAsync` | `ResolveServicePaths` → `ModelRuntime.CreateAsync`（**总是**拼 `auth.json`/`models.json`）→ `SettingsManager.Create` → `DefaultResourceLoader` + `ReloadAsync` → 三类 pending 注册（失败只记诊断）→ `RefreshAsync({AllowNetwork:false})` → 扩展 flag 写回 `runtime.FlagValues` |
+| `agent-session-services.ts:214-233` `createAgentSessionFromServices` | `AgentSessionServicesBuilder.CreateAgentSessionFromServicesAsync` | 转调 `Sdk.CreateAgentSessionAsync`（`cwd`/`agentDir` 取自 services） |
+| `agent-session.ts:4360-4382` `createReplacedSessionContext` / `hasExtensionHandlers` / `extensionRunner` | `AgentSession.CreateReplacedSessionContext` / `HasExtensionHandlers` / `ExtensionRunner` + `ReplacedSessionContext` | 包装类逐一转发 `IExtensionCommandContext` 成员，只覆盖两个 send 到新会话 |
+
+**本批新登记的 2 处忠实性差异：**
+
+| 编号 | 差异 | 影响 |
+| --- | --- | --- |
+| C162 | TS `cacheWarmer.start({ model, context, options: requestOptions })` 传的是 `buildRequestOptions` 产出的**原始请求字典**（天然带 `transformHeaders` 等字典专属键）；端口 `CacheWarmRequest` 除 `Options`（`SimpleStreamOptions`）外另加 `RequestOptions`（`IReadOnlyDictionary<string, object?>?`）。 | 无行为差异；`RequestOptions` 缺省时回落 `CompatShims.ToDictionary(Options)`。TS 测试里 `calls[0].options.transformHeaders` 与 `calls[0].options.signal` 正是必须携带它的证据。 |
+| C163 | TS 构造器收 `Pick<ModelRuntime,"streamSimple">` 与 `Pick<SessionManager,"appendUsage" \| "getBranch">` 这类结构化类型；C# 无结构化类型。 | 摊平成三个委托参数 `CacheWarmStreamSimple` / `CacheWarmAppendUsage` / `CacheWarmGetBranch`，`Sdk` 侧传 lambda。 |
+
+**顺带修正的真实缺陷（非差异，均为此前遗留）：**
+
+1. `CacheWarmerMath.GetPromptCacheTtlMs` 在「未显式给 `cacheRetention` 且 `PI_CACHE_RETENTION != "long"`」时
+   返回 `null`，而 TS 回落 `"short"`。后果是**默认配置下缓存预热永不激活**
+   （`CacheWarmer.Start` 直接 `stop("cache lifetime unavailable")`）。已修（见上表）。
+   原测试 `CacheWarmerTests.GetPromptCacheTtlMs_RequiresRetention` 把这个错误行为写死，已随源码一并改正。
+2. `FormatCacheWarmingUsage` 的尾随零语义：TS 是「`toFixed(6)` 后去尾随零、但至少保留 3 位小数」，
+   端口旧实现会输出 `$0.01`。已改成 TS 语义（新增 `FormatCacheWarmingUsage_KeepsAtLeastThreeDecimals` 断言）。
+
+**测试手法差异（非产品差异）：** TS 用 vitest fake timers 快进定时器；端口暴露
+`internal Func<long> NowMs` 与 `internal RefreshAsync(ActiveRun)` 由测试驱动，因为真实
+`System.Threading.Timer` 无法在单测里快进。
+
+**新增测试：**
+
+- `tests/Pi.CodingAgent.Tests/CacheWarmerTests.cs`（整文件重写，**11 项**）：保留期限与供应商行为推导资格与时机、
+  定时器按保留期限推导的延迟起跳、重复刷新时重放有利可图的请求并保留选项、越过安全期限后不再发请求、
+  扩展决策后**重查**期限、经济学决策与扩展覆盖、不支持 / 上下文变化 / 模式变化的停止理由、
+  被替换的请求被中止且失败的刷新不入账、status 与 usage 文案、`FormatCacheWarmingUsage` 至少 3 位小数、
+  无经济学时 status 为 inactive。（含 TS 的 `missCost≈0.575` / `warmCost≈0.050025` /
+  `"Cache warmed (extension override): $0.029497"` 精确断言。）
+- `tests/Pi.CodingAgent.Tests/AgentSessionRuntimeTests.cs`（**22 项**）：对照 TS
+  `test/agent-session-runtime-events.test.ts` 的 new / resume / fork 事件顺序与取消短路、
+  `beforeSessionInvalidate` 与 `session_shutdown` / `rebindSession` 的相对位置、旧上下文陈旧化文案（逐字）；
+  另补 persisted / in-memory 分支、`parentSession` 落头、`setup` 顺序、`projectTrustContextFactory` 的调用与入参、
+  `importFromJsonl` 的复制 / 去重 / 缺文件、`dispose` 的 quit 事件、`createAgentSessionRuntime` 的 cwd 前置校验、
+  以及 `createAgentSessionServices` 的 cwd/agentDir 绑定、扩展 flag 写回与 `createAgentSessionFromServices`
+  的模型 / 档位落库与 `session_start` 透传。
+
+**退役的缝：** 本批把 `AgentSessionServicesBuilder` 从空壳类改为真正的装配器；
+`AgentSessionRuntime` 从 `static class`（纯叶子）改为实例类（叶子全部保留为静态成员）。
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`CacheWarmerTests` **11/11**；
+`AgentSessionRuntimeTests` **22/22**；`Pi.CodingAgent.Tests` 全类 **1364 项 / 0 失败**；
+`Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301。
 
 ### 4e-3e-9 剩余
 
-- **4e-3e-9h-4b-2**：`CacheWarmer` 完整化 + `AgentSessionRuntime` 编排本体 +
-  `createAgentSessionRuntime` / `createAgentSessionServices` / `createAgentSessionFromServices`
-  （`CreateAgentSessionRuntimeResult` 已在 `AgentSessionServices.cs` 就位）。
+- **4e-3e-9 已全部落地**（9a … 9h-4b-2）。
 - 之后：4f（模式层 `modes/interactive` + `modes/rpc`，~23.7k 行）→ 4g（入口与实验层 `cli` / `main` /
   `experimental`，~12k 行）→ evals（1,446 行）。
 - 独立缺口（不阻塞 9h）：package manager 的包解析（`resolvePackageSources`、`packageRoot`、

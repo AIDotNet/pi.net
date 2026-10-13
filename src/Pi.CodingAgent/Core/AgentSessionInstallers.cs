@@ -7,6 +7,7 @@ using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Ai.Utils;
 using Pi.CodingAgent.Core.Extensions;
+using Pi.CodingAgent.Core.Extensions.Types;
 using Pi.CodingAgent.Utils.Image;
 using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
 // AgentSession 有同名 string 属性 SystemPrompt，类内引用静态类须走别名。
@@ -1246,8 +1247,7 @@ public partial class AgentSession
         _eventListeners.Clear();
         if (_cacheWarmer is not null)
         {
-            // TS: this._cacheWarmer.onWarmed = undefined; —— 端口 CacheWarmer 尚无 onWarmed
-            // 字段（随刷新流批次落地，见 9h-1 勘察记录），故只做 cancel。
+            _cacheWarmer.OnWarmed = null;
             _cacheWarmer.Cancel();
         }
 
@@ -1261,6 +1261,97 @@ public partial class AgentSession
         + "newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx "
         + "passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
 
+    // =========================================================================
+    // 扩展上下文出口（TS 4360-4382，agent-session.ts 的结尾）
+    // =========================================================================
+
+    /// <summary>
+    /// 会话替换后绑定到**新**会话的可发消息命令上下文。对应 TS <c>createReplacedSessionContext()</c>。
+    /// </summary>
+    /// <remarks>
+    /// TS 用 <c>Object.defineProperties({}, Object.getOwnPropertyDescriptors(commandContext))</c>
+    /// 拷出一份新对象，再覆盖 <c>sendMessage</c> / <c>sendUserMessage</c>；C# 无结构化拷贝，
+    /// 故用一个把其余成员逐一转发给原命令上下文的包装类（<see cref="ReplacedSessionContext"/>）。
+    /// </remarks>
+    public IReplacedSessionContext CreateReplacedSessionContext()
+        => new ReplacedSessionContext(_extensionRunner.CreateCommandContext(), this);
+
+    /// <summary>扩展是否为某类事件注册了处理器。对应 TS <c>hasExtensionHandlers(eventType)</c>。</summary>
+    public bool HasExtensionHandlers(string eventType) => _extensionRunner.HasHandlers(eventType);
+
+    /// <summary>扩展运行时（宿主用于设置 UI 上下文与错误处理器）。对应 TS <c>get extensionRunner()</c>。</summary>
+    public ExtensionRunner ExtensionRunner => _extensionRunner;
+
     // 9h-4 落地后本文件不再有缝：`_runAutoCompaction` 的实例本体在
     // `AgentSessionCompaction.cs`（与 `compact` / `_checkCompaction` 同处）。
+}
+
+/// <summary>
+/// <see cref="AgentSession.CreateReplacedSessionContext"/> 的返回物。
+/// 对应 TS <c>ReplacedSessionContext</c>：命令上下文 + 本会话的消息发送实现。
+/// </summary>
+internal sealed class ReplacedSessionContext(IExtensionCommandContext inner, AgentSession session) : IReplacedSessionContext
+{
+    public IExtensionUIContext Ui => inner.Ui;
+
+    public string Mode => inner.Mode;
+
+    public bool HasUI => inner.HasUI;
+
+    public string Cwd => inner.Cwd;
+
+    public IReadonlySessionManager SessionManager => inner.SessionManager;
+    public ModelRegistry ModelRegistry => inner.ModelRegistry;
+
+    public ModelSpec? Model => inner.Model;
+
+    public IReadOnlyList<ScopedModel> ScopedModels => inner.ScopedModels;
+
+    public ThinkingLevel? ThinkingLevel => inner.ThinkingLevel;
+
+    public bool IsIdle() => inner.IsIdle();
+
+    public bool IsProjectTrusted() => inner.IsProjectTrusted();
+
+    public CancellationToken? Signal => inner.Signal;
+
+    public void Abort() => inner.Abort();
+
+    public bool HasPendingMessages() => inner.HasPendingMessages();
+
+    public void Shutdown() => inner.Shutdown();
+
+    public ContextUsage? GetContextUsage() => inner.GetContextUsage();
+
+    public void Compact(CompactOptions? options = null) => inner.Compact(options);
+
+    public string GetSystemPrompt() => inner.GetSystemPrompt();
+
+    public BuildSystemPromptOptions GetSystemPromptOptions() => inner.GetSystemPromptOptions();
+
+    public Task WaitForIdle() => inner.WaitForIdle();
+
+    // `NewSessionOptions` 在 Core（session-manager 的）与 Core.Extensions（扩展上下文的）各有一个，
+    // 接口用的是后者，故此处必须写全。
+    public Task<bool> NewSession(Pi.CodingAgent.Core.Extensions.NewSessionOptions? options = null)
+        => inner.NewSession(options);
+
+    public Task<bool> Fork(string entryId, ForkOptions? options = null) => inner.Fork(entryId, options);
+
+    public Task<bool> NavigateTree(string targetId, NavigateTreeOptions? options = null)
+        => inner.NavigateTree(targetId, options);
+
+    public Task<bool> SwitchSession(string sessionPath, SwitchSessionOptions? options = null)
+        => inner.SwitchSession(sessionPath, options);
+
+    public Task Reload() => inner.Reload();
+
+    public Task SendMessage(CustomMessageDraft message, SendMessageOptions? options = null)
+        => session.SendCustomMessageAsync(message, options);
+
+    public Task SendUserMessage(string content, SendUserMessageOptions? options = null)
+        => session.SendUserMessageAsync(MessageContent.From(content), options);
+
+    public Task SendUserMessage(IReadOnlyList<ContentBlock> content, SendUserMessageOptions? options = null)
+        => session.SendUserMessageAsync(MessageContent.From(content), options);
 }

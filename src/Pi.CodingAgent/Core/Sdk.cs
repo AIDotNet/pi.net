@@ -558,7 +558,22 @@ public static class Sdk
             => Task.FromResult(ConvertToLlmWithBlockImages(messages, settingsManager.GetBlockImages()));
 
         var extensionRunnerRef = new ExtensionRunnerRef();
-        var cacheWarmer = new CacheWarmer(() => settingsManager.GetCacheWarmingMode());
+        var cacheWarmer = new CacheWarmer(
+            (warmModel, warmContext, warmOptions) => modelRuntime.StreamSimple(warmModel, warmContext, warmOptions),
+            sessionManager.AppendUsage,
+            () => sessionManager.GetBranch(),
+            () => settingsManager.GetCacheWarmingMode(),
+            async decisionEvent =>
+            {
+                var runner = extensionRunnerRef.Current;
+                return runner is null
+                    ? decisionEvent.Action
+                    : await runner.EmitCacheWarmingDecisionAsync(new ExtensionEvent.CacheWarmingDecision(
+                        decisionEvent.WarmCost,
+                        decisionEvent.MissCost,
+                        decisionEvent.ContinuationProbability,
+                        decisionEvent.Action)).ConfigureAwait(false);
+            });
 
         Dictionary<string, object?> BuildRequestOptions(
             ModelSpec requestModel, SimpleStreamOptions? streamOptions)
@@ -704,7 +719,9 @@ public static class Sdk
                         new CacheWarmRequest
                         {
                             Model = spec,
+                            Context = context,
                             Options = streamOptions ?? new SimpleStreamOptions(),
+                            RequestOptions = requestOptions,
                         },
                         CacheContextIsCurrent(agent, streamModel));
                 }

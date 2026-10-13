@@ -34,7 +34,8 @@ namespace Pi.CodingAgent.Core;
 /// （扩展运行时 <c>ExtensionRunner</c> 构造入参）。TS 的 ReadonlySessionManager 是结构类型——
 /// SessionManager 天然满足；C# 需要显式声明，占位注释（"4e/4f 接入后替换"）在此兑现。
 /// </remarks>
-public sealed partial class SessionManager : Pi.CodingAgent.Core.Extensions.Types.IReadonlySessionManager
+public sealed partial class SessionManager
+    : Pi.CodingAgent.Core.Extensions.Types.ISessionManager, ISessionCwdSource
 {
     private string _sessionId = "";
     private string? _sessionFile;
