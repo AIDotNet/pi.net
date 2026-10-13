@@ -18,6 +18,17 @@ public sealed class ResourceLoaderTests : IDisposable
 
     public ResourceLoaderTests() => Directory.CreateDirectory(_root);
 
+    /// <summary>
+    /// The skills the loader discovered under this test's own temp root. The package manager also
+    /// auto-discovers skills from the *real* <c>~/.agents/skills</c> (package-manager.ts:2458 and
+    /// 2550-2561 — both the unconditional user branch and, because `projectTrusted` defaults to
+    /// `true`, the ancestor walk up from `cwd`), exactly like TS. A developer machine that has that
+    /// directory populated would otherwise contribute dozens of unrelated skills to every
+    /// <c>Skills</c> assertion here, so the assertions below scope themselves to the fixture.
+    /// </summary>
+    private IEnumerable<Skill> OwnSkills(DefaultResourceLoader loader) =>
+        loader.Skills.Where(skill => skill.FilePath.StartsWith(_root, StringComparison.Ordinal));
+
     public void Dispose()
     {
         try
@@ -161,7 +172,7 @@ public sealed class ResourceLoaderTests : IDisposable
             noPromptTemplates: true,
             noThemes: true);
         await loader.ReloadAsync();
-        Assert.Empty(loader.Skills);
+        Assert.Empty(OwnSkills(loader));
 
         loader.ExtendResources(new ResourceExtensionPaths
         {
@@ -176,7 +187,7 @@ public sealed class ResourceLoaderTests : IDisposable
             ],
         });
 
-        var skill = Assert.Single(loader.Skills);
+        var skill = Assert.Single(OwnSkills(loader));
         Assert.Equal("demo", skill.Name);
         // The extension-declared source info wins over the reload metadata lookup.
         Assert.Equal("extension:<inline:mcp>", skill.SourceInfo.Source);
@@ -208,7 +219,7 @@ public sealed class ResourceLoaderTests : IDisposable
             noThemes: true,
             additionalSkillPaths: [Path.Combine(_root, "startup-skills")]);
         await loader.ReloadAsync();
-        Assert.Equal("early", Assert.Single(loader.Skills).Name);
+        Assert.Equal("early", Assert.Single(OwnSkills(loader)).Name);
 
         var lateEntry = new ExtensionResourcePath(
             Path.Combine(addedLater, "SKILL.md"),
@@ -219,9 +230,10 @@ public sealed class ResourceLoaderTests : IDisposable
         loader.ExtendResources(new ResourceExtensionPaths { SkillPaths = [lateEntry] });
         loader.ExtendResources(new ResourceExtensionPaths { SkillPaths = [lateEntry] });
 
-        Assert.Equal(2, loader.Skills.Count);
-        Assert.Contains(loader.Skills, skill => skill.Name == "early");
-        Assert.Contains(loader.Skills, skill => skill.Name == "late");
+        var own = OwnSkills(loader).ToList();
+        Assert.Equal(2, own.Count);
+        Assert.Contains(own, skill => skill.Name == "early");
+        Assert.Contains(own, skill => skill.Name == "late");
     }
 
     [Fact]
@@ -247,7 +259,7 @@ public sealed class ResourceLoaderTests : IDisposable
             noThemes: true);
         await loader.ReloadAsync();
 
-        Assert.Equal("default-one", Assert.Single(loader.Skills).Name);
+        Assert.Equal("default-one", Assert.Single(OwnSkills(loader)).Name);
         Assert.DoesNotContain(loader.Diagnostics, diagnostic => diagnostic.Type == ResourceDiagnosticType.Collision);
     }
 

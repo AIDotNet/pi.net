@@ -4,7 +4,7 @@
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`428a12bc7`（= `origin/main`）**
 > 目标仓库：`D:\AI\参考项目\pi.net`（`src/Pi.CodingAgent`），起始 commit **`f208567`**
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C163`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C168`）。
 
 ---
 
@@ -22,9 +22,9 @@
 | `cli/` | 17 | 1,949 | — | ⬜ 未开始 |
 | `bun/` + `client/` | 6 | 62 | — | ⬜ 未开始（多为打包器垫片，多数无对应物） |
 | 根级（`config.ts` / `migrations.ts` / `main.ts` / `index.ts` / `cli.ts` / `rpc-entry.ts` / `package-manager-cli.ts`） | 7 | 3,624 | `Config.cs` / `Migrations.cs` | 🟡 仅 `config.ts` / `migrations.ts` 完成 |
-| **合计** | **299** | **85,536** | 62,668 行 C# | **约 73% 行数已落** |
+| **合计** | **299** | **85,536** | 67,973 行 C# | **约 79% 行数已落** |
 
-`src/Pi.CodingAgent` 现有 **93 个手写 .cs**（不含 `obj/`），`wc -l` 合计 **62,668 行**。
+`src/Pi.CodingAgent` 现有 **176 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **67,973 行**（2026-10-13 4e-3c-2b 后实测）。
 
 ### 1.2 构建与测试基线（本机实测）
 
@@ -34,6 +34,8 @@
 | `Pi.CodingAgent.Tests` | ✅ 1313 项 / 1313 通过 / 0 失败（2m21s，**起始基线**） |
 | `Pi.CodingAgent.Tests`（P2a 后） | ✅ **1338 项 / 0 失败**（2m54s；1313 + P1 的 10 + P2a 的 15） |
 | `Pi.CodingAgent.Tests`（P2b 后） | ✅ **1364 项 / 0 失败**（2m21s；1338 + CacheWarmerTests 重写净增 4 + `AgentSessionRuntimeTests` 22） |
+| `Pi.CodingAgent.Tests`（4e-3c-2a 后） | 🟡 **1364 + 114 = 1478 项**（**推算**：该批只跑了新增 4 个单类，未跑全量；`SemverRangeTests` 51 / `PackageManagerPatternsTests` 35 / `GlobSyncTests` 12 / `PackageManagerCollectorsTests` 16 全绿，`PackageManagerTests` 14/14、`ResourceLoaderTests` 19/19 无破） |
+| `Pi.CodingAgent.Tests`（4e-3c-2b 后） | ✅ **1488 项 / 0 失败**（4m14s；1478 + `PackageManagerTests` 由 14 扩到 24，净增 10） |
 | `Pi.Agent.Tests`（P2b 后） | ✅ **32 项 / 0 失败**（284ms） |
 | `Pi.Ai.Tests`（P2b 后） | ✅ **301 项 / 0 失败**（8s） |
 | 其余 9 个测试工程 | 见 [porting-status.md](porting-status.md) 的环境限制说明 |
@@ -75,11 +77,14 @@
 | 4e-3e-9h-4a | `AgentSession` 编排本体（`prompt` / `compact` / `_runAgentPrompt` / `_handlePostAgentRun` / `_runBeforeSettleBoundary` / `_runAutoCompaction` / `_checkCompaction` / `_runDefaultCompaction` / 认证与重试叶子）；退役 4 处 `NotSupportedException` 缝 | C158–C160；`7b942b3` |
 | 4e-3e-9h-4b（第一半） | `createAgentSession` 装配本体（`Sdk.CreateAgentSessionAsync`，TS `sdk.ts:181-468`）；顺带修正三处 reasoning 传递链缺口 | C161；`SdkCreateAgentSessionTests` 15 项 |
 | 4e-3e-9h-4b-2 | `CacheWarmer` 完整化（定时重放 / 经济学判定 / `decide` + `extensionOverride` / 三个回调）+ `AgentSessionRuntime` 编排本体（`switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose` / `createAgentSessionRuntime`）+ `createAgentSessionServices` / `createAgentSessionFromServices`；顺带修正 `GetPromptCacheTtlMs` 的 `"short"` 回落缺陷与 `FormatCacheWarmingUsage` 的尾随零语义 | C162/C163；`CacheWarmerTests` 11 项 + `AgentSessionRuntimeTests` 22 项 |
+| 4e-3c-2a | package-manager 叶子层：`PackageManagerPatterns`（patterns 纯函数）/ `PackageManagerCollectors`（目录采集器）/ `GlobSync`（node:fs `globSync` 子集）/ `SemverRange`（`validRange` / `satisfies`）；`Skills` 侧 ignore 助手（`IgnoreFileNames` / `ToPosixPath` / `PrefixIgnorePattern` / `AddIgnoreRules`）提为 `internal` 共享 | C164–C167；`82b47aa`；114 项新测试 |
+| 4e-3c-2b | `DefaultPackageManager` 全链路：`ResolveAsync` / `ResolvePackageSourcesAsync` / `DedupePackages` / `FindAutoloadDeltaBase` / `PackageRoot` / 完整 `+`/`-`/`!` override 语义 / `ResourceMap`+`Accumulator`+`ToResolvedPaths`（稳定排序）/ `ListConfiguredPackages` / `GetInstalledPath` / `ResolveExtensionSourcesAsync`；**删除 SettingsManager 里臆造的 `include`/`exclude`/`autoload` 三个 settings 键通路（8 个成员）** | C168；`PackageManagerTests` 24 项（含 `ResourceLoaderTests` 夹具修正） |
 | （未记档） | `AgentSessionQueue`（输入与排队层） | 本批修复其编译错误 |
 
 ### 2.2 未完成（本计划的执行对象）
 
-> **2026-10-13 更新**：`4e-3e-9h-4` 已全部收口（见下），余下为 4d 尾巴 / package-manager / 4f / 4g / evals。
+> **2026-10-13 更新**：`4e-3e-9h-4` 已全部收口（见下），**package-manager 包解析（4e-3c-2）已收口**
+> （见 2.1），余下为 4d 尾巴 / 4f / 4g / evals。
 
 #### 4e-3e-9h-4：会话编排本体 ✅ 已完成
 
@@ -111,13 +116,17 @@
 | `extensions/llama/*` 流式层（`provider.ts` 流式分支 / `ui.ts`） | ~900 | 4d-7b 未完（HTTP 层 4d-7a 已完成） |
 | `extensions/mcp/*` 余下（`runtime.ts` / `resources.ts` / `oauth.ts` / `ui.ts` / `cli.ts` / `index.ts`） | ~3,300 | 4d-4c/4d-4d 未完 |
 
-#### 独立缺口：package-manager
+#### package-manager 包解析 ✅ 已完成（4e-3c-2a `82b47aa` + 4e-3c-2b 本批）
 
-| TS 符号 | 影响 |
+| 原缺口 | 现状 |
 | --- | --- |
-| `resolvePackageSources`（`package-manager.ts`，2,760 行） | `settings.packages` 完全未处理 → 已安装包的扩展/skills/prompts/themes 永远加载不到 |
-| `PathMetadata.packageRoot` | `collectExtensionPackageWarnings` 无法移植 |
-| `applyAutoloadDisabledPatterns` / `isEnabledByOverrides` / `getOverridePatterns` / `matchesAnyPattern` | `+`/`-`/`!` 前缀与路径模式语义被简化 |
+| `resolvePackageSources`（`package-manager.ts`，2,760 行） | ✅ `DefaultPackageManager.ResolvePackageSourcesAsync`；`settings.packages` 的字符串形 / 对象形全链路打通 |
+| `PathMetadata.packageRoot` | ✅ 字段已落地并有生产者；其唯一消费者 `collectExtensionPackageWarnings` 顺延 `4e-3c-3` |
+| `applyAutoloadDisabledPatterns` / `isEnabledByOverrides` / `getOverridePatterns` / `matchesAnyPattern` | ✅ `PackageManagerPatterns` 逐条对齐（含 `+`/`-`/`!` 与四种路径拼法、`SKILL.md` 父目录三拼法） |
+
+**余下（4e-3c-3，不阻塞 4f/4g）**：npm/git `update` / `checkForAvailableUpdates` 网络检查、
+`ensureGitRef` / update marker / `refreshTemporaryGitSource`、npm legacy 全局根回退（C168）、
+`collectExtensionPackageWarnings`、`ResourceLoader` 的 `additionalExtensionPaths`（CLI `-e`）接线。
 
 #### 4f：模式层（23,705 行 / 67 文件）—— 最大单块
 
@@ -143,7 +152,7 @@
 | ---: | --- | --- |
 | 1 | **修复构建 + 基线**（已完成） | HEAD 不可编译时任何后续验证都无意义 |
 | 2 | **4e-3e-9h-4 编排本体** | 它是**唯一**让 `Pi.CodingAgent` 端到端可跑的一环；`prompt`/`compact` 是所有上层（4f 交互模式、4g 入口）的入口。前置（`ExtensionRunner` 9g、installers 9h-3）已全部满足，无阻塞 |
-| 3 | **package-manager 缺口** | `resolvePackageSources` 缺失会让 4f/4g 的「装包 → 用包」链路在真机上失效；独立于 4f，可并行推进，且越早暴露越好 |
+| 3 | ~~**package-manager 缺口**~~ ✅ 已完成（4e-3c-2） | `resolvePackageSources` 缺失会让 4f/4g 的「装包 → 用包」链路在真机上失效；独立于 4f，可并行推进，且越早暴露越好。**已于 2026-10-13 收口** |
 | 4 | **4d 尾巴（llama 流式 / MCP 余下）** | 自包含、与 4f 无耦合；MCP 是扩展生态的实际入口 |
 | 5 | **4f 模式层** | 体量最大（23.7k）；依赖 `Pi.Tui`（已就绪）与 `core/tools/renderers`（需先补）。必须再切子阶段 |
 | 6 | **4g 入口与实验层** | 依赖 4f 的交互/RPC 模式；`main.ts` 是最终可执行入口 |
@@ -228,12 +237,32 @@
   替代 TS 的结构化类型 `Pick<…>`）。
 - **前置**：P2a。
 
-### 阶段 P3：package-manager 包解析
+### 阶段 P3：package-manager 包解析 ✅ 已完成
 
 - **目标**：`settings.packages` → 资源路径全链路打通。
-- **文件范围**：`Core/PackageManager.cs`（`ResolvePackageSources` / `PackageRoot` / 完整 override 语义）、`Core/ResourceLoader.cs`（消费 `packageRoot`）。
-- **验收标准**：`+`/`-`/`!` 前缀与路径模式匹配逐条对照；`collectExtensionPackageWarnings` 落地；回归守卫测试（已装包 → 扩展/skill 可加载）。
-- **前置**：无（可与 P1/P2 并行）。
+- **文件范围（实际）**：
+  - `Core/PackageManager.cs`（全量重写，约 1,340 行：`PackageEntry` / `PackageFilter` / `ConfiguredPackage` /
+    `MissingSourceAction` / `ResourceMap` / `Accumulator` / `DedupePackages` / `FindAutoloadDeltaBase` /
+    `ResolvePackageSourcesAsync` / `CollectPackageResources` 全族 / `ToResolvedPaths` / `ListConfiguredPackages` /
+    `GetInstalledPath` / `ResolveExtensionSourcesAsync`）
+  - `Core/PackageManagerPatterns.cs`（新增）、`Core/PackageManagerCollectors.cs`（新增）
+  - `Utils/Glob/GlobSync.cs`（新增）、`Utils/SemverRange.cs`（新增）
+  - `Core/Skills.cs`（4 个 ignore 助手提为 `internal`）
+  - `Core/SettingsManager.cs`（**删除** 8 个臆造成员）
+  - `tests/Pi.CodingAgent.Tests/{SemverRangeTests,GlobSyncTests,PackageManagerPatternsTests,PackageManagerCollectorsTests}.cs`（新增）
+    + `PackageManagerTests.cs`（重写为 24 项）+ `ResourceLoaderTests.cs`（夹具修正）
+- **验收标准与实际达成**：
+  1. `+`/`-`/`!` 前缀与路径模式匹配逐条对照 → **达成**（`PackageManagerPatternsTests` 35 项）。
+  2. 回归守卫测试（已装包 → 扩展/skill 可加载）→ **达成**（`PackageManagerTests` 24 项含本地包 / manifest glob / project 胜 user / `autoload:false` delta / `onMissing` 三路）。
+  3. `collectExtensionPackageWarnings` 落地 → **未达成**，顺延 `4e-3c-3`（其唯一输入 `PackageRoot` 本批已就位，但该函数还依赖扩展告警聚合链路）。
+  4. 构建 0 警告 0 错误 + 测试全绿 → **达成**（`Pi.CodingAgent.Tests` 1488 / 0 失败）。
+- **前置**：无（与 P1/P2 并行推进）。
+- **本批核实并修掉的真实缺陷**：
+  1. `SettingsManager` 里 `include` / `exclude` / `autoload` 三个 settings 键是端口**臆造**的——TS `settings-manager.ts` 的 `Settings` 根本没有它们（真实 schema 是 `settings.packages`，override 前缀写在各资源数组内部）。8 个成员双侧删除后 `settings.packages` 才真正可走。
+  2. `IsExactNpmVersion` 漏 loose 写法（`v1.2.3` 被误判为非精确版本）→ 改为 `Semver.Valid(version) is not null`。
+  3. `ToResolvedPaths` 未做稳定排序（同 rank 的来源依赖字典迭代序）→ 改为按插入序号稳定排序。
+  4. `ResourceLoaderTests` 夹具假设「home 下没有 `.agents/skills`」，在本机真实存在 45 个技能时失败（产品实现正确，TS 语义即如此）→ 夹具断言收敛到测试临时根。
+- **新登记差异**：**C164–C168**（见 status 文档「4e-3c-2」节）。
 
 ### 阶段 P4：4d 尾巴
 
@@ -264,11 +293,11 @@
 
 | # | 风险 | 影响 | 处置 |
 | --- | --- | --- | --- |
-| R1 | **推送通道间歇不可用（本轮再次发生，已有可用绕行）** | 阶段产出无法上远端 | 实测（2026-10-13 上午）：`https` 经本机代理对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**。**2026-10-13 下午代理短暂恢复**：`git push origin main` 成功（`f208567..7b942b3`）。**2026-10-13 晚再次 502（连续 5 次重试均失败，`github.com` CONNECT 502 / `Empty reply`）**，但同代理下 `api.github.com` 正常（200）→ 改用 **REST API 复制提交**绕行（见下），已成功推送 `bb874f6`；**P2b 推送时代理又恢复**，`git push origin main` 成功（`e70f5dd..02707fd`）。<br>**绕行做法（可复用）**：`GET /repos/:o/:r/git/ref/heads/main` 确认远端 HEAD == 本地 `HEAD^`；对每个改动文件 `POST /git/blobs`（内容取 `git cat-file blob <sha>:<path>` 的原始字节，base64），校验返回 SHA == 本地 blob SHA；`POST /git/trees`（`base_tree` = 父树）校验树 SHA == 本地树 SHA；`POST /git/commits`（message / author / committer / date 与本地**逐字节一致**）校验提交 SHA == 本地 SHA；最后 `PATCH /git/refs/heads/main`。因 SHA 完全相同，本地与远端天然同步，无需 `fetch`；本地 `refs/remotes/origin/main` 用 `git update-ref` 手工对齐。<br>**其它出路**：把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git`。 |
+| R1 | **推送通道间歇不可用（本轮再次发生，已有可用绕行）** | 阶段产出无法上远端 | 实测（2026-10-13 上午）：`https` 经本机代理对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**。**2026-10-13 下午代理短暂恢复**：`git push origin main` 成功（`f208567..7b942b3`）。**2026-10-13 晚再次 502（连续 5 次重试均失败，`github.com` CONNECT 502 / `Empty reply`）**，但同代理下 `api.github.com` 正常（200）→ 改用 **REST API 复制提交**绕行（见下），已成功推送 `bb874f6`；**P2b 推送时代理又恢复**，`git push origin main` 成功（`e70f5dd..02707fd`）。**4e-3c-2a 推送时 `git push origin main` 再次成功**（`02707fd..82b47aa`）。<br>**绕行做法（可复用）**：`GET /repos/:o/:r/git/ref/heads/main` 确认远端 HEAD == 本地 `HEAD^`；对每个改动文件 `POST /git/blobs`（内容取 `git cat-file blob <sha>:<path>` 的原始字节，base64），校验返回 SHA == 本地 blob SHA；`POST /git/trees`（`base_tree` = 父树）校验树 SHA == 本地树 SHA；`POST /git/commits`（message / author / committer / date 与本地**逐字节一致**）校验提交 SHA == 本地 SHA；最后 `PATCH /git/refs/heads/main`。因 SHA 完全相同，本地与远端天然同步，无需 `fetch`；本地 `refs/remotes/origin/main` 用 `git update-ref` 手工对齐。<br>**其它出路**：把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git`。 |
 | R2 | 参照检出漂移 | 语义错位（9-0 已发生过一次） | 每阶段动工前 `git -C D:\AI\参考项目\pi log -1` 确认仍在 `428a12bc7` |
 | R3 | 沙箱构建/测试限制 | 假阳性失败 | 构建必须 `-m:1`；`dotnet test` stdout 为空，改跑 `.exe` + `iconv GBK→UTF-8`；过滤用 `--filter-class` |
 | R4 | `4f` 体量（23.7k 行） | 单会话不可完成 | 已切 5 个子阶段，每子阶段独立提交 |
-| R5 | package-manager 缺口 | 真机装包链路失效 | 提到 P3，早于 4f |
+| R5 | ~~package-manager 缺口~~ ✅ 已关闭 | 真机装包链路失效 | 已于 2026-10-13 收口（4e-3c-2a `82b47aa` + 4e-3c-2b）；余 `4e-3c-3` 的 update/网络检查不阻塞 4f/4g |
 | R6 | 已登记但未复现的差异（C152 消息替换的引用同一性、C154 `tool_call` 入参不可改写） | 扩展行为受限 | 已在 9h-3 记录为真实缺口，随 P1/P2 复核是否需要补偿 API |
 
 ---

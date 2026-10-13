@@ -1,9 +1,41 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 using Pi.CodingAgent.Utils;
 
 namespace Pi.CodingAgent.Core;
 
-/// <summary>对应 TS <c>PackageResourceKind</c>（包资源）。Diagnostics 另有同名静态类，故用此名。</summary>
+/// <summary>One configured package plus the scope it came from. TS's <c>{ pkg, scope }</c> tuple.</summary>
+internal sealed record PackageEntry(JsonNode? Package, string Scope);
+
+/// <summary>
+/// TS <c>PackageFilter</c>: the object form of a <c>packages</c> entry. A <see langword="null"/> list
+/// means the key was absent (collect the conventional directory), an empty list means it was present
+/// but empty (load nothing of that kind) — TS relies on `undefined` vs `[]` and so does the port.
+/// </summary>
+internal sealed record PackageFilter
+{
+    public bool? Autoload { get; init; }
+
+    public IReadOnlyList<string>? Extensions { get; init; }
+
+    public IReadOnlyList<string>? Skills { get; init; }
+
+    public IReadOnlyList<string>? Prompts { get; init; }
+
+    public IReadOnlyList<string>? Themes { get; init; }
+
+    public IReadOnlyList<string>? PatternsFor(string resourceType) => resourceType switch
+    {
+        "extensions" => Extensions,
+        "skills" => Skills,
+        "prompts" => Prompts,
+        "themes" => Themes,
+        _ => null,
+    };
+}
+
+/// <summary>Which kind of resource a resolved path is. Port-only discriminator for the accumulator.</summary>
 public enum PackageResourceKind
 {
     Extensions,
@@ -12,15 +44,7 @@ public enum PackageResourceKind
     Themes,
 }
 
-/// <summary>对应 TS <c>PackageOrigin</c>。</summary>
-public enum PackageOrigin
-{
-    Npm,
-    Git,
-    Local,
-}
-
-/// <summary>对应 TS <c>PathMetadata</c>。</summary>
+/// <summary>Port of TS <c>PathMetadata</c>.</summary>
 public sealed record PathMetadata
 {
     public required string Source { get; init; }
@@ -30,9 +54,15 @@ public sealed record PathMetadata
     public required string Origin { get; init; }
 
     public string? BaseDir { get; init; }
+
+    /// <summary>
+    /// The package directory a resource came out of, when it came out of a package. TS added this for
+    /// <c>collectExtensionPackageWarnings</c>, which reads the package's own <c>package.json</c>.
+    /// </summary>
+    public string? PackageRoot { get; init; }
 }
 
-/// <summary>对应 TS <c>ResolvedResource</c>。</summary>
+/// <summary>Port of TS <c>ResolvedResource</c>.</summary>
 public sealed record ResolvedResource
 {
     public required string Path { get; init; }
@@ -42,7 +72,7 @@ public sealed record ResolvedResource
     public required bool Enabled { get; init; }
 }
 
-/// <summary>对应 TS <c>ResolvedResources</c>。</summary>
+/// <summary>Port of TS <c>ResolvedPaths</c>.</summary>
 public sealed record ResolvedResources
 {
     public IReadOnlyList<ResolvedResource> Extensions { get; init; } = [];
@@ -54,31 +84,56 @@ public sealed record ResolvedResources
     public IReadOnlyList<ResolvedResource> Themes { get; init; } = [];
 }
 
-/// <summary>对应 TS <c>PackageSource</c>。</summary>
-public sealed record PackageSource
+/// <summary>Port of TS <c>ConfiguredPackage</c>.</summary>
+public sealed record ConfiguredPackage
 {
     public required string Source { get; init; }
 
-    public required string Version { get; init; }
+    public required string Scope { get; init; }
 
-    public required string ResolvedHash { get; init; }
+    /// <summary>TS <c>filtered</c>: the entry is the object form, so it carries a filter.</summary>
+    public required bool Filtered { get; init; }
 
-    public required string InstallPath { get; init; }
-
-    public required PackageOrigin Origin { get; init; }
-
-    public string? Name { get; init; }
+    public string? InstalledPath { get; init; }
 }
 
-/// <summary>对应 TS <c>PackageManager</c>。</summary>
+/// <summary>What to do about a package source that is not installed. Port of TS <c>MissingSourceAction</c>.</summary>
+public static class MissingSourceAction
+{
+    public const string Install = "install";
+
+    public const string Skip = "skip";
+
+    public const string Error = "error";
+}
+
+/// <summary>Port of the TS <c>PackageManager</c> interface, narrowed to what the port implements.</summary>
 public interface IPackageManager
 {
     Task<ResolvedResources> ResolveAsync(CancellationToken cancellationToken = default);
 
+    Task<ResolvedResources> ResolveAsync(
+        Func<string, Task<string>> onMissing,
+        CancellationToken cancellationToken = default);
+
+    Task<ResolvedResources> ResolveExtensionSourcesAsync(
+        IReadOnlyList<string> sources,
+        bool local = false,
+        bool temporary = false,
+        CancellationToken cancellationToken = default);
+
+    IReadOnlyList<ConfiguredPackage> ListConfiguredPackages();
+
+    string? GetInstalledPath(string source, string scope);
+
+    bool AddSourceToSettings(string source, bool local = false);
+
+    bool RemoveSourceFromSettings(string source, bool local = false);
+
     void SetProgressCallback(Action<PackageProgressEvent>? callback);
 }
 
-/// <summary>对应 TS 安装进度事件。</summary>
+/// <summary>Port of TS <c>ProgressEvent</c>, flattened to the two fields the port reports.</summary>
 public sealed record PackageProgressEvent(string Phase, string Message);
 
 /// <summary>npm/git 进程注入点。测试替换为假实现，避免真实网络。</summary>
@@ -110,19 +165,24 @@ public sealed class DefaultPackageCommandRunner : IPackageCommandRunner
 
 /// <summary>
 /// 包管理器。对应 TS <c>core/package-manager.ts</c> 的 <c>DefaultPackageManager</c>。
-/// 4e-3c-1 先落地 <c>resolve()</c>（自动发现、settings 路径、include/exclude/autoload）与 <c>parseSource</c>。
-/// npm/git install/update 的网络与进程调用顺延 4e-3c-2。
 /// </summary>
+/// <remarks>
+/// <para>
+/// 4e-3c-1 落地了 <c>parseSource</c> 与一个简化版 <c>resolve()</c>（只有自动发现、settings 路径与内置扩展，
+/// 且用一套端口臆造的 <c>include</c>/<c>exclude</c>/<c>autoload</c> settings 键做过滤）。
+/// 4e-3c-2a 补齐了模块级叶子（patterns / collectors / globSync / semver range）。
+/// 本批 4e-3c-2b 把 <c>resolve()</c> 重写为 TS 的真实形状：<c>resolvePackageSources</c>、
+/// <c>dedupePackages</c>、<c>collectPackageResources</c> 与完整的 <c>+</c>/<c>-</c>/<c>!</c> override 语义，
+/// 并给 <see cref="PathMetadata"/> 补上 <c>PackageRoot</c>。臆造的 settings 键同时删除。
+/// </para>
+/// <para>
+/// 仍未移植（顺延 4e-3c-3）：npm/git 的 <c>update</c> / <c>checkForAvailableUpdates</c> 网络检查、
+/// git 的 <c>ensureGitRef</c> / update marker / <c>refreshTemporaryGitSource</c>，
+/// 以及 npm 的 legacy 全局根回退（<c>npm root -g</c> / <c>pnpm list -g</c>）。
+/// </para>
+/// </remarks>
 public sealed class DefaultPackageManager : IPackageManager
 {
-    private static readonly (PackageResourceKind Type, string Dir, string[] Extensions)[] ResourceKinds =
-    [
-        (PackageResourceKind.Extensions, "extensions", [".ts", ".js"]),
-        (PackageResourceKind.Skills, "skills", [".md"]),
-        (PackageResourceKind.Prompts, "prompts", [".md"]),
-        (PackageResourceKind.Themes, "themes", [".json"]),
-    ];
-
     private readonly SettingsManager _settings;
     private readonly string _cwd;
     private readonly string _agentDir;
@@ -138,70 +198,926 @@ public sealed class DefaultPackageManager : IPackageManager
         IPackageCommandRunner? commandRunner = null)
     {
         _settings = settingsManager;
-        _cwd = cwd;
-        _agentDir = agentDir;
+        _cwd = ResolvePath(cwd);
+        _agentDir = ResolvePath(agentDir);
         _builtinExtensions = builtinExtensions ?? [];
         _runner = commandRunner ?? new DefaultPackageCommandRunner();
     }
 
     public void SetProgressCallback(Action<PackageProgressEvent>? callback) => _progress = callback;
 
-    /// <summary>对应 TS <c>install</c>。</summary>
-    public async Task<string> InstallAsync(string source, string scope = "user", CancellationToken cancellationToken = default)
+    // ========================================================================
+    // resolve（TS resolve / resolvePackageSources / dedupePackages）
+    // ========================================================================
+
+    public Task<ResolvedResources> ResolveAsync(CancellationToken cancellationToken = default)
+        => ResolveAsync(null, cancellationToken);
+
+    public async Task<ResolvedResources> ResolveAsync(
+        Func<string, Task<string>>? onMissing,
+        CancellationToken cancellationToken = default)
     {
-        var parsed = ParseSource(source);
-        _progress?.Invoke(new PackageProgressEvent("install", source));
-        return parsed.Type switch
+        cancellationToken.ThrowIfCancellationRequested();
+        var accumulator = new Accumulator();
+
+        // Collect all packages with scope (project first so cwd resources win collisions).
+        var allPackages = new List<PackageEntry>();
+        foreach (var pkg in ProjectPackageNodes())
         {
-            "npm" => await InstallNpmAsync(parsed, scope, cancellationToken).ConfigureAwait(false),
-            "git" => await InstallGitAsync(parsed, scope, cancellationToken).ConfigureAwait(false),
-            _ => InstallLocal(parsed),
-        };
+            allPackages.Add(new PackageEntry(pkg, SourceScope.Project));
+        }
+
+        foreach (var pkg in GlobalPackageNodes())
+        {
+            allPackages.Add(new PackageEntry(pkg, SourceScope.User));
+        }
+
+        // Dedupe: project scope wins over global for the same package identity.
+        var packageSources = DedupePackages(allPackages);
+        await ResolvePackageSourcesAsync(packageSources, accumulator, onMissing, cancellationToken)
+            .ConfigureAwait(false);
+
+        var globalBaseDir = _agentDir;
+        var projectBaseDir = NodePath.Join(_cwd, Config.ConfigDirName);
+
+        foreach (var resourceType in PackageManagerPatterns.ResourceTypes)
+        {
+            var target = GetTargetMap(accumulator, resourceType);
+            ResolveLocalEntries(
+                ProjectEntries(resourceType),
+                resourceType,
+                target,
+                new PathMetadata { Source = "local", Scope = SourceScope.Project, Origin = SourceOrigin.TopLevel },
+                projectBaseDir);
+            ResolveLocalEntries(
+                GlobalEntries(resourceType),
+                resourceType,
+                target,
+                new PathMetadata { Source = "local", Scope = SourceScope.User, Origin = SourceOrigin.TopLevel },
+                globalBaseDir);
+        }
+
+        AddAutoDiscoveredResources(accumulator, globalBaseDir, projectBaseDir);
+
+        // Built-in extensions are enabled unless the user `extensions` setting excludes them, for
+        // example with `-builtin:mcp`. A matching `+`, `-`, or `!` entry in the project setting
+        // overrides that.
+        foreach (var name in _builtinExtensions)
+        {
+            var path = SourceInfos.BuiltinPathPrefix + name;
+            var projectEnabled = PackageManagerPatterns.ApplyAutoloadDisabledPatterns(
+                [path],
+                PackageManagerPatterns.GetOverridePatterns(ProjectEntries("extensions")),
+                projectBaseDir).TryGetValue(path, out var value)
+                ? value
+                : (bool?)null;
+            AddResource(
+                accumulator,
+                "extensions",
+                path,
+                new PathMetadata
+                {
+                    Source = "builtin",
+                    Scope = projectEnabled is null ? SourceScope.User : SourceScope.Project,
+                    Origin = SourceOrigin.TopLevel,
+                },
+                projectEnabled
+                    ?? PackageManagerPatterns.IsEnabledByOverrides(path, GlobalEntries("extensions"), globalBaseDir));
+        }
+
+        return ToResolvedPaths(accumulator);
     }
 
-    /// <summary>对应 TS <c>installAndPersist</c>。</summary>
-    public async Task<string> InstallAndPersistAsync(string source, bool local = false, CancellationToken cancellationToken = default)
+    /// <summary>TS <c>resolveExtensionSources</c>.</summary>
+    public async Task<ResolvedResources> ResolveExtensionSourcesAsync(
+        IReadOnlyList<string> sources,
+        bool local = false,
+        bool temporary = false,
+        CancellationToken cancellationToken = default)
     {
-        var path = await InstallAsync(source, local ? "project" : "user", cancellationToken).ConfigureAwait(false);
-        AddSourceToSettings(source, local);
-        return path;
+        cancellationToken.ThrowIfCancellationRequested();
+        var accumulator = new Accumulator();
+        var scope = temporary ? SourceScope.Temporary : local ? SourceScope.Project : SourceScope.User;
+
+        // `-e builtin:<name>` loads a built-in extension; the resource loader reports unknown names.
+        foreach (var source in sources)
+        {
+            if (source.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal))
+            {
+                AddResource(
+                    accumulator,
+                    "extensions",
+                    source,
+                    new PathMetadata { Source = "builtin", Scope = scope, Origin = SourceOrigin.TopLevel },
+                    true);
+            }
+        }
+
+        var packageSources = new List<PackageEntry>();
+        foreach (var source in sources)
+        {
+            if (!source.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal))
+            {
+                packageSources.Add(new PackageEntry(JsonValue.Create(source), scope));
+            }
+        }
+
+        await ResolvePackageSourcesAsync(packageSources, accumulator, null, cancellationToken).ConfigureAwait(false);
+        return ToResolvedPaths(accumulator);
     }
 
-    /// <summary>对应 TS <c>removeAndPersist</c> 的 settings 侧；进程卸载经 runner。</summary>
-    public async Task<bool> RemoveAndPersistAsync(string source, bool local = false, CancellationToken cancellationToken = default)
+    /// <summary>TS <c>listConfiguredPackages</c>.</summary>
+    public IReadOnlyList<ConfiguredPackage> ListConfiguredPackages()
+    {
+        var configured = new List<ConfiguredPackage>();
+        foreach (var pkg in GlobalPackageNodes())
+        {
+            var source = GetPackageSourceString(pkg) ?? "";
+            configured.Add(new ConfiguredPackage
+            {
+                Source = source,
+                Scope = SourceScope.User,
+                Filtered = pkg is JsonObject,
+                InstalledPath = GetInstalledPath(source, SourceScope.User),
+            });
+        }
+
+        foreach (var pkg in ProjectPackageNodes())
+        {
+            var source = GetPackageSourceString(pkg) ?? "";
+            configured.Add(new ConfiguredPackage
+            {
+                Source = source,
+                Scope = SourceScope.Project,
+                Filtered = pkg is JsonObject,
+                InstalledPath = GetInstalledPath(source, SourceScope.Project),
+            });
+        }
+
+        return configured;
+    }
+
+    private async Task ResolvePackageSourcesAsync(
+        IReadOnlyList<PackageEntry> sources,
+        Accumulator accumulator,
+        Func<string, Task<string>>? onMissing,
+        CancellationToken cancellationToken)
+    {
+        foreach (var entry in sources)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var pkg = entry.Package;
+            var scope = entry.Scope;
+            var sourceStr = GetPackageSourceString(pkg) ?? "";
+            var filter = PackageFilterFrom(pkg);
+            var deltaBase = FindAutoloadDeltaBase(pkg, scope, sources);
+            var resolvedSource = deltaBase?.Source ?? sourceStr;
+            var resolvedScope = deltaBase?.Scope ?? scope;
+            var parsed = ParseSource(resolvedSource);
+            var metadata = new PathMetadata { Source = sourceStr, Scope = scope, Origin = SourceOrigin.Package };
+
+            if (parsed.Type == "local")
+            {
+                var baseDir = GetBaseDirForScope(resolvedScope);
+                ResolveLocalExtensionSource(parsed, accumulator, filter, metadata, baseDir);
+                continue;
+            }
+
+            async Task<bool> InstallMissingAsync()
+            {
+                if (IsOfflineModeEnabled())
+                {
+                    return false;
+                }
+
+                if (onMissing is null)
+                {
+                    await InstallParsedSourceAsync(parsed, resolvedScope, cancellationToken).ConfigureAwait(false);
+                    return true;
+                }
+
+                var action = await onMissing(resolvedSource).ConfigureAwait(false);
+                if (action == MissingSourceAction.Skip)
+                {
+                    return false;
+                }
+
+                if (action == MissingSourceAction.Error)
+                {
+                    throw new InvalidOperationException($"Missing source: {resolvedSource}");
+                }
+
+                await InstallParsedSourceAsync(parsed, resolvedScope, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
+            if (parsed.Type == "npm")
+            {
+                var installedPath = GetNpmInstallPath(parsed, resolvedScope);
+                var needsInstall = !Directory.Exists(installedPath)
+                    || !InstalledNpmMatchesConfiguredVersion(parsed, installedPath);
+                if (needsInstall)
+                {
+                    var installed = await InstallMissingAsync().ConfigureAwait(false);
+                    if (!installed)
+                    {
+                        continue;
+                    }
+
+                    installedPath = GetNpmInstallPath(parsed, resolvedScope);
+                }
+
+                metadata = metadata with { BaseDir = installedPath, PackageRoot = installedPath };
+                CollectPackageResources(installedPath, accumulator, filter, metadata);
+                continue;
+            }
+
+            if (parsed.Type == "git")
+            {
+                var installedPath = GetGitInstallPath(parsed, resolvedScope);
+                if (!Directory.Exists(installedPath))
+                {
+                    var installed = await InstallMissingAsync().ConfigureAwait(false);
+                    if (!installed)
+                    {
+                        continue;
+                    }
+                }
+
+                // TS additionally calls `refreshTemporaryGitSource` here for an unpinned temporary
+                // git source. Deferred with the rest of the git update machinery (4e-3c-3).
+                metadata = metadata with { BaseDir = installedPath, PackageRoot = installedPath };
+                CollectPackageResources(installedPath, accumulator, filter, metadata);
+            }
+        }
+    }
+
+    /// <summary>
+    /// TS <c>findAutoloadDeltaBase</c>: a project entry with <c>autoload: false</c> is a *delta* over
+    /// the user entry with the same identity, so its resources are collected from the user install.
+    /// </summary>
+    private (string Source, string Scope)? FindAutoloadDeltaBase(
+        JsonNode? pkg,
+        string scope,
+        IReadOnlyList<PackageEntry> sources)
+    {
+        if (scope != SourceScope.Project || !PackageAutoloadIsFalse(pkg))
+        {
+            return null;
+        }
+
+        var identity = GetPackageIdentity(GetPackageSourceString(pkg) ?? "", scope);
+        foreach (var entry in sources)
+        {
+            if (entry.Scope != SourceScope.User)
+            {
+                continue;
+            }
+
+            var candidate = GetPackageSourceString(entry.Package) ?? "";
+            if (GetPackageIdentity(candidate, SourceScope.User) == identity)
+            {
+                return (candidate, SourceScope.User);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// TS <c>getPackageIdentity</c>: npm by name, git by host/path (so SSH and HTTPS agree), local by
+    /// absolute path.
+    /// </summary>
+    private string GetPackageIdentity(string source, string? scope)
     {
         var parsed = ParseSource(source);
         if (parsed.Type == "npm")
         {
-            var root = GetNpmInstallRoot(local ? "project" : "user", temporary: false);
-            var npm = GetNpmInvocation();
-            await _runner.RunAsync(npm.Command, [.. npm.Args, "uninstall", parsed.Name ?? source, "--prefix", root], cancellationToken: cancellationToken).ConfigureAwait(false);
+            return $"npm:{parsed.Name}";
         }
-        else if (parsed.Type == "git")
+
+        if (parsed.Type == "git")
         {
-            var dest = GetManagedGitInstallPath(parsed, local ? "project" : "user");
-            if (Directory.Exists(dest))
+            return $"git:{parsed.Host}/{parsed.Path}";
+        }
+
+        var path = parsed.Path ?? "";
+        return scope is null
+            ? $"local:{ResolvePath(path)}"
+            : $"local:{ResolvePathFromBase(path, GetBaseDirForScope(scope))}";
+    }
+
+    /// <summary>
+    /// TS <c>dedupePackages</c>: keep only the project entry for a repeated identity, except that a
+    /// project entry with <c>autoload: false</c> is a delta and both are kept (delta first).
+    /// </summary>
+    private List<PackageEntry> DedupePackages(IReadOnlyList<PackageEntry> packages)
+    {
+        var result = new List<PackageEntry>();
+        var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var entry in packages)
+        {
+            var identity = GetPackageIdentity(GetPackageSourceString(entry.Package) ?? "", entry.Scope);
+            if (!seen.TryGetValue(identity, out var index))
             {
-                Directory.Delete(dest, recursive: true);
+                seen[identity] = result.Count;
+                result.Add(entry);
+                continue;
+            }
+
+            var existing = result[index];
+            if (existing.Scope == SourceScope.Project && entry.Scope == SourceScope.User)
+            {
+                if (PackageAutoloadIsFalse(existing.Package))
+                {
+                    result.Add(entry);
+                }
+            }
+            else if (entry.Scope == SourceScope.Project)
+            {
+                result[index] = entry;
             }
         }
 
-        return RemoveSourceFromSettings(source, local);
+        return result;
     }
 
-    public Task<ResolvedResources> ResolveAsync(CancellationToken cancellationToken = default)
+    private void ResolveLocalExtensionSource(
+        ParsedPackageSource source,
+        Accumulator accumulator,
+        PackageFilter? filter,
+        PathMetadata metadata,
+        string baseDir)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var acc = new Accumulator();
-        AddAutoDiscoveredResources(acc);
-        ResolveLocalEntries(acc, "extensions", _settings.GetGlobalExtensionPaths(), _settings.GetProjectExtensionPaths(), PackageResourceKind.Extensions);
-        ResolveLocalEntries(acc, "skills", _settings.GetGlobalSkillPaths(), _settings.GetProjectSkillPaths(), PackageResourceKind.Skills);
-        ResolveLocalEntries(acc, "prompts", _settings.GetGlobalPromptTemplatePaths(), _settings.GetProjectPromptTemplatePaths(), PackageResourceKind.Prompts);
-        ResolveLocalEntries(acc, "themes", _settings.GetGlobalThemePaths(), _settings.GetProjectThemePaths(), PackageResourceKind.Themes);
-        AddBuiltinExtensions(acc);
-        ApplyAutoloadDisabledPatterns(acc);
-        return Task.FromResult(acc.ToResolved());
+        var resolved = ResolvePathFromBase(source.Path ?? "", baseDir);
+        if (File.Exists(resolved))
+        {
+            AddResource(
+                accumulator,
+                "extensions",
+                resolved,
+                metadata with { BaseDir = NodePath.Dirname(resolved) },
+                true);
+            return;
+        }
+
+        if (!Directory.Exists(resolved))
+        {
+            return;
+        }
+
+        var directoryMetadata = metadata with { BaseDir = resolved, PackageRoot = resolved };
+        var resources = CollectPackageResources(resolved, accumulator, filter, directoryMetadata);
+        if (!resources)
+        {
+            AddResource(accumulator, "extensions", resolved, directoryMetadata, true);
+        }
     }
+
+    // ========================================================================
+    // 包内资源采集（TS collectPackageResources 及其下游）
+    // ========================================================================
+
+    /// <summary>
+    /// TS <c>collectPackageResources</c>. Returns whether anything was contributed, so the caller can
+    /// fall back to treating the directory itself as an extension.
+    /// </summary>
+    private bool CollectPackageResources(
+        string packageRoot,
+        Accumulator accumulator,
+        PackageFilter? filter,
+        PathMetadata metadata)
+    {
+        if (filter is not null)
+        {
+            foreach (var resourceType in PackageManagerPatterns.ResourceTypes)
+            {
+                var patterns = filter.PatternsFor(resourceType);
+                var target = GetTargetMap(accumulator, resourceType);
+                if (filter.Autoload is false)
+                {
+                    ApplyPackageDeltaFilter(packageRoot, patterns ?? [], resourceType, target, metadata);
+                }
+                else if (patterns is not null)
+                {
+                    ApplyPackageFilter(packageRoot, patterns, resourceType, target, metadata);
+                }
+                else
+                {
+                    CollectDefaultResources(packageRoot, resourceType, target, metadata);
+                }
+            }
+
+            return true;
+        }
+
+        var manifest = PiManifestReader.ReadPiManifest(NodePath.Join(packageRoot, "package.json"));
+        if (manifest is not null)
+        {
+            foreach (var resourceType in PackageManagerPatterns.ResourceTypes)
+            {
+                AddManifestEntries(
+                    ManifestEntries(manifest, resourceType),
+                    packageRoot,
+                    resourceType,
+                    GetTargetMap(accumulator, resourceType),
+                    metadata);
+            }
+
+            return true;
+        }
+
+        var hasAnyDir = false;
+        foreach (var resourceType in PackageManagerPatterns.ResourceTypes)
+        {
+            var dir = NodePath.Join(packageRoot, resourceType);
+            if (!Directory.Exists(dir))
+            {
+                continue;
+            }
+
+            // Collect all files from the directory (all enabled by default).
+            foreach (var file in PackageManagerCollectors.CollectResourceFiles(dir, resourceType))
+            {
+                AddResource(accumulator, resourceType, file, metadata, true);
+            }
+
+            hasAnyDir = true;
+        }
+
+        return hasAnyDir;
+    }
+
+    private void CollectDefaultResources(
+        string packageRoot,
+        string resourceType,
+        ResourceMap target,
+        PathMetadata metadata)
+    {
+        var manifest = PiManifestReader.ReadPiManifest(NodePath.Join(packageRoot, "package.json"));
+        var entries = ManifestEntries(manifest, resourceType);
+        if (entries is not null)
+        {
+            AddManifestEntries(entries, packageRoot, resourceType, target, metadata);
+            return;
+        }
+
+        var dir = NodePath.Join(packageRoot, resourceType);
+        if (!Directory.Exists(dir))
+        {
+            return;
+        }
+
+        foreach (var file in PackageManagerCollectors.CollectResourceFiles(dir, resourceType))
+        {
+            AddResource(target, file, metadata, true);
+        }
+    }
+
+    private void ApplyPackageFilter(
+        string packageRoot,
+        IReadOnlyList<string> userPatterns,
+        string resourceType,
+        ResourceMap target,
+        PathMetadata metadata)
+    {
+        var (allFiles, _) = CollectManifestFiles(packageRoot, resourceType);
+
+        if (userPatterns.Count == 0)
+        {
+            // Empty array explicitly disables all resources of this type.
+            foreach (var file in allFiles)
+            {
+                AddResource(target, file, metadata, false);
+            }
+
+            return;
+        }
+
+        var enabledByUser = PackageManagerPatterns.ApplyPatterns(allFiles, userPatterns, packageRoot);
+        foreach (var file in allFiles)
+        {
+            AddResource(target, file, metadata, enabledByUser.Contains(file));
+        }
+    }
+
+    private void ApplyPackageDeltaFilter(
+        string packageRoot,
+        IReadOnlyList<string> userPatterns,
+        string resourceType,
+        ResourceMap target,
+        PathMetadata metadata)
+    {
+        if (userPatterns.Count == 0)
+        {
+            return;
+        }
+
+        var (allFiles, _) = CollectManifestFiles(packageRoot, resourceType);
+        var enabledByUser = PackageManagerPatterns.ApplyAutoloadDisabledPatterns(allFiles, userPatterns, packageRoot);
+        foreach (var (filePath, enabled) in enabledByUser)
+        {
+            AddResource(target, filePath, metadata, enabled);
+        }
+    }
+
+    /// <summary>
+    /// TS <c>collectManifestFiles</c>. Note the returned "all files" list is the manifest-enabled set,
+    /// not every file on disk — that is what upstream returns.
+    /// </summary>
+    private (List<string> AllFiles, HashSet<string> EnabledByManifest) CollectManifestFiles(
+        string packageRoot,
+        string resourceType)
+    {
+        var manifest = PiManifestReader.ReadPiManifest(NodePath.Join(packageRoot, "package.json"));
+        var entries = ManifestEntries(manifest, resourceType);
+        if (entries is { Count: > 0 })
+        {
+            var allFiles = CollectFilesFromManifestEntries(entries, packageRoot, resourceType);
+            var manifestPatterns = PackageManagerPatterns.GetOverridePatterns(entries);
+            var enabledByManifest = manifestPatterns.Count > 0
+                ? PackageManagerPatterns.ApplyPatterns(allFiles, manifestPatterns, packageRoot)
+                : new HashSet<string>(allFiles, StringComparer.Ordinal);
+            return ([.. enabledByManifest], enabledByManifest);
+        }
+
+        var conventionDir = NodePath.Join(packageRoot, resourceType);
+        if (!Directory.Exists(conventionDir))
+        {
+            return ([], new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        var collected = PackageManagerCollectors.CollectResourceFiles(conventionDir, resourceType);
+        return (collected, new HashSet<string>(collected, StringComparer.Ordinal));
+    }
+
+    private void AddManifestEntries(
+        IReadOnlyList<string>? entries,
+        string root,
+        string resourceType,
+        ResourceMap target,
+        PathMetadata metadata)
+    {
+        if (entries is null)
+        {
+            return;
+        }
+
+        var allFiles = CollectFilesFromManifestEntries(entries, root, resourceType);
+        var patterns = PackageManagerPatterns.GetOverridePatterns(entries);
+        var enabledPaths = PackageManagerPatterns.ApplyPatterns(allFiles, patterns, root);
+
+        foreach (var file in allFiles)
+        {
+            if (enabledPaths.Contains(file))
+            {
+                AddResource(target, file, metadata, true);
+            }
+        }
+    }
+
+    private List<string> CollectFilesFromManifestEntries(
+        IReadOnlyList<string> entries,
+        string root,
+        string resourceType)
+    {
+        var resolved = new List<string>();
+        foreach (var entry in entries)
+        {
+            if (PackageManagerPatterns.IsOverridePattern(entry))
+            {
+                continue;
+            }
+
+            if (!PackageManagerPatterns.HasGlobPattern(entry))
+            {
+                resolved.Add(NodePath.Resolve(root, entry));
+                continue;
+            }
+
+            resolved.AddRange(PackageManagerCollectors.ExpandPackageGlob(entry, root));
+        }
+
+        return CollectFilesFromPaths(resolved, resourceType);
+    }
+
+    private void ResolveLocalEntries(
+        IReadOnlyList<string> entries,
+        string resourceType,
+        ResourceMap target,
+        PathMetadata metadata,
+        string baseDir)
+    {
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        var (plain, patterns) = PackageManagerPatterns.SplitPatterns(entries);
+        var resolvedPlain = new List<string>(plain.Count);
+        foreach (var entry in plain)
+        {
+            resolvedPlain.Add(ResolvePathFromBase(entry, baseDir));
+        }
+
+        var allFiles = CollectFilesFromPaths(resolvedPlain, resourceType);
+        var enabledPaths = PackageManagerPatterns.ApplyPatterns(allFiles, patterns, baseDir);
+        foreach (var file in allFiles)
+        {
+            AddResource(target, file, metadata, enabledPaths.Contains(file));
+        }
+    }
+
+    private void AddAutoDiscoveredResources(Accumulator accumulator, string globalBaseDir, string projectBaseDir)
+    {
+        var userMetadata = new PathMetadata
+        {
+            Source = "auto",
+            Scope = SourceScope.User,
+            Origin = SourceOrigin.TopLevel,
+            BaseDir = globalBaseDir,
+        };
+        var projectMetadata = new PathMetadata
+        {
+            Source = "auto",
+            Scope = SourceScope.Project,
+            Origin = SourceOrigin.TopLevel,
+            BaseDir = projectBaseDir,
+        };
+
+        var userOverrides = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["extensions"] = GlobalEntries("extensions"),
+            ["skills"] = GlobalEntries("skills"),
+            ["prompts"] = GlobalEntries("prompts"),
+            ["themes"] = GlobalEntries("themes"),
+        };
+        var projectOverrides = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["extensions"] = ProjectEntries("extensions"),
+            ["skills"] = ProjectEntries("skills"),
+            ["prompts"] = ProjectEntries("prompts"),
+            ["themes"] = ProjectEntries("themes"),
+        };
+
+        var userAgentsSkillsDir = NodePath.Join(Paths.GetHomeDirectory(), ".agents", "skills");
+        var projectTrusted = _settings.IsProjectTrusted();
+        var projectAgentsSkillDirs = new List<string>();
+        if (projectTrusted)
+        {
+            foreach (var dir in PackageManagerCollectors.CollectAncestorAgentsSkillDirs(_cwd))
+            {
+                if (NodePath.Resolve(dir) != NodePath.Resolve(userAgentsSkillsDir))
+                {
+                    projectAgentsSkillDirs.Add(dir);
+                }
+            }
+        }
+
+        void AddResources(
+            string resourceType,
+            IReadOnlyList<string> paths,
+            PathMetadata metadata,
+            IReadOnlyList<string> overrides,
+            string baseDir)
+        {
+            var target = GetTargetMap(accumulator, resourceType);
+            foreach (var path in paths)
+            {
+                AddResource(
+                    target,
+                    path,
+                    metadata,
+                    PackageManagerPatterns.IsEnabledByOverrides(path, overrides, baseDir));
+            }
+        }
+
+        if (projectTrusted)
+        {
+            // Project extensions and skills from .pi/
+            AddResources(
+                "extensions",
+                PackageManagerCollectors.CollectAutoExtensionEntries(NodePath.Join(projectBaseDir, "extensions")),
+                projectMetadata,
+                projectOverrides["extensions"],
+                projectBaseDir);
+            AddResources(
+                "skills",
+                PackageManagerCollectors.CollectAutoSkillEntries(
+                    NodePath.Join(projectBaseDir, "skills"),
+                    SkillDiscoveryMode.Pi),
+                projectMetadata,
+                projectOverrides["skills"],
+                projectBaseDir);
+        }
+
+        // Project skills from .agents/ (each with its own baseDir)
+        foreach (var agentsSkillsDir in projectAgentsSkillDirs)
+        {
+            var agentsBaseDir = NodePath.Dirname(agentsSkillsDir);
+            AddResources(
+                "skills",
+                PackageManagerCollectors.CollectAutoSkillEntries(agentsSkillsDir, SkillDiscoveryMode.Agents),
+                projectMetadata with { BaseDir = agentsBaseDir },
+                projectOverrides["skills"],
+                agentsBaseDir);
+        }
+
+        if (projectTrusted)
+        {
+            AddResources(
+                "prompts",
+                PackageManagerCollectors.CollectAutoPromptEntries(NodePath.Join(projectBaseDir, "prompts")),
+                projectMetadata,
+                projectOverrides["prompts"],
+                projectBaseDir);
+            AddResources(
+                "themes",
+                PackageManagerCollectors.CollectAutoThemeEntries(NodePath.Join(projectBaseDir, "themes")),
+                projectMetadata,
+                projectOverrides["themes"],
+                projectBaseDir);
+        }
+
+        // User resources from ~/.pi/agent/
+        AddResources(
+            "extensions",
+            PackageManagerCollectors.CollectAutoExtensionEntries(NodePath.Join(globalBaseDir, "extensions")),
+            userMetadata,
+            userOverrides["extensions"],
+            globalBaseDir);
+        AddResources(
+            "skills",
+            PackageManagerCollectors.CollectAutoSkillEntries(
+                NodePath.Join(globalBaseDir, "skills"),
+                SkillDiscoveryMode.Pi),
+            userMetadata,
+            userOverrides["skills"],
+            globalBaseDir);
+
+        // User skills from ~/.agents/ (with its own baseDir)
+        var userAgentsBaseDir = NodePath.Dirname(userAgentsSkillsDir);
+        AddResources(
+            "skills",
+            PackageManagerCollectors.CollectAutoSkillEntries(userAgentsSkillsDir, SkillDiscoveryMode.Agents),
+            userMetadata with { BaseDir = userAgentsBaseDir },
+            userOverrides["skills"],
+            userAgentsBaseDir);
+
+        AddResources(
+            "prompts",
+            PackageManagerCollectors.CollectAutoPromptEntries(NodePath.Join(globalBaseDir, "prompts")),
+            userMetadata,
+            userOverrides["prompts"],
+            globalBaseDir);
+        AddResources(
+            "themes",
+            PackageManagerCollectors.CollectAutoThemeEntries(NodePath.Join(globalBaseDir, "themes")),
+            userMetadata,
+            userOverrides["themes"],
+            globalBaseDir);
+    }
+
+    private static List<string> CollectFilesFromPaths(IReadOnlyList<string> paths, string resourceType)
+    {
+        var files = new List<string>();
+        foreach (var path in paths)
+        {
+            if (File.Exists(path))
+            {
+                files.Add(path);
+            }
+            else if (Directory.Exists(path))
+            {
+                files.AddRange(PackageManagerCollectors.CollectResourceFiles(path, resourceType));
+            }
+        }
+
+        return files;
+    }
+
+    // ========================================================================
+    // 累加器（TS createAccumulator / getTargetMap / addResource / toResolvedPaths）
+    // ========================================================================
+
+    /// <summary>
+    /// TS's per-type <c>Map&lt;string, {metadata, enabled}&gt;</c>: insertion-ordered, and an add for a
+    /// path that is already present is a no-op ("first wins").
+    /// </summary>
+    private sealed class ResourceMap
+    {
+        private readonly Dictionary<string, (PathMetadata Metadata, bool Enabled)> _entries =
+            new(StringComparer.Ordinal);
+
+        private readonly List<string> _order = [];
+
+        public IReadOnlyList<string> Paths => _order;
+
+        public (PathMetadata Metadata, bool Enabled) this[string path] => _entries[path];
+
+        public bool Contains(string path) => _entries.ContainsKey(path);
+
+        public void Set(string path, PathMetadata metadata, bool enabled)
+        {
+            _entries[path] = (metadata, enabled);
+            _order.Add(path);
+        }
+    }
+
+    private sealed class Accumulator
+    {
+        public ResourceMap Extensions { get; } = new();
+
+        public ResourceMap Skills { get; } = new();
+
+        public ResourceMap Prompts { get; } = new();
+
+        public ResourceMap Themes { get; } = new();
+
+        public ResourceMap For(string resourceType) => resourceType switch
+        {
+            "extensions" => Extensions,
+            "skills" => Skills,
+            "prompts" => Prompts,
+            "themes" => Themes,
+            _ => throw new ArgumentException($"Unknown resource type: {resourceType}", nameof(resourceType)),
+        };
+    }
+
+    private static ResourceMap GetTargetMap(Accumulator accumulator, string resourceType)
+        => accumulator.For(resourceType);
+
+    private static void AddResource(
+        Accumulator accumulator,
+        string resourceType,
+        string path,
+        PathMetadata metadata,
+        bool enabled)
+        => AddResource(GetTargetMap(accumulator, resourceType), path, metadata, enabled);
+
+    private static void AddResource(ResourceMap map, string path, PathMetadata metadata, bool enabled)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        if (!map.Contains(path))
+        {
+            map.Set(path, metadata, enabled);
+        }
+    }
+
+    /// <summary>
+    /// TS <c>toResolvedPaths</c>: sort by precedence (stable, so ties keep insertion order), then drop
+    /// canonical-path duplicates keeping the first.
+    /// </summary>
+    private static ResolvedResources ToResolvedPaths(Accumulator accumulator)
+    {
+        static List<ResolvedResource> MapToResolved(ResourceMap map)
+        {
+            var indexed = new List<(string Path, int Index)>(map.Paths.Count);
+            for (var i = 0; i < map.Paths.Count; i++)
+            {
+                indexed.Add((map.Paths[i], i));
+            }
+
+            indexed.Sort((left, right) =>
+            {
+                var rank = PackageManagerPatterns.ResourcePrecedenceRank(map[left.Path].Metadata)
+                    - PackageManagerPatterns.ResourcePrecedenceRank(map[right.Path].Metadata);
+                return rank != 0 ? rank : left.Index - right.Index;
+            });
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var resolved = new List<ResolvedResource>(indexed.Count);
+            foreach (var (path, _) in indexed)
+            {
+                var canonical = Paths.CanonicalizePath(path);
+                if (!seen.Add(canonical))
+                {
+                    continue;
+                }
+
+                var entry = map[path];
+                resolved.Add(new ResolvedResource { Path = path, Enabled = entry.Enabled, Metadata = entry.Metadata });
+            }
+
+            return resolved;
+        }
+
+        return new ResolvedResources
+        {
+            Extensions = MapToResolved(accumulator.Extensions),
+            Skills = MapToResolved(accumulator.Skills),
+            Prompts = MapToResolved(accumulator.Prompts),
+            Themes = MapToResolved(accumulator.Themes),
+        };
+    }
+
+    // ========================================================================
+    // parseSource 与 settings 读写（TS parseSource / addSourceToSettings / …）
+    // ========================================================================
 
     /// <summary>对应 TS <c>parseSource</c>：先 <c>npm:</c>，再本地路径，再 git URL，否则视为本地。</summary>
     internal static ParsedPackageSource ParseSource(string spec)
@@ -222,11 +1138,12 @@ public sealed class DefaultPackageManager : IPackageManager
                 Locator = npmName,
                 Name = npmName,
                 Version = version,
+                Range = version is { Length: > 0 } ? SemverRange.ValidRange(version) : null,
                 Pinned = IsExactNpmVersion(version),
             };
         }
 
-        if (IsLocalPath(spec))
+        if (Paths.IsLocalPath(spec))
         {
             return new ParsedPackageSource { Type = "local", Spec = spec, Locator = spec, Path = spec };
         }
@@ -253,7 +1170,7 @@ public sealed class DefaultPackageManager : IPackageManager
     /// <summary>对应 TS <c>addSourceToSettings</c>。</summary>
     public bool AddSourceToSettings(string source, bool local = false)
     {
-        var scope = local ? "project" : "user";
+        var scope = local ? SourceScope.Project : SourceScope.User;
         var current = GetPackageNodes(local);
         var normalized = NormalizePackageSourceForSettings(source, scope);
         var matchIndex = current.FindIndex(existing => PackageSourcesMatch(existing, source, scope));
@@ -279,7 +1196,7 @@ public sealed class DefaultPackageManager : IPackageManager
     /// <summary>对应 TS <c>removeSourceFromSettings</c>。</summary>
     public bool RemoveSourceFromSettings(string source, bool local = false)
     {
-        var scope = local ? "project" : "user";
+        var scope = local ? SourceScope.Project : SourceScope.User;
         var current = GetPackageNodes(local);
         var next = current.Where(existing => !PackageSourcesMatch(existing, source, scope)).ToList();
         if (next.Count == current.Count)
@@ -291,85 +1208,119 @@ public sealed class DefaultPackageManager : IPackageManager
         return true;
     }
 
-    internal string GetNpmInstallPath(ParsedPackageSource source, string scope)
+    /// <summary>TS <c>getInstalledPath</c>.</summary>
+    public string? GetInstalledPath(string source, string scope)
     {
-        var name = source.Name ?? "package";
-        if (scope == "temporary")
+        var parsed = ParseSource(source);
+        if (parsed.Type == "npm")
         {
-            return Path.Combine(_agentDir, "tmp", "extensions", "node_modules", Sanitize(name));
+            var path = GetNpmInstallPath(parsed, scope);
+            return Directory.Exists(path) ? path : null;
         }
 
-        return GetNpmInstallPath(Path.Combine(_agentDir, "packages"), name, source.Version ?? "latest");
-    }
-
-    internal static string GetNpmInstallPath(string packagesRoot, string name, string version)
-        => Path.Combine(packagesRoot, "npm", Sanitize(name), Sanitize(version));
-
-    internal static string GetGitInstallPath(string packagesRoot, string name, string resolvedHash)
-        => Path.Combine(packagesRoot, "git", Sanitize(name), Sanitize(resolvedHash));
-
-    internal string GetNpmInstallRoot(string scope, bool temporary)
-    {
-        if (temporary || scope == "temporary")
+        if (parsed.Type == "git")
         {
-            return Path.Combine(_agentDir, "tmp", "extensions");
+            var path = GetGitInstallPath(parsed, scope);
+            return Directory.Exists(path) ? path : null;
         }
 
-        return scope == "project"
-            ? Path.Combine(_cwd, Config.ConfigDirName, "npm")
-            : Path.Combine(_agentDir, "npm");
-    }
-
-    internal string GetManagedGitInstallPath(ParsedPackageSource source, string scope)
-    {
-        var host = source.Host ?? "git";
-        var path = (source.Path ?? source.Name ?? "repo").Replace('/', Path.DirectorySeparatorChar);
-        var root = scope == "project"
-            ? Path.Combine(_cwd, Config.ConfigDirName, "git")
-            : Path.Combine(_agentDir, "git");
-        return Path.Combine(root, host, path);
-    }
-
-    private string InstallLocal(ParsedPackageSource source)
-    {
-        var path = source.Path ?? source.Spec;
-        var absolute = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(_cwd, path));
-        if (!File.Exists(absolute) && !Directory.Exists(absolute))
+        if (parsed.Type == "local")
         {
-            throw new DirectoryNotFoundException($"local package not found: {absolute}");
+            var path = ResolvePathFromBase(parsed.Path ?? "", GetBaseDirForScope(scope));
+            return File.Exists(path) || Directory.Exists(path) ? path : null;
         }
 
-        return absolute;
+        return null;
+    }
+
+    // ========================================================================
+    // 安装 / 卸载（TS install / remove；网络与更新检查顺延 4e-3c-3）
+    // ========================================================================
+
+    /// <summary>对应 TS <c>install</c>。</summary>
+    public async Task<string> InstallAsync(string source, string scope = "user", CancellationToken cancellationToken = default)
+    {
+        var parsed = ParseSource(source);
+        AssertProjectTrustedForScope(scope);
+        _progress?.Invoke(new PackageProgressEvent("install", source));
+        return parsed.Type switch
+        {
+            "npm" => await InstallNpmAsync(parsed, scope, cancellationToken).ConfigureAwait(false),
+            "git" => await InstallGitAsync(parsed, scope, cancellationToken).ConfigureAwait(false),
+            _ => InstallLocal(parsed),
+        };
+    }
+
+    /// <summary>对应 TS <c>installAndPersist</c>。</summary>
+    public async Task<string> InstallAndPersistAsync(string source, bool local = false, CancellationToken cancellationToken = default)
+    {
+        var path = await InstallAsync(source, local ? SourceScope.Project : SourceScope.User, cancellationToken)
+            .ConfigureAwait(false);
+        AddSourceToSettings(source, local);
+        return path;
+    }
+
+    /// <summary>对应 TS <c>removeAndPersist</c> 的 settings 侧；进程卸载经 runner。</summary>
+    public async Task<bool> RemoveAndPersistAsync(string source, bool local = false, CancellationToken cancellationToken = default)
+    {
+        var scope = local ? SourceScope.Project : SourceScope.User;
+        var parsed = ParseSource(source);
+        AssertProjectTrustedForScope(scope);
+        if (parsed.Type == "npm")
+        {
+            var root = GetNpmInstallRoot(scope, temporary: false);
+            if (Directory.Exists(root))
+            {
+                var npm = GetNpmInvocation();
+                await _runner.RunAsync(
+                    npm.Command,
+                    [.. npm.Args, "uninstall", parsed.Name ?? source, "--prefix", root, "--legacy-peer-deps"],
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+        }
+        else if (parsed.Type == "git")
+        {
+            var dest = GetGitInstallPath(parsed, scope);
+            if (Directory.Exists(dest))
+            {
+                Directory.Delete(dest, recursive: true);
+            }
+        }
+
+        return RemoveSourceFromSettings(source, local);
     }
 
     private async Task<string> InstallNpmAsync(ParsedPackageSource source, string scope, CancellationToken cancellationToken)
     {
-        var temporary = scope == "temporary";
-        var root = GetNpmInstallRoot(scope, temporary);
-        Directory.CreateDirectory(root);
-        var packageJson = Path.Combine(root, "package.json");
-        if (!File.Exists(packageJson))
-        {
-            File.WriteAllText(packageJson, """{"private":true}""");
-        }
-
-        var spec = source.Version is { Length: > 0 } version ? $"{source.Name}@{version}" : source.Name ?? source.Spec;
+        var installRoot = GetNpmInstallRoot(scope, temporary: scope == SourceScope.Temporary);
+        EnsureNpmProject(installRoot);
+        var spec = source.Spec.Length > 0 ? source.Spec : source.Name ?? "";
         var npm = GetNpmInvocation();
-        await _runner.RunAsync(npm.Command, [.. npm.Args, "install", spec, "--prefix", root, "--legacy-peer-deps"], cancellationToken: cancellationToken).ConfigureAwait(false);
-        return Path.Combine(root, "node_modules", source.Name ?? spec);
+        await _runner.RunAsync(
+            npm.Command,
+            [.. npm.Args, "install", spec, "--prefix", installRoot, "--legacy-peer-deps"],
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return NodePath.Join(installRoot, "node_modules", source.Name ?? spec);
     }
 
     private async Task<string> InstallGitAsync(ParsedPackageSource source, string scope, CancellationToken cancellationToken)
     {
-        var dest = GetManagedGitInstallPath(source, scope);
+        var dest = GetGitInstallPath(source, scope);
         if (Directory.Exists(dest))
         {
             return dest;
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-        await _runner.RunAsync("git", ["clone", source.Locator, dest], cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (!string.IsNullOrEmpty(source.Ref) && !source.Pinned)
+        var gitRoot = GetGitInstallRoot(scope);
+        if (gitRoot is not null)
+        {
+            EnsureGitIgnore(gitRoot);
+        }
+
+        Directory.CreateDirectory(NodePath.Dirname(dest));
+        await _runner.RunAsync("git", ["clone", source.Locator, dest], cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(source.Ref))
         {
             await _runner.RunAsync("git", ["checkout", source.Ref], dest, cancellationToken).ConfigureAwait(false);
         }
@@ -377,285 +1328,291 @@ public sealed class DefaultPackageManager : IPackageManager
         return dest;
     }
 
+    private string InstallLocal(ParsedPackageSource source)
+    {
+        var resolved = ResolvePath(source.Path ?? source.Spec);
+        if (!File.Exists(resolved) && !Directory.Exists(resolved))
+        {
+            throw new DirectoryNotFoundException($"Path does not exist: {resolved}");
+        }
+
+        return resolved;
+    }
+
+    private async Task InstallParsedSourceAsync(ParsedPackageSource parsed, string scope, CancellationToken cancellationToken)
+    {
+        if (parsed.Type == "npm")
+        {
+            await InstallNpmAsync(parsed, scope, cancellationToken).ConfigureAwait(false);
+        }
+        else if (parsed.Type == "git")
+        {
+            await InstallGitAsync(parsed, scope, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // ========================================================================
+    // 安装路径（TS getNpmInstallRoot / getManagedNpmInstallPath / getGitInstallPath / …）
+    // ========================================================================
+
+    /// <summary>TS <c>getExtensionTempFolder</c>.</summary>
+    internal static string GetExtensionTempFolder(string agentDir)
+    {
+        var tempFolder = NodePath.Join(agentDir, "tmp", "extensions");
+        Directory.CreateDirectory(tempFolder);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(
+                tempFolder,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        return tempFolder;
+    }
+
+    internal string GetNpmInstallRoot(string scope, bool temporary)
+    {
+        if (temporary)
+        {
+            return GetTemporaryDir("npm");
+        }
+
+        if (scope == SourceScope.Project)
+        {
+            AssertProjectTrustedForScope(scope);
+            return NodePath.Join(_cwd, Config.ConfigDirName, "npm");
+        }
+
+        return NodePath.Join(_agentDir, "npm");
+    }
+
+    internal string GetManagedNpmInstallPath(ParsedPackageSource source, string scope)
+    {
+        var name = source.Name ?? "package";
+        if (scope == SourceScope.Temporary)
+        {
+            return NodePath.Join(GetTemporaryDir("npm"), "node_modules", name);
+        }
+
+        if (scope == SourceScope.Project)
+        {
+            AssertProjectTrustedForScope(scope);
+            return NodePath.Join(_cwd, Config.ConfigDirName, "npm", "node_modules", name);
+        }
+
+        return NodePath.Join(_agentDir, "npm", "node_modules", name);
+    }
+
+    /// <summary>
+    /// TS <c>getNpmInstallPath</c>. For a user-scope package TS falls back to the legacy global npm
+    /// root (or pnpm's global package path) when the managed path is absent; the port has neither
+    /// `npm root -g` nor `pnpm list -g`, so it always returns the managed path (difference C168).
+    /// </summary>
+    internal string GetNpmInstallPath(ParsedPackageSource source, string scope)
+        => GetManagedNpmInstallPath(source, scope);
+
+    /// <summary>TS <c>getGitInstallPath</c>.</summary>
+    internal string GetGitInstallPath(ParsedPackageSource source, string scope)
+    {
+        var host = source.Host ?? "git";
+        var path = source.Path ?? "repo";
+        if (scope == SourceScope.Temporary)
+        {
+            // Include the ref in the hash so each pinned ref gets its own checkout.
+            return GetTemporaryDir($"git-{host}", path, source.Ref);
+        }
+
+        var installRoot = GetGitInstallRoot(scope) ?? throw new InvalidOperationException("Missing git install root");
+        return ResolveManagedPath(installRoot, host, path);
+    }
+
+    private string? GetGitInstallRoot(string scope)
+    {
+        if (scope == SourceScope.Temporary)
+        {
+            return null;
+        }
+
+        if (scope == SourceScope.Project)
+        {
+            AssertProjectTrustedForScope(scope);
+            return NodePath.Join(_cwd, Config.ConfigDirName, "git");
+        }
+
+        return NodePath.Join(_agentDir, "git");
+    }
+
+    /// <summary>TS <c>getTemporaryDir</c>: a managed root, plus an 8-hex-character sha256 of the inputs.</summary>
+    internal string GetTemporaryDir(string prefix, string? suffix = null, string? reference = null)
+    {
+        var root = ResolveManagedPath(GetExtensionTempFolder(_agentDir), prefix);
+        var input = $"{prefix}-{suffix ?? ""}{(reference is not null ? $"@{reference}" : "")}";
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(input)))[..8];
+        return ResolveManagedPath(root, hash, suffix ?? "");
+    }
+
+    /// <summary>TS <c>resolveManagedPath</c>: refuse anything that escapes the install root.</summary>
+    private static string ResolveManagedPath(string root, params string[] parts)
+    {
+        var resolvedRoot = NodePath.Resolve(root);
+        var resolvedPath = NodePath.Resolve([resolvedRoot, .. parts]);
+        if (!string.Equals(resolvedPath, resolvedRoot, StringComparison.Ordinal)
+            && !resolvedPath.StartsWith(resolvedRoot + NodePath.Separator, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Refusing to use path outside package install root: {resolvedPath}");
+        }
+
+        return resolvedPath;
+    }
+
+    private void EnsureNpmProject(string installRoot)
+    {
+        if (!Directory.Exists(installRoot))
+        {
+            Directory.CreateDirectory(installRoot);
+        }
+
+        Paths.MarkPathIgnoredByCloudSync(installRoot);
+        EnsureGitIgnore(installRoot);
+        var packageJsonPath = NodePath.Join(installRoot, "package.json");
+        if (!File.Exists(packageJsonPath))
+        {
+            File.WriteAllText(packageJsonPath, "{\n  \"name\": \"pi-extensions\",\n  \"private\": true\n}");
+        }
+    }
+
+    private static void EnsureGitIgnore(string dir)
+    {
+        if (!Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var ignorePath = NodePath.Join(dir, ".gitignore");
+        if (!File.Exists(ignorePath))
+        {
+            File.WriteAllText(ignorePath, "*\n!.gitignore\n");
+        }
+    }
+
+    // ========================================================================
+    // 小工具
+    // ========================================================================
+
+    /// <summary>TS <c>isOfflineModeEnabled</c>.</summary>
+    private static bool IsOfflineModeEnabled()
+    {
+        var value = Environment.GetEnvironmentVariable("PI_OFFLINE");
+        if (string.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+
+        return value == "1"
+            || value.Equals("true", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("yes", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>TS <c>installedNpmMatchesConfiguredVersion</c>.</summary>
+    private static bool InstalledNpmMatchesConfiguredVersion(ParsedPackageSource source, string installedPath)
+    {
+        var installedVersion = GetInstalledNpmVersion(installedPath);
+        if (installedVersion is null)
+        {
+            return false;
+        }
+
+        return source.Range is null || SemverRange.Satisfies(installedVersion, source.Range);
+    }
+
+    /// <summary>TS <c>getInstalledNpmVersion</c>: the <c>version</c> of the installed package.json.</summary>
+    private static string? GetInstalledNpmVersion(string installedPath)
+    {
+        var packageJsonPath = NodePath.Join(installedPath, "package.json");
+        if (!File.Exists(packageJsonPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var parsed = JsonNode.Parse(Text.StripBom(File.ReadAllText(packageJsonPath)));
+            return parsed is JsonObject obj && obj["version"] is JsonValue value && value.TryGetValue(out string? version)
+                ? version
+                : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private void AssertProjectTrustedForScope(string scope)
+    {
+        if (scope == SourceScope.Project && !_settings.IsProjectTrusted())
+        {
+            throw new InvalidOperationException("Project is not trusted; refusing to access project package storage");
+        }
+    }
+
+    private string GetBaseDirForScope(string scope)
+    {
+        if (scope == SourceScope.Project)
+        {
+            AssertProjectTrustedForScope(scope);
+            return NodePath.Join(_cwd, Config.ConfigDirName);
+        }
+
+        return scope == SourceScope.User ? _agentDir : _cwd;
+    }
+
+    private string ResolvePath(string input)
+        => Paths.ResolvePath(input, _cwd, new PathInputOptions(Trim: true, HomeDir: Paths.GetHomeDirectory()));
+
+    private string ResolvePathFromBase(string input, string baseDir)
+        => Paths.ResolvePath(input, baseDir, new PathInputOptions(Trim: true, HomeDir: Paths.GetHomeDirectory()));
+
     private (string Command, string[] Args) GetNpmInvocation()
     {
         var custom = _settings.GetNpmCommand();
         if (custom is { Count: > 0 })
         {
-            return (custom[0], custom.Skip(1).ToArray());
+            var command = custom[0];
+            if (string.IsNullOrEmpty(command))
+            {
+                throw new InvalidOperationException("Invalid npmCommand: first array entry must be a non-empty command");
+            }
+
+            return (command, custom.Skip(1).ToArray());
         }
 
         return ("npm", []);
     }
 
-    internal sealed record ParsedPackageSource
+    private IReadOnlyList<JsonNode?> GlobalPackageNodes() => _settings.GetGlobalSettings().Packages ?? [];
+
+    private IReadOnlyList<JsonNode?> ProjectPackageNodes() => _settings.GetProjectSettings().Packages ?? [];
+
+    private IReadOnlyList<string> GlobalEntries(string resourceType) => resourceType switch
     {
-        public required string Type { get; init; }
+        "extensions" => _settings.GetGlobalExtensionPaths(),
+        "skills" => _settings.GetGlobalSkillPaths(),
+        "prompts" => _settings.GetGlobalPromptTemplatePaths(),
+        "themes" => _settings.GetGlobalThemePaths(),
+        _ => throw new ArgumentException($"Unknown resource type: {resourceType}", nameof(resourceType)),
+    };
 
-        public string Spec { get; init; } = "";
-
-        public string Locator { get; init; } = "";
-
-        public string? Name { get; init; }
-
-        public string? Version { get; init; }
-
-        public string? Path { get; init; }
-
-        public string? Host { get; init; }
-
-        public string? Ref { get; init; }
-
-        public bool Pinned { get; init; }
-    }
-
-    /// <summary>
-    /// Register the built-in extensions as <c>builtin:&lt;name&gt;</c> resources. TS's <c>resolve</c>
-    /// computes each one's enabled flag from the project/global `extensions` override patterns
-    /// (<c>applyAutoloadDisabledPatterns</c> + <c>isEnabledByOverrides</c>); the port applies the
-    /// (simplified) <see cref="ApplyAutoloadDisabledPatterns"/> pass afterwards instead, and otherwise
-    /// enables them — a built-in extension is on unless something disables it.
-    /// </summary>
-    private void AddBuiltinExtensions(Accumulator acc)
+    private IReadOnlyList<string> ProjectEntries(string resourceType) => resourceType switch
     {
-        foreach (var name in _builtinExtensions)
-        {
-            acc.Add(PackageResourceKind.Extensions, new ResolvedResource
-            {
-                Path = SourceInfos.BuiltinPathPrefix + name,
-                Metadata = new PathMetadata
-                {
-                    Source = "builtin",
-                    Scope = SourceScope.User,
-                    Origin = SourceOrigin.TopLevel,
-                },
-                Enabled = true,
-            });
-        }
-    }
-
-    private void AddAutoDiscoveredResources(Accumulator acc)
-    {
-        CollectAuto(acc, _agentDir, "global");
-        CollectAuto(acc, Path.Combine(_cwd, Config.ConfigDirName), "project");
-    }
-
-    private void CollectAuto(Accumulator acc, string baseDir, string scope)
-    {
-        if (!Directory.Exists(baseDir))
-        {
-            return;
-        }
-
-        foreach (var kind in ResourceKinds)
-        {
-            var dir = Path.Combine(baseDir, kind.Dir);
-            if (!Directory.Exists(dir))
-            {
-                continue;
-            }
-
-            foreach (var file in EnumerateResourceFiles(dir, kind.Type, kind.Extensions))
-            {
-                acc.Add(kind.Type, new ResolvedResource
-                {
-                    Path = file,
-                    Metadata = new PathMetadata
-                    {
-                        Source = "auto",
-                        Scope = scope,
-                        Origin = "top-level",
-                        BaseDir = dir,
-                    },
-                    Enabled = true,
-                });
-            }
-        }
-    }
-
-    private void ResolveLocalEntries(
-        Accumulator acc,
-        string relativeRoot,
-        IReadOnlyList<string> globalPaths,
-        IReadOnlyList<string> projectPaths,
-        PackageResourceKind type)
-    {
-        AddResolvedPaths(acc, type, globalPaths, _agentDir, "global", relativeRoot);
-        AddResolvedPaths(acc, type, projectPaths, Path.Combine(_cwd, Config.ConfigDirName), "project", relativeRoot);
-    }
-
-    private static void AddResolvedPaths(
-        Accumulator acc,
-        PackageResourceKind type,
-        IReadOnlyList<string> entries,
-        string baseDir,
-        string scope,
-        string relativeRoot)
-    {
-        foreach (var entry in entries)
-        {
-            var resolved = ResolveEntry(entry, baseDir);
-            if (resolved is null)
-            {
-                continue;
-            }
-
-            acc.Add(type, new ResolvedResource
-            {
-                Path = resolved,
-                Metadata = new PathMetadata
-                {
-                    Source = entry,
-                    Scope = scope,
-                    Origin = "settings",
-                    BaseDir = Path.Combine(baseDir, relativeRoot),
-                },
-                Enabled = true,
-            });
-        }
-    }
-
-    private static string? ResolveEntry(string entry, string baseDir)
-    {
-        var path = Path.IsPathRooted(entry) ? entry : Path.Combine(baseDir, entry);
-        path = Path.GetFullPath(path);
-        return File.Exists(path) || Directory.Exists(path) ? path : null;
-    }
-
-    private static IEnumerable<string> EnumerateResourceFiles(string dir, PackageResourceKind type, string[] extensions)
-    {
-        if (type == PackageResourceKind.Skills)
-        {
-            foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
-            {
-                var name = Path.GetFileName(file);
-                if (name.Equals("SKILL.md", StringComparison.OrdinalIgnoreCase)
-                    || (Path.GetDirectoryName(file) == dir
-                        && Path.GetExtension(file).Equals(".md", StringComparison.OrdinalIgnoreCase)
-                        && !name.Equals("README.md", StringComparison.OrdinalIgnoreCase)))
-                {
-                    yield return Path.GetFullPath(file);
-                }
-            }
-
-            yield break;
-        }
-
-        foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
-        {
-            if (extensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-            {
-                yield return Path.GetFullPath(file);
-            }
-        }
-    }
-
-    private void ApplyAutoloadDisabledPatterns(Accumulator acc)
-    {
-        foreach (var kind in ResourceKinds)
-        {
-            var typeName = kind.Dir;
-            var include = _settings.GetInclude(typeName);
-            var exclude = _settings.GetExclude(typeName);
-            var autoload = _settings.GetAutoload(typeName);
-            if (include.Count == 0 && exclude.Count == 0 && autoload.Count == 0)
-            {
-                continue;
-            }
-
-            acc.Replace(kind.Type, acc.Get(kind.Type).Select(resource =>
-            {
-                var enabled = resource.Enabled;
-                if (include.Count > 0)
-                {
-                    enabled = MatchesAny(resource, include);
-                }
-
-                if (exclude.Count > 0 && MatchesAny(resource, exclude))
-                {
-                    enabled = false;
-                }
-
-                if (autoload.Count > 0 && autoload.All(pattern => pattern != "true") && MatchesAny(resource, autoload.Where(p => p != "false")))
-                {
-                    enabled = false;
-                }
-
-                if (autoload.Count == 1 && autoload[0] == "false" && resource.Metadata.Origin == "top-level")
-                {
-                    enabled = false;
-                }
-
-                return resource with { Enabled = enabled };
-            }).ToList());
-        }
-    }
-
-    private static IReadOnlyList<string> MatchCandidates(ResolvedResource resource)
-    {
-        var fileName = Path.GetFileName(resource.Path);
-        var stem = Path.GetFileNameWithoutExtension(fileName);
-        var candidates = new List<string> { fileName, stem, resource.Metadata.Source };
-        if (resource.Metadata.BaseDir is { Length: > 0 } baseDir)
-        {
-            candidates.Insert(0, Path.GetRelativePath(baseDir, resource.Path).Replace('\\', '/'));
-        }
-
-        // TS matches override patterns against resolved *paths* (`matchesAnyPattern` with a baseDir),
-        // so `-builtin:mcp` targets a built-in. The port's matcher compares file name, stem and source
-        // instead, which cannot see through the `builtin:` prefix — add the bare name so
-        // `extensions: ["-mcp"]` still disables the built-in `mcp` extension.
-        if (resource.Path.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal))
-        {
-            candidates.Insert(0, resource.Path[SourceInfos.BuiltinPathPrefix.Length..]);
-        }
-
-        return candidates;
-    }
-
-    private static bool MatchesAny(ResolvedResource resource, IEnumerable<string> patterns)
-        => MatchCandidates(resource).Any(candidate => patterns.Any(pattern =>
-        {
-            try
-            {
-                return string.Equals(candidate, pattern, StringComparison.OrdinalIgnoreCase)
-                    || new Minimatch(pattern, new GlobOptions { Dot = true, MatchBase = true }).Match(candidate);
-            }
-            catch (ArgumentException)
-            {
-                return false;
-            }
-        }));
-
-    private static (string Name, string Version) ParseNpmSpec(string spec)
-    {
-        if (spec.StartsWith("@", StringComparison.Ordinal))
-        {
-            var slash = spec.IndexOf('/');
-            var at = spec.LastIndexOf('@');
-            if (slash >= 0 && at > slash)
-            {
-                return (spec[..at], spec[(at + 1)..]);
-            }
-
-            return (spec, "latest");
-        }
-
-        var idx = spec.IndexOf('@');
-        return idx > 0 ? (spec[..idx], spec[(idx + 1)..]) : (spec, "latest");
-    }
-
-    private static bool IsLocalPath(string spec)
-        => spec.StartsWith("file:", StringComparison.Ordinal)
-            || spec.StartsWith(".", StringComparison.Ordinal)
-            || spec.StartsWith("~", StringComparison.Ordinal)
-            || Path.IsPathRooted(spec);
-
-    private static bool IsExactNpmVersion(string version)
-        => version.Length > 0 && char.IsDigit(version[0]) && !version.Contains('*') && !version.Contains('^') && !version.Contains('~');
+        "extensions" => _settings.GetProjectExtensionPaths(),
+        "skills" => _settings.GetProjectSkillPaths(),
+        "prompts" => _settings.GetProjectPromptTemplatePaths(),
+        "themes" => _settings.GetProjectThemePaths(),
+        _ => throw new ArgumentException($"Unknown resource type: {resourceType}", nameof(resourceType)),
+    };
 
     private List<JsonNode?> GetPackageNodes(bool local)
-        => [.. (local ? _settings.GetProjectSettings().Packages : _settings.GetGlobalSettings().Packages) ?? []];
+        => [.. local ? ProjectPackageNodes() : GlobalPackageNodes()];
 
     private void WritePackageNodes(bool local, IReadOnlyList<JsonNode?> nodes)
     {
@@ -669,18 +1626,19 @@ public sealed class DefaultPackageManager : IPackageManager
         }
     }
 
+    /// <summary>TS <c>normalizePackageSourceForSettings</c>.</summary>
     private string NormalizePackageSourceForSettings(string source, string scope)
     {
         var parsed = ParseSource(source);
-        if (parsed.Type != "local" || string.IsNullOrEmpty(parsed.Path))
+        if (parsed.Type != "local")
         {
             return source;
         }
 
-        var absolute = Path.IsPathRooted(parsed.Path) ? parsed.Path : Path.GetFullPath(Path.Combine(_cwd, parsed.Path));
-        var baseDir = scope == "project" ? Path.Combine(_cwd, Config.ConfigDirName) : _agentDir;
-        var rel = Path.GetRelativePath(baseDir, absolute);
-        return rel.StartsWith('.') ? rel : Path.Combine(".", rel);
+        var baseDir = GetBaseDirForScope(scope);
+        var resolved = ResolvePath(parsed.Path ?? "");
+        var rel = NodePath.Relative(baseDir, resolved);
+        return rel.Length > 0 ? rel : ".";
     }
 
     private bool PackageSourcesMatch(JsonNode? existing, string incoming, string scope)
@@ -722,8 +1680,87 @@ public sealed class DefaultPackageManager : IPackageManager
             return text;
         }
 
-        return node is JsonObject obj ? obj["source"]?.GetValue<string>() : null;
+        return node is JsonObject obj && obj["source"] is JsonValue sourceValue
+            && sourceValue.TryGetValue<string>(out var source)
+                ? source
+                : null;
     }
+
+    /// <summary>TS <c>pkg.autoload !== false</c> is the early-out; this is the "is exactly false" test.</summary>
+    private static bool PackageAutoloadIsFalse(JsonNode? pkg)
+        => pkg is JsonObject obj
+            && obj["autoload"] is JsonValue value
+            && value.TryGetValue(out bool autoload)
+            && !autoload;
+
+    private static PackageFilter? PackageFilterFrom(JsonNode? pkg)
+    {
+        if (pkg is not JsonObject obj)
+        {
+            return null;
+        }
+
+        return new PackageFilter
+        {
+            Autoload = obj["autoload"] is JsonValue autoload && autoload.TryGetValue(out bool flag) ? flag : null,
+            Extensions = StringArrayOrNull(obj["extensions"]),
+            Skills = StringArrayOrNull(obj["skills"]),
+            Prompts = StringArrayOrNull(obj["prompts"]),
+            Themes = StringArrayOrNull(obj["themes"]),
+        };
+    }
+
+    private static IReadOnlyList<string>? StringArrayOrNull(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return null;
+        }
+
+        var values = new List<string>(array.Count);
+        foreach (var item in array)
+        {
+            if (item is JsonValue value && value.TryGetValue(out string? text) && text is not null)
+            {
+                values.Add(text);
+            }
+        }
+
+        return values;
+    }
+
+    private static IReadOnlyList<string>? ManifestEntries(PiManifest? manifest, string resourceType)
+        => manifest is null
+            ? null
+            : resourceType switch
+            {
+                "extensions" => manifest.Extensions,
+                "skills" => manifest.Skills,
+                "prompts" => manifest.Prompts,
+                "themes" => manifest.Themes,
+                _ => null,
+            };
+
+    private static (string Name, string Version) ParseNpmSpec(string spec)
+    {
+        if (spec.StartsWith('@'))
+        {
+            var slash = spec.IndexOf('/');
+            var at = spec.LastIndexOf('@');
+            if (slash >= 0 && at > slash)
+            {
+                return (spec[..at], spec[(at + 1)..]);
+            }
+
+            return (spec, "latest");
+        }
+
+        var idx = spec.IndexOf('@');
+        return idx > 0 ? (spec[..idx], spec[(idx + 1)..]) : (spec, "latest");
+    }
+
+    /// <summary>TS <c>isExactNpmVersion</c>: <c>valid(version) !== null</c>.</summary>
+    private static bool IsExactNpmVersion(string version) => Semver.Valid(version) is not null;
 
     private static JsonNode? ReplacePackageSource(JsonNode? existing, string source)
     {
@@ -737,50 +1774,27 @@ public sealed class DefaultPackageManager : IPackageManager
         return JsonValue.Create(source);
     }
 
-    private static string Sanitize(string value)
-        => string.Join("_", value.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
-
-    private sealed class Accumulator
+    internal sealed record ParsedPackageSource
     {
-        private readonly Dictionary<PackageResourceKind, List<ResolvedResource>> _items = new()
-        {
-            [PackageResourceKind.Extensions] = [],
-            [PackageResourceKind.Skills] = [],
-            [PackageResourceKind.Prompts] = [],
-            [PackageResourceKind.Themes] = [],
-        };
+        public required string Type { get; init; }
 
-        public IReadOnlyList<ResolvedResource> Get(PackageResourceKind type) => _items[type];
+        public string Spec { get; init; } = "";
 
-        public void Replace(PackageResourceKind type, List<ResolvedResource> items) => _items[type] = items;
+        public string Locator { get; init; } = "";
 
-        public void Add(PackageResourceKind type, ResolvedResource resource)
-        {
-            var list = _items[type];
-            var existing = list.FindIndex(item => PathsEqual(item.Path, resource.Path));
-            if (existing >= 0)
-            {
-                if (resource.Metadata.Scope == "project" && list[existing].Metadata.Scope != "project")
-                {
-                    list[existing] = resource;
-                }
+        public string? Name { get; init; }
 
-                return;
-            }
+        public string? Version { get; init; }
 
-            list.Add(resource);
-        }
+        /// <summary>TS <c>range</c>: <c>validRange(version)</c>, or null for an exact version or none.</summary>
+        public string? Range { get; init; }
 
-        public ResolvedResources ToResolved()
-            => new()
-            {
-                Extensions = [.. _items[PackageResourceKind.Extensions]],
-                Skills = [.. _items[PackageResourceKind.Skills]],
-                Prompts = [.. _items[PackageResourceKind.Prompts]],
-                Themes = [.. _items[PackageResourceKind.Themes]],
-            };
+        public string? Path { get; init; }
 
-        private static bool PathsEqual(string left, string right)
-            => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+        public string? Host { get; init; }
+
+        public string? Ref { get; init; }
+
+        public bool Pinned { get; init; }
     }
 }

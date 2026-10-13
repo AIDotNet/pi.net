@@ -2378,7 +2378,7 @@ CLI 扩展源（`packageManager.resolveExtensionSources`）留给 9h-2b-2。
    文件名/stem/source，`builtin:mcp` 这三个候选都不是 `mcp`，导致 `extensions: ["-mcp"]` **无法禁用内置扩展**。
    已在 `MatchCandidates` 里对 `builtin:` 路径补上裸名候选。
 
-**本批新发现的 3 处阻塞（均属 package-manager，未移植）：**
+**本批新发现的 3 处阻塞（均属 package-manager，未移植）——✅ 2026-10-13 已收口（见「4e-3c-2」节）：**
 
 | 阻塞 | 影响 |
 | --- | --- |
@@ -2451,6 +2451,8 @@ CLI 扩展源（`packageManager.resolveExtensionSources`）留给 9h-2b-2。
   编排（9h-4）里被 `before_agent_start` 的结果写入，`_baseSystemPromptOptions.ForceSystemPrompt` 恒为
   `null`。9h-3 期间该 installer 等价于透传（测试已锁住这一半）。
 - **package manager 的包解析**（`resolvePackageSources` / `packageRoot` / 完整 override 语义）仍为独立缺口。
+  → **✅ 2026-10-13 已收口**（4e-3c-2a `82b47aa` + 4e-3c-2b；余 `4e-3c-3` 的 update/网络检查与
+  `collectExtensionPackageWarnings`）。
 
 **新增测试**（`tests/Pi.CodingAgent.Tests/AgentSessionInstallerTests.cs`，26 项）：工具钩子（阻断 / 替换内容 /
 无处理器返回 null / 嵌套 parentToolCallId）、`prepareNextTurn`（镜像 agent 状态 / 串上一个钩子）、
@@ -2651,12 +2653,148 @@ settings→请求选项（超时/重试/sessionId/signal/`transformHeaders` 摘�
 `AgentSessionRuntimeTests` **22/22**；`Pi.CodingAgent.Tests` 全类 **1364 项 / 0 失败**；
 `Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301。
 
+### 4e-3c-2 package-manager 包解析 ✅ 已落地（2026-10-13）
+
+> 参照 `packages/coding-agent/src/core/package-manager.ts`（**2,760 行**）。分两批：
+> **4e-3c-2a**（`82b47aa`）叶子层 → **4e-3c-2b**（本批）`DefaultPackageManager` 全链路。
+
+**符号对照（4e-3c-2a：叶子层）**
+
+| TS 符号 | 位置 | 端口落点 |
+| --- | --- | --- |
+| `RESOURCE_TYPES` / `FILE_PATTERNS` | 顶部常量 | `Core/PackageManagerPatterns.cs` `ResourceTypes` / `FilePattern(string)` |
+| `isPattern` / `isOverridePattern` / `hasGlobPattern` / `normalizeExactPattern` / `splitPatterns` | 模块级 | 同名（`PackageManagerPatterns`） |
+| `matchesAnyPattern` / `matchesAnyExactPattern` | 模块级 | 同名 |
+| `getOverridePatterns` / `isEnabledByOverrides` | 模块级 | 同名 |
+| `applyPatterns` / `applyAutoloadDisabledPatterns` | 模块级 | 同名（返回 `HashSet<string>` / `Dictionary<string,bool>`） |
+| `resourcePrecedenceRank` | 模块级 | 同名 |
+| `collectFiles` / `collectSkillEntries` / `collectAutoSkillEntries` | 模块级 | `Core/PackageManagerCollectors.cs` 同名 |
+| `findGitRepoRoot` / `collectAncestorAgentsSkillDirs` | 模块级 | 同名 |
+| `collectAutoPromptEntries` / `collectAutoThemeEntries` | 模块级 | 同名 |
+| `resolveExtensionEntries` / `collectAutoExtensionEntries` / `collectResourceFiles` / `expandPackageGlob` | 模块级 | 同名 |
+| `globSync`（node:fs） | 调用点 | `Utils/Glob/GlobSync.cs` `GlobSync.Sync` |
+| `validRange` / `satisfies`（semver） | `getNpmVersionRange` 等 | `Utils/SemverRange.cs` `SemverRange.ValidRange` / `Satisfies` |
+
+**符号对照（4e-3c-2b：`DefaultPackageManager` 全链路）**
+
+| TS 符号 | 行 | 端口落点 |
+| --- | ---: | --- |
+| `resolve()` | 920-989 | `ResolveAsync(CancellationToken)` / `ResolveAsync(Func<string,Task<string>>, …)` |
+| `resolveExtensionSources()` | 991-1006 | `ResolveExtensionSourcesAsync` |
+| `listConfiguredPackages()` | 1008-1034 | `ListConfiguredPackages()` → `ConfiguredPackage` |
+| `resolvePackageSources()` | 1282-1343 | `ResolvePackageSourcesAsync` |
+| `findAutoloadDeltaBase()` | 1345-1358 | `FindAutoloadDeltaBase` |
+| `resolveLocalExtensionSource()` | 1360-1390 | 并入 `ResolveLocalEntries` 的 local 分支 |
+| `getPackageIdentity()` | 1721-1735 | `GetPackageIdentity` |
+| `dedupePackages()` | 1742-1763 | `DedupePackages` |
+| `getNpmInstallRoot` / `getManagedNpmInstallPath` / `getNpmInstallPath` | 2085 / 2126 / 2145 | `GetNpmInstallPath`（+ 私有根助手） |
+| `getGitInstallPath` / `getGitInstallRoot` | 2154 / 2166 | `GetGitInstallPath` |
+| `getTemporaryDir()` | 2177 | `GetTemporaryDir`（sha256 前 8 hex） |
+| `resolveManagedPath` / `getBaseDirForScope` | 2186 / 2195 | 同名私有助手 |
+| `collectPackageResources()` | 2214-2263 | `CollectPackageResources` |
+| `collectDefaultResources()` | 2265-2285 | `CollectDefaultResources` |
+| `applyPackageFilter()` / `applyPackageDeltaFilter()` | 2287 / 2313 | `ApplyPackageFilter` / `ApplyPackageDeltaFilter` |
+| `collectManifestFiles()` / `addManifestEntries()` / `collectFilesFromManifestEntries()` | 2336 / 2358 / 2378 | 同名 |
+| `resolveLocalEntries()` | 2390-2411 | `ResolveLocalEntries` |
+| `addAutoDiscoveredResources()` | 2413-2577 | `AddAutoDiscoveredResources` |
+| `collectFilesFromPaths()` / `getTargetMap()` | 2579 / 2598 | 同名 / `GetTargetMap` |
+| `addResource()` | 2616 | `ResourceMap.Set`（**首见即定，不覆盖**） |
+| `createAccumulator()` | 2628 | `Accumulator` 类 |
+| `toResolvedPaths()` | 2637-2663 | `ToResolvedPaths`（按 rank **稳定**排序 + `canonicalizePath` 去重） |
+
+**新增/改写的端口类型**
+
+- `PathMetadata` 增 `public string? PackageRoot { get; init; }`（此前在「4e-3e-9h-2b-2 的 3 处阻塞」表里
+  只被列为缺失项，未单独编号；本批终于有生产者，`collectExtensionPackageWarnings` 顺延 `4e-3c-3`）。
+- `PackageEntry(JsonNode? Package, string Scope)`——settings 条目（字符串形与对象形统一）。
+- `PackageFilter { bool? Autoload; IReadOnlyList<string>? Extensions/Skills/Prompts/Themes; string? PatternsFor(string) }`
+  ——**`null` 与 `[]` 语义必须区分**（`null` = 未声明 → 走约定目录；`[]` = 全禁用）。
+- `ConfiguredPackage(Source, Scope, Filtered, InstalledPath)`。
+- `MissingSourceAction { Install, Skip, Error }`（TS `onMissing` 返回值）。
+- `IPackageManager` 扩为 `ResolveAsync` ×2 / `ResolveExtensionSourcesAsync` / `ListConfiguredPackages` /
+  `GetInstalledPath` / `AddSourceToSettings` / `RemoveSourceFromSettings` / `SetProgressCallback`。
+- 私有 `ResourceMap`（`Dictionary` + `List<string> _order` 保序）/ `Accumulator`（四类 + `For(string)`）。
+
+**本批新登记的设计差异**
+
+| 编号 | 差异 | 理由 |
+| --- | --- | --- |
+| **C164** | TS 在 `skills.ts` 与 `package-manager.ts` 各写一份 `prefixIgnorePattern` / `addIgnoreRules` / `IGNORE_FILE_NAMES` / `toPosixPath`（模块私有，彼此不可见）；端口只保留 `Skills` 一份并提为 `internal` 共享 | 语义逐字相同（含 `relativeDir === ""` 不加前缀、`.` 前缀使整份 ignore 失效），重复两份只会分叉 |
+| **C165** | `GlobSync` 只落调用点子集：未移植 `!` 取反、`nodir`/`onlyFiles`、`ignore` 列表、`follow:false`、绝对模式、`windowsPathsNoEscape` | `expandPackageGlob` 之后按隐藏段过滤，故 `dot` 在调用点不可观测；其余选项调用点从不传 |
+| **C166** | `SemverRange` 把 `loose` / `includePrerelease` 固定 `false`；`COMPARATORTRIM` 先试严格版本 | 唯一调用方从不传选项；分歧仅在 `> 01.2.3` 这类严格 `Comparator` 本就会拒绝的写法 |
+| **C167** | `GlobSync` 不跟随符号链接目录（上游默认跟随）；`Directory.Exists`/`File.Exists` 把悬空软链判为「既非文件也非目录」并跳过 | 与上游 `statSync` 抛错后 `continue` 同结果；包根含 `node_modules`，跟随软链有环风险 |
+| **C168** | `GetNpmInstallPath` 只返回 managed 安装路径；**未**复刻 TS 的 legacy 全局根回退（`npm root -g` / `pnpm list -g` 探测） | 该回退需要起子进程探测全局根，属 `4e-3c-3`（update/网络检查）的同伴；当前调用点只用于 managed 布局，回退不可观测 |
+
+**已核实的真实缺陷（本批修复）**
+
+1. **臆造的 settings 键通路**：端口此前在 `SettingsManager` 里造了 `include` / `exclude` / `autoload`
+   三个键（`GetInclude` / `GetExclude` / `GetAutoload` / `SetInclude` / `SetExclude` / `SetAutoload` /
+   `GetOverrideList` / `SetOverrideList` 共 8 个成员），而 TS `settings-manager.ts` 的 `Settings`
+   里**没有**这三个键——真实 schema 是 `settings.packages`（字符串形或 `{ source, autoload?,
+   extensions?, skills?, prompts?, themes? }` 对象形），override 前缀写在**各资源数组内部**。
+   8 个成员已从 `SettingsManager` 与 `DefaultPackageManager` 双侧删除；两项依赖它的旧测试
+   （`Resolve_ExcludesBuiltinExtensionsWhenAnOverridePatternMatches`、
+   `Resolve_ForceExcludesAnAutoDiscoveredSkillByItsRelativePath`）改写为真实 schema
+   （`settings.SetExtensionPaths(["-builtin:mcp"])`、`settings.SetSkillPaths(["-skills/summarize.md"])`）。
+   这是「端口自造 API 导致上层无法迁移」的典型，删除后 `settings.packages` 全链路才真正可走。
+2. **`IsExactNpmVersion` 漏 loose 写法**：旧实现手写正则，`v1.2.3` 等被误判为非精确版本 →
+   走安装分支而非直接引用。改为 `Semver.Valid(version) is not null`。
+3. **`toResolvedPaths` 未做稳定排序**：TS 先按 `resourcePrecedenceRank` 排序再 `canonicalizePath` 去重保首个；
+   端口旧实现顺序不稳定 → 同 rank 的多个来源解析结果依赖字典迭代序。改为
+   `indexed.Sort((l,r) => rank != 0 ? rank : l.Index - r.Index)`。
+
+**测试**
+
+- 新增（4e-3c-2a，114 项）：`SemverRangeTests` **51**、`PackageManagerPatternsTests` **35**、
+  `GlobSyncTests` **12**、`PackageManagerCollectorsTests` **16**。
+- 全量重写（4e-3c-2b）：`PackageManagerTests` **24 项**（原 14 → 24）。新增 12 项覆盖
+  `settings.packages` 的字符串形 / 对象形 / `["review"]` 过滤 / `[]` 全禁用 / manifest glob /
+  project 胜 user / `autoload:false` delta / `onMissing` 三路（`Install`/`Skip`/`Error`）/
+  `listConfiguredPackages` / 相对路径规范化（无 `./` 前缀）/ TS 安装路径布局 / temp 根（8 hex sha256）。
+- 期间修掉 3 处测试设计错误（非产品缺陷）：`matchesAnyExactPattern` **没有** basename 那一路、
+  `npm:pkg@1.2.3` 的 `Range` 是 `"1.2.3"`（`validRange` 精确版本仍是合法 range）、
+  本地路径不存在时 `resolveLocalExtensionSource` **不调** `onMissing`（只有 npm/git 分支调）。
+
+**顺带修掉的 1 处测试夹具缺陷（`ResourceLoaderTests`）**
+
+本批接通 `AddAutoDiscoveredResources` 后，`Pi.CodingAgent.Tests` 全量出现 3 项失败，全部在
+`ResourceLoaderTests`，且失败信息里都混进了 45 个来自**本机真实** `C:\Users\xuzey\.agents\skills`
+的技能：
+
+- `ReloadAsync_DoesNotDoubleLoadDefaultSkills`（`Assert.Single` 收到 46 项）
+- `ExtendResources_AddsSkillWithExtensionProvenance`（`Assert.Empty` 收到 45 项）
+- `ExtendResources_MergesIntoTheLastLoadedSetInsteadOfReplacingIt`（`Assert.Single` 收到 46 项）
+
+**判定：产品实现正确，是夹具缺陷。** 依据：TS 在 `package-manager.ts:2458` 定义
+`userAgentsSkillsDir = join(getHomeDir(), ".agents", "skills")`，并在 2550-2561 **无条件**把它交给
+`collectAutoSkillEntries(..., "agents")`；同时 `projectTrusted` 默认 `true`（`settings-manager.ts:442`
+`options.projectTrusted ?? true`，端口一致），于是 `collectAncestorAgentsSkillDirs(this.cwd)` 从 `cwd`
+一路向上遍历也会命中 `~/.agents/skills`（仅当它不等于 `userAgentsSkillsDir` 时保留）。端口逐行一致。
+之所以此前 19/19 全绿，只是因为旧的 `DefaultPackageManager.ResolveAsync` 是简化实现、根本没采集这些
+目录——本批接通后夹具「home 下没有任何 `.agents/skills`」的隐含假设才暴露。
+
+**修法**：给夹具加 `OwnSkills(loader)`（`Skill.FilePath` 以测试临时根 `_root` 开头），把 3 个测试的
+4 处断言收敛到「本测试自造的资源」。**未**采用「改 `HOME` 隔离」——实测该做法适得其反：`HOME` 改成
+`_root` 后 `userAgentsSkillsDir` 随之变成 `_root/.agents/skills`，filter 不再排除真实 home，45 个技能
+反而以 `Scope=project` 的祖先技能身份进来（失败信息里 `Scope` 由 `user` 变 `project` 即为佐证）。
+修后 `ResourceLoaderTests` **19/19** 绿。
+
+**验证**：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`PackageManagerTests` **24/24**；
+`SemverRangeTests` 51/51、`PackageManagerPatternsTests` 35/35、`GlobSyncTests` 12/12、
+`PackageManagerCollectorsTests` 16/16、`ResourceLoaderTests` 19/19；
+`Pi.CodingAgent.Tests` 全类 **1488 项 / 0 失败**。
+
+**待续（4e-3c-3）**：npm/git `update` / `checkForAvailableUpdates` 网络检查、`ensureGitRef` /
+update marker / `refreshTemporaryGitSource`、npm legacy 全局根回退（C168）、
+`collectExtensionPackageWarnings`（`PathMetadata.PackageRoot` 的唯一消费者）、
+`ResourceLoader` 的 `additionalExtensionPaths`（CLI `-e`）接线与其「路径不存在」错误上报。
+
 ### 4e-3e-9 剩余
 
 - **4e-3e-9 已全部落地**（9a … 9h-4b-2）。
 - 之后：4f（模式层 `modes/interactive` + `modes/rpc`，~23.7k 行）→ 4g（入口与实验层 `cli` / `main` /
   `experimental`，~12k 行）→ evals（1,446 行）。
-- 独立缺口（不阻塞 9h）：package manager 的包解析（`resolvePackageSources`、`packageRoot`、
-  完整 override 语义）。
+- **package manager 的包解析已收口**（见上「4e-3c-2」节，`82b47aa` + 本批）；余 `4e-3c-3` 的
+  update/网络检查与 `collectExtensionPackageWarnings`，不阻塞 4f/4g。
 
 
