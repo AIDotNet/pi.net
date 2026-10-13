@@ -349,11 +349,16 @@ public sealed class AgentSessionBuildTests : IDisposable
     }
 
     [Fact]
-    public async Task PromptAndCompact_AreLoudSeamsUntil9h4()
+    public async Task PromptAndCompact_WithoutModel_ThrowTsNoModelSelected()
     {
+        // 9h-4 落地后 prompt/compact 不再是 NotSupportedException 缝；未选模型时二者都按 TS 抛
+        // 无模型错误（AuthGuidance 文案）。分支细节由 AgentSessionPromptTests 覆盖。
         var session = await CreateSessionAsync(initialActiveToolNames: []);
-        await Assert.ThrowsAsync<NotSupportedException>(() => session.PromptAsync("hi"));
-        await Assert.ThrowsAsync<NotSupportedException>(() => session.CompactAsync(null));
+        var promptError = await Assert.ThrowsAsync<InvalidOperationException>(() => session.PromptAsync("hi"));
+        Assert.Equal(AuthGuidance.FormatNoModelSelectedMessage(), promptError.Message);
+
+        var compactError = await Assert.ThrowsAsync<InvalidOperationException>(() => session.CompactAsync(null));
+        Assert.Equal(AuthGuidance.FormatNoModelSelectedMessage(), compactError.Message);
     }
 
     [Fact]

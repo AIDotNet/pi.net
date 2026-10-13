@@ -1,4 +1,7 @@
 using System.Globalization;
+using Pi.Agent.Types;
+using Pi.Ai.Auth;
+using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Ai.Utils;
 using Pi.CodingAgent.Core.Extensions;
@@ -436,4 +439,588 @@ public partial class AgentSession
         pending.Clear();
         return taken;
     }
+
+    // =========================================================================
+    // 压缩编排（4e-3e-9h-4）— TS `_checkCompaction`（2923-3050）/ `_runAutoCompaction`（3050-3230）/
+    // `compact`（2750-2895）/ `_runDefaultCompaction`（2697-2720）/
+    // `_getSummarizationRequestAuth`（560-597）/ `_getRequiredRequestAuth`（516-556）/
+    // `_clearManualCompactionState`（2726-2729）。
+    // =========================================================================
+
+    /// <summary>TS <c>_checkCompaction(message, skipAbortedCheck, toolResults)</c>（TS 2923-3050）。</summary>
+    private async Task<bool> CheckCompactionAsync(
+        AssistantMessage assistantMessage,
+        bool skipAbortedCheck = true,
+        IReadOnlyList<ChatMessage>? toolResults = null)
+    {
+        var settings = CompactionSettingsForSessionModel();
+        if (ShouldSkipCompactionCheck(settings.Enabled, skipAbortedCheck, assistantMessage.StopReason))
+        {
+            return false;
+        }
+
+        // 消息来自另一个模型时跳过溢出检查：用户从更小上下文的模型（opus）切到更大上下文（codex）时，
+        // 旧模型的溢出错误不应触发新模型的压缩。虚拟选择下，产出该消息的物理模型提供限额。
+        var messageModel = ModelForMessage(assistantMessage);
+        var sameModel = messageModel is not null;
+        var contextWindow = (messageModel ?? Model)?.ContextWindow ?? 0;
+
+        // 助手消息早于最近一次压缩边界时跳过：避免压缩**前**的陈旧用量/错误在压缩后第一个提示词上重新触发压缩。
+        var branch = SessionManager.GetBranch();
+        var compactionEntry = SessionEntries.GetLatestCompactionEntry(branch);
+        var latestCompactionTs = compactionEntry is null
+            ? (long?)null
+            : ParseEntryTimestampMs(compactionEntry.Timestamp);
+        // TS 的 assistantMessage.timestamp 是必填 number；端口可空（C86 同类），缺失时按「不在压缩之前」处理。
+        var assistantIsFromBeforeCompaction = assistantMessage.Timestamp is { } assistantTs
+            && IsAtOrBeforeCompaction(assistantTs, latestCompactionTs);
+        if (assistantIsFromBeforeCompaction)
+        {
+            return false;
+        }
+
+        // 自动案例 1 / 2：上下文溢出。
+        var currentProjection = SessionManager.BuildSessionProjection();
+        var assistantEntryId = FindPersistedMessageEntryIdFor(assistantMessage);
+        var assistantIsProjected = IsAssistantProjected(assistantEntryId, currentProjection);
+        var assistantIndex = -1;
+        if (assistantEntryId is not null)
+        {
+            for (var index = 0; index < branch.Count; index++)
+            {
+                if (branch[index].Id == assistantEntryId)
+                {
+                    assistantIndex = index;
+                    break;
+                }
+            }
+        }
+
+        var entriesAfterAssistant = assistantIndex >= 0
+            ? branch.Skip(assistantIndex + 1).ToList()
+            : new List<SessionEntry>();
+        var hasPostAssistantContextEdit = HasContextEditEntry(entriesAfterAssistant);
+        var latestAssistantEdit = FindLatestContextEditFor(entriesAfterAssistant, assistantEntryId);
+        var assistantRetainedForExplicitRecovery = IsAssistantRetainedForExplicitRecovery(
+            assistantEntryId,
+            entriesAfterAssistant.Any(entry => entry is CompactionEntry),
+            latestAssistantEdit is not null && latestAssistantEdit.Replacement is null);
+        var assistantUsageMatchesProjection = assistantIsProjected && !hasPostAssistantContextEdit;
+        var explicitOverflow = IsExplicitOverflow(
+            assistantMessage.StopReason, Overflow.IsContextOverflow(assistantMessage));
+        var contextOverflow = IsContextOverflowDetected(
+            sameModel,
+            explicitOverflow,
+            assistantRetainedForExplicitRecovery,
+            assistantUsageMatchesProjection,
+            Overflow.IsContextOverflow(assistantMessage, contextWindow));
+        var recoverableLength = IsRecoverableLengthDetected(
+            sameModel,
+            assistantIsProjected,
+            messageModel is not null && Overflow.IsRecoverableLength(assistantMessage, messageModel.MaxTokens));
+
+        if (contextOverflow || recoverableLength)
+        {
+            var willRetry = ShouldRetryAfterOverflow(assistantMessage.StopReason);
+
+            // 案例 2：响应成功完成。压缩，但不重试——agent.continue() 无法从已完成的助手响应继续。
+            if (!willRetry)
+            {
+                return await RunAutoCompactionAsync(CompactionReason.Overflow, false).ConfigureAwait(false);
+            }
+
+            if (_overflowRecoveryAttempted)
+            {
+                var errorMessage = FormatOverflowRecoveryFailureMessage(contextOverflow);
+                Emit(new AgentSessionEvent.CompactionEndEvent(
+                    CompactionReason.Overflow,
+                    Result: null,
+                    Aborted: false,
+                    WillRetry: false,
+                    ErrorMessage: errorMessage));
+                await EmitSessionCompactFailedAsync(
+                    CompactionReason.Overflow, errorMessage, aborted: false, willRetry: false, fromExtension: false)
+                    .ConfigureAwait(false);
+                return false;
+            }
+
+            // 在 post-run 恢复性压缩之前，把选定的最后一次尝试持久地省略掉。
+            _overflowRecoveryAttempted = true;
+            OmitRecoveryAttempt(assistantMessage, toolResults);
+            var retry = await RunAutoCompactionAsync(CompactionReason.Overflow, willRetry).ConfigureAwait(false);
+            if (retry)
+            {
+                _failedResponse = assistantMessage;
+            }
+
+            return retry;
+        }
+
+        // 案例 3：不重试的阈值压缩。
+        var projection = currentProjection;
+        var hasContextEdits = projection.Entries.Any(entry => entry.SourceEntry is ContextEditEntry);
+        var directContextTokens = assistantMessage.UsageStats is { } usage
+            ? Compaction.CalculateContextTokens(usage)
+            : 0;
+        long contextTokens;
+        switch (ResolveCompactionTokenSource(hasContextEdits, assistantMessage.StopReason, directContextTokens))
+        {
+            case CompactionTokenSource.ProjectedEstimate:
+                contextTokens = Compaction.EstimateProjectedContextTokens(projection, branch).Tokens;
+                break;
+            case CompactionTokenSource.MessageEstimate:
+                var messages = _agent.Messages;
+                var estimate = Compaction.EstimateContextTokens(messages);
+                if (estimate.LastUsageIndex is { } lastUsageIndex)
+                {
+                    // 校验用量来源在压缩**之后**：被保留的压缩前消息带的是旧（更大）上下文的陈旧用量，
+                    // 会在刚压缩完就误触发下一次压缩。
+                    var usageMessage = messages[lastUsageIndex];
+                    if (IsStaleUsageSource(
+                            usageMessage is AssistantMessage,
+                            (usageMessage as AssistantMessage)?.Timestamp,
+                            latestCompactionTs))
+                    {
+                        return false;
+                    }
+                }
+
+                contextTokens = estimate.Tokens;
+                break;
+            default:
+                contextTokens = directContextTokens;
+                break;
+        }
+
+        if (Compaction.ShouldCompact(contextTokens, contextWindow, settings))
+        {
+            return await RunAutoCompactionAsync(CompactionReason.Threshold, false).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    /// <summary>TS <c>_runAutoCompaction(reason, willRetry)</c>（TS 3050-3230）。</summary>
+    private async Task<bool> RunAutoCompactionAsync(string reason, bool willRetry)
+    {
+        var model = Model;
+        var settings = CompactionSettingsForSessionModel();
+        CancellationTokenSource? abortController = null;
+        var started = false;
+        var fromExtension = false;
+        var cancelledByExtension = false;
+
+        try
+        {
+            if (model is null)
+            {
+                return false;
+            }
+
+            var pathEntries = SessionManager.GetBranch();
+            var preparation = Compaction.PrepareCompaction(pathEntries, settings);
+            if (preparation is null)
+            {
+                return false;
+            }
+
+            abortController = new CancellationTokenSource();
+            _autoCompactionAbortController = abortController;
+            started = true;
+            Emit(new AgentSessionEvent.CompactionStartEvent(reason));
+            abortController.Token.ThrowIfCancellationRequested();
+
+            CompactionResult? extensionCompaction = null;
+            if (_extensionRunner.HasHandlers(ExtensionEventNames.SessionBeforeCompact))
+            {
+                var extensionResult = await _extensionRunner.EmitAsync(new ExtensionEvent.SessionBeforeCompact(
+                        preparation,
+                        pathEntries,
+                        CustomInstructions: null,
+                        reason,
+                        willRetry,
+                        abortController.Token))
+                    .ConfigureAwait(false);
+
+                if (extensionResult?.Cancel == true)
+                {
+                    cancelledByExtension = true;
+                    throw new InvalidOperationException(CompactionCancelledMessage);
+                }
+
+                if (extensionResult?.Compaction is not null)
+                {
+                    extensionCompaction = extensionResult.Compaction;
+                    fromExtension = true;
+                }
+            }
+
+            abortController.Token.ThrowIfCancellationRequested();
+
+            var applied = extensionCompaction ?? await RunDefaultCompactionAsync(
+                    preparation, model, customInstructions: null, abortController.Token, reason)
+                .ConfigureAwait(false);
+            abortController.Token.ThrowIfCancellationRequested();
+
+            SessionManager.AppendCompaction(
+                applied.Summary, applied.FirstKeptEntryId, applied.TokensBefore, applied.Details, fromExtension, applied.Usage);
+            var newEntries = SessionManager.GetEntries();
+            RefreshFinalizedContext();
+            var estimatedTokensAfter = EstimateMessagesTokens(SessionManager.BuildSessionProjection().Messages);
+
+            // 取落库后的压缩条目，供扩展事件携带。
+            var savedCompactionEntry = newEntries
+                .OfType<CompactionEntry>()
+                .FirstOrDefault(entry => entry.Summary == applied.Summary);
+
+            if (savedCompactionEntry is not null)
+            {
+                await _extensionRunner.EmitAsync(new ExtensionEvent.SessionCompact(
+                        savedCompactionEntry, fromExtension, reason, willRetry))
+                    .ConfigureAwait(false);
+            }
+
+            var result = new CompactionResult(
+                applied.Summary,
+                applied.FirstKeptEntryId,
+                applied.TokensBefore,
+                estimatedTokensAfter,
+                applied.Usage,
+                applied.Details);
+            Emit(new AgentSessionEvent.CompactionEndEvent(reason, result, Aborted: false, WillRetry: willRetry));
+
+            if (willRetry)
+            {
+                return true;
+            }
+
+            // 自动压缩可能在 follow-up / steering / 自定义消息排队等待时完成；继续一次让它们被投递。
+            return _agent.HasQueuedMessages();
+        }
+        catch (Exception error)
+        {
+            var message = error.Message;
+            var aborted = abortController?.IsCancellationRequested == true || cancelledByExtension;
+            if (started)
+            {
+                var errorMessage = FormatAutoCompactionFailureMessage(aborted, reason, message);
+                Emit(new AgentSessionEvent.CompactionEndEvent(
+                    reason, Result: null, aborted, WillRetry: false, ErrorMessage: errorMessage));
+                await EmitSessionCompactFailedAsync(reason, errorMessage, aborted, willRetry: false, fromExtension)
+                    .ConfigureAwait(false);
+            }
+
+            return false;
+        }
+        finally
+        {
+            if (ShouldClearAutoCompactionController(_autoCompactionAbortController, abortController))
+            {
+                _autoCompactionAbortController = null;
+            }
+
+            ResolveIdleWaitIfIdle();
+        }
+    }
+
+    /// <summary>TS <c>compact(customInstructions?)</c>（TS 2750-2895）。</summary>
+    internal async Task<CompactionResult> CompactAsync(CompactOptions? options)
+    {
+        await AbortAsync().ConfigureAwait(false);
+        _compactionAbortController = new CancellationTokenSource();
+        var signal = _compactionAbortController.Token;
+        Emit(new AgentSessionEvent.CompactionStartEvent(CompactionReason.Manual));
+        var fromExtension = false;
+        var cancelledByExtension = false;
+
+        try
+        {
+            var model = Model;
+            if (model is null)
+            {
+                throw new InvalidOperationException(AuthGuidance.FormatNoModelSelectedMessage());
+            }
+
+            var settings = CompactionSettingsForSessionModel();
+            var pathEntries = SessionManager.GetBranch();
+
+            var preparation = Compaction.PrepareCompaction(pathEntries, settings);
+            if (preparation is null)
+            {
+                var lastEntry = pathEntries.Count > 0 ? pathEntries[^1] : null;
+                throw new InvalidOperationException(
+                    FormatManualCompactionPreparationFailure(lastEntry is CompactionEntry));
+            }
+
+            CompactionResult? extensionCompaction = null;
+            if (_extensionRunner.HasHandlers(ExtensionEventNames.SessionBeforeCompact))
+            {
+                var result = await _extensionRunner.EmitAsync(new ExtensionEvent.SessionBeforeCompact(
+                        preparation,
+                        pathEntries,
+                        options?.CustomInstructions,
+                        CompactionReason.Manual,
+                        WillRetry: false,
+                        signal))
+                    .ConfigureAwait(false);
+
+                if (result?.Cancel == true)
+                {
+                    cancelledByExtension = true;
+                    throw new InvalidOperationException(CompactionCancelledMessage);
+                }
+
+                if (result?.Compaction is not null)
+                {
+                    extensionCompaction = result.Compaction;
+                    fromExtension = true;
+                }
+            }
+
+            var applied = extensionCompaction ?? await RunDefaultCompactionAsync(
+                    preparation, model, options?.CustomInstructions, signal, CompactionReason.Manual)
+                .ConfigureAwait(false);
+
+            if (signal.IsCancellationRequested)
+            {
+                throw new InvalidOperationException(CompactionCancelledMessage);
+            }
+
+            SessionManager.AppendCompaction(
+                applied.Summary, applied.FirstKeptEntryId, applied.TokensBefore, applied.Details, fromExtension, applied.Usage);
+            var newEntries = SessionManager.GetEntries();
+            RefreshFinalizedContext();
+            var estimatedTokensAfter = EstimateMessagesTokens(SessionManager.BuildSessionProjection().Messages);
+
+            var savedCompactionEntry = newEntries
+                .OfType<CompactionEntry>()
+                .FirstOrDefault(entry => entry.Summary == applied.Summary);
+
+            if (savedCompactionEntry is not null)
+            {
+                await _extensionRunner.EmitAsync(new ExtensionEvent.SessionCompact(
+                        savedCompactionEntry, fromExtension, CompactionReason.Manual, WillRetry: false))
+                    .ConfigureAwait(false);
+            }
+
+            var compactionResult = new CompactionResult(
+                applied.Summary,
+                applied.FirstKeptEntryId,
+                applied.TokensBefore,
+                estimatedTokensAfter,
+                applied.Usage,
+                applied.Details);
+
+            // compaction_end 监听器可能提交排队的提示词，故先暴露空闲态再通知它们。
+            ClearManualCompactionState();
+            Emit(new AgentSessionEvent.CompactionEndEvent(
+                CompactionReason.Manual, compactionResult, Aborted: false, WillRetry: false));
+            return compactionResult;
+        }
+        catch (Exception error)
+        {
+            var message = error.Message;
+            var aborted = IsManualCompactionAborted(
+                _compactionAbortController?.IsCancellationRequested == true, cancelledByExtension);
+            var errorMessage = FormatManualCompactionFailureMessage(aborted, message);
+            ClearManualCompactionState();
+            Emit(new AgentSessionEvent.CompactionEndEvent(
+                CompactionReason.Manual, Result: null, aborted, WillRetry: false, ErrorMessage: errorMessage));
+            await EmitSessionCompactFailedAsync(
+                CompactionReason.Manual, errorMessage, aborted, willRetry: false, fromExtension)
+                .ConfigureAwait(false);
+            throw;
+        }
+        finally
+        {
+            ClearManualCompactionState();
+        }
+    }
+
+    /// <summary>TS <c>_clearManualCompactionState()</c>（TS 2726-2729）。</summary>
+    private void ClearManualCompactionState()
+    {
+        _compactionAbortController = null;
+        ResolveIdleWaitIfIdle();
+    }
+
+    /// <summary>TS <c>_runDefaultCompaction(preparation, model, customInstructions, signal, reason)</c>。</summary>
+    private async Task<CompactionResult> RunDefaultCompactionAsync(
+        CompactionPreparation preparation,
+        ModelSpec model,
+        string? customInstructions,
+        CancellationToken signal,
+        string reason)
+    {
+        // 仅在 Pi 自己摘要时才解析请求：路由可能调模型或失败。
+        var request = await GetSummarizationRequestAuthAsync(model, signal).ConfigureAwait(false);
+        var retrySettings = SettingsManager.GetRetrySettings();
+        var retryPolicy = new RetryPolicy
+        {
+            Enabled = retrySettings.Enabled,
+            MaxRetries = retrySettings.MaxRetries,
+            BaseDelayMs = retrySettings.BaseDelayMs,
+            MaxAgentDelayMs = retrySettings.MaxAgentDelayMs,
+        };
+        var callbacks = CreateSummarizationRetryCallbacks(
+            new SummarizationRetrySource { Source = SummarizationRetrySourceKind.Compaction, Reason = reason },
+            onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => Emit(
+                new AgentSessionEvent.SummarizationRetryScheduledEvent(
+                    attempt, maxAttempts, (int)delayMs, errorMessage)),
+            onRetryAttemptStart: source => Emit(
+                new AgentSessionEvent.SummarizationRetryAttemptStartEvent(source.Source, source.Reason)),
+            onRetryFinished: () => Emit(new AgentSessionEvent.SummarizationRetryFinishedEvent()));
+
+        return await Compaction.CompactAsync(
+                preparation,
+                request.Model,
+                request.ApiKey,
+                request.Headers,
+                customInstructions,
+                signal,
+                Core.ThinkingLevels.ToText(request.ThinkingLevel),
+                _agent.StreamFunction,
+                request.Env,
+                retryPolicy,
+                callbacks,
+                sessionId: null)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>TS <c>_getSummarizationRequestAuth(selectedModel, signal)</c>（TS 560-597）。</summary>
+    private async Task<SummarizationRequestAuth> GetSummarizationRequestAuthAsync(
+        ModelSpec selectedModel, CancellationToken signal)
+    {
+        // 虚拟模型先路由：摘要的输入与输出尺寸取决于拿到的模型。
+        ModelSpec model;
+        ThinkingLevel thinkingLevel;
+        if (VirtualModels.IsVirtualModel(selectedModel))
+        {
+            var route = await _modelRuntime.ResolveModelAsync(
+                    selectedModel,
+                    AgentMessages.ConvertToLlm(_agent.Messages),
+                    new ResolveModelOptions
+                    {
+                        Reason = VirtualModels.RouteReasons.Direct,
+                        ThinkingLevel = Core.ThinkingLevels.ToText(ThinkingLevel),
+                        Signal = signal,
+                    })
+                .ConfigureAwait(false);
+            model = route.Model;
+            thinkingLevel = Core.ThinkingLevels.Parse(route.ThinkingLevel) ?? ThinkingLevel;
+        }
+        else
+        {
+            model = selectedModel;
+            thinkingLevel = ThinkingLevel;
+        }
+
+        if (UsesDefaultStreamFunction())
+        {
+            var required = await GetRequiredRequestAuthAsync(model, signal).ConfigureAwait(false);
+            return new SummarizationRequestAuth(
+                required.Model, required.ApiKey, required.Headers, required.Env, thinkingLevel);
+        }
+
+        try
+        {
+            var result = await _modelRuntime.GetAuthAsync(model, new ModelRuntimeAuthOverrides { Signal = signal })
+                .ConfigureAwait(false);
+            if (result is null)
+            {
+                return new SummarizationRequestAuth(model, null, null, null, thinkingLevel);
+            }
+
+            var requestModel = result.Auth.BaseUrl is { } baseUrl ? model with { BaseUrl = baseUrl } : model;
+            return new SummarizationRequestAuth(
+                requestModel,
+                result.Auth.ApiKey,
+                ToNullableHeaders(WithoutDeletedHeaders(result.Auth.Headers)),
+                result.Env,
+                thinkingLevel);
+        }
+        catch (Exception)
+        {
+            if (signal.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            return new SummarizationRequestAuth(model, null, null, null, thinkingLevel);
+        }
+    }
+
+    /// <summary>
+    /// 对应 TS <c>this.agent.streamFunction === streamSimple</c>：agent 用的是**默认**流式函数
+    /// （即 SDK 没有注入自定义 streamFn）。
+    /// </summary>
+    /// <remarks>
+    /// 差异 C160：TS 的 <c>streamSimple</c> 是 <c>@pi/ai</c> 的模块常量，恒可比较；端口的默认流式函数
+    /// 由 <c>DefaultStreamFn.Set()</c> 注入（<c>AgentLoop</c> 在 streamFn 为 null 时取它），
+    /// 故未配置默认值时该恒等比较无意义——按「不是默认」处理。
+    /// </remarks>
+    private bool UsesDefaultStreamFunction()
+        => Pi.Agent.DefaultStreamFn.IsConfigured && _agent.StreamFunction == Pi.Agent.DefaultStreamFn.Get();
+
+    /// <summary>
+    /// 把 <see cref="WithoutDeletedHeaders"/> 的结果（值非空）转成可空值字典——即
+    /// <c>Compaction.CompactAsync</c> 的 <c>headers</c> 形参形状。C# 的泛型不变性不允许
+    /// <c>IReadOnlyDictionary&lt;string, string&gt;</c> 直接当 <c>IReadOnlyDictionary&lt;string, string?&gt;</c> 用。
+    /// </summary>
+    private static IReadOnlyDictionary<string, string?>? ToNullableHeaders(
+        IReadOnlyDictionary<string, string>? headers)
+        => headers?.ToDictionary(entry => entry.Key, entry => (string?)entry.Value, StringComparer.Ordinal);
+
+    /// <summary>TS <c>_getRequiredRequestAuth(model, signal)</c>（TS 516-556）。</summary>
+    private async Task<RequiredRequestAuth> GetRequiredRequestAuthAsync(ModelSpec model, CancellationToken signal)
+    {
+        AuthResult? result;
+        try
+        {
+            result = await _modelRuntime.GetAuthAsync(model, new ModelRuntimeAuthOverrides { Signal = signal })
+                .ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            var cause = error.InnerException;
+            if (cause is not null && cause.Message == "authHeader requires a resolved API key")
+            {
+                throw new InvalidOperationException(AuthGuidance.FormatNoApiKeyFoundMessage(model.Provider));
+            }
+
+            throw;
+        }
+
+        if (result is not null && (result.Auth.ApiKey is not null || result.Auth.Headers is not null))
+        {
+            var requestModel = result.Auth.BaseUrl is { } baseUrl ? model with { BaseUrl = baseUrl } : model;
+            return new RequiredRequestAuth(
+                requestModel, result.Auth.ApiKey, ToNullableHeaders(WithoutDeletedHeaders(result.Auth.Headers)), result.Env);
+        }
+
+        if (_modelRuntime.IsUsingOAuth(model.Provider))
+        {
+            throw new InvalidOperationException(
+                $"Authentication failed for \"{model.Provider}\". "
+                + "Credentials may have expired or network is unavailable. "
+                + $"Run '/login {model.Provider}' to re-authenticate.");
+        }
+
+        throw new InvalidOperationException(AuthGuidance.FormatNoApiKeyFoundMessage(model.Provider));
+    }
 }
+
+/// <summary>TS <c>_getRequiredRequestAuth</c> 的返回值。</summary>
+public sealed record RequiredRequestAuth(
+    ModelSpec Model,
+    string? ApiKey,
+    IReadOnlyDictionary<string, string?>? Headers,
+    IReadOnlyDictionary<string, string>? Env);
+
+/// <summary>TS <c>_getSummarizationRequestAuth</c> 的返回值（多一个 thinkingLevel）。</summary>
+public sealed record SummarizationRequestAuth(
+    ModelSpec Model,
+    string? ApiKey,
+    IReadOnlyDictionary<string, string?>? Headers,
+    IReadOnlyDictionary<string, string>? Env,
+    ThinkingLevel ThinkingLevel);

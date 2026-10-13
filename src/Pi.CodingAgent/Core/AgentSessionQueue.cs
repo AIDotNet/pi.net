@@ -2,6 +2,7 @@ using Pi.Agent;
 using Pi.Agent.Types;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core.Extensions;
+using Pi.CodingAgent.Utils;
 using PromptTemplatesApi = Pi.CodingAgent.Core.PromptTemplates;
 
 namespace Pi.CodingAgent.Core;

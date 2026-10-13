@@ -2463,10 +2463,79 @@ Continue / 上一个 End 优先）、隐藏声明投影（剔除 + 透传）、�
 验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`AgentSessionInstallerTests` 26/26；
 `Pi.CodingAgent.Tests` 全类 **1313 项 / 0 失败**（1287 + 26 项新增）。
 
+### 4e-3e-9h-3b 已落地（2026-10-12，`f208567`）：输入/排队半边 + 模式文本转换
+
+**新落地（`src/Pi.CodingAgent/Core/AgentSessionQueue.cs`，267 行）：**
+
+| TS 符号 | 端口方法 | 说明 |
+| --- | --- | --- |
+| `_runInputHandlers`（2016 调用点） | `RunInputHandlersAsync` | 无 `input` 处理器或返回 `continue` 时原样透传；`transform` 用返回文本、图片「返回 ?? 原」；`handled` 返回 `null` |
+| `_queueSteer` / `_queueFollowUp`（2016 分支） | `QueueSteerAsync` / `QueueFollowUpAsync` | 交给 `Pi.Agent` 的 steering / follow-up 队列，并发 `queue_update` |
+| `_flushPendingBashMessages` / `_flushPendingCustomMessages` | `FlushPendingBashMessages` / `FlushPendingCustomMessages` | 待发 bash / 自定义消息落库 + `entry_appended` |
+| `_expandSkillCommand`（2130） | `ExpandSkillCommandForSession` | 见差异 C159 |
+| `get steeringMode` / `get followUpMode`（`AgentSessionBuild.cs`） | 同名 getter | 见差异 C158 |
+
+**本批新登记的 2 处忠实性差异：**
+
+| 编号 | 差异 | 影响 |
+| --- | --- | --- |
+| C158 | TS 的 `QueueMode` 是字符串字面量联合（`"all"` / `"one-at-a-time"`），端口在 `Pi.Agent.Agent` 内部用**枚举**承载，故跨边界（设置文件 / 会话 getter / 扩展 API）必须显式转文本。此前 `AgentSession.SteeringMode` 直接 `ToString()` 会得到 `"All"` / `"OneAtATime"`，与 TS 不符。 | **真实缺口（已修）**：新增 `QueueModes` 文本转换表，`SteeringMode` / `FollowUpMode` 一律经它转 `"all"` / `"one-at-a-time"`。 |
+| C159 | 静态 `ExpandSkillCommand` 把读失败吞成「返回原文」；TS 的实例方法在 `expandSkillCommand` 里 `emitError({ event: "skill_expansion" })`。 | 实例面自带错误上报，**不转发**静态版，故另立 `ExpandSkillCommandForSession`。 |
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误（注：`f208567` 提交时 `AgentSessionQueue.cs`
+缺 `using Pi.CodingAgent.Utils;` 导致 `CS0103 Frontmatter`，随后补齐，见
+[migration-remaining-plan.md](migration-remaining-plan.md) §1.3 的教训记录）。
+
+### 4e-3e-9h-4a 已落地（2026-10-13）：`AgentSession` 编排本体
+
+**新落地（`AgentSessionPrompt.cs` 567 行新建 + `AgentSessionCompaction.cs` 追加 576 行 + `VirtualModels.cs` 追加 47 行）：**
+
+| TS 符号 | 端口方法 | 说明 |
+| --- | --- | --- |
+| `prompt`（1954-2097） | `PromptAsync` | 全分支按 TS 求值顺序：settled 延迟 → 扩展命令 → 压缩中拒绝 → input 处理器 → 模板展开 → 流式排队 → 冲刷待发 → 模型/凭据校验 → 提交前压缩检查 → `before_agent_start` → 图片归一 → 消息装配 → 运行 |
+| `_runAgentPrompt`（1808-1837） | `RunAgentPromptAsync` | while 循环用 `ResolvePromptLoopStep` 串 `_handlePostAgentRun` / `_runBeforeSettleBoundary`；`finally` 收尾（`_finishCancelledRetry` / 清 run 级状态 / 冲刷待发 / `_emitAgentSettled`） |
+| `_handlePostAgentRun`（1839-1877） | `HandlePostAgentRunAsync` | 中止 → `_finishCancelledRetry`；无消息 → 排队判定；可重试错误 → `_prepareRetry`；Error+重试中 → `auto_retry_end`；否则压缩门 → 排队判定 |
+| `_runBeforeSettleBoundary`（1879-1910） | `RunBeforeSettleBoundaryAsync` | 无 `agent_before_settle` 处理器 → 排队判定；否则派发边界 + 提交草稿 + `_abortDuringBeforeSettle` 短路 + 非法继续上报 |
+| `_tryExecuteExtensionCommand`（2103-2130） | `TryExecuteExtensionCommandAsync` | 命中并执行返回 `true`；处理器抛错被吞掉并 `emitError`，仍返回 `true` |
+| `compact`（2750-2895） | `CompactAsync` | 手动压缩：中止 → 起 controller → `compaction_start` → 模型校验 → `PrepareCompaction` → `session_before_compact` 钩子 → 默认/扩展压缩 → 落库 + `session_compact` → `compaction_end`；`catch` 记失败事件后**重抛** |
+| `_runAutoCompaction`（3050-3230） | `RunAutoCompactionAsync` | 阈值 / 溢出两路；模型缺失或无可压内容时静默返回 `false` |
+| `_checkCompaction`（2923-3050） | `CheckCompactionAsync` | 溢出（显式 / 隐式）/ 可恢复长度 / 阈值三案；`_overflowRecoveryAttempted` 单次守卫 |
+| `_runDefaultCompaction`（2895-2923） | `RunDefaultCompactionAsync` | 解析摘要请求 → 组装 `RetryPolicy` + 三类 `summarization_retry_*` 回调 → `Compaction.CompactAsync` |
+| `_getSummarizationRequestAuth`（560-597） | `GetSummarizationRequestAuthAsync` | 虚拟模型先路由；默认流式函数走 `_getRequiredRequestAuth`，否则 `getAuth`（失败降级为空凭据） |
+| `_getRequiredRequestAuth`（516-556） | `GetRequiredRequestAuthAsync` | `authHeader requires a resolved API key` 转 `formatNoApiKeyFoundMessage`；OAuth 分支见差异 |
+| `_prepareRetry`（3697-3740）/ `_finishCancelledRetry`（3743-3753） | `PrepareRetryAsync` / `FinishCancelledRetry` | 退避睡眠可被 `_retryAbortController` 取消；取消时补 `auto_retry_end` |
+| `_omitRecoveryAttempt`（1224-1241） | `OmitRecoveryAttempt` | 失败回合以 `context_edit` 从模型投影剔除；无源条目的投影消息抛错 |
+| `_recordSelection`（612-626） | `RecordSelection` | 分支选择记录（虚拟模型判定） |
+| `_emitSessionCompactFailed`（1041-1045） | `EmitSessionCompactFailedAsync` | 无处理器时短路 |
+| `getBranchSelection`（virtual-models.ts:128-145） | `VirtualModels.GetBranchSelection` | 从分支找最近 `model_change` |
+
+**本批新登记的 1 处忠实性差异：**
+
+| 编号 | 差异 | 影响 |
+| --- | --- | --- |
+| C160 | TS 的 `streamSimple` 是 `@pi/ai` 的**模块常量**，`this.agent.streamFunction === streamSimple` 恒可比较。端口的默认流式函数由 `Pi.Agent.DefaultStreamFn.Set()` 注入（`AgentLoop` 在 `streamFn` 为 `null` 时取它），未配置默认值时该恒等比较无意义。 | **真实缺口**：`UsesDefaultStreamFunction()` 判 `DefaultStreamFn.IsConfigured && _agent.StreamFunction == DefaultStreamFn.Get()`；未配置时按「不是默认」处理（走 `getAuth` 分支）。 |
+
+**顺带说明（复用既有登记，不新开号）：** TS `prompt` 在装配 custom 消息时做 `content: msg.content ?? []`
+归一化；端口的 `CustomMessageDraft.Content` 是 `required MessageContent`（见本文件 1049 行「4e-2b」
+的决定），构造不出 `null`，故该归一化分支**不可达**——与 C157 同类。
+
+**退役的缝：** `AgentSessionBuild.cs` 的 `CompactAsync` / `RunAgentPromptAsync` / `PromptAsync` 三处
+`NotSupportedException`、`AgentSessionInstallers.cs` 的 `RunAutoCompactionAsync` 缝全部删除。
+
+**新增测试（`tests/Pi.CodingAgent.Tests/AgentSessionPromptTests.cs`，10 项）：** 无模型 `prompt` / `compact`
+的 TS 错误文案（逐字）；扩展命令直通（命中执行 + 处置 `handled` / 无参数传空串 / 处理器抛错仍 `handled` /
+未知 `/命令` 回落模型校验 / `expandPromptTemplates=false` 不探测命令）；`_runAgentPrompt` 单轮循环 +
+`agent_settled` + run 级状态清空；agent run 失败（streamFn 抛错）仍收尾不向外抛。另把
+`AgentSessionBuildTests.PromptAndCompact_AreLoudSeamsUntil9h4`（断言旧缝抛错）改为
+`PromptAndCompact_WithoutModel_ThrowTsNoModelSelected`（断言新行为的 TS 文案）。
+
+验证：`dotnet build Pi.slnx -m:1` → 0 警告 0 错误；`AgentSessionPromptTests` 10/10；
+`AgentSessionBuildTests` 24/24；`Pi.CodingAgent.Tests` 全类 **1323 项 / 0 失败**（1313 + 10 项新增）。
+
 ### 4e-3e-9 剩余
 
-- **4e-3e-9h-4**：9f 顺延的编排本体（`prompt` / `compact` / `_runAutoCompaction` /
-  `_handlePostAgentRun` / `_runBeforeSettle` / `createAgentSession` 等）。
+- **4e-3e-9h-4b**：`createAgentSession` / `AgentSessionRuntime` 装配本体（`Sdk.cs` 余下字段、
+  `buildRequestOptions` 余下字段、`CreateAgentSessionRuntimeResult`）。
 - 之后：4f（模式层 `modes/interactive` + `modes/rpc`，~23.7k 行）→ 4g（入口与实验层 `cli` / `main` /
   `experimental`，~12k 行）→ evals（1,446 行）。
 - 独立缺口（不阻塞 9h）：package manager 的包解析（`resolvePackageSources`、`packageRoot`、

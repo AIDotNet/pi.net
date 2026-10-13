@@ -1261,21 +1261,6 @@ public partial class AgentSession
         + "newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx "
         + "passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
 
-    // =========================================================================
-    // 缝（9h-4 落地；调用即显式抛错，不静默）
-    // =========================================================================
-
-    /// <summary>
-    /// <b>缝（9h-4）</b>：TS <c>_runAutoCompaction(reason, willRetry)</c>（TS 2985-3120）。
-    /// 它自己又要 <c>_runDefaultCompaction</c> / <c>_getSummarizationRequestAuth</c> / 重试与
-    /// <c>compaction_start|end</c> 事件，属编排本体。
-    /// </summary>
-    /// <remarks>
-    /// 本批只有两个调用点（<c>_compactBeforeNextAssistantResponse</c> 与
-    /// <c>_installAgentRequestProjection</c>），两者的上游 <c>prompt</c> / <c>compact</c> 同样是 9h-4 缝，
-    /// 故 9h-3 期间无可观测差异。
-    /// </remarks>
-    private Task RunAutoCompactionAsync(string reason, bool willRetry)
-        => throw new NotSupportedException(
-            "AgentSession._runAutoCompaction lands with 4e-3e-9h-4 (orchestration body).");
+    // 9h-4 落地后本文件不再有缝：`_runAutoCompaction` 的实例本体在
+    // `AgentSessionCompaction.cs`（与 `compact` / `_checkCompaction` 同处）。
 }

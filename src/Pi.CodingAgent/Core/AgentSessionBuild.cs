@@ -1294,26 +1294,8 @@ public partial class AgentSession
     // =========================================================================
 
     /// <summary>
-    /// <b>缝（9h-4）</b>：TS <c>compact()</c>（TS 2750-2895）。其执行半边依赖
-    /// <c>_runDefaultCompaction</c> / <c>_getSummarizationRequestAuth</c> 请求链，随 9h-4 落地。
-    /// </summary>
-    internal Task<CompactionResult> CompactAsync(CompactOptions? options)
-        => throw new NotSupportedException("AgentSession.compact lands with 4e-3e-9h-4 (orchestration body).");
-
-    /// <summary>
-    /// <b>缝（9h-4）</b>：TS <c>_runAgentPrompt()</c>（TS 1808-1837）与 <c>prompt()</c>
-    /// （TS 1954-2096），随 9h-4 编排本体落地。
-    /// </summary>
-    internal Task RunAgentPromptAsync(params ChatMessage[] messages)
-        => throw new NotSupportedException("AgentSession._runAgentPrompt / prompt land with 4e-3e-9h-4.");
-
-    /// <summary><b>缝（9h-4）</b>：TS <c>prompt(text, options?)</c>。</summary>
-    public Task PromptAsync(string text, PromptOptions? options = null)
-        => RunAgentPromptAsync();
-
-    /// <summary>
     /// Send a user message to the agent. Always triggers a turn. TS <c>sendUserMessage()</c>
-    /// （TS 2351-2381）——归一化半边已落地，触发半边经 <see cref="PromptAsync"/>（9h-4 缝）。
+    /// （TS 2351-2381）——归一化半边已落地，触发半边经 <see cref="PromptAsync"/>。
     /// </summary>
     public Task SendUserMessageAsync(MessageContent content, SendUserMessageOptions? options = null)
     {
@@ -1356,7 +1338,7 @@ public partial class AgentSession
 
     /// <summary>
     /// Send a custom message. TS <c>sendCustomMessage()</c>（TS 2279-2315）——除 triggerTurn 分支外
-    /// 全部落；triggerTurn 分支经 <see cref="RunAgentPromptAsync"/>（9h-4 缝）。
+    /// 全部落；triggerTurn 分支经 <see cref="RunAgentPromptAsync"/>。
     /// </summary>
     public Task SendCustomMessageAsync(CustomMessageDraft message, SendMessageOptions? options = null)
     {

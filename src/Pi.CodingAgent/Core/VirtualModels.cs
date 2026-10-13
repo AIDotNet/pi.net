@@ -117,6 +117,53 @@ public static class VirtualModels
         return null;
     }
 
+    /// <summary>
+    /// 分支上最近一次生效的模型选择。TS <c>getBranchSelection(branch, getModel)</c>
+    /// （<c>virtual-models.ts:128-145</c>）。
+    /// </summary>
+    /// <param name="getModel">
+    /// 目录查询（TS 的 <c>getModel</c>）；端口用 <c>ModelRuntime.GetPhysicalModel</c> 承担。
+    /// </param>
+    public static (string Provider, string ModelId)? GetBranchSelection(
+        IReadOnlyList<SessionEntry> branch,
+        Func<string, string, ModelSpec?> getModel)
+    {
+        for (var index = branch.Count - 1; index >= 0; index--)
+        {
+            var entry = branch[index];
+            if (entry is ModelChangeEntry modelChange)
+            {
+                return (modelChange.Provider, modelChange.ModelId);
+            }
+
+            if (entry is SessionMessageEntry { Message: AssistantMessage message }
+                && !IsVirtualModel(message))
+            {
+                var response = (message.Provider ?? string.Empty, message.Model ?? string.Empty);
+                var change = FindLastModelChange(branch, index);
+                var model = change is { } found ? getModel(found.Provider, found.ModelId) : null;
+                return change is { } resolved && model is not null && IsVirtualModel(model) ? resolved : response;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>TS <c>findLastModelChange(branch, before)</c>（<c>virtual-models.ts:147-155</c>）。</summary>
+    private static (string Provider, string ModelId)? FindLastModelChange(
+        IReadOnlyList<SessionEntry> branch, int before)
+    {
+        for (var index = before - 1; index >= 0; index--)
+        {
+            if (branch[index] is ModelChangeEntry modelChange)
+            {
+                return (modelChange.Provider, modelChange.ModelId);
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Build the catalog entry of a virtual model. The definition's <c>Route</c> is ignored.</summary>
     public static ModelSpec CreateVirtualModel(VirtualModelDefinition definition)
     {

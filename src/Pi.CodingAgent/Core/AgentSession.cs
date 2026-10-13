@@ -30,6 +30,12 @@ public sealed record PromptOptions
     public string? StreamingBehavior { get; init; }
 
     public string Source { get; init; } = "interactive";
+
+    /// <summary>
+    /// 对应 TS <c>PromptOptions.preflightResult</c>：提交前各分支的处置回调
+    /// （<see cref="PromptDisposition"/> 之一）。
+    /// </summary>
+    public Action<string>? PreflightResult { get; init; }
 }
 
 /// <summary>对应 TS <c>ModelMutationOptions</c>。</summary>
