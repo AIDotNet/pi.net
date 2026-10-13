@@ -331,14 +331,20 @@ public static class Skills
     /// <summary>Max description length per spec.</summary>
     private const int MaxDescriptionLength = 1024;
 
-    private static readonly string[] IgnoreFileNames = [".gitignore", ".ignore", ".fdignore"];
+    /// <summary>
+    /// The ignore files consulted per directory. TS declares this list separately in both
+    /// <c>skills.ts</c> and <c>package-manager.ts</c>; the port keeps one copy here and shares it
+    /// (see difference C164).
+    /// </summary>
+    internal static readonly string[] IgnoreFileNames = [".gitignore", ".ignore", ".fdignore"];
 
     private static readonly Regex NamePattern = new("^[a-z0-9-]+$", RegexOptions.Compiled);
 
-    private static string ToPosixPath(string p) => p.Replace(Path.DirectorySeparatorChar, '/');
+    /// <summary>The TS <c>toPosixPath</c> helper, shared with the package manager (difference C164).</summary>
+    internal static string ToPosixPath(string p) => p.Replace(Path.DirectorySeparatorChar, '/');
 
     /// <summary>The TS <c>prefixIgnorePattern</c>: comment filtering, <c>!</c> extraction and directory prefixing.</summary>
-    private static string? PrefixIgnorePattern(string line, string prefix)
+    internal static string? PrefixIgnorePattern(string line, string prefix)
     {
         var trimmed = line.Trim();
         if (trimmed.Length == 0)
@@ -373,7 +379,8 @@ public static class Skills
         return negated ? $"!{prefixed}" : prefixed;
     }
 
-    private static void AddIgnoreRules(IgnoreMatcher ig, string dir, string rootDir)
+    /// <summary>Load the <c>.gitignore</c>/<c>.ignore</c>/<c>.fdignore</c> rules of <paramref name="dir"/>, prefixed for <paramref name="rootDir"/>.</summary>
+    internal static void AddIgnoreRules(IgnoreMatcher ig, string dir, string rootDir)
     {
         // Node's path.relative yields "" for the root itself; .NET yields ".". A "." prefix would
         // anchor every rule to a literal "." segment and silently disable the whole ignore file.

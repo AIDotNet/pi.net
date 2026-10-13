@@ -31,8 +31,9 @@ namespace Pi.CodingAgent.Utils;
 /// </list>
 /// <para>
 /// The range half of semver (<c>satisfies</c>, <c>validRange</c>, <c>maxSatisfying</c>, <c>gt</c>,
-/// <c>rcompare</c>) has a single caller, <c>core/package-manager.ts</c>, and is ported alongside that
-/// module instead of here.
+/// <c>rcompare</c>) has a single caller, <c>core/package-manager.ts</c>. The two members that
+/// caller actually needs — <c>validRange</c> and <c>satisfies</c> — live in
+/// <see cref="SemverRange"/>; the update-check members stay unported with the npm update paths.
 /// </para>
 /// </remarks>
 public static class Semver
