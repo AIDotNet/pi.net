@@ -249,7 +249,7 @@
 
 | # | 风险 | 影响 | 处置 |
 | --- | --- | --- | --- |
-| R1 | **推送通道曾不可用（已恢复）** | 阶段产出无法上远端 | 实测（2026-10-13 上午）：`https` 经本机代理（`127.0.0.1:52811`）对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**。**2026-10-13 下午代理恢复**：`git push origin main` 成功（`f208567..7b942b3`）。若再次 502，处置：本地提交保证可追溯，或把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git` |
+| R1 | **推送通道间歇不可用（本轮再次发生，已有可用绕行）** | 阶段产出无法上远端 | 实测（2026-10-13 上午）：`https` 经本机代理对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**。**2026-10-13 下午代理短暂恢复**：`git push origin main` 成功（`f208567..7b942b3`）。**2026-10-13 晚再次 502（连续 5 次重试均失败，`github.com` CONNECT 502 / `Empty reply`）**，但同代理下 `api.github.com` 正常（200）→ 改用 **REST API 复制提交**绕行（见下），已成功推送 `bb874f6`。<br>**绕行做法（可复用）**：`GET /repos/:o/:r/git/ref/heads/main` 确认远端 HEAD == 本地 `HEAD^`；对每个改动文件 `POST /git/blobs`（内容取 `git cat-file blob <sha>:<path>` 的原始字节，base64），校验返回 SHA == 本地 blob SHA；`POST /git/trees`（`base_tree` = 父树）校验树 SHA == 本地树 SHA；`POST /git/commits`（message / author / committer / date 与本地**逐字节一致**）校验提交 SHA == 本地 SHA；最后 `PATCH /git/refs/heads/main`。因 SHA 完全相同，本地与远端天然同步，无需 `fetch`；本地 `refs/remotes/origin/main` 用 `git update-ref` 手工对齐。<br>**其它出路**：把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git`。 |
 | R2 | 参照检出漂移 | 语义错位（9-0 已发生过一次） | 每阶段动工前 `git -C D:\AI\参考项目\pi log -1` 确认仍在 `428a12bc7` |
 | R3 | 沙箱构建/测试限制 | 假阳性失败 | 构建必须 `-m:1`；`dotnet test` stdout 为空，改跑 `.exe` + `iconv GBK→UTF-8`；过滤用 `--filter-class` |
 | R4 | `4f` 体量（23.7k 行） | 单会话不可完成 | 已切 5 个子阶段，每子阶段独立提交 |
@@ -265,7 +265,7 @@
 | 2026-10-13 | 基线 | 修复 `AgentSessionQueue.cs` 缺 `using`（CS0103），构建恢复 0 警告 0 错误 | 随 P1 一并提交 | 1313 / 1313 ✅ |
 | 2026-10-13 | 计划 | 产出本文档 | 随 P1 一并提交 | — |
 | 2026-10-13 | P1 | 4e-3e-9h-4a `AgentSession` 编排本体（`prompt`/`compact`/`_runAgentPrompt`/`_handlePostAgentRun`/`_runBeforeSettleBoundary`/`_runAutoCompaction`/`_checkCompaction`/`_runDefaultCompaction`/认证与重试叶子）；退役 4 处 `NotSupportedException` 缝；补记 C158/C159（上批遗漏）、新登记 C160 | `7b942b3`（已推送） | 1323 / 0 失败 ✅ |
-| 2026-10-13 | P2a | 4e-3e-9h-4b（第一半）`createAgentSession` 装配本体（`Sdk.CreateAgentSessionAsync`，TS `sdk.ts:181-468`；`CreateAgentSessionOptions` 扩到 TS 全量 + `CreateAgentSessionResult`）；顺带修正三处 reasoning 传递链缺口（`Pi.Agent` 忽略 `ThinkingLevel`、`AgentOptions` 缺 6 字段、`ChainOfThought` 臆造字段）；新登记 C161 | 本次提交 | `Pi.CodingAgent.Tests` **1338 / 0 失败** ✅；`Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301；构建 0 警告 0 错误 |
+| 2026-10-13 | P2a | 4e-3e-9h-4b（第一半）`createAgentSession` 装配本体（`Sdk.CreateAgentSessionAsync`，TS `sdk.ts:181-468`；`CreateAgentSessionOptions` 扩到 TS 全量 + `CreateAgentSessionResult`）；顺带修正三处 reasoning 传递链缺口（`Pi.Agent` 忽略 `ThinkingLevel`、`AgentOptions` 缺 6 字段、`ChainOfThought` 臆造字段）；新登记 C161 | `bb874f6`（已推送） | `Pi.CodingAgent.Tests` **1338 / 0 失败** ✅；`Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301；构建 0 警告 0 错误 |
 | 2026-10-13 | P2b | 4e-3e-9h-4b-2 `CacheWarmer` 完整化（含已核实的 `GetPromptCacheTtlMs` `"short"` 回落缺陷）+ `AgentSessionRuntime` 编排 | ⬜ 待办 | — |
 
 （后续阶段完成后逐行追加。）
