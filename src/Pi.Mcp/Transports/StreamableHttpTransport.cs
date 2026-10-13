@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 using Pi.Mcp.Protocol;
 
@@ -123,6 +124,9 @@ public sealed record StreamableHttpTransportOptions
     /// <summary>握手完成后是否打开服务器到客户端的 GET 流（默认 true）。</summary>
     public bool OpenGetStream { get; init; } = true;
     public int? MaxMessageBytes { get; init; }
+
+    /// <summary>bearer 令牌提供者；401（或 403 insufficient_scope）交给它刷新一次后重试。对应 TS <c>authProvider</c>。</summary>
+    public AuthProvider? AuthProvider { get; init; }
 }
 
 /// <summary>
@@ -131,7 +135,7 @@ public sealed record StreamableHttpTransportOptions
 /// 初始化后打开 GET 监听流、捕获 Mcp-Session-Id、回设 MCP-Protocol-Version、
 /// 401/404 → 专用错误、DELETE 关闭会话。
 /// </summary>
-public sealed class StreamableHttpTransport : TransportEvents
+public sealed partial class StreamableHttpTransport : TransportEvents
 {
     private const int MaxErrorBodyBytes = 8 * 1024;
 
@@ -173,15 +177,16 @@ public sealed class StreamableHttpTransport : TransportEvents
     {
         if (!_started || _closed) throw new McpConnectionClosedError();
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, _options.Url);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-        request.Content = new StringContent(JsonRpc.Serialize(message).ToJsonString(),
-            Encoding.UTF8, "application/json");
-        ApplyHeaders(request, includeSession: true);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
+        using var response = await SendAuthorizedAsync(
+            HttpMethod.Post,
+            request =>
+            {
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+            },
+            JsonRpc.Serialize(message).ToJsonString(),
+            includeSession: true,
+            cancellationToken).ConfigureAwait(false);
         await CheckResponseAsync(response).ConfigureAwait(false);
         CaptureSession(response);
 
@@ -258,10 +263,11 @@ public sealed class StreamableHttpTransport : TransportEvents
             {
                 try
                 {
-                    using var request = new HttpRequestMessage(HttpMethod.Get, _options.Url);
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-                    ApplyHeaders(request, includeSession: true);
-                    using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
+                    using var response = await SendAuthorizedAsync(
+                        HttpMethod.Get,
+                        request => request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream")),
+                        body: null,
+                        includeSession: true,
                         _closedCts.Token).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
@@ -302,6 +308,76 @@ public sealed class StreamableHttpTransport : TransportEvents
         if (_protocolVersion is not null)
             request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", _protocolVersion);
     }
+
+    /// <summary>
+    /// 带认证头发送。401（或带 <c>insufficient_scope</c> 挑战的 403）交给认证提供者处理一次，
+    /// 之后用其留下的凭据重试一次。对应 TS <c>authorizedFetch</c>。
+    /// 返回的响应由调用方释放；每次尝试都新建 <see cref="HttpRequestMessage"/>（不可重发）。
+    /// </summary>
+    private async Task<HttpResponseMessage> SendAuthorizedAsync(
+        HttpMethod method,
+        Action<HttpRequestMessage> configure,
+        string? body,
+        bool includeSession,
+        CancellationToken cancellationToken)
+    {
+        var onUnauthorized = _options.AuthProvider?.OnUnauthorized;
+        for (var attempt = 0; ; attempt++)
+        {
+            using var request = new HttpRequestMessage(method, _options.Url);
+            configure(request);
+            if (body is not null)
+                request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            ApplyHeaders(request, includeSession);
+            var token = await ApplyAuthHeaderAsync(request, cancellationToken).ConfigureAwait(false);
+
+            var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            if (attempt > 0 || onUnauthorized is null || !NeedsAuthorization(response)) return response;
+            try
+            {
+                await onUnauthorized(new UnauthorizedContext
+                {
+                    Response = response,
+                    ServerUrl = new Uri(_options.Url),
+                    Fetch = FetchAsync,
+                    Token = token,
+                }, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                response.Dispose();
+            }
+        }
+    }
+
+    /// <summary>设置 <c>Authorization: Bearer</c>，返回本次请求携带的令牌（供 401 时判断是否已被替换）。</summary>
+    private async Task<string?> ApplyAuthHeaderAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (_options.AuthProvider is null) return null;
+        var token = await _options.AuthProvider.Token(cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+        return token;
+    }
+
+    /// <summary>暴露给认证提供者的获取委托（用于刷新令牌等自建请求）。</summary>
+    private Task<HttpResponseMessage> FetchAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        => _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+    /// <summary>401，或带 <c>insufficient_scope</c> bearer 挑战的 403（阶梯授权）。对应 TS <c>needsAuthorization</c>。</summary>
+    private static bool NeedsAuthorization(HttpResponseMessage response)
+    {
+        if ((int)response.StatusCode == 401) return true;
+        if ((int)response.StatusCode != 403) return false;
+        var wwwAuthenticate = response.Headers.TryGetValues("WWW-Authenticate", out var values)
+            ? values.FirstOrDefault()
+            : null;
+        return NeedsAuthorizationRegex().IsMatch(wwwAuthenticate ?? string.Empty);
+    }
+
+    [GeneratedRegex("(?:^|[\\s,])error=\"?insufficient_scope\"?", RegexOptions.IgnoreCase)]
+    private static partial Regex NeedsAuthorizationRegex();
 
     private void CaptureSession(HttpResponseMessage response)
     {

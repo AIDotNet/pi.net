@@ -107,7 +107,7 @@ public class OAuthFlowTests
     {
         var server = new FakeAuthServer();
         var provider = new TestProvider();
-        var fetch = new OAuthDiscovery.McpFetch(server.SendAsync);
+        var fetch = new McpFetch(server.SendAsync);
 
         // 第一轮：无授权码 → 动态注册 + 重定向（REDIRECT）。
         var result = await OAuthFlow.AuthorizeMcp(provider, new OAuthFlow.FlowOptions

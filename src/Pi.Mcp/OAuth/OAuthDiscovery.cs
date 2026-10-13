@@ -5,14 +5,11 @@ namespace Pi.Mcp.OAuth;
 
 /// <summary>
 /// OAuth 服务发现：WWW-Authenticate 挑战解析、受保护资源/授权服务器元数据探测。
-/// 对应 TS <c>oauth/discovery.ts</c>。HTTP 抽象为 <see cref="McpFetch"/>（与 TS 的
-/// McpFetch 同构），测试可注入假实现。
+/// 对应 TS <c>oauth/discovery.ts</c>。HTTP 抽象为 <see cref="Pi.Mcp.McpFetch"/>（与 TS 的
+/// McpFetch 同构，定义在 auth-provider.ts），测试可注入假实现。
 /// </summary>
 public static class OAuthDiscovery
 {
-    /// <summary>HTTP 获取委托。对应 TS <c>McpFetch</c>。</summary>
-    public delegate Task<HttpResponseMessage> McpFetch(HttpRequestMessage request, CancellationToken cancellationToken);
-
     /// <summary>4xx 与 502 表示「不在这里」，发现流程尝试下一个候选 URL。</summary>
     private static bool IsDiscoveryMiss(int status) => status is >= 400 and < 500 || status == 502;
 

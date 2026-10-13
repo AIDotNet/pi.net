@@ -45,10 +45,46 @@ public sealed record McpTool(
 }
 
 /// <summary>MCP 资源描述。对应 TS <c>Resource</c>（规范要求 name，但省略时以 uri 代替）。</summary>
-public sealed record McpResource(string Uri, string? Name = null);
+public sealed record McpResource(string Uri, string? Name = null)
+{
+    /// <summary>
+    /// 原始 JSON 条目，<c>name</c> 已按 TS <c>toResource</c> 语义补上默认值（<c>{...item, name: item.name ?? item.uri}</c>）。
+    /// 扩展层把它序列化给模型时要保留 <c>title</c> / <c>description</c> / <c>mimeType</c> / <c>size</c> 等字段。
+    /// </summary>
+    public JsonObject? Raw { get; init; }
+
+    /// <summary>可选标题（<c>title</c>）。</summary>
+    public string? Title => (Raw?["title"] as JsonValue)?.GetValue<string>();
+
+    /// <summary>可选描述（<c>description</c>）。</summary>
+    public string? Description => (Raw?["description"] as JsonValue)?.GetValue<string>();
+
+    /// <summary>可选 MIME 类型（<c>mimeType</c>）。</summary>
+    public string? MimeType => (Raw?["mimeType"] as JsonValue)?.GetValue<string>();
+}
 
 /// <summary>MCP 资源模板。对应 TS <c>ResourceTemplate</c>。</summary>
-public sealed record McpResourceTemplate(string UriTemplate, string? Name = null);
+public sealed record McpResourceTemplate(string UriTemplate, string? Name = null)
+{
+    /// <summary>原始 JSON 条目，<c>name</c> 已按 TS <c>toResourceTemplate</c> 语义补默认值。</summary>
+    public JsonObject? Raw { get; init; }
+
+    /// <summary>可选标题（<c>title</c>）。</summary>
+    public string? Title => (Raw?["title"] as JsonValue)?.GetValue<string>();
+
+    /// <summary>可选描述（<c>description</c>）。</summary>
+    public string? Description => (Raw?["description"] as JsonValue)?.GetValue<string>();
+
+    /// <summary>可选 MIME 类型（<c>mimeType</c>）。</summary>
+    public string? MimeType => (Raw?["mimeType"] as JsonValue)?.GetValue<string>();
+}
+
+/// <summary>resources/list 的结果。对应 TS <c>ListResourcesResult</c>。</summary>
+public sealed record ListResourcesResult(IReadOnlyList<McpResource> Resources, string? NextCursor = null);
+
+/// <summary>resources/templates/list 的结果。对应 TS <c>ListResourceTemplatesResult</c>。</summary>
+public sealed record ListResourceTemplatesResult(
+    IReadOnlyList<McpResourceTemplate> ResourceTemplates, string? NextCursor = null);
 
 /// <summary>initialize 的完整应答。对应 TS <c>InitializeResult</c>。</summary>
 public sealed record InitializeResult(
@@ -195,19 +231,23 @@ public static class McpProtocol
         return new McpTool(name, (tool["inputSchema"] as JsonObject)!, description, title);
     }
 
-    /// <summary>把 JsonObject 转为 McpResource（name 缺省取 uri）。</summary>
+    /// <summary>把 JsonObject 转为 McpResource（name 缺省取 uri；Raw 保留其余字段）。</summary>
     public static McpResource ToResource(JsonObject resource)
     {
         var uri = (resource["uri"] as JsonValue)?.GetValue<string>() ?? "";
         var name = (resource["name"] as JsonValue)?.GetValue<string>() ?? uri;
-        return new McpResource(uri, name);
+        var raw = (JsonObject)resource.DeepClone();
+        raw["name"] = name;
+        return new McpResource(uri, name) { Raw = raw };
     }
 
-    /// <summary>把 JsonObject 转为 McpResourceTemplate（name 缺省取 uriTemplate）。</summary>
+    /// <summary>把 JsonObject 转为 McpResourceTemplate（name 缺省取 uriTemplate；Raw 保留其余字段）。</summary>
     public static McpResourceTemplate ToResourceTemplate(JsonObject template)
     {
         var uriTemplate = (template["uriTemplate"] as JsonValue)?.GetValue<string>() ?? "";
         var name = (template["name"] as JsonValue)?.GetValue<string>() ?? uriTemplate;
-        return new McpResourceTemplate(uriTemplate, name);
+        var raw = (JsonObject)template.DeepClone();
+        raw["name"] = name;
+        return new McpResourceTemplate(uriTemplate, name) { Raw = raw };
     }
 }

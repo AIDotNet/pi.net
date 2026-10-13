@@ -889,6 +889,41 @@ huggingface.ts 只导入 `node:fs/promises` / `node:os` / `node:path`；生成�
 第一处，所以必须用「`n_ctx` 直接给值」的用例才能真正覆盖它。另核对 `JsMath.Round` 为
 `Math.Floor(value + 0.5)`（JS 半程进位），与 C# `Math.Round` 的银行家舍入不同，这里是对的。
 
+## 4d-8 进度（2026-10-13）：Pi.Mcp 补全（认证接线 + 资源列举）
+
+MCP 余下的前置：`packages/mcp` 的 C# 移植此前缺两块，`oauth.ts` / `runtime.ts` / `resources.ts`
+都接不上，故先补齐。对应 TS `auth-provider.ts`（39 行）、`transports/streamable-http.ts` 的
+`authorizedFetch` 段、`client.ts` 的 `listResources*` / `listResourceTemplates*`。
+
+| TS 文件 / 片段 | .NET | 说明 |
+|---|---|---|
+| `auth-provider.ts` | `src/Pi.Mcp/AuthProvider.cs`（新） | `McpFetch` / `UnauthorizedContext` / `AuthProvider` |
+| `oauth/flow.ts` `adaptOAuthProvider` | `OAuth/OAuthFlow.cs`（补 `AdaptOAuthProvider` + 私有 `AdaptedOAuthProvider`） | 401 后刷新或抛 `McpOAuthAuthorizationRequiredError`；并发 401 共享一次刷新；令牌已被替换则短路 |
+| `oauth/discovery.ts` 的 `McpFetch` 导入 | `OAuth/OAuthDiscovery.cs`（删嵌套 `McpFetch`） | 统一到顶层 `Pi.Mcp.McpFetch`，与 TS 同构 |
+| `oauth/flow.ts` 的 `AuthProvider`（仅 `token`） | `OAuth/OAuthFlow.cs`（**删除**） | 该类型此前无任何引用；统一到 `Pi.Mcp.AuthProvider`（含 `onUnauthorized`） |
+| `transports/streamable-http.ts` `authorizedFetch` / `needsAuthorization` | `Transports/StreamableHttpTransport.cs`（`SendAuthorizedAsync` / `NeedsAuthorization` / `ApplyAuthHeaderAsync` / `FetchAsync`） | Bearer 头；401 或 403-`insufficient_scope` 交认证提供者一次后重试一次 |
+| `client.ts` `listResources` / `listResourcesPage` / `listResourceTemplates` / `listResourceTemplatesPage` / `listPage` | `Client/McpClient.cs`（4 个公开方法 + `ListPageAsync`） | 分页与聚合翻页 |
+| `client.ts` `toResource` / `toResourceTemplate` / `ListResourcesResult` / `ListResourceTemplatesResult` | `Protocol/Types.cs`（`Raw` 属性 + 两个结果记录） | 保留 `title`/`description`/`mimeType`/`size` 等字段 |
+
+### 4d-8 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C174 | TS `McpFetch = (input, init?) => Promise<Response>`；C# 为 `delegate Task<HttpResponseMessage> McpFetch(HttpRequestMessage, CancellationToken)` | `HttpRequestMessage` 不可重发，故由调用方每次新建；请求体/头在构造时设置 |
+| C175 | TS `AuthProvider.onUnauthorized?` 是可选方法；C# 用可空委托属性 `Func<UnauthorizedContext, CancellationToken, Task>? OnUnauthorized`（默认 `null`） | 表达「该提供者没有刷新能力 ⇒ 401 不重试」。`runtime.ts` 里「直接用某个 pi provider 令牌」的提供者正属此类 |
+| C176 | TS `McpAuthRequiredError(response, body)` 自己读 `www-authenticate` 头；C# 构造参数为 `(string? wwwAuthenticate, string body)` | C# 无「响应即参数」的惯例；由 `CheckResponseAsync` 取出后传入，语义相同 |
+| C177 | TS `toResource` 返回 `{...item, name: item.name ?? item.uri}`（全字段）；C# `McpResource` 只有 `Uri`/`Name` 两个规范字段，另加 `Raw`（深拷贝 + 补 `name`） | 扩展层序列化给模型时要保留 `title`/`description`/`mimeType`/`size`，不能只留两个字段 |
+| C178 | TS 用 `Promise` 微任务保证 `finally` 不早于 `inFlight` 赋值；C# 用 `TaskCompletionSource`（`RunContinuationsAsynchronously`）先挂 Task 再执行 | C# 的 `async` 方法在无 await 时会同步跑完，`finally` 会抢在 `inFlight = ...` 之前清空，留下永久「已完成」的陈旧 in-flight |
+
+### 4d-8 验收
+
+- `dotnet build Pi.slnx -m:1` → 0 警告 0 错误。
+- `Pi.Mcp.Tests` **35 / 0 失败**（原 19 + 新增 16）：`TransportAuthTests` 6 项（Bearer 下发、
+  401 刷新后重试、无 `onUnauthorized` 不重试、403-`insufficient_scope` 重试、403 无挑战不重试、
+  只重试一次）、`McpResourceListTests` 6 项（两页聚合、单页游标、模板两页、`name` 回退、
+  `Raw` 字段保留）、`AdaptOAuthProviderTests` 4 项（令牌直读、无令牌为 null、令牌已替换短路、
+  `onUnauthorized` 暴露给重试）。
+
 ## 4e-1 进度（2026-10-10）：core 无会话依赖的叶子模块
 
 4e 的第一批，挑的是 `core/` 下**不依赖 `SessionManager` / `AgentSession`** 的模块：它们既是后续

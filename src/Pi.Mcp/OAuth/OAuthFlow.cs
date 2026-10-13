@@ -8,12 +8,6 @@ using System.Text.Json.Nodes;
 namespace Pi.Mcp.OAuth;
 
 /// <summary>给 MCP HTTP 传输供应 bearer token，并可在 401 后刷新。对应 TS <c>auth-provider.ts</c>。</summary>
-public interface AuthProvider
-{
-    /// <summary>当前 access token（无则 null）。</summary>
-    Task<string?> Token(CancellationToken cancellationToken = default);
-}
-
 /// <summary>
 /// OAuth PKCE 授权码流程。对应 TS <c>oauth/flow.ts</c>（改编自
 /// modelcontextprotocol/typescript-sdk v1.29.0）。核心入口 <see cref="AuthorizeMcp"/>：
@@ -38,7 +32,7 @@ public static class OAuthFlow
         OAuthTypes.ClientInformation ClientInformation,
         string? Resource = null,
         AddClientAuthentication? AddClientAuthentication = null,
-        OAuthDiscovery.McpFetch? Fetch = null);
+        McpFetch? Fetch = null);
 
     /// <summary>流程选项。对应 TS <c>OAuthFlowOptions</c>。</summary>
     public sealed record FlowOptions
@@ -53,7 +47,7 @@ public static class OAuthFlow
 
         /// <summary>替代发现流程的授权服务器元数据文档（信任配置；须 https，回环除外）。</summary>
         public string? AuthorizationServerMetadataUrl { get; init; }
-        public OAuthDiscovery.McpFetch? Fetch { get; init; }
+        public McpFetch? Fetch { get; init; }
         public bool SkipIssuerValidation { get; init; }
 
         /// <summary>跳过刷新直奔授权重定向（如服务器要求当前 grant 缺少的 scope）。</summary>
@@ -213,7 +207,7 @@ public static class OAuthFlow
             ? new Dictionary<string, string>(parameters) { ["resource"] = options.Resource } : parameters;
         request.Content = new FormUrlEncodedContent(form);
 
-        var fetch = options.Fetch ?? new OAuthDiscovery.McpFetch(async (r, ct) =>
+        var fetch = options.Fetch ?? new McpFetch(async (r, ct) =>
         {
             using var client = new HttpClient();
             return await client.SendAsync(r, ct).ConfigureAwait(false);
@@ -243,7 +237,7 @@ public static class OAuthFlow
         OAuthTypes.AuthorizationServerMetadata? metadata,
         OAuthTypes.ClientMetadata clientMetadata,
         string? scope = null,
-        OAuthDiscovery.McpFetch? fetch = null,
+        McpFetch? fetch = null,
         CancellationToken cancellationToken = default)
     {
         var endpoint = metadata?.RegistrationEndpoint;
@@ -260,7 +254,7 @@ public static class OAuthFlow
         if (clientMetadata.Scope is not null) body["scope"] = clientMetadata.Scope;
         if (scope is not null) body["scope"] = scope;
 
-        var effectiveFetch = fetch ?? new OAuthDiscovery.McpFetch(async (r, ct) =>
+        var effectiveFetch = fetch ?? new McpFetch(async (r, ct) =>
         {
             using var client = new HttpClient();
             return await client.SendAsync(r, ct).ConfigureAwait(false);
@@ -436,7 +430,7 @@ public static class OAuthFlow
 
         if (metadataUrl is not null)
         {
-            var effectiveFetch = options.Fetch ?? new OAuthDiscovery.McpFetch(async (r, ct) =>
+            var effectiveFetch = options.Fetch ?? new McpFetch(async (r, ct) =>
             {
                 using var client = new HttpClient();
                 return await client.SendAsync(r, ct).ConfigureAwait(false);
@@ -505,6 +499,90 @@ public static class OAuthFlow
         {
             await provider.InvalidateCredentials("tokens", cancellationToken).ConfigureAwait(false);
             return await RunFlowAsync(provider, options, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 把 <see cref="IOAuthClientProvider"/> 适配成 <see cref="AuthProvider"/>，供
+    /// <c>StreamableHttpTransport</c> 使用。对应 TS <c>adaptOAuthProvider</c>：
+    /// 401 之后刷新令牌，或抛 <see cref="McpOAuthAuthorizationRequiredError"/> 要求用户（重新）授权。
+    /// 同一进程内并发的 401 共享同一次刷新；若被拒请求的令牌已被替换，则直接重试（轮转 refresh token 下，
+    /// 用旧 refresh token 二次刷新会失败并丢掉新授权）。
+    /// </summary>
+    public static AuthProvider AdaptOAuthProvider(IOAuthClientProvider provider)
+        => new AdaptedOAuthProvider(provider);
+
+    /// <summary>TS <c>adaptOAuthProvider</c> 的闭包实现。</summary>
+    private sealed class AdaptedOAuthProvider(IOAuthClientProvider provider) : AuthProvider
+    {
+        private readonly object _gate = new();
+        private Task? _inFlight;
+
+        public async Task<string?> Token(CancellationToken cancellationToken = default)
+            => (await provider.Tokens(cancellationToken).ConfigureAwait(false))?.AccessToken;
+
+        public Func<UnauthorizedContext, CancellationToken, Task> OnUnauthorized => HandleUnauthorizedAsync;
+
+        private async Task HandleUnauthorizedAsync(UnauthorizedContext context, CancellationToken cancellationToken)
+        {
+            var challenge = OAuthDiscovery.ParseWwwAuthenticate(
+                context.Response.Headers.TryGetValues("WWW-Authenticate", out var values) ? values.FirstOrDefault() : null);
+            var insufficientScope = challenge.Error == "insufficient_scope";
+            // 已有刷新在途时不查「令牌是否已变」：那个刷新正是为它做的。
+            if (!insufficientScope && Volatile.Read(ref _inFlight) is null && context.Token is not null)
+            {
+                var current = (await provider.Tokens(cancellationToken).ConfigureAwait(false))?.AccessToken;
+                if (current is not null && current != context.Token) return;
+            }
+            await EnsureRefreshAsync(challenge, insufficientScope, context, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>首次调用启动刷新，其余并发调用共享同一个 Task。</summary>
+        private Task EnsureRefreshAsync(
+            OAuthTypes.Challenge challenge, bool insufficientScope,
+            UnauthorizedContext context, CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                if (_inFlight is not null) return _inFlight;
+                // 先把 Task 挂上去再执行，避免同步完成时 finally 抢先清空 `_inFlight`。
+                var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _inFlight = completion.Task;
+                _ = RefreshAsync(completion, challenge, insufficientScope, context, cancellationToken);
+                return _inFlight;
+            }
+        }
+
+        private async Task RefreshAsync(
+            TaskCompletionSource completion,
+            OAuthTypes.Challenge challenge, bool insufficientScope,
+            UnauthorizedContext context, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var granted = insufficientScope
+                    ? await provider.Tokens(cancellationToken).ConfigureAwait(false)
+                    : null;
+                var result = await AuthorizeMcp(provider, new FlowOptions
+                {
+                    ServerUrl = context.ServerUrl.ToString(),
+                    ResourceMetadataUrl = challenge.ResourceMetadataUrl,
+                    // 阶梯授权：把服务器要的 scope 叠加到已授予的 scope 上。
+                    Scope = insufficientScope ? StepUpScope(granted?.Scope, challenge.Scope) : challenge.Scope,
+                    Fetch = context.Fetch,
+                    SkipRefresh = insufficientScope,
+                }, cancellationToken).ConfigureAwait(false);
+                if (result == FlowResult.Redirect) throw new McpOAuthAuthorizationRequiredError();
+                completion.TrySetResult();
+            }
+            catch (Exception error)
+            {
+                completion.TrySetException(error);
+            }
+            finally
+            {
+                lock (_gate) { _inFlight = null; }
+            }
         }
     }
 }

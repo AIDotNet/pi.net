@@ -273,10 +273,23 @@
   六个 shaping 函数）与 `index.ts`（`/llama` 命令的目录同步 / 加载 / 卸载 / 下载编排）；
   构建 0 警告 0 错误；`LlamaExtensionTests` 44/44；变异套件 `llama-extension` 24 处全捕获
   （首轮 23/24，`ui-context-label-rounding` 盲点补语料后捕获）。新登记 C169–C173。
-- **P4b** MCP 余下（`runtime.ts` / `resources.ts` / `oauth.ts` / `ui.ts` / `cli.ts` / `index.ts`）。
+- **P4b** MCP 余下。勘察后确认比预估大：`Pi.Mcp` 库本身还缺两块（**认证接线**与**资源列举**），
+  必须先补齐才能接 `oauth.ts` / `runtime.ts` / `resources.ts`。拆成 7 个子阶段：
+
+  | 子阶段 | 范围 | 依赖 |
+  |---|---|---|
+  | **P4b-1** | `Pi.Mcp` 补全：`McpFetch` / `UnauthorizedContext` / `McpAuthProvider`（`Token`+`OnUnauthorized`）；`StreamableHttpTransport` 接 `AuthProvider`（`Bearer` 头、401/403-`insufficient_scope` 重试一次）；`McpClient` 补 `ListResources` / `ListResourcesPage` / `ListResourceTemplates` / `ListResourceTemplatesPage` 与 `ListResourcesResult` / `ListResourceTemplatesResult` | — |
+  | **P4b-2** | `oauth.ts`(532) → `Extensions/Mcp/OAuth.cs`：`McpOAuthCredentialStore`（`mcp-auth.json`、legacy 键接管、`withRefreshLock`）、`createMcpAuthProvider`（刷新去重 + 30s skew + 锁）、`signInMcpServer`（PKCE 回调、CIMD、粘贴 redirect URL）、`callbackSettings` / `mergeScopes` / `callbackId` / `clientMetadataDocument` | P4b-1 |
+  | **P4b-3** | `resources.ts`(339) → `Extensions/Mcp/Resources.cs`：`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` 三个工具 + `isMcpAppResource` + 分页/聚合语义 | `Tools.cs`（已就位） |
+  | **P4b-4** | `runtime.ts`(491) → `Extensions/Mcp/Runtime.cs`：`McpServerConnection`（懒连接、状态机、瞬时错误重试、会话过期重连、needs-auth、stderr 尾、`close` 等刷新落盘）、`createDefaultTransport`、`fetchResources`、`withoutTemplates` | P4b-1/2/3 |
+  | **P4b-5** | `cli.ts`(614) → `Extensions/Mcp/Cli.cs`：`pi mcp list/login/logout/...` 子命令 | P4b-2/4 |
+  | **P4b-6** | `index.ts`(1225) → `Extensions/Mcp/McpExtension.cs`：`createMcpExtension`（后台连接、exposure 语义、`mcp_servers` section、`/mcp` 命令、`toolExposure` 覆盖、启动问题汇报）+ `ui.ts` 的非 TUI 半部（`McpMenu` / `McpUi` 缝） | P4b-2/3/4/5 |
+  | **P4b-7（顺延 4f）** | `ui.ts` 的 `McpManagerView` / `showMcpManager`（依赖 `Theme`、`SelectList`、`DynamicBorder`、`AuthUrlComponent`、`keyHint`） | 4f-2/4f-3 |
+
 - **P4c（顺延 4f）** llama `ui.ts` 的 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`：渲染在
   4f-2 的主题与 4f-3 的组件之上，随 4f-3 落地后接上 `LlamaExtensionOptions.ShowUi`。
 - **验收标准**：逐文件对照；MCP 走真实 stdio/HTTP 假服务器回放（沙箱禁端口的部分标环境限制）。
+  P4b 完成后 `BuiltInExtensions` 最后一个占位（`mcp`）退役，4d 全部收口。
 - **前置**：无。
 
 ### 阶段 P5：4f 模式层（拆 5 个子阶段）
@@ -322,5 +335,6 @@
 | 2026-10-13 | P3（4e-3c-2a） | package-manager 叶子层：`PackageManagerPatterns`（patterns 纯函数）/ `PackageManagerCollectors`（目录采集器）/ `GlobSync`（`globSync` 子集）/ `SemverRange`（`validRange`/`satisfies`）+ `Skills` 侧 4 个 ignore 助手提为 `internal` 共享；新登记 C164–C167 | `82b47aa`（已推送） | 114 项新测试全绿（`SemverRangeTests` 51 / `PackageManagerPatternsTests` 35 / `GlobSyncTests` 12 / `PackageManagerCollectorsTests` 16）；`PackageManagerTests` 14/14、`ResourceLoaderTests` 19/19 无破；构建 0 警告 0 错误 |
 | 2026-10-13 | P3（4e-3c-2b） | `DefaultPackageManager` 全链路重写（`ResolveAsync` / `ResolvePackageSourcesAsync` / `DedupePackages` / `FindAutoloadDeltaBase` / `PackageRoot` / 完整 `+`/`-`/`!` override 语义 / `ResourceMap`+`Accumulator`+`ToResolvedPaths` 稳定排序 / `ListConfiguredPackages` / `GetInstalledPath` / `ResolveExtensionSourcesAsync`）；**删除 SettingsManager 里臆造的 `include`/`exclude`/`autoload` 三个 settings 键通路（8 个成员）**；顺带修 `IsExactNpmVersion` 漏 loose、`ToResolvedPaths` 不稳定排序、`ResourceLoaderTests` 夹具缺陷；新登记 C168 | `05e9c58`（已推送） | `Pi.CodingAgent.Tests` **1488 / 0 失败** ✅；`PackageManagerTests` 24/24；`ResourceLoaderTests` 19/19；构建 0 警告 0 错误 |
 | 2026-10-13 | P4a（4d-7c） | llama `provider.ts` + `index.ts` + `ui.ts` 非 UI 半部；`BuiltInExtensions` 的 `llama.cpp` 占位工厂 → 真实工厂；新增 `Utils/JsNumber.cs`；`LlamaModelInfo` 补 5 个只读访问器；新登记 C169–C173 | `bafb72e`（已推送） | `LlamaExtensionTests` 44/44 ✅；`BuiltInExtensionsTests` 更新；构建 0 警告 0 错误；变异套件 `llama-extension` 24 处全捕获（首轮 23/24，`ui-context-label-rounding` 盲点补语料后捕获） |
+| 2026-10-13 | P4b-1（4d-8） | `Pi.Mcp` 补全：新增 `AuthProvider.cs`（`McpFetch` / `UnauthorizedContext` / `AuthProvider`）；`StreamableHttpTransport` 接认证（`SendAuthorizedAsync`：Bearer 头、401/403-`insufficient_scope` 重试一次、`FetchAsync` 暴露给提供者）；`OAuthFlow.AdaptOAuthProvider`；`McpClient` 补 4 个资源列举方法 + `ListPageAsync`；`McpResource`/`McpResourceTemplate` 加 `Raw`；删去无引用的 `OAuthFlow.AuthProvider` 与嵌套 `OAuthDiscovery.McpFetch`；新登记 C174–C178 | 见本批提交 | `Pi.Mcp.Tests` **35 / 0 失败** ✅（新增 16）；构建 0 警告 0 错误 |
 
 （后续阶段完成后逐行追加。）

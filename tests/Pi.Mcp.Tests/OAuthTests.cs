@@ -104,7 +104,7 @@ public class OAuthTests
                         """{"issuer":"https://other.example.com","authorization_endpoint":"https://other.example.com/a","token_endpoint":"https://other.example.com/t","response_types_supported":["code"]}""",
                         Encoding.UTF8, "application/json"),
                 }));
-        var fetch = new OAuthDiscovery.McpFetch(handler.SendAsync);
+        var fetch = new McpFetch(handler.SendAsync);
         await Assert.ThrowsAsync<OAuthIssuerMismatchError>(() =>
             OAuthDiscovery.DiscoverAuthorizationServerMetadata("https://auth.example.com", fetch));
     }
@@ -123,7 +123,7 @@ public class OAuthTests
                         Encoding.UTF8, "application/json"),
                 }));
         var metadata = await OAuthDiscovery.DiscoverProtectedResourceMetadata(
-            "https://example.com/mcp", fetch: new OAuthDiscovery.McpFetch(handler.SendAsync));
+            "https://example.com/mcp", fetch: new McpFetch(handler.SendAsync));
         Assert.Equal("https://example.com/mcp", metadata.Resource);
         Assert.Equal(["https://auth.example.com"], metadata.AuthorizationServers);
     }

@@ -204,6 +204,41 @@ public sealed class McpClient
             result as JsonObject ?? throw new McpError(JsonRpcErrorCodes.InvalidRequest, "Invalid MCP tools/call result"));
     }
 
+    /// <summary>列举全部资源（跟随 nextCursor 翻页）。对应 TS <c>listResources</c>。</summary>
+    public async Task<IReadOnlyList<McpResource>> ListResourcesAsync(McpRequestOptions? options = null,
+        CancellationToken cancellationToken = default)
+        => (await ListAllAsync("resources/list", "resources", McpProtocol.IsResource, options, cancellationToken)
+                .ConfigureAwait(false))
+            .Select(McpProtocol.ToResource)
+            .ToList();
+
+    /// <summary>列举一页资源（从 <paramref name="cursor"/> 起）。对应 TS <c>listResourcesPage</c>。</summary>
+    public async Task<ListResourcesResult> ListResourcesPageAsync(string? cursor = null,
+        McpRequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var page = await ListPageAsync("resources/list", "resources", McpProtocol.IsResource, cursor, options,
+            cancellationToken).ConfigureAwait(false);
+        return new ListResourcesResult(page.Items.Select(McpProtocol.ToResource).ToList(), page.NextCursor);
+    }
+
+    /// <summary>列举全部资源模板（跟随 nextCursor 翻页）。对应 TS <c>listResourceTemplates</c>。</summary>
+    public async Task<IReadOnlyList<McpResourceTemplate>> ListResourceTemplatesAsync(McpRequestOptions? options = null,
+        CancellationToken cancellationToken = default)
+        => (await ListAllAsync("resources/templates/list", "resourceTemplates", McpProtocol.IsResourceTemplate,
+                options, cancellationToken).ConfigureAwait(false))
+            .Select(McpProtocol.ToResourceTemplate)
+            .ToList();
+
+    /// <summary>列举一页资源模板（从 <paramref name="cursor"/> 起）。对应 TS <c>listResourceTemplatesPage</c>。</summary>
+    public async Task<ListResourceTemplatesResult> ListResourceTemplatesPageAsync(string? cursor = null,
+        McpRequestOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var page = await ListPageAsync("resources/templates/list", "resourceTemplates",
+            McpProtocol.IsResourceTemplate, cursor, options, cancellationToken).ConfigureAwait(false);
+        return new ListResourceTemplatesResult(
+            page.Items.Select(McpProtocol.ToResourceTemplate).ToList(), page.NextCursor);
+    }
+
     /// <summary>读取一个资源。</summary>
     public async Task<ReadResourceResult> ReadResourceAsync(string uri,
         McpRequestOptions? options = null, CancellationToken cancellationToken = default)
@@ -212,6 +247,18 @@ public sealed class McpClient
             cancellationToken).ConfigureAwait(false);
         return McpProtocol.ValidateReadResourceResult(
             result as JsonObject ?? throw new McpError(JsonRpcErrorCodes.InvalidRequest, "Invalid MCP resources/read result"));
+    }
+
+    /// <summary>列举一页（不翻页）。对应 TS <c>listPage</c>。</summary>
+    private async Task<(IReadOnlyList<JsonObject> Items, string? NextCursor)> ListPageAsync(
+        string method, string key, Func<JsonObject, bool> isItem, string? cursor,
+        McpRequestOptions? options, CancellationToken cancellationToken)
+    {
+        var parameters = cursor is null ? null : new JsonObject { ["cursor"] = cursor };
+        var value = await RequestAsync(method, parameters, options, cancellationToken).ConfigureAwait(false);
+        return McpProtocol.ValidateListPage(method, key,
+            value as JsonObject ?? throw new McpError(JsonRpcErrorCodes.InvalidRequest, $"Invalid MCP {method} result"),
+            isItem);
     }
 
     private async Task<List<JsonObject>> ListAllAsync(string method, string key,
