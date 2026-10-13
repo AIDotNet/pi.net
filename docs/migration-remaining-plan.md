@@ -267,12 +267,12 @@
 
 ### 阶段 P4：4d 尾巴
 
-- **P4a（已完成）** llama `provider.ts` + `index.ts` + `ui.ts` 的非 UI 半部；`BuiltInExtensions` 的
-  `llama.cpp` 占位工厂替换为真实工厂；新增 `Utils/JsNumber.cs`。
+- **P4a（已完成，`bafb72e` 已推送）** llama `provider.ts` + `index.ts` + `ui.ts` 的非 UI 半部；
+  `BuiltInExtensions` 的 `llama.cpp` 占位工厂替换为真实工厂；新增 `Utils/JsNumber.cs`。
   **验收标准与实际达成**：逐条对照 `provider.ts`（认证 `login`/`resolve`、`refreshModels` 五步、
   六个 shaping 函数）与 `index.ts`（`/llama` 命令的目录同步 / 加载 / 卸载 / 下载编排）；
-  构建 0 警告 0 错误；`LlamaExtensionTests` 44/44；变异套件 `llama-extension` 24 处全捕获。
-  新登记 C169–C173。
+  构建 0 警告 0 错误；`LlamaExtensionTests` 44/44；变异套件 `llama-extension` 24 处全捕获
+  （首轮 23/24，`ui-context-label-rounding` 盲点补语料后捕获）。新登记 C169–C173。
 - **P4b** MCP 余下（`runtime.ts` / `resources.ts` / `oauth.ts` / `ui.ts` / `cli.ts` / `index.ts`）。
 - **P4c（顺延 4f）** llama `ui.ts` 的 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`：渲染在
   4f-2 的主题与 4f-3 的组件之上，随 4f-3 落地后接上 `LlamaExtensionOptions.ShowUi`。
@@ -301,7 +301,7 @@
 
 | # | 风险 | 影响 | 处置 |
 | --- | --- | --- | --- |
-| R1 | **推送通道间歇不可用（本轮再次发生，已有可用绕行）** | 阶段产出无法上远端 | 实测（2026-10-13 上午）：`https` 经本机代理对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**。**2026-10-13 下午代理短暂恢复**：`git push origin main` 成功（`f208567..7b942b3`）。**2026-10-13 晚再次 502（连续 5 次重试均失败，`github.com` CONNECT 502 / `Empty reply`）**，但同代理下 `api.github.com` 正常（200）→ 改用 **REST API 复制提交**绕行（见下），已成功推送 `bb874f6`；**P2b 推送时代理又恢复**，`git push origin main` 成功（`e70f5dd..02707fd`）。**4e-3c-2a / 4e-3c-2b 推送时代理再次 502**（`fatal: unable to access … schannel: server closed abruptly`），改用下述 REST API 绕行**一次推上两个提交**（`82b47aa` + `05e9c58`，远端 head `05e9c58d`）。<br>**绕行做法（可复用）**：`GET /repos/:o/:r/git/ref/heads/main` 确认远端 HEAD == 本地 `HEAD^`；对每个改动文件 `POST /git/blobs`（内容取 `git cat-file blob <sha>:<path>` 的原始字节，base64），校验返回 SHA == 本地 blob SHA；`POST /git/trees`（`base_tree` = 父树）校验树 SHA == 本地树 SHA；`POST /git/commits`（message / author / committer / date 与本地**逐字节一致**）校验提交 SHA == 本地 SHA；最后 `PATCH /git/refs/heads/main`。因 SHA 完全相同，本地与远端天然同步，无需 `fetch`；本地 `refs/remotes/origin/main` 用 `git update-ref` 手工对齐。<br>**其它出路**：把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git`。 |
+| R1 | **推送通道间歇不可用（本轮再次发生，已有可用绕行）** | 阶段产出无法上远端 | 实测（2026-10-13 上午）：`https` 经本机代理对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**。**2026-10-13 下午代理短暂恢复**：`git push origin main` 成功（`f208567..7b942b3`）。**2026-10-13 晚再次 502（连续 5 次重试均失败，`github.com` CONNECT 502 / `Empty reply`）**，但同代理下 `api.github.com` 正常（200）→ 改用 **REST API 复制提交**绕行（见下），已成功推送 `bb874f6`；**P2b 推送时代理又恢复**，`git push origin main` 成功（`e70f5dd..02707fd`）。**4e-3c-2a / 4e-3c-2b 推送时代理再次 502**（`fatal: unable to access … schannel: server closed abruptly`），改用下述 REST API 绕行**一次推上两个提交**（`82b47aa` + `05e9c58`，远端 head `05e9c58d`）。**P4a 推送时代理/SSH 恢复**：`git push origin main`（走 `git@github.com`）一次成功（`696dab5..bafb72e`）。<br>**绕行做法（可复用）**：`GET /repos/:o/:r/git/ref/heads/main` 确认远端 HEAD == 本地 `HEAD^`；对每个改动文件 `POST /git/blobs`（内容取 `git cat-file blob <sha>:<path>` 的原始字节，base64），校验返回 SHA == 本地 blob SHA；`POST /git/trees`（`base_tree` = 父树）校验树 SHA == 本地树 SHA；`POST /git/commits`（message / author / committer / date 与本地**逐字节一致**）校验提交 SHA == 本地 SHA；最后 `PATCH /git/refs/heads/main`。因 SHA 完全相同，本地与远端天然同步，无需 `fetch`；本地 `refs/remotes/origin/main` 用 `git update-ref` 手工对齐。<br>**其它出路**：把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git`。 |
 | R2 | 参照检出漂移 | 语义错位（9-0 已发生过一次） | 每阶段动工前 `git -C D:\AI\参考项目\pi log -1` 确认仍在 `428a12bc7` |
 | R3 | 沙箱构建/测试限制 | 假阳性失败 | 构建必须 `-m:1`；`dotnet test` stdout 为空，改跑 `.exe` + `iconv GBK→UTF-8`；过滤用 `--filter-class` |
 | R4 | `4f` 体量（23.7k 行） | 单会话不可完成 | 已切 5 个子阶段，每子阶段独立提交 |
@@ -321,6 +321,6 @@
 | 2026-10-13 | P2b | 4e-3e-9h-4b-2 `CacheWarmer` 完整化（含已核实的 `GetPromptCacheTtlMs` `"short"` 回落缺陷与 `FormatCacheWarmingUsage` 尾随零语义）+ `AgentSessionRuntime` 编排本体（`switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose` / `createAgentSessionRuntime`）+ `AgentSessionServicesBuilder` 装配器（`createAgentSessionServices` / `createAgentSessionFromServices`）；新登记 C162/C163 | `02707fd` | `Pi.CodingAgent.Tests` **1364 / 0 失败** ✅；`Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301；构建 0 警告 0 错误 |
 | 2026-10-13 | P3（4e-3c-2a） | package-manager 叶子层：`PackageManagerPatterns`（patterns 纯函数）/ `PackageManagerCollectors`（目录采集器）/ `GlobSync`（`globSync` 子集）/ `SemverRange`（`validRange`/`satisfies`）+ `Skills` 侧 4 个 ignore 助手提为 `internal` 共享；新登记 C164–C167 | `82b47aa`（已推送） | 114 项新测试全绿（`SemverRangeTests` 51 / `PackageManagerPatternsTests` 35 / `GlobSyncTests` 12 / `PackageManagerCollectorsTests` 16）；`PackageManagerTests` 14/14、`ResourceLoaderTests` 19/19 无破；构建 0 警告 0 错误 |
 | 2026-10-13 | P3（4e-3c-2b） | `DefaultPackageManager` 全链路重写（`ResolveAsync` / `ResolvePackageSourcesAsync` / `DedupePackages` / `FindAutoloadDeltaBase` / `PackageRoot` / 完整 `+`/`-`/`!` override 语义 / `ResourceMap`+`Accumulator`+`ToResolvedPaths` 稳定排序 / `ListConfiguredPackages` / `GetInstalledPath` / `ResolveExtensionSourcesAsync`）；**删除 SettingsManager 里臆造的 `include`/`exclude`/`autoload` 三个 settings 键通路（8 个成员）**；顺带修 `IsExactNpmVersion` 漏 loose、`ToResolvedPaths` 不稳定排序、`ResourceLoaderTests` 夹具缺陷；新登记 C168 | `05e9c58`（已推送） | `Pi.CodingAgent.Tests` **1488 / 0 失败** ✅；`PackageManagerTests` 24/24；`ResourceLoaderTests` 19/19；构建 0 警告 0 错误 |
-| 2026-10-13 | P4a（4d-7c） | llama `provider.ts` + `index.ts` + `ui.ts` 非 UI 半部；`BuiltInExtensions` 的 `llama.cpp` 占位工厂 → 真实工厂；新增 `Utils/JsNumber.cs`；`LlamaModelInfo` 补 5 个只读访问器；新登记 C169–C173 | 见本批提交 | `LlamaExtensionTests` 44/44 ✅；`BuiltInExtensionsTests` 更新；构建 0 警告 0 错误；变异套件 `llama-extension` 24 处全捕获 |
+| 2026-10-13 | P4a（4d-7c） | llama `provider.ts` + `index.ts` + `ui.ts` 非 UI 半部；`BuiltInExtensions` 的 `llama.cpp` 占位工厂 → 真实工厂；新增 `Utils/JsNumber.cs`；`LlamaModelInfo` 补 5 个只读访问器；新登记 C169–C173 | `bafb72e`（已推送） | `LlamaExtensionTests` 44/44 ✅；`BuiltInExtensionsTests` 更新；构建 0 警告 0 错误；变异套件 `llama-extension` 24 处全捕获（首轮 23/24，`ui-context-label-rounding` 盲点补语料后捕获） |
 
 （后续阶段完成后逐行追加。）
