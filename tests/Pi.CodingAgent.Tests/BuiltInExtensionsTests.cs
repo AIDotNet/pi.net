@@ -1,3 +1,4 @@
+using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Xunit;
 
@@ -24,17 +25,29 @@ public class BuiltInExtensionsTests
     [Fact]
     public async Task PlaceholderFactory_FailsNamingItsBatch()
     {
-        // The factories land with 4d-4 (mcp) / 4d-5 (codemode) / 4d-6 (tool-search) / 4d-7 (llama);
-        // until then each placeholder fails loudly instead of registering nothing.
-        var llama = Assert.IsType<InlineExtension.Described>(BuiltInExtensions.All[0]);
-        var error = await Assert.ThrowsAsync<NotSupportedException>(() => llama.Factory(null!));
-        Assert.Contains("llama.cpp", error.Message, StringComparison.Ordinal);
-        Assert.Contains("4d-7", error.Message, StringComparison.Ordinal);
-
+        // The remaining placeholder lands with 4d-4 (mcp); until then it fails loudly instead of
+        // registering nothing. llama.cpp / codemode / tool-search are already real factories.
         var mcp = Assert.IsType<InlineExtension.Described>(BuiltInExtensions.All[3]);
         var mcpError = await Assert.ThrowsAsync<NotSupportedException>(() => mcp.Factory(null!));
         Assert.Contains("mcp", mcpError.Message, StringComparison.Ordinal);
         Assert.Contains("4d-4", mcpError.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LlamaCppFactory_IsTheRealFactory()
+    {
+        // llama.cpp registers a dynamic provider and the /llama command; the provider registration
+        // path proves the placeholder is gone (a placeholder would throw before registering anything).
+        var runtime = ExtensionLoader.CreateExtensionRuntime();
+        var extension = await ExtensionLoader.LoadExtensionFromFactory(
+            ((InlineExtension.Described)BuiltInExtensions.All[0]).Factory,
+            Path.GetTempPath(),
+            EventBusController.CreateEventBus(),
+            runtime);
+
+        Assert.Contains("llama", extension.Commands.Keys);
+        var pending = Assert.Single(runtime.PendingNativeProviderRegistrations);
+        Assert.Equal("llama.cpp", pending.Provider.Id);
     }
 
     private static void AssertEntry(InlineExtension extension, string name, bool replaceable, bool builtin)

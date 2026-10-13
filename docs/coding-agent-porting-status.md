@@ -846,6 +846,49 @@ huggingface.ts 只导入 `node:fs/promises` / `node:os` / `node:path`；生成�
 > 注册了处理器，先整份还原再 `os._exit(130)`；另外提交前一律用锚点表扫一遍「`frm` 出现 0 次、
 > `to` 出现 1 次」来查残留。
 
+## 4d-7c 进度（2026-10-13）：llama provider + 扩展入口
+
+`extensions/llama/provider.ts`（299 行）与 `extensions/llama/index.ts`（230 行）已移植，
+外加 `ui.ts` 里**不依赖 Theme / 交互组件**的一半（`LlamaUi` 接口、`LlamaManagerAction`、
+`ProgressState`、`runWithProgress`、以及 `contextLabel` / `modelDescription` / `compactCount`
+三个纯函数）。`BuiltInExtensions` 里 `llama.cpp` 的占位工厂已替换为真实工厂，至此**四个内置扩展
+仅剩 `mcp` 一个占位**。构建 0 警告 0 错误；`LlamaExtensionTests` 44 项全绿。
+
+改动文件：
+
+| 文件 | 内容 |
+|---|---|
+| `src/Pi.CodingAgent/Extensions/Llama/LlamaProvider.cs`（新增，约 430 行） | `LlamaProvider`：`IProvider` + `IClassifierProvider`；`LLAMA_PROVIDER_ID` / `DEFAULT_LLAMA_SERVER_URL`；`SetCatalog`；`RefreshModelsAsync`（`stored` 恢复 → 联网 `list` → `routerAutoloadEnabled` → 逐个 `props` 取 chat template → `publish` 持久化 + 更新）；`ModelIsSelectable` / `IsDecisionModel` / `IsChatModel` / `IsLlamaClassifierModel` / `ConfiguredContextWindow` / `ContextWindowOf` / `ToPiModel` / `ToPiClassifierModel`；`LlamaApiKeyAuth`（`login` / `resolve`，含 `credentialServerUrl` / `resolveServerUrl`） |
+| `src/Pi.CodingAgent/Extensions/Llama/LlamaUi.cs`（新增，约 290 行） | `LlamaManagerAction`（`Model` / `Download` / `Close`）、`LlamaProgressState`、`ILlamaUi`、`LlamaRunResult<T>` / `LlamaRunOptions<T>`、`LlamaUi.ContextLabel` / `ModelDescription` / `CompactCount` / `RunWithProgressAsync` |
+| `src/Pi.CodingAgent/Extensions/Llama/LlamaExtension.cs`（新增，约 400 行） | `LlamaExtension.CreateLlamaExtension(options)`：`pi.RegisterProvider(provider)` + `/llama` 命令；`ConfiguredClientAsync` / `SyncCatalogAsync` / `LoadModelAsync` / `UnloadModelAsync` / `DownloadModelAsync`；`IsConnectionError` / `ConnectionErrorMessage` / `ParseHuggingFaceModel`；`LlamaExtensionOptions.ShowUi`（`showLlamaUi` 缝） |
+| `src/Pi.CodingAgent/Extensions/Llama/LlamaModels.cs` | `LlamaModelInfo` 新增 `StatusArgs` / `OutputModalities` / `InputModalities` / `MetaNCtx` / `MetaNCtxTrain` 只读访问器 |
+| `src/Pi.CodingAgent/Utils/JsNumber.cs`（新增，约 120 行） | JS `Number(string)`（含 `Infinity` / `0x` / `0o` / `0b` / 符号与进制前缀的非法组合）、`Number.isSafeInteger`、`String(number)`、`Number.prototype.toFixed` |
+| `src/Pi.CodingAgent/Core/Extensions/BuiltInExtensions.cs` | `llama.cpp` 占位工厂 → `LlamaExtension.CreateLlamaExtension()` |
+| `tests/Pi.CodingAgent.Tests/LlamaExtensionTests.cs`（新增，44 项） | 工厂注册（provider + `/llama` 命令）、`ModelIsSelectable` 六路、decision/chat 划分、`--ctx-size` 解析与 `Number.isSafeInteger`、`ContextWindowOf` 五级回落、`ToPiModel` / `ToPiClassifierModel` 逐字段、`SetCatalog` 拆分、`CompactCount` / `ContextLabel` / `ModelDescription`、`ParseHuggingFaceModel`、`runWithProgress` 四路（正常 / 停止 / 拒绝停止 / 失败传播） |
+| `tests/Pi.CodingAgent.Tests/BuiltInExtensionsTests.cs` | `llama.cpp` 断言从「占位工厂抛错」改为「真实工厂注册 provider 与命令」；占位断言只留 `mcp` |
+
+与 TS 的差异：
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C169 | TS 的 `createLlamaProvider()` 返回 `{ provider, setCatalog }` 二元组；C# 把控制器折进 provider 本身（`LlamaProvider` 实现 `IProvider` 并暴露 `SetCatalog`） | 该二元组在 TS 里只被 `index.ts` 成对使用（注册 `provider.provider`、同步时调 `setCatalog`）；折进一个类型后扩展侧少一层包装，且 `IProvider` 是 C# 侧 `registerProvider(provider)` 的唯一入口 |
+| C170 | TS 的 api-key 认证另有 `check({ctx, credential})` 回调；C# 只有 `IApiKeyAuth.ResolveAsync`，`AuthCheck` 由它派生 | C# 侧 `Models.CheckProviderAuthAsync` 走 `AuthResolve.ResolveProviderAuthAsync` → `ResolveAsync`，没有独立的 `check` 缝。因此 `check` 与 `resolve` 的重复判定（都先解析 serverUrl）在端口里只剩一份，`source` 也取自 `ResolveAsync` 的结果 |
+| C171 | `runWithProgress` 的 `Promise.race` → `Task.WhenAny`；`completed` 标志用 `Volatile` 读写 | JS 在单线程事件循环里读 `completed`（由 `.finally` 的微任务写）；C# 的 `settled` 续体可能落在别的线程，需要可见性保证。`ui.progress()` 的「消费即重置」语义（`LlamaView.handleInput` 里把 `progressPromise` 置回 `undefined`）由视图实现负责，接口只约定「返回一个在用户按下停止时完成的 Task」 |
+| C172 | `Number.isSafeInteger` / `Number(string)` 需要手写（`Utils/JsNumber.cs`） | .NET 的 `double.TryParse` 既接受 JS 拒绝的输入（宽松文化下的 `"1,5"`、`"NaN"`），也拒绝 JS 接受的输入（`"0x10"`）。`--ctx-size` 的取值来自 llama.cpp 上报的命令行参数，须与 TS 逐字一致 |
+| C173 | `ui.ts` 的 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`（依赖 `Theme`、`DynamicBorder`、`keyHint`）未移植，改为 `LlamaExtensionOptions.ShowUi` 缝，缺省实现抛 `NotSupportedException` 并点名 4f-2 / 4f-3 | 这三者渲染在 4f 的主题与交互组件之上；`index.ts` 的命令编排与 `ui.ts` 的纯逻辑（标签、进度竞速）都已就位，只剩「把内容画到屏上」这一层 |
+
+### 4d-7c 变异验证
+
+`tools/mutate-check.py` 新增 `llama-extension` 套件（24 处），首轮 **23/24 被捕获**，1 处盲点补语料
+后重跑 **24/24 全部捕获**（逐条结果见 `tools/mutate-check.log` / `tools/mutate-llama-ext.out`）。
+
+盲点：`ui-context-label-rounding` 把 `contextLabel` 里的 `JsMath.Round` 换成 `Math.Floor`，而原语料
+只喂了 `4096` / `131072` 这类「除以 1000 后小数部分 < 0.5」的值，Round 与 Floor 同解，故测不出来。
+补 `n_ctx=1500 → "2k"`、`n_ctx_train=2500 → "3k"`、`--ctx-size 8500 → "9k"` 后即被捕获。注意
+`contextLabel` 里这段表达式有**两处**（`n_ctx`/`n_ctx_train` 一路、`status.args` 一路），变异只打在
+第一处，所以必须用「`n_ctx` 直接给值」的用例才能真正覆盖它。另核对 `JsMath.Round` 为
+`Math.Floor(value + 0.5)`（JS 半程进位），与 C# `Math.Round` 的银行家舍入不同，这里是对的。
+
 ## 4e-1 进度（2026-10-10）：core 无会话依赖的叶子模块
 
 4e 的第一批，挑的是 `core/` 下**不依赖 `SessionManager` / `AgentSession`** 的模块：它们既是后续

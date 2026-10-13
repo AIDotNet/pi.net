@@ -40,6 +40,35 @@ public sealed record LlamaModelInfo(JsonObject Raw)
         : null;
 
     public string? Source => Raw["source"]?.GetValue<string>();
+
+    /// <summary>The TS <c>model.status.args</c> (the launch arguments llama.cpp reports).</summary>
+    public IReadOnlyList<string>? StatusArgs => StatusRaw?["args"] is JsonArray args
+        ? args.Where(node => node is JsonValue value && value.TryGetValue<string>(out _))
+            .Select(node => node!.GetValue<string>())
+            .ToList()
+        : null;
+
+    /// <summary>The TS <c>model.architecture.output_modalities</c>.</summary>
+    public IReadOnlyList<string>? OutputModalities => StringArray(Raw["architecture"]?["output_modalities"]);
+
+    /// <summary>The TS <c>model.architecture.input_modalities</c>.</summary>
+    public IReadOnlyList<string>? InputModalities => StringArray(Raw["architecture"]?["input_modalities"]);
+
+    /// <summary>The TS <c>model.meta.n_ctx</c> (runtime context window reported by the server).</summary>
+    public double? MetaNCtx => Raw["meta"]?["n_ctx"] is JsonValue value && value.TryGetValue<double>(out var parsed)
+        ? parsed
+        : null;
+
+    /// <summary>The TS <c>model.meta.n_ctx_train</c> (the model's training context window).</summary>
+    public double? MetaNCtxTrain => Raw["meta"]?["n_ctx_train"] is JsonValue value && value.TryGetValue<double>(out var parsed)
+        ? parsed
+        : null;
+
+    private static IReadOnlyList<string>? StringArray(JsonNode? node) => node is JsonArray array
+        ? array.Where(item => item is JsonValue value && value.TryGetValue<string>(out _))
+            .Select(item => item!.GetValue<string>())
+            .ToList()
+        : null;
 }
 
 /// <summary>Port of the TS <c>LlamaServerProps</c>.</summary>

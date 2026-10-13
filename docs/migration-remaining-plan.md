@@ -4,7 +4,7 @@
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`428a12bc7`（= `origin/main`）**
 > 目标仓库：`D:\AI\参考项目\pi.net`（`src/Pi.CodingAgent`），起始 commit **`f208567`**
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C168`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C173`）。
 
 ---
 
@@ -79,6 +79,7 @@
 | 4e-3e-9h-4b-2 | `CacheWarmer` 完整化（定时重放 / 经济学判定 / `decide` + `extensionOverride` / 三个回调）+ `AgentSessionRuntime` 编排本体（`switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose` / `createAgentSessionRuntime`）+ `createAgentSessionServices` / `createAgentSessionFromServices`；顺带修正 `GetPromptCacheTtlMs` 的 `"short"` 回落缺陷与 `FormatCacheWarmingUsage` 的尾随零语义 | C162/C163；`CacheWarmerTests` 11 项 + `AgentSessionRuntimeTests` 22 项 |
 | 4e-3c-2a | package-manager 叶子层：`PackageManagerPatterns`（patterns 纯函数）/ `PackageManagerCollectors`（目录采集器）/ `GlobSync`（node:fs `globSync` 子集）/ `SemverRange`（`validRange` / `satisfies`）；`Skills` 侧 ignore 助手（`IgnoreFileNames` / `ToPosixPath` / `PrefixIgnorePattern` / `AddIgnoreRules`）提为 `internal` 共享 | C164–C167；`82b47aa`；114 项新测试 |
 | 4e-3c-2b | `DefaultPackageManager` 全链路：`ResolveAsync` / `ResolvePackageSourcesAsync` / `DedupePackages` / `FindAutoloadDeltaBase` / `PackageRoot` / 完整 `+`/`-`/`!` override 语义 / `ResourceMap`+`Accumulator`+`ToResolvedPaths`（稳定排序）/ `ListConfiguredPackages` / `GetInstalledPath` / `ResolveExtensionSourcesAsync`；**删除 SettingsManager 里臆造的 `include`/`exclude`/`autoload` 三个 settings 键通路（8 个成员）** | C168；`PackageManagerTests` 24 项（含 `ResourceLoaderTests` 夹具修正） |
+| 4d-7c | llama `provider.ts`（299 行）+ `index.ts`（230 行）+ `ui.ts` 的非 UI 半部（`LlamaUi` / `runWithProgress` / 三个纯函数）；`BuiltInExtensions` 的 `llama.cpp` 占位工厂 → 真实工厂；新增 `Utils/JsNumber.cs`（JS `Number()` / `isSafeInteger` / `toFixed`） | C169–C173；`LlamaExtensionTests` 44 项；变异套件 `llama-extension` 24 处全捕获 |
 | （未记档） | `AgentSessionQueue`（输入与排队层） | 本批修复其编译错误 |
 
 ### 2.2 未完成（本计划的执行对象）
@@ -113,8 +114,8 @@
 
 | TS 符号 | 行数 | 现状 |
 | --- | ---: | --- |
-| `extensions/llama/*` 流式层（`provider.ts` 流式分支 / `ui.ts`） | ~900 | 4d-7b 未完（HTTP 层 4d-7a 已完成） |
-| `extensions/mcp/*` 余下（`runtime.ts` / `resources.ts` / `oauth.ts` / `ui.ts` / `cli.ts` / `index.ts`） | ~3,300 | 4d-4c/4d-4d 未完 |
+| `extensions/llama/*` | 1,577 | ✅ provider / client / huggingface / index 全部完成；`ui.ts` 的 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`（依赖 4f-2 / 4f-3 的 Theme 与组件）顺延 4f |
+| `extensions/mcp/*` 余下（`runtime.ts` / `resources.ts` / `oauth.ts` / `ui.ts` / `cli.ts` / `index.ts`） | ~3,300 | 4d-4c/4d-4d 未完（`config.ts` 4d-4a 与 `tools.ts` 4d-4b 已完成） |
 
 #### package-manager 包解析 ✅ 已完成（4e-3c-2a `82b47aa` + 4e-3c-2b 本批）
 
@@ -266,8 +267,15 @@
 
 ### 阶段 P4：4d 尾巴
 
-- **P4a** llama 流式层（`extensions/llama/provider.ts` 流式分支 + `ui.ts`）。
+- **P4a（已完成）** llama `provider.ts` + `index.ts` + `ui.ts` 的非 UI 半部；`BuiltInExtensions` 的
+  `llama.cpp` 占位工厂替换为真实工厂；新增 `Utils/JsNumber.cs`。
+  **验收标准与实际达成**：逐条对照 `provider.ts`（认证 `login`/`resolve`、`refreshModels` 五步、
+  六个 shaping 函数）与 `index.ts`（`/llama` 命令的目录同步 / 加载 / 卸载 / 下载编排）；
+  构建 0 警告 0 错误；`LlamaExtensionTests` 44/44；变异套件 `llama-extension` 24 处全捕获。
+  新登记 C169–C173。
 - **P4b** MCP 余下（`runtime.ts` / `resources.ts` / `oauth.ts` / `ui.ts` / `cli.ts` / `index.ts`）。
+- **P4c（顺延 4f）** llama `ui.ts` 的 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`：渲染在
+  4f-2 的主题与 4f-3 的组件之上，随 4f-3 落地后接上 `LlamaExtensionOptions.ShowUi`。
 - **验收标准**：逐文件对照；MCP 走真实 stdio/HTTP 假服务器回放（沙箱禁端口的部分标环境限制）。
 - **前置**：无。
 
@@ -313,5 +321,6 @@
 | 2026-10-13 | P2b | 4e-3e-9h-4b-2 `CacheWarmer` 完整化（含已核实的 `GetPromptCacheTtlMs` `"short"` 回落缺陷与 `FormatCacheWarmingUsage` 尾随零语义）+ `AgentSessionRuntime` 编排本体（`switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose` / `createAgentSessionRuntime`）+ `AgentSessionServicesBuilder` 装配器（`createAgentSessionServices` / `createAgentSessionFromServices`）；新登记 C162/C163 | `02707fd` | `Pi.CodingAgent.Tests` **1364 / 0 失败** ✅；`Pi.Agent.Tests` 32/32；`Pi.Ai.Tests` 301/301；构建 0 警告 0 错误 |
 | 2026-10-13 | P3（4e-3c-2a） | package-manager 叶子层：`PackageManagerPatterns`（patterns 纯函数）/ `PackageManagerCollectors`（目录采集器）/ `GlobSync`（`globSync` 子集）/ `SemverRange`（`validRange`/`satisfies`）+ `Skills` 侧 4 个 ignore 助手提为 `internal` 共享；新登记 C164–C167 | `82b47aa`（已推送） | 114 项新测试全绿（`SemverRangeTests` 51 / `PackageManagerPatternsTests` 35 / `GlobSyncTests` 12 / `PackageManagerCollectorsTests` 16）；`PackageManagerTests` 14/14、`ResourceLoaderTests` 19/19 无破；构建 0 警告 0 错误 |
 | 2026-10-13 | P3（4e-3c-2b） | `DefaultPackageManager` 全链路重写（`ResolveAsync` / `ResolvePackageSourcesAsync` / `DedupePackages` / `FindAutoloadDeltaBase` / `PackageRoot` / 完整 `+`/`-`/`!` override 语义 / `ResourceMap`+`Accumulator`+`ToResolvedPaths` 稳定排序 / `ListConfiguredPackages` / `GetInstalledPath` / `ResolveExtensionSourcesAsync`）；**删除 SettingsManager 里臆造的 `include`/`exclude`/`autoload` 三个 settings 键通路（8 个成员）**；顺带修 `IsExactNpmVersion` 漏 loose、`ToResolvedPaths` 不稳定排序、`ResourceLoaderTests` 夹具缺陷；新登记 C168 | `05e9c58`（已推送） | `Pi.CodingAgent.Tests` **1488 / 0 失败** ✅；`PackageManagerTests` 24/24；`ResourceLoaderTests` 19/19；构建 0 警告 0 错误 |
+| 2026-10-13 | P4a（4d-7c） | llama `provider.ts` + `index.ts` + `ui.ts` 非 UI 半部；`BuiltInExtensions` 的 `llama.cpp` 占位工厂 → 真实工厂；新增 `Utils/JsNumber.cs`；`LlamaModelInfo` 补 5 个只读访问器；新登记 C169–C173 | 见本批提交 | `LlamaExtensionTests` 44/44 ✅；`BuiltInExtensionsTests` 更新；构建 0 警告 0 错误；变异套件 `llama-extension` 24 处全捕获 |
 
 （后续阶段完成后逐行追加。）
