@@ -305,11 +305,20 @@
 
 ### 阶段 P5：4f 模式层（拆 5 个子阶段）
 
+**2026-10-14 勘察修正**（P4b-6 收口后做的依赖核实，原顺序有误）：renderers **不能先做**。
+`core/tools/renderers/*` 的每个文件都 import `modes/interactive/theme/theme.ts` 的 `theme` 单例
+（`theme.fg` / `theme.bold`）以及 `modes/interactive/components/{keybinding-hints,visual-truncate}.ts`
+（`keyHint` / `VisualLinePreview`），而这两者正是 4f-2 / 4f-3 的产物。另外
+`Theme` 目前只是 `Core/Extensions/Types/Placeholders.cs` 里的空占位类（`public sealed class Theme { }`），
+`EditorTheme` 已在 `Pi.Tui/Components/Editor.cs`，但 `MarkdownTheme` / `SelectListTheme` /
+`SettingsListTheme` 尚未落地（`theme.ts` 的 getter 返回它们）。故实际顺序为
+**4f-2 → 4f-3（先 `keybinding-hints` / `visual-truncate`）→ 4f-1 → 4f-4 → 4f-5**。
+
 | 子阶段 | 范围 | 验收标准 |
 | --- | --- | --- |
-| 4f-1 | `core/tools/renderers/*`（~700 行，Theme 依赖） | renderers 逐文件对照 |
-| 4f-2 | `modes/interactive/theme/*`（~2,200 行） | 主题解析 / 系统主题 / 主题控制器 / JSON 主题 |
-| 4f-3 | `modes/interactive/components/*`（~9,000 行） | 每个组件一个测试类；选择器交互路径 |
+| 4f-2 | `modes/interactive/theme/*`（2,216 行：`theme.ts` 1,160 / `system-theme.ts` 655 / `theme-controller.ts` 253 / `theme-json.ts` 148） | 替换 `Theme` 占位；主题 JSON 校验 / 系统主题生成 / 终端配色探测 / 自定义主题目录与文件监视 / `initTheme`·`setTheme` 全局注册表；补 `MarkdownTheme` / `SelectListTheme` / `SettingsListTheme` 三个形状 |
+| 4f-3 | `modes/interactive/components/*`（~9,000 行） | 每个组件一个测试类；选择器交互路径。**先做 `keybinding-hints`（48 行）与 `visual-truncate`（98 行）**，它们解 4f-1 的阻塞 |
+| 4f-1 | `core/tools/renderers/*`（1,033 行 / 8 文件）+ `core/tools/render-utils.ts`（112 行） | renderers 逐文件对照；`ToolRenderers` 补 `RenderCall` / `RenderResult`（当前只有 `RenderShell`，差异 C85） |
 | 4f-4 | `modes/interactive/interactive-mode.ts`（7,072 行） | 主循环 / 键位 / 视口 / 共享 |
 | 4f-5 | `modes/rpc/*` + `print-mode` + `json-*`（~2,300 行） | RPC 端到端（Unix 域套接字回放） |
 
