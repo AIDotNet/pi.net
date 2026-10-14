@@ -12,6 +12,9 @@ namespace Pi.Mcp.Transports;
 /// </summary>
 public sealed class StdioTransport : TransportEvents, IMcpTransport
 {
+    /// <summary>stderr 滚动缓冲上限。对应 TS <c>DEFAULT_MAX_STDERR_BYTES</c>。</summary>
+    public const int MaxStderrBytes = 64 * 1024;
+
     private readonly string _command;
     private readonly IReadOnlyList<string> _args;
     private readonly IReadOnlyDictionary<string, string>? _env;
@@ -19,6 +22,23 @@ public sealed class StdioTransport : TransportEvents, IMcpTransport
     private Process? _process;
     private CancellationTokenSource? _readCts;
     private string? _protocolVersion;
+    private readonly object _stderrGate = new();
+    private string _stderr = "";
+
+    /// <summary>
+    /// 子进程 stderr 的滚动缓冲（最后 <see cref="MaxStderrBytes"/> 字节）。对应 TS <c>get stderr()</c>：
+    /// 连接失败或断开时，调用方靠它把服务器的报错（例如找不到命令、缺少密钥）带给用户。
+    /// </summary>
+    public string Stderr
+    {
+        get
+        {
+            lock (_stderrGate)
+            {
+                return _stderr;
+            }
+        }
+    }
 
     /// <param name="command">可执行文件（或 PATH 上的命令名）。</param>
     /// <param name="args">命令行参数。</param>
@@ -145,6 +165,7 @@ public sealed class StdioTransport : TransportEvents, IMcpTransport
             {
                 var line = await process.StandardError.ReadLineAsync(cancellationToken).ConfigureAwait(false);
                 if (line is null) return;
+                AppendStderr(line.Length > 0 && line.EndsWith('\n') ? line : line + "\n");
                 if (line.Trim().Length > 0)
                     EmitError(new InvalidOperationException($"MCP server stderr: {line}"));
             }
@@ -153,6 +174,18 @@ public sealed class StdioTransport : TransportEvents, IMcpTransport
         catch (Exception error)
         {
             EmitError(error);
+        }
+    }
+
+    /// <summary>Append one stderr line, keeping only the last <see cref="MaxStderrBytes"/> bytes (TS <c>handleStderr</c>).</summary>
+    private void AppendStderr(string chunk)
+    {
+        lock (_stderrGate)
+        {
+            var combined = _stderr + chunk;
+            _stderr = Encoding.UTF8.GetByteCount(combined) <= MaxStderrBytes
+                ? combined
+                : Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(combined)[^MaxStderrBytes..]);
         }
     }
 }

@@ -2988,3 +2988,95 @@ image blob 时无法还原成图片块（`BlockToContentAsync` 的 image 分支�
     路径与 `3B` 大小）
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpResourceToolsTests` **37/37**；
   `Pi.Mcp.Tests` **35/35**；`Pi.CodingAgent.Tests` 全量 **1607 / 0 失败**（2m39s）。
+
+
+## P4b-4 进度（2026-10-14）：MCP 连接层（`extensions/mcp/runtime.ts` → `Extensions/Mcp/Runtime.cs`）
+
+对应 TS `extensions/mcp/runtime.ts`（491 行）。依赖面（`McpClient` / `StreamableHttpTransport` /
+`StdioTransport` / `McpOAuth.CreateAuthProvider` / `ConfigValueResolver` / `Config.Version` /
+`McpServerLog`）在 P4b-1…P4b-3 已就位，本批只移植连接半边。
+
+| TS 符号 | 行数 | .NET | 说明 |
+|---|---:|---|---|
+| `type ServerState` | 57 | `McpServerState` | 六态枚举，见 C184 |
+| `type McpTransportFactory` | 59-63 | `McpTransportFactory`（delegate） | `(entry, cwd, authProvider) → IMcpTransport` |
+| `DEFAULT_TIMEOUT_SECONDS` / `STDERR_TAIL_CHARS` / `CONNECT_RETRY_DELAYS_MS` | 48-51 | `DefaultTimeoutSeconds` / `StderrTailChars` / `ConnectRetryDelaysMs` | 60s / 2000 字符 / `[250, 1000]` |
+| `errorMessage` | 65-67 | `ErrorMessage`（private） | `error.Message` |
+| `isTransientError` | 70-75 | `IsTransientError`（internal） | 408 / 429 / 5xx 除 501；网络错误见 C186 |
+| `signInRequiredMessage` | 77-80 | `SignInRequiredMessage`（internal） | 有 `auth.provider` 时 `/login <provider>`，否则 `/mcp` |
+| `usesOAuth` | 83-87 | `UsesOAuth`（internal） | HTTP 且无 `auth` 且无 `Authorization` 头（大小写不敏感） |
+| `expandHome` | 90-96 | `ExpandHome`（internal） | `~` / `~/…` / `~\…`（Windows） |
+| `createDefaultTransport` | 98-122 | `CreateDefaultTransport` | HTTP → `StreamableHttpTransport`；stdio → `StdioTransport`（env / cwd / args 逐个解析与展开），见 C185 |
+| `withoutTemplates` | 125-132 | `WithoutTemplatesAsync`（private） | `method-not-found` → 空模板；其余上抛 |
+| `listTemplates` | 134-136 | `ListTemplatesAsync`（private） | 全量模板 + 上述回落 |
+| `fetchResources` | 142-153 | `FetchResourcesAsync`（private） | 并行取资源与模板、各自失败降级为空、剔除 MCP App |
+| `class McpServerConnection` | 156-491 | `McpServerConnection` | 懒连接 + 状态机 + 重试 + 重连 + needs-auth |
+| `getClient` | 256-263 | `GetClientAsync` | 关闭后返回已失败任务；已连接直接返回；否则记忆化打开（见「移植陷阱」） |
+| `callTool` / `readResource` / `resourcesPage` / `resourceTemplatesPage` / `allResources` / `allResourceTemplates` | 265-291 | 同名 `*Async` | 后五个 `readOnly: true` |
+| `withClient` | 297-320 | `WithClientAsync`（private） | readOnly 首次瞬时 HTTP 错误 → 250ms 后同客户端重试；会话过期 → 断连重连一次；needs-auth → 丢弃客户端 + 标记 + 登录提示 |
+| `reconnect` / `signOut` | 323-334 | `ReconnectAsync` / `SignOutAsync` | 重连；断开后标记 needs-auth（不重连） |
+| `needsSignIn` / `markNeedsAuth` / `changed` / `dropClient` | 337-357 | `NeedsSignIn` / `MarkNeedsAuth` / `Changed` / `DropClientAsync` | OAuth 授权必需错误，或（有 provider 时）`McpAuthRequiredError` |
+| `open` | 359-376 | `OpenAsync` | 状态置 connecting；HTTP 才按 `[250, 1000]` 重试瞬时错误；关闭后立即放弃 |
+| `connectOnce` | 378-435 | `ConnectOnceAsync` | 客户端选项（name/version/timeout/roots）+ 日志通知 + 关闭钩子（记忆化）+ 工具/资源通知 + `onClose` + 能力门控列举 |
+| `connectFailed` | 437-446 | `ConnectFailed` | needs-auth → 标记；否则 failed/closed + stderr 尾拼进 `error` |
+| `handleClientClose` | 449-456 | `HandleClientClose` | 仅当是自己持有的客户端：置 disconnected，`Connection closed[\nstderr]` |
+| `refreshTools` / `refreshResources` | 458-477 | `RefreshToolsAsync` / `RefreshResourcesAsync` | `notifications/{tools,resources}/list_changed` |
+| `close` | 480-490 | `CloseAsync` | 中止 → closed → 关客户端与在途打开 → `authProvider.settled()` |
+
+`McpServerConnection` 同时实现 `IMcpToolCaller`（`tools.ts`）与 `McpResourceServer`（`resources.ts`），
+与 TS 一致；`ProviderTokenAuthProvider` 承接 TS 构造器里的匿名 `{ token, settled }` 对象。
+
+### 顺带修掉的真实缺陷（非差异）
+
+**`StdioTransport` 没有 stderr 滚动缓冲**（`src/Pi.Mcp/Transports/StdioTransport.cs`，本批前置修复）：
+TS 的 `StdioTransport` 有 `DEFAULT_MAX_STDERR_BYTES = 64 * 1024` 与 `get stderr()`，端口只有
+`emitError` 转发、没有保留缓冲。后果：`runtime.ts` 的 `connectFailed` / `handleClientClose`
+拿不到子进程报错，用户只看到 `spawn failed` 而看不到「命令不存在」「缺少密钥」等真实原因
+（`StderrTail` 的 2000 字符截取本来就是为了贴进这两处消息）。已补：`MaxStderrBytes` 常量、
+`Stderr` 属性（加锁读）、`PumpStderrAsync` 逐行追加并保留最后 64KB（多字节字符按字节切片后解码）。
+
+### 移植陷阱（C# 侧自纠，非 TS 差异）
+
+**`_opening` 记忆化在同步完成的打开上残留已完成任务。** TS 写的是
+`this.opening ??= this.open().finally(() => { this.opening = undefined; })`，`.finally` 回调**总在
+微任务里跑**，所以赋值一定先于清空。C# 的 `async` 方法若中途没有真正挂起的 `await`（本批的
+`FakeMcpServer` 同步应答就会这样），会**同步跑完 `finally`**，于是
+`_opening ??= OpenOnceAsync()` 把「已完成并已清空」的任务又写了回去，之后每一次
+`GetClientAsync`（掉线重连、登出后重连、会话过期重试）都会拿到**同一个死客户端**而不是重新连接。
+症状：`ReconnectAsync` 后传输数仍是 1、会话过期重试不生效、掉线后报
+`MCP client is not connected`。修法：把「赋值 memo」放在「注册清空续体」之前
+（`StartOpen()`，见 `Runtime.cs`），并用 `ReferenceEquals` 防止旧续体清掉新 memo。
+
+### P4b-4 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C184 | TS 的字符串联合 `ServerState` 落成 C# 枚举 `McpServerState`（`Connecting` / `Connected` / `Disconnected` / `NeedsAuth` / `Failed` / `Closed`） | 与 `ClientState`（`Pi.Mcp`）、`McpClientRegistration`（P4b-2）同样的既有约定：端口用枚举表达联合，状态比较用 `==`，UI 层按需 `ToString().ToLowerInvariant()` 还原字符串 |
+| C185 | `CreateDefaultTransport` 在既无 `url` 又无 `command` 时抛 `InvalidOperationException("MCP server \"…\" has no command or url")` | TS 里 `config.command` 对 stdio 条目是必填类型，缺失只会在 `StdioTransport` 内部变成 `undefined` 命令而炸；端口在校验/加载边界（`McpServers.ValidateMcpServerConfig`）之后仍留一道显式守卫，错误消息带服务器名 |
+| C186 | `IsTransientError` 把 TS 的 `error instanceof TypeError` 映射为 `HttpRequestException` | TS 的 `fetch` 在网络失败时抛 `TypeError`（端口无对应类型）；.NET 侧同类失败由 `HttpClient` 抛 `HttpRequestException`，语义一一对应。`McpHttpError` 的 408 / 429 / 5xx（除 501）判定与 TS 逐行等价 |
+
+### 测试与验证
+
+- 新建 `tests/Pi.CodingAgent.Tests/McpRuntimeTests.cs`（**40 项**）：`FakeMcpServer : TransportEvents`
+  （按方法脚本化应答、`FailNext` 注入异常、`SendNotification`、`Drop`，并记录每方法的请求次数与参数）、
+  `FakeAuthStorageBackend`（内存 auth 文件，避免落用户 home）。
+  - 纯叶子 5：`IsTransientError`（408/429/500/502/503/504 真、501/400/404/`McpError`/`McpSessionExpiredError` 假、
+    `HttpRequestException` 真）、`SignInRequiredMessage`（无 provider / 有 provider / stdio）、
+    `UsesOAuth`（无头 / `X-Trace` 头 / `Authorization` 两种大小写 / `auth` / stdio）、`ExpandHome`（`~`、`~/x`、`~\x`、绝对路径、`~user`）、
+    `StderrTail`（null / 空白 / 尾换行 / 2500 字符取末 2000）
+  - 打开与发现 9：惰性（首调前 0 个传输）、并发共享一次连接、工具+资源列举与 MCP App 过滤、instructions 去空白、
+    无 `tools` 能力不请求 `tools/list`、`"tools": null` 同样不请求、无 `resources` 能力不请求资源、
+    资源列举失败仍连接（连上后按需列举可用）、`resources/templates/list` 回落空、`tools/list` 失败则连接失败并带服务器名
+  - 重试与登录 12：readOnly 瞬时错误重试一次且复用客户端、工具调用不重试、非瞬时错误不重试、
+    会话过期在新会话重试一次（传输数 2）、第二次仍失败则上抛、`McpAuthRequiredError` 触发 needs-auth 与 `/mcp` 文案、
+    `auth.provider` 走 `/login anthropic`、无 auth provider 时不吞错、provider token 每次请求现读、
+    HTTP 连接瞬时错误重试、stdio 连接瞬时错误不重试、连接期授权错误 → needs-auth（含 stdio + `McpOAuthAuthorizationRequiredError`）
+  - 掉线 / 关闭 / 通知 / 请求形状 14：掉线置 disconnected 且下次调用重连、关闭后掉线被忽略、
+    关闭后调用报 `is shut down`、`ReconnectAsync` 换客户端重连、`SignOutAsync` 断开后标记且下次调用重连、
+    `notifications/message` 落 `mcp.log`、`tools/list_changed` 刷新工具并回调、`resources/list_changed` 刷新资源、
+    刷新失败写到 `connection.error`、工具参数与资源 uri 透传、`timeout` 秒 → 毫秒
+- 未覆盖（环境限制）：真实 `StdioTransport` 子进程的 stderr 尾拼进错误消息（需 spawn 真实进程；
+  `StderrTail` 截取与 `ConnectFailed` 的拼接分支各自已覆盖）、`createDefaultTransport` 的进程启动
+  （`Pi.Mcp.Tests` 同样不 spawn 子进程）。
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpRuntimeTests` **40/40**；
+  `Pi.Mcp.Tests` **35/35**；`Pi.CodingAgent.Tests` 全量 **1647 / 0 失败**。
