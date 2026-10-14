@@ -385,7 +385,9 @@ public class McpOAuthTests : IDisposable
             stored, new McpOAuthSettings(), "http://127.0.0.1:5000/callback", cimd: false);
         Assert.NotNull(prepared!.ClientInformation);
         Assert.Equal("tok", prepared.Tokens!.AccessToken);
-        Assert.Equal(1_000 + NowMs() - NowMs(), prepared.TokensExpireAt!.Value - NowMs());
+        // The expiry is carried over untouched; compare against the stored value directly so a
+        // millisecond tick between setup and assertion cannot flip the result (was flaky).
+        Assert.Equal(stored.TokensExpireAt, prepared.TokensExpireAt);
         // Every sign-in gets a fresh state parameter.
         Assert.Null(prepared.OAuthState);
     }

@@ -24,7 +24,7 @@
 | 根级（`config.ts` / `migrations.ts` / `main.ts` / `index.ts` / `cli.ts` / `rpc-entry.ts` / `package-manager-cli.ts`） | 7 | 3,624 | `Config.cs` / `Migrations.cs` | 🟡 仅 `config.ts` / `migrations.ts` 完成 |
 | **合计** | **299** | **85,536** | 77,321 行 C# | **约 90% 行数已落** |
 
-`src/Pi.CodingAgent` 现有 **192 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **77,321 行**（2026-10-14 4f-2a 后实测；新增 `Modes/Interactive/Theme/` 6 个文件 2,745 行）。
+`src/Pi.CodingAgent` 现有 **196 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **77,589 行**（2026-10-14 4f-3a 后实测；4f-2a 新增 `Modes/Interactive/Theme/` 6 个文件 2,745 行，4f-3a 新增 `Modes/Interactive/Components/` 4 个文件 268 行）。
 
 ### 1.2 构建与测试基线（本机实测）
 
@@ -324,7 +324,7 @@
 | 子阶段 | 范围 | 验收标准 |
 | --- | --- | --- |
 | 4f-2 | `modes/interactive/theme/*`（2,216 行：`theme.ts` 1,160 / `system-theme.ts` 655 / `theme-controller.ts` 253 / `theme-json.ts` 148） | **4f-2a ✅ 已收口**（`theme.ts` 模块级半边 + `system-theme.ts` + `theme-json.ts` + `Theme` 类 + TUI 助手 + OSC 查询链）；`Theme` 占位已删；`MarkdownTheme` / `SelectListTheme` / `SettingsListTheme` 三个形状已由 `ThemeHelpers` 产出。**4f-2b 余**：`theme-controller.ts`，依赖 4f-4 |
-| 4f-3 | `modes/interactive/components/*`（~9,000 行） | 每个组件一个测试类；选择器交互路径。**先做 `keybinding-hints`（48 行）与 `visual-truncate`（98 行）**，它们解 4f-1 的阻塞 |
+| 4f-3 | `modes/interactive/components/*`（实测 **11,652 行** / 49 文件） | 每个组件一个测试类；选择器交互路径。**4f-3a ✅ 已收口**（原语层：`keybinding-hints` + `visual-truncate`，解 4f-1 阻塞；另附 `dynamic-border` + `themed-text`）。**4f-3b 余**：`diff.ts`（需先补 `JsDiff.DiffWords`，4f-1 的 `edit` renderer 依赖）；**4f-3c 余**：消息类组件；**4f-3d 余**：选择器（含 `config-selector` / `settings-selector` / `session-selector` / `tree-selector` 四个 900+ 行大件）；**4f-3e 余**：`footer` / `tool-execution` / `bash-execution` / `armin` / `easter-egg-3d` / `index.ts` |
 | 4f-1 | `core/tools/renderers/*`（1,033 行 / 8 文件）+ `core/tools/render-utils.ts`（112 行） | renderers 逐文件对照；`ToolRenderers` 补 `RenderCall` / `RenderResult`（当前只有 `RenderShell`，差异 C85） |
 | 4f-4 | `modes/interactive/interactive-mode.ts`（7,072 行） | 主循环 / 键位 / 视口 / 共享 |
 | 4f-5 | `modes/rpc/*` + `print-mode` + `json-*`（~2,300 行） | RPC 端到端（Unix 域套接字回放） |
@@ -370,5 +370,7 @@
 | 2026-10-14 | P4b-2（4d-9） | MCP OAuth 凭据层：`Extensions/Mcp/OAuth.cs`（816 行）——`McpOAuthCredentialStore`（`mcp-auth.json`、legacy 键接管、`withRefreshLock`）、`CreateAuthProvider`（30s 提前刷新 / 401 刷新 / `insufficient_scope` 重新登录 / 进程内共享一次刷新 / 跨进程刷新锁 / 令牌被替换即用不刷新 / `settled`）、`SignInServerAsync`（PKCE、CIMD、粘贴 redirect URL 竞速、端口回退）；顺带修正 `Pi.Mcp` 两处真实缺陷（`McpOAuthProvider.clientMetadataDocument` 固定值 → 元数据相关钩子；`OAuthTypes` 六记录补 `[JsonPropertyName]` snake_case，修 .NET/TS `mcp-auth.json` 互不识别）；新登记 C179–C181 | 本轮提交 | `McpOAuthTests` 37/37；`Pi.Mcp.Tests` 35/35；`Pi.CodingAgent.Tests` 全类 **1570 / 0 失败**；构建 0 警告 0 错误 |
 
 | 2026-10-14 | 4f-2a | 主题层本体：`ThemeTokens`（56 令牌）/ `ThemeJson`（手写 schema 校验，替代 typebox）/ `SystemTheme`（ families + 对比曲线 + 规则拓扑序 + 三档降级）/ `Theme`（预计算 ANSI + `Colors` 按快照引用同一性缓存 + dim 抽屉）/ `ThemeRuntime`（全局注册表、自定义主题目录与文件监视、`COLORFGBG`/OSC 11/2031 终端外观探测、HTML 导出色）/ `ThemeHelpers`（26 scope + 65 扩展名 + 四个组件主题）；**先补 `Pi.Tui` 的 OSC 终端配色查询链**（OSC 10/11/4 + DA1 收尾，此前 `QueryTerminalBackgroundColorAsync` 从未收到过回复，是阻塞 `theme-controller` 的真实缺陷）；删掉 `Placeholders.cs` 的 `Theme` 占位类与 `ExtensionContexts` 里重复的 `ThemeInfo` / `SetThemeResult`；另修 `Pi.Tui.Tests.LoaderTests` 的一处 5 ms 定时器时序竞态（全量跑约三次挂一次） | 本轮提交 | `Pi.CodingAgent.Tests` **1889 / 0 失败**（3m50s，1708 + 181）；`Pi.Tui.Tests` 23854 / 0；构建 0 警告 0 错误 |
+
+| 2026-10-14 | 4f-3a | 交互组件原语层：`Modes/Interactive/Components/` 新增 `KeybindingHints.cs`（`formatKeyText` / `keyText` / `keyDisplayText` / `keyHint` / `rawKeyHint`）、`VisualTruncate.cs`（`truncateToVisualLines` + 按宽度缓存的 `VisualLinePreview`）、`DynamicBorder.cs`、`ThemedText.cs`；`keybinding-hints` + `visual-truncate` 解 4f-1（renderers）的直接阻塞；新登记 C197（平台探测缝）/C198（`"start"|"end"` 联合退化）；**顺带修 `McpOAuthTests` 一处 flaky 断言**（P4b-2 遗留：同一条断言连读三次 `NowMs()`，跨毫秒边界 → 1000/999） | 本轮提交 | 四个新测试类 **35 / 0 失败**；`Pi.CodingAgent.Tests` 全量 **1924 / 0 失败**（17m13s，1889 + 35）；构建 0 警告 0 错误；变异套件 `keybinding-hints` / `visual-truncate` / `dynamic-border` / `themed-text` 共 18 处锚点 |
 
 （后续阶段完成后逐行追加。）

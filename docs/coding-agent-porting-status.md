@@ -3304,3 +3304,38 @@ TS 的 `StdioTransport` 有 `DEFAULT_MAX_STDERR_BYTES = 64 * 1024` 与 `get stde
 - 未覆盖（记为缺口）：`theme-controller.ts` 本体（`requestTerminalColors` / `InteractiveThemeController`）顺延 **4f-2b**，依赖 4f-4；`getResolvedThemeColors` 的索引色主题只在 256 色夹具下走通一部分；`ThemeSeams.Watch` 用桩替换真实 `FileSystemWatcher`，OSC 查询的超时定时器同样只在 `StringTerminal` 上回放。
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量 **1889 / 0 失败**
   （原 1708 + 181，3m50s）；`Pi.Tui.Tests` 全量 **23854 / 0 失败**（含前述竞态修复后复跑）。
+
+---
+
+## 4f-3a 进度（2026-10-14）：交互组件原语（`keybinding-hints` / `visual-truncate` / `dynamic-border` / `themed-text`）
+
+4f-3 的第一批：`keybinding-hints.ts` 与 `visual-truncate.ts` 是 4f-1（`core/tools/renderers/*`）
+的**直接阻塞项**——八个 renderer 里六个 `import { keyHint }`、`bash.ts` 还要 `VisualLinePreview`；
+另外补两个被大量组件复用的原语 `dynamic-border.ts` 与 `themed-text.ts`。
+
+落点：`src/Pi.CodingAgent/Modes/Interactive/Components/`（命名空间 `Pi.CodingAgent.Modes.Interactive.Components`）。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | --- | --- | --- |
+| `components/keybinding-hints.ts` | 48 | `Components/KeybindingHints.cs` | `formatKeyText` / `keyText` / `keyDisplayText` / `keyHint` / `rawKeyHint`；读 `GlobalKeybindings.Get()` 与 `ThemeRuntime.Current` |
+| `components/visual-truncate.ts` | 98 | `Components/VisualTruncate.cs` | `truncateToVisualLines` + `VisualLinePreview`（按宽度缓存的 `IComponent`） |
+| `components/dynamic-border.ts` | 25 | `Components/DynamicBorder.cs` | 满宽规则线，缺省读 `border` 令牌 |
+| `components/themed-text.ts` | 32 | `Components/ThemedText.cs` | `Text` 子类，失效后按 `build()` 重建字符串 |
+
+### 4f-3a 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C197 | `keybinding-hints.ts` 的 `process.platform === "darwin"` 改为 `OperatingSystem.IsMacOS()`，并加 `internal static bool? KeybindingHints.MacOsOverride` 测试缝 | .NET 无法注入进程平台；缝只在测试里用，缺省仍走真实探测。与 `Chalk.EnabledOverride` / `SyntaxHighlight.HighlighterOverride` 同一既有约定 |
+| C198 | `truncateToVisualLines` / `VisualLinePreviewOptions.keep` 的 `"start" \| "end"` 字面量联合退化为 `string` | C# 无字面量联合类型；语义不变（只有 `"start"` 是特殊值，其余一律按 `"end"`） |
+
+### 测试与验证
+
+- 新建 **35 项**：
+  - `tests/Pi.CodingAgent.Tests/KeybindingHintsTests.cs`（**13**）：`formatKeyText` 的单键 / 斜杠备选 / 逐段首字母大写 / macOS `alt→option`（含大写）/ 非 macOS 保持 `alt` / 空串；`keyText` 读全局表（`enter`）、`keyDisplayText` 大写、多键 `left/ctrl+b`、未绑定为空；`keyHint` 的 dim 键 + muted 描述拼接与 ANSI、`rawKeyHint`。
+  - `tests/Pi.CodingAgent.Tests/VisualTruncateTests.cs`（**13**）：空串 / 纯空白 → 空；装得下不裁；缺省保留末行、`keep="start"` 保留首行；**按视觉行（换行后）而非逻辑行**计数；`paddingX` 生效；`VisualLinePreview` 的 hint 位置（start 在后 / end 在前）、无隐藏不加 hint、按宽度缓存（同宽返回同一实例）、`Invalidate` 清缓存、hint 按宽度截断（可见宽 10）。
+  - `tests/Pi.CodingAgent.Tests/DynamicBorderTests.cs`（**5**）：满宽 / 最小 1 列 / 缺省 `border` 令牌 / 显式颜色函数 / `Invalidate` 无副作用。
+  - `tests/Pi.CodingAgent.Tests/ThemedTextTests.cs`（**4**）：首次渲染构建一次、新鲜时不重建、`Invalidate` 强制重建、内边距。
+- 覆盖盲点自纠：`VisualLinePreview` 的 hint 截断断言原写成 `lines[0].Length == 10`，实测 18 —— 因为 `TextLayout.TruncateToWidth` 在省略号两侧加 `Reset`（`\x1b[0m`）转义，字符串长度 ≠ 可见宽。改为断言 `UnicodeWidth.VisibleWidth == 10` + `Contains("...")`。
+- **顺带修一处既有 flaky 测试**：全量复跑时 `McpOAuthTests.PrepareStoredState_KeepsRegisteredClientOnSameRedirect`（P4b-2 / 4d-9 的产物）偶发失败（`Expected 1000 / Actual 999`）。根因是断言 `Assert.Equal(1_000 + NowMs() - NowMs(), prepared.TokensExpireAt!.Value - NowMs())` 在**同一条断言里连读三次时钟**，跨毫秒边界时 `NowMs() - NowMs()` 变成 −1。`PrepareStoredStateForSignIn` 在保留客户端时确实原样带过 `TokensExpireAt`，故改为直接比较存量值 `Assert.Equal(stored.TokensExpireAt, prepared.TokensExpireAt)`（确定性，连跑 3 次 37/37 稳定）。与本仓既有的 `LoaderTests` 时序竞态同类。
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；四个新测试类合计 **35 / 0 失败**；`Pi.CodingAgent.Tests` 全量 **1924 / 0 失败**（17m13s，1889 + 35）。变异套件 `keybinding-hints` / `visual-truncate` / `dynamic-border` / `themed-text`（共 18 处，锚点唯一性已预校验）。
