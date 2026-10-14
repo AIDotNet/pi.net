@@ -2876,3 +2876,57 @@ update marker / `refreshTemporaryGitSource`、npm legacy 全局根回退（C168�
   update/网络检查与 `collectExtensionPackageWarnings`，不阻塞 4f/4g。
 
 
+
+## P4b-2 进度（2026-10-14）：MCP OAuth 凭据层（`extensions/mcp/oauth.ts` → `Extensions/Mcp/OAuth.cs`）
+
+对应 TS `extensions/mcp/oauth.ts`（532 行）。前置 `Pi.Mcp` 的 OAuth 全层（`packages/mcp` 的 C# 移植）
+与认证接线（4d-8）均已就位，本批只移植扩展自己的薄层。
+
+| TS 符号 | 行数 | .NET | 说明 |
+|---|---:|---|---|
+| `McpOAuthSettings` / `CallbackSettings` / `callbackSettings` | 55-103 | `McpOAuthSettings` / `McpCallbackSettings` / `McpOAuth.CallbackSettingsFrom` | `localhost` 监听落在 127.0.0.1；带端口配置的 URI 原样发送 |
+| `mergeScopes` | 106-109 | `McpOAuth.MergeScopes` | 去重保序 |
+| `parseStates` / `serializeStates` / `storeKeys` | 111-130 | `McpOAuth.ParseStates` / `SerializeStates` / `StoreKeys` | 键 = `mcp__<name>\|<URL 规范化串>` + legacy 键（仅 URL） |
+| `McpOAuthServerStore` / `McpOAuthCredentialStore` | 132-221 | `McpOAuthServerStore` / `McpOAuth.McpOAuthCredentialStore` | legacy 接管（首个加载者）、`tokens` 不接管、`remove`、`withRefreshLock` |
+| `registeredRedirectUrls` / `callbackId` / `clientMetadataDocument` | 223-260 | `McpOAuth.RegisteredRedirectUrls` / `CallbackId` / `ClientMetadataDocumentFor` | 12 字符 base64url；CIMD 文档选择（`iss` 参数 → 共享文档，否则服务器专用路径） |
+| `createProvider` | 262-282 | `McpOAuth.CreateProvider` | CIMD 时挂元数据相关钩子 |
+| `McpAuthProvider` / `createMcpAuthProvider` | 284-363 | `McpAuthProvider` / `McpOAuth.CreateAuthProvider` + `McpAuthProviderImpl` | 提前 30s 刷新；401 后刷新；`insufficient_scope` 要求重新登录；进程内共享一次刷新；跨进程刷新锁；令牌已被替换则直接用 |
+| `McpSignInPrompt` / `McpSignInCancelledError` | 365-381 | `IMcpSignInPrompt` / `McpSignInCancelledError` | 粘贴 redirect URL（SSH 场景） |
+| `responseFromRedirectUrl` / `waitForAuthorizationResponse` / `listenForCallback` | 383-450 | `McpOAuth.ResponseFromRedirectUrl` / `WaitForAuthorizationResponseAsync` / `ListenForCallbackAsync` | origin/pathname 精确匹配；浏览器与粘贴竞速 |
+| `signInMcpServer` | 452-532 | `McpOAuth.SignInServerAsync` | 复用已注册 redirect URI 的端口；`keepClient` 决策抽为纯函数 `PrepareStoredStateForSignIn`（481-496 行） |
+
+### 顺带修掉的真实缺陷（非差异）
+
+1. **`McpOAuthProvider.clientMetadataDocument` 是固定值而非钩子**（`src/Pi.Mcp/OAuth/OAuthProvider.cs`，
+   自 `88ce644` 起）：TS 是 `(metadata) => document | undefined`，CIMD 是否可用取决于发现阶段拿到的
+   `client_id_metadata_document_supported` / `token_endpoint_auth_methods_supported`。已改为委托并接线
+   （属性 / 构造器参数 / 接口方法调用）。**不修则 `clientRegistration: "cimd"` 整条路走不通**。
+2. **`OAuthTypes` 的记录缺 JSON 命名特性**（`src/Pi.Mcp/OAuth/OAuthTypes.cs`）：`OAuthTokens` /
+   `ClientInformation` / `ClientMetadata` / `ProtectedResourceMetadata` / `AuthorizationServerMetadata`
+   序列化成 PascalCase（`AccessToken`），TS 是 snake_case（`access_token`）。后果：.NET 写的
+   `mcp-auth.json` 与 TS pi 写的互不识别（令牌静默丢失 → 反复要求登录）。已按 `oauth/types.ts`
+   逐条补 `[JsonPropertyName]`（`DiscoveryState` 保持 camelCase，与 TS 一致）。修正后
+   `Pi.Mcp.Tests` 35/35 无回归。
+
+### P4b-2 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C179 | 刷新锁复用 `NodeLock.AcquireAsync`（stale 20s = 等待窗口，指数退避 10ms→1s，artifact 为排他**文件** `<path>.lock`）；TS proper-lockfile 为 250 次 × 100ms 固定重试（共 25s，长于 20s stale 窗），artifact 为排他**目录** | `NodeLock` 是 auth.json 已在用的 proper-lockfile 移植（artifact 形态差异在其类注释留档）。持续争用下 C# 比 TS 早 ~5s 放弃（抛 `ELOCKED` 等价的 `LockHeldException`）；stale 接管、`onCompromised` 空实现、释放即删三语义一致 |
+| C180 | `McpOAuthState` 的「删键」（`delete next.oauthState` 等）在 C# 落为显式 `null` 值 | `with { X = null }` + 默认序列化写 `"oauthState": null`。读取侧 `StateNode` 把 JSON null 当缺省（与 TS `states[key]` 真值判定一致），行为等价；仅在人工比对文件时可见 |
+| C181 | 默认 fetch 用共享静态 `HttpClient`（TS `globalThis.fetch`）；刷新请求包 15s 链接 CTS（TS `AbortSignal.timeout(15_000)`） | `HttpRequestMessage` 不可重发，McpFetch 委托即「发送」职责；`Pi.Mcp` 自带的内部默认仍是每次新建 `HttpClient`（既有行为，未动） |
+
+### 测试与验证
+
+- 新建 `tests/Pi.CodingAgent.Tests/McpOAuthTests.cs`（**37 项**）：callback 设置 5（默认 / 固定端口 /
+  localhost / 无端口 URL + callbackPort / IPv6）、scope 合并、`callbackId` 已知向量（sha256 前 9 字节
+  base64url，含 `#frag` 清空）、CIMD 文档 4（iss / 服务器专用 / 不支持 / 非 none 认证）、
+  redirect URL 解析 2（成功含 `%2B`/`+` 解码 / 六种拒绝）、states 序列化 2、凭据存储 6
+  （往返 / legacy 接管仅一次 / 名键胜出不重写 / `tokens` 不接管 / remove 两路 / 锁 artifact 名与释放）、
+  `PrepareStoredStateForSignIn` 3、provider 8（新鲜 / 过期无 refresh / 令牌被替换 / `settled` 等待在途刷新 /
+  无刷新即完成 / `insufficient_scope` / 被替换不刷新 / 无 refresh token / challenge 下发）、
+  竞速等待 4（粘贴胜出取消浏览器 / 浏览器胜出中止粘贴 / 取消 / error 与 mismatch）。
+- 未覆盖（环境限制或需网络）：`ListenForCallbackAsync` 的真实监听（沙箱禁端口，`Pi.Mcp.Tests`
+  同类 4 项同因此跳过）、`signInMcpServer` 端到端（需发现/注册的 HTTP 回放）——其决策叶子已由
+  `PrepareStoredStateForSignIn` / `WaitForAuthorizationResponseAsync` 单测覆盖，端口回退分支与 TS 逐行等价。
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpOAuthTests` **37/37**；`Pi.Mcp.Tests` **35/35**。

@@ -1,4 +1,6 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Pi.Mcp.OAuth;
 
@@ -10,23 +12,23 @@ public static class OAuthTypes
 {
     /// <summary>受保护资源元数据（RFC 9728）。对应 TS <c>OAuthProtectedResourceMetadata</c>。</summary>
     public sealed record ProtectedResourceMetadata(
-        string Resource,
-        IReadOnlyList<string>? AuthorizationServers = null,
-        IReadOnlyList<string>? ScopesSupported = null) : AdditionalFields;
+        [property: JsonPropertyName("resource")] string Resource,
+        [property: JsonPropertyName("authorization_servers")] IReadOnlyList<string>? AuthorizationServers = null,
+        [property: JsonPropertyName("scopes_supported")] IReadOnlyList<string>? ScopesSupported = null) : AdditionalFields;
 
     /// <summary>授权服务器元数据（RFC 8414）。对应 TS <c>AuthorizationServerMetadata</c>。</summary>
     public sealed record AuthorizationServerMetadata(
-        string Issuer,
-        string AuthorizationEndpoint,
-        string TokenEndpoint,
-        string? RegistrationEndpoint = null,
-        IReadOnlyList<string>? ScopesSupported = null,
-        IReadOnlyList<string>? ResponseTypesSupported = null,
-        IReadOnlyList<string>? GrantTypesSupported = null,
-        IReadOnlyList<string>? TokenEndpointAuthMethodsSupported = null,
-        IReadOnlyList<string>? CodeChallengeMethodsSupported = null,
-        bool? ClientIdMetadataDocumentSupported = null,
-        bool? AuthorizationResponseIssParameterSupported = null) : AdditionalFields
+        [property: JsonPropertyName("issuer")] string Issuer,
+        [property: JsonPropertyName("authorization_endpoint")] string AuthorizationEndpoint,
+        [property: JsonPropertyName("token_endpoint")] string TokenEndpoint,
+        [property: JsonPropertyName("registration_endpoint")] string? RegistrationEndpoint = null,
+        [property: JsonPropertyName("scopes_supported")] IReadOnlyList<string>? ScopesSupported = null,
+        [property: JsonPropertyName("response_types_supported")] IReadOnlyList<string>? ResponseTypesSupported = null,
+        [property: JsonPropertyName("grant_types_supported")] IReadOnlyList<string>? GrantTypesSupported = null,
+        [property: JsonPropertyName("token_endpoint_auth_methods_supported")] IReadOnlyList<string>? TokenEndpointAuthMethodsSupported = null,
+        [property: JsonPropertyName("code_challenge_methods_supported")] IReadOnlyList<string>? CodeChallengeMethodsSupported = null,
+        [property: JsonPropertyName("client_id_metadata_document_supported")] bool? ClientIdMetadataDocumentSupported = null,
+        [property: JsonPropertyName("authorization_response_iss_parameter_supported")] bool? AuthorizationResponseIssParameterSupported = null) : AdditionalFields
     {
         /// <summary>必须项校验用：response_types_supported 是必填字符串数组。</summary>
         public IReadOnlyList<string> RequiredResponseTypes => ResponseTypesSupported ?? [];
@@ -34,38 +36,38 @@ public static class OAuthTypes
 
     /// <summary>令牌响应。对应 TS <c>OAuthTokens</c>。</summary>
     public sealed record OAuthTokens(
-        string AccessToken,
-        string TokenType,
-        double? ExpiresIn = null,
-        string? Scope = null,
-        string? RefreshToken = null,
-        string? IdToken = null);
+        [property: JsonPropertyName("access_token")] string AccessToken,
+        [property: JsonPropertyName("token_type")] string TokenType,
+        [property: JsonPropertyName("expires_in")] double? ExpiresIn = null,
+        [property: JsonPropertyName("scope")] string? Scope = null,
+        [property: JsonPropertyName("refresh_token")] string? RefreshToken = null,
+        [property: JsonPropertyName("id_token")] string? IdToken = null);
 
     /// <summary>客户端元数据。对应 TS <c>OAuthClientMetadata</c>。</summary>
     public sealed record ClientMetadata(
-        IReadOnlyList<string> RedirectUris,
-        string? TokenEndpointAuthMethod = null,
-        string? GrantTypes = null,
-        string? ResponseTypes = null,
-        string? ClientName = null,
-        string? Scope = null);
+        [property: JsonPropertyName("redirect_uris")] IReadOnlyList<string> RedirectUris,
+        [property: JsonPropertyName("token_endpoint_auth_method")] string? TokenEndpointAuthMethod = null,
+        [property: JsonPropertyName("grant_types")] string? GrantTypes = null,
+        [property: JsonPropertyName("response_types")] string? ResponseTypes = null,
+        [property: JsonPropertyName("client_name")] string? ClientName = null,
+        [property: JsonPropertyName("scope")] string? Scope = null);
 
     /// <summary>客户端注册信息。对应 TS <c>OAuthClientInformationFull</c>。</summary>
     public sealed record ClientInformation(
-        string ClientId,
-        string? ClientSecret = null,
-        double? ClientIdIssuedAt = null,
-        double? ClientSecretExpiresAt = null,
-        IReadOnlyList<string>? RedirectUris = null,
-        string? TokenEndpointAuthMethod = null,
-        string? ClientName = null);
+        [property: JsonPropertyName("client_id")] string ClientId,
+        [property: JsonPropertyName("client_secret")] string? ClientSecret = null,
+        [property: JsonPropertyName("client_id_issued_at")] double? ClientIdIssuedAt = null,
+        [property: JsonPropertyName("client_secret_expires_at")] double? ClientSecretExpiresAt = null,
+        [property: JsonPropertyName("redirect_uris")] IReadOnlyList<string>? RedirectUris = null,
+        [property: JsonPropertyName("token_endpoint_auth_method")] string? TokenEndpointAuthMethod = null,
+        [property: JsonPropertyName("client_name")] string? ClientName = null);
 
-    /// <summary>发现状态。对应 TS <c>OAuthDiscoveryState</c>。</summary>
+    /// <summary>发现状态。对应 TS <c>OAuthDiscoveryState</c>（TS 用 camelCase，保持原样）。</summary>
     public sealed record DiscoveryState(
-        string AuthorizationServerUrl,
-        AuthorizationServerMetadata? AuthorizationServerMetadata = null,
-        ProtectedResourceMetadata? ResourceMetadata = null,
-        string? ResourceMetadataUrl = null);
+        [property: JsonPropertyName("authorizationServerUrl")] string AuthorizationServerUrl,
+        [property: JsonPropertyName("authorizationServerMetadata")] AuthorizationServerMetadata? AuthorizationServerMetadata = null,
+        [property: JsonPropertyName("resourceMetadata")] ProtectedResourceMetadata? ResourceMetadata = null,
+        [property: JsonPropertyName("resourceMetadataUrl")] string? ResourceMetadataUrl = null);
 
     /// <summary>WWW-Authenticate 挑战解析结果。对应 TS <c>OAuthChallenge</c>。</summary>
     public sealed record Challenge(string? ResourceMetadataUrl = null, string? Scope = null, string? Error = null, string? ErrorDescription = null);

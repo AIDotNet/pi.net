@@ -75,7 +75,12 @@ public sealed class McpOAuthProvider : OAuthFlow.IOAuthClientProvider
 
     public OAuthTypes.ClientMetadata ClientMetadata { get; }
 
-    public OAuthFlow.ClientMetadataDocument? ClientMetadataDocumentHook { get; init; }
+    /// <summary>
+    /// 改用 Client ID Metadata Document 标识而非动态注册的钩子；可键于授权服务器元数据
+    /// （CIMD 支持与否以 <c>client_id_metadata_document_supported</c> 为准）。
+    /// 对应 TS <c>clientMetadataDocument?: (metadata) =&gt; OAuthClientMetadataDocument | undefined</c>。
+    /// </summary>
+    public Func<OAuthTypes.AuthorizationServerMetadata?, OAuthFlow.ClientMetadataDocument?>? ClientMetadataDocumentHook { get; init; }
 
     public OAuthFlow.AddClientAuthentication? AddClientAuthenticationHook { get; init; }
 
@@ -87,7 +92,7 @@ public sealed class McpOAuthProvider : OAuthFlow.IOAuthClientProvider
         string? clientId = null,
         string? clientSecret = null,
         McpOAuthStateStore? store = null,
-        OAuthFlow.ClientMetadataDocument? clientMetadataDocument = null)
+        Func<OAuthTypes.AuthorizationServerMetadata?, OAuthFlow.ClientMetadataDocument?>? clientMetadataDocument = null)
     {
         _serverUrl = new Uri(serverUrl).ToString();
         RedirectUrl = redirectUrl;
@@ -107,7 +112,7 @@ public sealed class McpOAuthProvider : OAuthFlow.IOAuthClientProvider
     }
 
     public OAuthFlow.ClientMetadataDocument? ClientMetadataDocument(OAuthTypes.AuthorizationServerMetadata? metadata)
-        => ClientMetadataDocumentHook;
+        => ClientMetadataDocumentHook?.Invoke(metadata);
 
     public async Task<string?> State(CancellationToken cancellationToken = default)
     {
