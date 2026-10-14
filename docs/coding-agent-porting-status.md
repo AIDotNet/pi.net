@@ -3080,3 +3080,58 @@ TS 的 `StdioTransport` 有 `DEFAULT_MAX_STDERR_BYTES = 64 * 1024` 与 `get stde
   （`Pi.Mcp.Tests` 同样不 spawn 子进程）。
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpRuntimeTests` **40/40**；
   `Pi.Mcp.Tests` **35/35**；`Pi.CodingAgent.Tests` 全量 **1647 / 0 失败**。
+
+
+## P4b-5 进度（2026-10-14）：`pi mcp` 命令（`extensions/mcp/cli.ts` → `Extensions/Mcp/Cli.cs`）
+
+对应 TS `extensions/mcp/cli.ts`（614 行）。依赖面（`McpConfig` / `McpServers.ValidateMcpServerConfig` /
+`McpServers.GetMcpToolExposure` / `ProjectTrustStore` / `OpenBrowser` / `McpOAuth.SignInServerAsync` /
+`McpServerConnection` / `Chalk`）在 P4b-1…P4b-4 已就位，本批只移植命令行半边。
+
+| TS 符号 | 行数 | .NET | 说明 |
+|---|---:|---|---|
+| `HELP` / `HELP_HINT` | 33-75 | `Help` / `HelpHint` | 逐字保留（`Chalk.Bold("Usage:")` 与 `Chalk.Dim` 同 TS）；`${APP_NAME}` / `${CONFIG_DIR_NAME}` 用原始插值字符串 `$$"""…"""` 写成 `{{Config.AppName}}` / `{{Config.ConfigDirName}}`，`${NAME}` 字面量不受影响 |
+| `DEFAULT_LOGIN_TIMEOUT_SECONDS` | 77 | `DefaultLoginTimeoutSeconds` | 300 |
+| `McpCommandOptions` | 79-89 | `McpCommandOptions` | 同名缝（cwd/agentDir/credentials/openUrl/log/error）+ 三个端口缝，见 C187 |
+| `ServerReport` | 91-107 | `McpServerReport` | 可空字段用 `[JsonIgnore(WhenWritingNull)]` 对齐 `JSON.stringify` 丢 `undefined` 的行为 |
+| `errorMessage` / `describeTransport` | 109-116 | `ErrorMessage`（`error.Message`）/ `DescribeTransport` | 后者对缺失命令仍拼出字面量 `undefined`（TS `[undefined, …].join(" ")`） |
+| `createConnection` | 118-127 | `CreateConnection` | 每次连接都带 `McpServerLog(agentDir/mcp.log)` |
+| `OPTION_ALIASES` / `parseOptions` | 129-182 | `OptionAliases` / `ParseOptions` | `-l`→`--local`；`--` 与「达到 maxPositionals」都结束选项解析（命令自身的选项透传） |
+| `runMcpCommand` | 184-260 | `RunMcpCommandAsync` | help / add / remove / list / login / logout / unknown 七路；退出码逐条对齐 |
+| `parsePairs` | 262-275 | `ParsePairs` | `KEY=VALUE`；`separator <= 0` 报错 |
+| `add` | 277-394 | `Add` | HTTP 与 stdio 两路、`--bearer-token-env-var` → `Authorization: Bearer ${NAME}`、`oauth` 子对象、`exposure`/`description`、校验后写盘、两条提示 |
+| `remove` | 396-432 | `Remove` | 删不掉时指出另一 scope 的 `source` 并给 `--local` / 省略 `--local` 的提示 |
+| `list` | 434-519 | `ListAsync` / `ReportAsync` | `Task.WhenAll` 并发体检；文本与 JSON 两种输出；`errors` 与 `note` |
+| `login` | 521-577 | `LoginAsync` | 先连接判定是否需要登录、再用 challenge 走 `SignInServerAsync`、清 challenge、重连 |
+| `waitForRedirectUrl` | 579-614 | `WaitForRedirectUrlAsync` / `ReadRedirectLineAsync` | 非交互时只等回调；交互时把「读一行」与取消令牌赛跑（`Console.In` 不理会令牌） |
+
+### P4b-5 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C187 | `McpCommandOptions` 增加三个缝：`CreateTransport`（默认 `McpServerConnection.CreateDefaultTransport`）、`Interactive`、`ReadLine`（默认 `Console`） | TS 直接调 `createDefaultTransport` 与 `process.stdin`，其测试因此必须 spawn 真实 stdio 服务器（`node stdio-server.mjs`）。端口把传输工厂与终端读写做成可注入项，测试即可在不启动子进程、不碰真实终端的前提下差分覆盖 `list`/`login` 的连接语义；`Interactive` 未设置时仍走 TS 原式 `openUrl === undefined && stdin.isTTY` |
+| C188 | `McpServerConnection.Challenge` 保持只读，新增 `ClearChallenge()`；状态名由 `McpCli.StateName` 还原成 TS 字符串 | TS 里 `challenge` 是公开可变字段（`connection.challenge = undefined`）、`state` 本身就是字符串。端口沿用 C184 的枚举，并在 CLI 边界做一次映射，避免把枚举泄漏进 JSON 输出 |
+| — | `Math.round(timeoutMs / 1000)` 用 `JsRound`（`Floor(x + 0.5)`）实现 | C# 的 `Math.Round` 默认「四舍六入五取偶」，与 JS 的 `Math.round` 在 .5 上不同 |
+
+### 测试与验证
+
+- 新建 `tests/Pi.CodingAgent.Tests/McpCliTests.cs`（**15 项**），向量转录自 TS
+  `packages/coding-agent/test/mcp-command.test.ts`（197 行），传输用注入的 `FakeMcpServer`：
+  - `list` 4：文本（`fixture: connected, 1 tool (codemode, global)` / `  tools: echo` /
+    `parked: disabled (codemode, global)` / 失败服务器的三行「状态 + 传输 + spawn ENOENT」/
+    `config error: ` + `server "bad" needs either "command"`；只有健康服务器时 exit 0）；
+    JSON（`servers[].name/state/tools`、`errors` 为空、`scope` 为 `global`）；
+    空配置文案与配置错误 exit 1；项目配置不可信时的 note
+  - help 1：无参数 / `help` / `list --help` 都打 `Usage:` 且 exit 0；未知命令 exit 1
+  - login/logout 4：未知服务器（含 `Configured: fixture, broken, parked.`）、stdio 服务器「does not use OAuth」、
+    已可连接时 `Already signed in to MCP server "docs" (1 tools).`、连接失败
+    `MCP server "remote" failed to connect: …` 与 `--timeout abc` 的拒绝、参数个数校验、未知选项
+  - add/remove 6：stdio 两种写法（`--env` 两条含 `B=x=y`；`--` 与「命令自身选项透传」两种 positional 语义）、
+    HTTP（`X-Team` 头 + `Authorization: Bearer ${DOCS_TOKEN}`、`exposure`、`description`，且输出不含 `mcp login`；
+    `--oauth-client-id/--oauth-client-name` 写进 `oauth` 且提示 `pi mcp login sentry`）、
+    10 种非法调用都不写文件、项目 scope 的增删与 `--local` 提示、全局删除与重复删除
+- 未覆盖（环境限制）：`login` 的真实 OAuth 端到端（需要发现/注册/回环回调，同 P4b-2 的
+  `signInMcpServer` 端到端）、交互式粘贴 redirect URL 的真实终端读取（`ReadLine` 缝已就位，
+  `WaitForRedirectUrlAsync` 的取消与超时分支由 `SignInServerAsync` 侧覆盖）。
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpCliTests` **15/15**；
+  `Pi.CodingAgent.Tests` 全量 **1662 / 0 失败**。

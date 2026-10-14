@@ -4,7 +4,7 @@
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`428a12bc7`（= `origin/main`）**
 > 目标仓库：`D:\AI\参考项目\pi.net`（`src/Pi.CodingAgent`），起始 commit **`f208567`**
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C186`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C188`）。
 
 ---
 
@@ -22,9 +22,9 @@
 | `cli/` | 17 | 1,949 | — | ⬜ 未开始 |
 | `bun/` + `client/` | 6 | 62 | — | ⬜ 未开始（多为打包器垫片，多数无对应物） |
 | 根级（`config.ts` / `migrations.ts` / `main.ts` / `index.ts` / `cli.ts` / `rpc-entry.ts` / `package-manager-cli.ts`） | 7 | 3,624 | `Config.cs` / `Migrations.cs` | 🟡 仅 `config.ts` / `migrations.ts` 完成 |
-| **合计** | **299** | **85,536** | 71,473 行 C# | **约 84% 行数已落** |
+| **合计** | **299** | **85,536** | 72,493 行 C# | **约 85% 行数已落** |
 
-`src/Pi.CodingAgent` 现有 **183 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **71,473 行**（2026-10-14 P4b-4 后实测）。
+`src/Pi.CodingAgent` 现有 **184 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **72,493 行**（2026-10-14 P4b-5 后实测）。
 
 ### 1.2 构建与测试基线（本机实测）
 
@@ -40,6 +40,7 @@
 | `Pi.Ai.Tests`（P2b 后） | ✅ **301 项 / 0 失败**（8s） |
 | `Pi.CodingAgent.Tests`（P4b-3 后） | ✅ **1607 项 / 0 失败**（2m39s；1570 + `McpResourceToolsTests` 37） |
 | `Pi.CodingAgent.Tests`（P4b-4 后） | ✅ **1647 项 / 0 失败**（3m08s；1607 + `McpRuntimeTests` 40） |
+| `Pi.CodingAgent.Tests`（P4b-5 后） | ✅ **1662 项 / 0 失败**（3m27s；1647 + `McpCliTests` 15） |
 | 其余 9 个测试工程 | 见 [porting-status.md](porting-status.md) 的环境限制说明 |
 
 ### 1.3 起始状态的一个真实缺陷（本批已修）
@@ -81,6 +82,7 @@
 | 4e-3e-9h-4b-2 | `CacheWarmer` 完整化（定时重放 / 经济学判定 / `decide` + `extensionOverride` / 三个回调）+ `AgentSessionRuntime` 编排本体（`switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose` / `createAgentSessionRuntime`）+ `createAgentSessionServices` / `createAgentSessionFromServices`；顺带修正 `GetPromptCacheTtlMs` 的 `"short"` 回落缺陷与 `FormatCacheWarmingUsage` 的尾随零语义 | C162/C163；`CacheWarmerTests` 11 项 + `AgentSessionRuntimeTests` 22 项 |
 | 4e-3c-2a | package-manager 叶子层：`PackageManagerPatterns`（patterns 纯函数）/ `PackageManagerCollectors`（目录采集器）/ `GlobSync`（node:fs `globSync` 子集）/ `SemverRange`（`validRange` / `satisfies`）；`Skills` 侧 ignore 助手（`IgnoreFileNames` / `ToPosixPath` / `PrefixIgnorePattern` / `AddIgnoreRules`）提为 `internal` 共享 | C164–C167；`82b47aa`；114 项新测试 |
 | 4e-3c-2b | `DefaultPackageManager` 全链路：`ResolveAsync` / `ResolvePackageSourcesAsync` / `DedupePackages` / `FindAutoloadDeltaBase` / `PackageRoot` / 完整 `+`/`-`/`!` override 语义 / `ResourceMap`+`Accumulator`+`ToResolvedPaths`（稳定排序）/ `ListConfiguredPackages` / `GetInstalledPath` / `ResolveExtensionSourcesAsync`；**删除 SettingsManager 里臆造的 `include`/`exclude`/`autoload` 三个 settings 键通路（8 个成员）** | C168；`PackageManagerTests` 24 项（含 `ResourceLoaderTests` 夹具修正） |
+| P4b-5（4d-12） | `pi mcp` 命令：`extensions/mcp/cli.ts`（614 行）→ `Extensions/Mcp/Cli.cs`（1,014 行）：`RunMcpCommandAsync` 的 help / add / remove / list / login / logout 七路（退出码逐条对齐 TS，`list` 在任一启用服务器未连接或存在配置错误时 exit 1）+ 参数解析（`-l`→`--local`、`--` 与 `maxPositionals` 都结束选项解析、命令自身选项透传）+ HTTP/stdio 两路 config 构造（`--bearer-token-env-var` → `Authorization: Bearer ${NAME}`、`oauth` 子对象）+ 文本/JSON 两种列表输出 + 登录（先连接判定 → challenge → `SignInServerAsync` → 清 challenge → 重连）+ 粘贴 redirect URL 的终端读取；新增 `McpServerConnection.ClearChallenge()` | `McpCliTests` 15 项；C187/C188；见 2026-10-14 台账 |
 | P4b-4（4d-11） | MCP 连接层：`extensions/mcp/runtime.ts`（491 行）→ `Extensions/Mcp/Runtime.cs`（815 行）：`McpServerConnection`（懒连接 + 记忆化打开 / 六态状态机 / 能力门控的 tools+resources 发现 / readOnly 瞬时错误 250ms 同客户端重试 / 会话过期新会话重试一次 / needs-auth 与登录文案 / stderr 尾拼进连接失败与掉线消息 / `close` 等 `authProvider.settled()` 落盘）+ `CreateDefaultTransport` + `FetchResourcesAsync` + `WithoutTemplatesAsync`；前置补 `Pi.Mcp` 的 `StdioTransport.Stderr`（64KB 滚动缓冲，此前子进程报错全丢）；**自纠一处移植陷阱**：`_opening ??= OpenOnceAsync()` 在同步完成的打开上残留已完成任务，导致掉线/登出/会话过期后的重连都拿到死客户端 | `McpRuntimeTests` 40 项；C184–C186；见 2026-10-14 台账 |
 | P4b-3（4d-10） | MCP 资源工具：`extensions/mcp/resources.ts`（339 行）→ `Extensions/Mcp/Resources.cs`（600 行）：`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` 三个工具 + `isMcpAppResource` + 单服务器分页与全服务器聚合（排序 / `_meta` 与 icons 剥离 / 逐服务器 errors 条目）+ 多内容 `uri:` 前缀；顺带补 `Pi.Mcp` 的 `McpResourceContents.MimeType`（此前 image blob 无法还原成图片块） | `McpResourceToolsTests` 37 项；C182/C183；见 2026-10-14 台账 |
 | P4b-2（4d-9） | MCP OAuth 凭据层：`extensions/mcp/oauth.ts`（532 行）→ `Extensions/Mcp/OAuth.cs`（816 行）：`McpOAuthCredentialStore`（legacy 接管 / refresh 锁）/ `createMcpAuthProvider`（30s 提前刷新、401 刷新、insufficient_scope、进程内共享刷新、跨进程锁、令牌被替换短路）/ `signInMcpServer`（PKCE + CIMD + 粘贴 redirect 竞速）；顺带修正 `Pi.Mcp` 两处真实缺陷（`clientMetadataDocument` 固定值 → 元数据钩子；`OAuthTypes` JSON 命名缺 snake_case） | `McpOAuthTests` 37 项；C179–C181；见 2026-10-14 台账 |
@@ -115,12 +117,12 @@
 | `CacheWarmer` 完整化（`decide` / 定时重放 / 经济学判定 / 回调） | 454 行 | ✅ **本批** |
 | `CreateAgentSessionRuntimeResult` | — | ✅ 类型 + 消费方均就位 |
 
-#### 4d 尾巴：扩展层剩余（P4b-4 已收口）
+#### 4d 尾巴：扩展层剩余（P4b-5 已收口）
 
 | TS 符号 | 行数 | 现状 |
 | --- | ---: | --- |
 | `extensions/llama/*` | 1,577 | ✅ provider / client / huggingface / index 全部完成；`ui.ts` 的 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`（依赖 4f-2 / 4f-3 的 Theme 与组件）顺延 4f |
-| `extensions/mcp/*` 余下（`cli.ts` 614 / `index.ts` 1225 / `ui.ts` 252） | ~2,091 | `oauth.ts` 已收口（P4b-2）、`resources.ts` 已收口（P4b-3）、`runtime.ts` 已收口（P4b-4）；余 P4b-5（cli）→ P4b-6（index + ui 非 TUI 半部）
+| `extensions/mcp/*` 余下（`index.ts` 1225 / `ui.ts` 252） | ~1,477 | `oauth.ts`（P4b-2）、`resources.ts`（P4b-3）、`runtime.ts`（P4b-4）、`cli.ts`（P4b-5）已收口；余 P4b-6（`index.ts` 装配 + `ui.ts` 非 TUI 半部）→ P4b-7（`ui.ts` 的 `McpManagerView`，顺延 4f） |
 
 #### package-manager 包解析 ✅ 已完成（4e-3c-2a `82b47aa` + 4e-3c-2b 本批）
 
@@ -287,7 +289,7 @@
   | **P4b-2** | `oauth.ts`(532) → `Extensions/Mcp/OAuth.cs`：`McpOAuthCredentialStore`（`mcp-auth.json`、legacy 键接管、`withRefreshLock`）、`createMcpAuthProvider`（刷新去重 + 30s skew + 锁）、`signInMcpServer`（PKCE 回调、CIMD、粘贴 redirect URL）、`callbackSettings` / `mergeScopes` / `callbackId` / `clientMetadataDocument` | P4b-1 |
   | **P4b-3** | `resources.ts`(339) → `Extensions/Mcp/Resources.cs`：`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` 三个工具 + `isMcpAppResource` + 分页/聚合语义 | `Tools.cs`（已就位） |
   | **P4b-4** | ✅ **已收口**（4d-11）：`runtime.ts`(491) → `Extensions/Mcp/Runtime.cs`：`McpServerConnection`（懒连接、状态机、瞬时错误重试、会话过期重连、needs-auth、stderr 尾、`close` 等刷新落盘）、`createDefaultTransport`、`fetchResources`、`withoutTemplates` | P4b-1/2/3 |
-  | **P4b-5** | `cli.ts`(614) → `Extensions/Mcp/Cli.cs`：`pi mcp list/login/logout/...` 子命令 | P4b-2/4 |
+  | **P4b-5** | ✅ **已收口**（4d-12）：`cli.ts`(614) → `Extensions/Mcp/Cli.cs`：`pi mcp list/login/logout/...` 子命令 | P4b-2/4 |
   | **P4b-6** | `index.ts`(1225) → `Extensions/Mcp/McpExtension.cs`：`createMcpExtension`（后台连接、exposure 语义、`mcp_servers` section、`/mcp` 命令、`toolExposure` 覆盖、启动问题汇报）+ `ui.ts` 的非 TUI 半部（`McpMenu` / `McpUi` 缝） | P4b-2/3/4/5 |
   | **P4b-7（顺延 4f）** | `ui.ts` 的 `McpManagerView` / `showMcpManager`（依赖 `Theme`、`SelectList`、`DynamicBorder`、`AuthUrlComponent`、`keyHint`） | 4f-2/4f-3 |
 
@@ -342,6 +344,7 @@
 | 2026-10-13 | P4a（4d-7c） | llama `provider.ts` + `index.ts` + `ui.ts` 非 UI 半部；`BuiltInExtensions` 的 `llama.cpp` 占位工厂 → 真实工厂；新增 `Utils/JsNumber.cs`；`LlamaModelInfo` 补 5 个只读访问器；新登记 C169–C173 | `bafb72e`（已推送） | `LlamaExtensionTests` 44/44 ✅；`BuiltInExtensionsTests` 更新；构建 0 警告 0 错误；变异套件 `llama-extension` 24 处全捕获（首轮 23/24，`ui-context-label-rounding` 盲点补语料后捕获） |
 | 2026-10-13 | P4b-1（4d-8） | `Pi.Mcp` 补全：新增 `AuthProvider.cs`（`McpFetch` / `UnauthorizedContext` / `AuthProvider`）；`StreamableHttpTransport` 接认证（`SendAuthorizedAsync`：Bearer 头、401/403-`insufficient_scope` 重试一次、`FetchAsync` 暴露给提供者）；`OAuthFlow.AdaptOAuthProvider`；`McpClient` 补 4 个资源列举方法 + `ListPageAsync`；`McpResource`/`McpResourceTemplate` 加 `Raw`；删去无引用的 `OAuthFlow.AuthProvider` 与嵌套 `OAuthDiscovery.McpFetch`；新登记 C174–C178 | 见本批提交 | `Pi.Mcp.Tests` **35 / 0 失败** ✅（新增 16）；构建 0 警告 0 错误 |
 
+| 2026-10-14 | P4b-5（4d-12） | `pi mcp` 命令：`Extensions/Mcp/Cli.cs`（1,014 行）——`RunMcpCommandAsync` 七路（help / add / remove / list / login / logout / unknown，退出码逐条对齐）；参数解析保留 TS 的两处细节（`-l` 别名在判断 `--` 前替换、`--` 与 `maxPositionals` 都结束选项解析使命令自身选项透传）；`add` 的 HTTP/stdio 两路 config（`--bearer-token-env-var` → `Authorization: Bearer ${NAME}`、`oauth` 子对象、`Number()` 语义的 callbackPort、非法调用一律不落盘）；`list` 并发体检 + 文本/JSON 两种输出（可空字段按 `JSON.stringify` 丢 `undefined` 语义省略）；`login` 先连接判定 → challenge → `SignInServerAsync` → 清 challenge → 重连，`logout` 走 `RemoveAsync`；粘贴 redirect URL 的终端读取把「读一行」与取消令牌赛跑；新增 `McpServerConnection.ClearChallenge()`；新登记 C187/C188 | 本轮提交 | `McpCliTests` 15/15（向量转录自 TS `mcp-command.test.ts`）；`Pi.CodingAgent.Tests` 全类 **1662 / 0 失败**（3m27s）；构建 0 警告 0 错误 |
 | 2026-10-14 | P4b-4（4d-11） | MCP 连接层：`Extensions/Mcp/Runtime.cs`（815 行）——`McpServerConnection`（懒连接与记忆化打开；六态状态机；能力门控的 tools/resources 发现并剔除 MCP App；`readOnly` 请求遇瞬时 HTTP 错误 250ms 后同客户端重试一次而工具调用不重试；会话过期在新会话重试一次；needs-auth 标记 + `/login <provider>` 或 `/mcp` 文案；stderr 尾拼进「连接失败」与「连接关闭」消息；`close` 中止在途连接并等 `authProvider.settled()`）+ `CreateDefaultTransport`（HTTP/stdio 两路、env 与 args 解析展开）+ `FetchResourcesAsync`（并行、失败降级为空）+ `WithoutTemplatesAsync`（`method-not-found` → 空模板）；前置补 `Pi.Mcp` 的 `StdioTransport.Stderr`（`MaxStderrBytes` 64KB 滚动缓冲 + `Stderr` 属性，此前子进程报错全丢，用户只看到 `spawn failed`）；**自纠一处移植陷阱**：`_opening ??= OpenOnceAsync()` 在同步完成的打开上会残留已完成任务（C# async 无挂起时 `finally` 同步执行，JS 的 `.finally` 总在微任务），导致掉线/登出/会话过期后的重连拿到死客户端，改为「先赋值 memo 再注册清空续体」；新登记 C184–C186 | 本轮提交 | `McpRuntimeTests` 40/40；`Pi.Mcp.Tests` 35/35；`Pi.CodingAgent.Tests` 全类 **1647 / 0 失败**（3m08s）；构建 0 警告 0 错误 |
 | 2026-10-14 | P4b-3（4d-10） | MCP 资源工具：`Extensions/Mcp/Resources.cs`——`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`（`isMcpAppResource` 过滤 `ui://` 与 `profile=mcp-app`；`listed` 剥离 `_meta`/`icons` 并前置 `server`；带 `server` 走一页 + `nextCursor`，不带则每服务器全量、按名字排序聚合、逐服务器记 `{server,error}`；多条 contents 前置 `uri:` 文本块；text/blob/image 三路还原）；顺带补 `Pi.Mcp` 的 `McpResourceContents.MimeType`（此前 image blob 无法还原成图片块，只能退化成 binary omitted 占位）；新登记 C182/C183 | 本轮提交 | `McpResourceToolsTests` 37/37；`Pi.Mcp.Tests` 35/35；`Pi.CodingAgent.Tests` 全类 **1607 / 0 失败**；构建 0 警告 0 错误 |
 | 2026-10-14 | P4b-2（4d-9） | MCP OAuth 凭据层：`Extensions/Mcp/OAuth.cs`（816 行）——`McpOAuthCredentialStore`（`mcp-auth.json`、legacy 键接管、`withRefreshLock`）、`CreateAuthProvider`（30s 提前刷新 / 401 刷新 / `insufficient_scope` 重新登录 / 进程内共享一次刷新 / 跨进程刷新锁 / 令牌被替换即用不刷新 / `settled`）、`SignInServerAsync`（PKCE、CIMD、粘贴 redirect URL 竞速、端口回退）；顺带修正 `Pi.Mcp` 两处真实缺陷（`McpOAuthProvider.clientMetadataDocument` 固定值 → 元数据相关钩子；`OAuthTypes` 六记录补 `[JsonPropertyName]` snake_case，修 .NET/TS `mcp-auth.json` 互不识别）；新登记 C179–C181 | 本轮提交 | `McpOAuthTests` 37/37；`Pi.Mcp.Tests` 35/35；`Pi.CodingAgent.Tests` 全类 **1570 / 0 失败**；构建 0 警告 0 错误 |

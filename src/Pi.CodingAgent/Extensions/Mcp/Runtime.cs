@@ -142,6 +142,12 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
     /// <summary>Last OAuth challenge from the server; sign-in uses its resource metadata URL and scope.</summary>
     public Challenge? Challenge { get; private set; }
 
+    /// <summary>
+    /// Forget the stored challenge, after a sign-in used it. TS assigns
+    /// <c>connection.challenge = undefined</c>; the port keeps the field read-only and clears it here.
+    /// </summary>
+    public void ClearChallenge() => Challenge = null;
+
     /// <summary>Server name as configured, and as listings report it. TS <c>name</c>.</summary>
     public string Name => Entry.Name;
 
