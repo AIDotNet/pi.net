@@ -2930,3 +2930,61 @@ update marker / `refreshTemporaryGitSource`、npm legacy 全局根回退（C168�
   同类 4 项同因此跳过）、`signInMcpServer` 端到端（需发现/注册的 HTTP 回放）——其决策叶子已由
   `PrepareStoredStateForSignIn` / `WaitForAuthorizationResponseAsync` 单测覆盖，端口回退分支与 TS 逐行等价。
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpOAuthTests` **37/37**；`Pi.Mcp.Tests` **35/35**。
+
+
+## P4b-3 进度（2026-10-14）：MCP 资源工具（`extensions/mcp/resources.ts` → `Extensions/Mcp/Resources.cs`）
+
+对应 TS `extensions/mcp/resources.ts`（339 行）。三个工具名常量（`McpServers.ToolNames`）、
+`limitMcpContent` / `toModelContent` / `toToolExposure` / `McpToolDetails` 都来自已就位的
+`extensions/mcp/tools.ts` 半边（4d-4b），本批只移植资源半边。
+
+| TS 符号 | 行数 | .NET | 说明 |
+|---|---:|---|---|
+| `McpResourceServer`（接口） | 36-44 | `McpResourceServer` | 5 个分页 / 全量 / 读取委托点；形状见 C182 |
+| `isMcpAppResource` | 47-50 | `McpResources.IsMcpAppResource(uri, uriTemplate, mimeType)` | `ui://` 前缀，或 mimeType 里的 `profile=mcp-app`（`/i`，引号与空格不敏感） |
+| `listed` | 53-56 | `McpResources.Listed`（private） | 去掉 `_meta` / `icons`，前置 `server` 标签 |
+| `stringArgument` / `errorMessage` | 167-176 | `StringArgument`（private）/ `error.Message` | 非字符串抛错；空串按缺省 |
+| `jsonResult` | 178-189 | `JsonResultAsync`（private） | payload 紧凑 JSON 作为唯一文本块，结构化载荷原样给 codemode |
+| `createMcpResourceToolDefinitions` | 194-339 | `McpResources.CreateMcpResourceToolDefinitions` | 三个工具定义 + 泛型 `list` |
+| `list`（泛型） | 211-251 | `ListAsync<T>`（private） | 带 `server`：一页 + `nextCursor`；不带：每服务器全量，按名字排序聚合 |
+| `LIST_PARAMETERS` / `READ_PARAMETERS` | 61-76 | `ListParameters` / `ReadParameters` | `additionalProperties: false`，read 必填 `server`/`uri` |
+| `LIST_OUTPUT_SCHEMA` / `LIST_TEMPLATES_OUTPUT_SCHEMA` / `READ_OUTPUT_SCHEMA` | 88-165 | `ListOutputSchema` / `ListTemplatesOutputSchema` / `ReadOutputSchema` | `size` 只出现在 listing item；contents 为 text/blob `anyOf` |
+| `read` 的多 contents 前缀块 | 316-320 | `ReadResource` 的 `Execute` | 多条内容时每条前置 `uri:` 文本块，`resource` 块按 text/blob 还原 |
+
+`McpResources` 是 `static partial class`：与 `McpTools`（4d-4b）同样的原因——`[GeneratedRegex]`
+方法要求包含类型为 partial。
+
+### 顺带修掉的真实缺陷（非差异）
+
+**`McpResourceContents` 丢 `mimeType`**（`src/Pi.Mcp/Protocol/Types.cs`，自 Pi.Mcp 移植起）：
+TS 的 `TextResourceContents` / `BlobResourceContents` 都带 `mimeType`，C# 的
+`ValidateReadResourceResult` 只保留 `uri` / `text` / `blob`。后果：`read_mcp_resource` 拿到
+image blob 时无法还原成图片块（`BlockToContentAsync` 的 image 分支与 `BlockToLlmContent`
+的 `LlmImageContent` 都读 `mimeType`），PNG/JPG 只能退化成「binary omitted」占位文本。
+已补可选属性并从校验路径透传；`Pi.Mcp.Tests` 35/35 无回归。
+
+### P4b-3 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C182 | `McpResourceServer` 保留 TS 接口名（沿 `McpOAuthServerStore` 先例），成员按 C# 约定改名（`resourcesPage` → `ResourcesPageAsync`、`allResources` → `AllResourcesAsync` 等），且请求选项不带 `signal`：取消令牌是独立的 `CancellationToken` 形参，与 `IMcpToolCaller.CallToolAsync` 一致 | 形状差异只在外层签名；TS 的 `{ signal, timeoutMs }` 在端口拆成两个通道，`timeoutMs` 仍按 `server.timeoutMs` 逐次传入 |
+| C183 | 聚合列表遇到 `OperationCanceledException` 直接向上抛，不像 TS `Promise.allSettled` 那样把「中止」记成每个服务器的 error 条目后照常返回 JSON | TS 里中止会让每个服务器都以 `AbortError` 失败，最终仍产出「带 errors 的成功列表」；端口认为取消不是列表结果，交给运行时按取消处理。非取消异常仍逐服务器记入 `errors`，与 TS 一致 |
+
+### 测试与验证
+
+- 新建 `tests/Pi.CodingAgent.Tests/McpResourceToolsTests.cs`（**37 项**）：
+  - MCP App 过滤 10（`ui://` URI / `ui://` uriTemplate / `profile=mcp-app` 三种写法与大小写 /
+    `profile` 位于 mimeType 中段 / 普通 mimeType / 全空）；
+  - 定义面 6（三个工具的名称与 label / codemode→deferred / 描述逐字 / list 参数可选 server+cursor /
+    read 参数必填 / 输出 schema 含 listing item 的 `size` 与 errors 的必填项、contents 的 `anyOf`）；
+  - 聚合列表 5（两服务器按名字排序、`_meta` 与 `icons` 剥离、跳过 MCP App、无 `server`/`nextCursor`
+    键、details.server 为空串；失败服务器的 `{server,error}` 条目；空白 server 走聚合；每服务器
+    只发起一次全量请求且带上该服务器 timeout）
+  - 单服务器列表 5（一页 + `nextCursor` + `resources:first` 调用记录；无游标则省略键；无 server
+    带 cursor 抛错；未知服务器的两种消息形态；server 非字符串抛错）
+  - 模板列表 3（聚合去图标 / 单服务器带 cursor / 失败记 errors）
+  - 读取 8（单条 text 内容 + structured contents + details；多条内容带 `uri:` 前缀；空内容回退文案；
+    缺 server/uri 抛错；未知服务器；image blob → 图片块；text blob → 文本；二进制 blob → 存盘并给出
+    路径与 `3B` 大小）
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpResourceToolsTests` **37/37**；
+  `Pi.Mcp.Tests` **35/35**；`Pi.CodingAgent.Tests` 全量 **1607 / 0 失败**（2m39s）。

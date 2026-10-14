@@ -103,8 +103,15 @@ public sealed record CallToolResult(IReadOnlyList<McpContentBlock> Content, Json
     public bool IsError { get; init; }
 }
 
-/// <summary>资源读取结果条目：text 或 blob 二选一。对应 TS <c>contents</c> 元素。</summary>
-public sealed record McpResourceContents(string Uri, string? Text = null, string? Blob = null);
+/// <summary>
+/// 资源读取结果条目：text 或 blob 二选一。对应 TS <c>contents</c> 元素
+/// （<c>TextResourceContents</c> / <c>BlobResourceContents</c>，二者都可带 <c>mimeType</c>）。
+/// </summary>
+public sealed record McpResourceContents(string Uri, string? Text = null, string? Blob = null)
+{
+    /// <summary>可选 MIME 类型（<c>mimeType</c>）。blob 资源据此决定渲染成图片还是存盘。</summary>
+    public string? MimeType { get; init; }
+}
 
 /// <summary>resources/read 的结果。对应 TS <c>ReadResourceResult</c>。</summary>
 public sealed record ReadResourceResult(IReadOnlyList<McpResourceContents> Contents);
@@ -171,9 +178,10 @@ public static class McpProtocol
                 {
                     var text = item["text"] is JsonValue tv && tv.TryGetValue<string>(out var t) ? t : null;
                     var blob = item["blob"] is JsonValue bv && bv.TryGetValue<string>(out var b) ? b : null;
+                    var mimeType = item["mimeType"] is JsonValue mv && mv.TryGetValue<string>(out var m) ? m : null;
                     if (text is not null || blob is not null)
                     {
-                        items.Add(new McpResourceContents(uri, text, blob));
+                        items.Add(new McpResourceContents(uri, text, blob) { MimeType = mimeType });
                         continue;
                     }
                 }
