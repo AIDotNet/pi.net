@@ -3135,3 +3135,95 @@ TS 的 `StdioTransport` 有 `DEFAULT_MAX_STDERR_BYTES = 64 * 1024` 与 `get stde
   `WaitForRedirectUrlAsync` 的取消与超时分支由 `SignInServerAsync` 侧覆盖）。
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpCliTests` **15/15**；
   `Pi.CodingAgent.Tests` 全量 **1662 / 0 失败**。
+
+## P4b-6 进度（2026-10-14）：MCP 扩展本体（`extensions/mcp/index.ts` + `ui.ts` 非 TUI 半部）
+
+对应 TS `extensions/mcp/index.ts`（1225 行）与 `extensions/mcp/ui.ts`（252 行，其中
+`showMcpManager` / `McpManagerView` 属 TUI 组件，留待 4f）。依赖面
+（`McpConfig` / `McpServers` / `McpServerConnection` / `McpOAuth` / `McpServerLog` /
+`McpResources` / `CodemodeToolApi` / `ToolSearch`）在 P4b-1…P4b-5 已就位，本批只做扩展闭包与
+`mcp_servers` 段渲染。
+
+| TS 符号 | 行数 | .NET | 说明 |
+|---|---:|---|---|
+| `MCP_SERVERS_SECTION` / `MAX_SERVERS_SECTION_CHARS` / `MAX_SERVER_DESCRIPTION_CHARS` | 151-159 | 同名常量 | 4096 / 250 / `"mcp_servers"` |
+| `serversSectionIntro` | 162-167 | `ServersSectionIntro` | 只解释列出的服务器实际用到的到达方式 |
+| `truncate` | 169-172 | `Truncate` | `slice(0, max-1).trimEnd() + "…"`；`max <= 1` 返回空串 |
+| `McpServerListing` | 174-178 | `McpServerListing`（public record） | 见 C190 |
+| `serverSummary` | 180-184 | `ServerSummary` | 配置 description 优先，空则退到连接 instructions，再取首行 |
+| `renderServersSection` | 186-217 | `RenderServersSection`（public） | 过滤 → 按 `localeCompare` 排序 → 求 intro → 逐行裁描述 → 放不下时截尾并计数 |
+| `scriptNeedsServer` | 219-226 | `ScriptNeedsServer` | `CodemodeCallRegex` 命中即真，否则按 `mcp__<name>` 子串 |
+| `describeState` | 228-246 | `DescribeState`（internal） | disabled / starting / needs sign-in / failed / connected·N tools / connecting… |
+| `attentionRank` | 248-259 | `AttentionRank`（internal） | needs-auth 0 → failed 1 → disconnected 2 → 其它 3 → connected 4 → disabled 5 |
+| `describeTransport` | 261-265 | `DescribeTransport`（internal） | url 优先，否则 `command + args` 拼接 |
+| `MCP_USAGE` | 267 | `McpUsage` | 逐字保留 |
+| `createMcpExtension` | 269-1225 | `CreateMcpExtension` / `McpExtension` | 扩展闭包本体：配置加载、连接编排、工具注册、`mcp_servers` 段、`/mcp` 与 6 个事件 |
+| `EXPOSURE_DESCRIPTIONS` | — | `ExposureDescriptions` | 顺序即曝光菜单顺序（codemode / deferred / direct） |
+| `formatStatus` | 903-928 | `FormatStatus`（internal） | 见 C193 |
+| `showMcpManager` / `McpManagerView` | `ui.ts` | `McpExtensionOptions.ShowManager` 缝 | 见 C191；TUI 组件顺延 P4b-7 |
+
+### 顺带修掉的真实缺陷（非差异）
+
+- **`pi.RegisterToolRenderer` 的 `mcp__<server>__<tool>` 回退渲染器**：TS 用
+  `/^mcp__(.+?)__(.+)$/` 拆出服务器名与工具名，失败服务器也能给出可读标签。端口注册
+  `McpToolNameRegex` 驱动的回退渲染器；`McpServerConnection` 侧「工具消失后重注册为 hidden」
+  与「`plain` 去重后加 hash 后缀」两处命名规则沿用 P4b-4 的实现。
+- **事件处理器参数名 `event` 是 C# 关键字**：闭包内两处
+  `pi.On<…>(…, async (event, ctx) => …)` 必须写成 `async (@event, ctx) => …`，否则
+  `CS1031 / CS1055` 连锁报错（本批首次编译时实测 59 个错误，全部源于此）。
+- **`session_shutdown` 的 TS 处理器不收参数**：`pi.on("session_shutdown", async () => …)`，
+  端口必须显式写成 `async (_, _) => …`，因为 `ExtensionHandler<E>` 的签名固定为
+  `(E @event, IExtensionContext ctx)`。
+- **`ToolSearch` 类名与兄弟命名空间同名**：本文件命名空间为 `Pi.CodingAgent.Extensions.Mcp`，
+  写 `ToolSearch.IsToolSearchTool` 会先命中命名空间 `Pi.CodingAgent.Extensions.ToolSearch`，
+  必须用别名 `ToolSearchApi = Pi.CodingAgent.Extensions.ToolSearch.ToolSearch`
+  （与 `Extensions/Codemode/CodemodeExecute.cs` 同款）。
+
+### P4b-6 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C189 | `NormalizedBuildSystemPromptOptions.Sections` 由 `IReadOnlyDictionary<string,string>` 改为可写的 `OrderedDictionary<string,string>`；`DeferOneTurnAsync`（`Task.Yield`）替代 `setImmediate` + 动态 `import("./runtime.ts")` | TS 的 `before_agent_start` 处理器**就地**改写 `event.systemPromptOptions.sections[name]`（MCP 的 `mcp_servers` 段正是如此），调用方再从事件结果里读回同一个对象；`IReadOnlyDictionary` 表达不了「就地写」。同时端口是单一程序集，没有可延迟加载的模块，`setImmediate` 只为「首次渲染先于连接」而存在，故只保留一个事件循环轮次 |
+| C190 | `McpServerListing.Connection`（TS 结构类型 `{ instructions?: string }`）压平为 `Instructions`（`string?`），调用方传 `server.Connection?.Instructions` | C# 无结构类型；该形状只被读一个成员，压平后调用点与 TS 等价 |
+| C191 | `McpExtensionOptions.ShowManager` 是 TUI 管理器视图的缝，默认 `null`；为 `null` 时 `/mcp` 的 TUI 分支退回非 TUI 的状态文本 | TS 的 `showMcpManager` 是被 import 的模块函数，永远可用。端口把它做成可注入项，`ui.ts` 的 `McpManagerView` / `showMcpManager` 顺延到 4f（P4b-7）；缝未接上时不能让 `/mcp` 无输出，故退回 `formatStatus` |
+| C192 | 登录令牌快照是 `Task<string>`（`StoredTokensAsync`），TS 是同步 `credentials.tokens()` 得到的 `string` | 端口的凭据存储 `TokensAsync` 是异步读；快照仍在「状态变为 needs-auth」的同一时刻发起，且每个消费点都 `await`，因此值一致 |
+| C193 | `McpServer`（TS 内联类型 `{ entry, connection?, registeredConfig?, message?, ready? }`）提为 `internal sealed class` 并对测试项目开放；`FormatStatus` 从闭包改为 `internal static`，把 `servers` / `configErrors` / `overridden` 显式传入 | TS 的 `formatStatus` 直接闭包读 `servers` / `configErrors` / `overridden`。端口沿用「叶子先行」：把渲染抽成纯函数后，无终端也能差分覆盖状态行；`McpServer` 只有命名化才能作为参数类型出现 |
+| — | `localeCompare` → `StringComparer.CurrentCulture` | 既有结论 C79 |
+| — | `url.href` → `Uri.AbsoluteUri` | 沿用 `Cli.cs` 既有写法 |
+
+### 测试与验证
+
+- 新建 `tests/Pi.CodingAgent.Tests/McpExtensionTests.cs`（**46 项**）。TS 侧
+  `mcp-extension.test.ts` 只覆盖纯叶子（config / tools / connections / 段渲染），扩展闭包本身
+  **没有 TS 测试**，因此向量分两类：
+  - **转录自 TS 测试**（`describe("MCP servers section")` 三条）：`renderServersSection` 的
+    三种情形 —— 按到达方式与描述首行列出（`- mcp__docs (codemode): Docs search.` /
+    `- mcp__later (tool_search)` / `- mcp__plain (codemode): From instructions.`，
+    `direct` 服务器不列出且单独一个 `direct` 时返回 `null`）；40 个服务器描述被裁到
+    `<= 4096` 且恰好 41 行；200 个长名服务器截尾并计数（`lines.Length - 2 + omitted == 200`）
+  - **读 TS 源码得出**：`ServersSectionIntro` 四种到达组合、`Truncate` 六个边界、
+    `FirstLine` 四个边界、`ServerSummary` 六种回退、`ExposureOf` / `ConfiguredExposures` /
+    `HasDirectTools` / `HasIndirectTools`、`IsEnabled`、`ScriptNeedsServer` 八例、
+    `DescribeTransport` 三例、`ExposureDescription` 五例、`McpServerStates.Name` 六态
+  - **`formatStatus` 4 项**：空态文案（含 `Config.GetAgentDir()` 解析出的 `mcp.json` 路径）、
+    `starting` / `disabled` / `config error:` / `overridden:` 行序、`needs sign-in` 行、
+    `connected, 1 tools` 与断连后的 `disconnected, reconnects on next call` + 缩进错误行
+  - **注册面 1 项**：`/mcp` 命令名与描述、6 个事件名（排序后比对）、1 个工具渲染器
+  - **`/mcp` 非 TUI 5 项**：无参数打状态文本（Info）；`login ghost` →
+    `No MCP server named "ghost".`（Error）；无 OAuth 服务器时的 `oauthNone`（Info）；
+    `login a b` 与未知子命令 → `MCP_USAGE`（Warning）；参数补全的完整文法
+    （空前缀给三条、`log` 同时前缀 `login`/`logout`、多词与未知子命令返回 `null`、
+    连接后 `reconnect ` 列出两台且描述是 `describeState` 原文、`login ` 只列 OAuth 服务器）
+  - **TUI 缝 1 项**：`SetUIContext(ui, ExtensionMode.Tui)` + `ShowManager` 时由缝驱动
+    `manage`，`ServersMenu` 的标题 / `manage` / `close` / 空态文案被断言，且状态文本**未**发出
+  - **`before_agent_start` 3 项**：间接服务器写入 `mcp_servers` 段（首行与 `- mcp__docs (codemode): Docs search.`）；
+    全 `direct` 时不写；上一轮遗留的段被删除
+  - **首轮等待 2 项**：`direct` 服务器在 `before_agent_start` 返回前已完成握手
+    （`server.Connected`）；`HoldInitialize` 的慢 `direct` 服务器在 `StartupWaitMs = 50`
+    后放弃并提示 `MCP servers are still connecting; …`
+- 未覆盖（环境限制）：`ui.ts` 的 `McpManagerView` / `showMcpManager` 本身（TUI 组件，P4b-7）；
+  真实 OAuth 端到端登录（同 P4b-2）；`TurnStart` 的 codemode 脚本按需等待（需要真实 codemode 工具
+  进入 `GetAllTools`，由 `ScriptNeedsServer` 的叶子向量覆盖判定本身）。
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpExtensionTests` **46/46**；
+  `Pi.CodingAgent.Tests` 全量 **1708 / 0 失败**；`Pi.Mcp.Tests` 35、`Pi.Agent.Tests` 32、
+  `Pi.Codemode.Tests` 39、`Pi.Ai.Tests` 301、`Pi.Tui.Tests` 23812 全绿。

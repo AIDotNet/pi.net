@@ -84,7 +84,13 @@ public sealed record NormalizedBuildSystemPromptOptions
 
     public required string AppendSystemPrompt { get; init; }
 
-    public required IReadOnlyDictionary<string, string> Sections { get; init; }
+    /// <summary>
+    /// Extension sections by tag name. Deliberately a concrete, writable, insertion-ordered map:
+    /// TS handlers assign and delete <c>event.systemPromptOptions.sections[name]</c> in place — the
+    /// MCP extension's <c>mcp_servers</c> section is written that way — and the caller reads the
+    /// same object back from the event result. See difference C189.
+    /// </summary>
+    public required System.Collections.Generic.OrderedDictionary<string, string> Sections { get; init; }
 
     public required string Cwd { get; init; }
 
@@ -136,6 +142,29 @@ public static class SystemPrompt
         return Ordered(source);
     }
 
+    /// <summary>
+    /// The <c>sections</c> copy, kept writable. TS normalizes with <c>{ ...(input.sections ?? {}) }</c>
+    /// and hands the copy to <c>before_agent_start</c> handlers, which mutate it in place; the port
+    /// therefore cannot fold this one into the read-only <see cref="OrderedCopy{T}"/> shape
+    /// (difference C189).
+    /// </summary>
+    private static System.Collections.Generic.OrderedDictionary<string, string> OrderedSectionsCopy(
+        IReadOnlyDictionary<string, string>? source)
+    {
+        var result = new System.Collections.Generic.OrderedDictionary<string, string>();
+        if (source is null)
+        {
+            return result;
+        }
+
+        foreach (var pair in source)
+        {
+            result[pair.Key] = pair.Value;
+        }
+
+        return result;
+    }
+
     /// <summary>TS <c>{ ...(x ?? {}) }</c> shallow copy, order-preserving.</summary>
     private static IReadOnlyDictionary<string, IReadOnlyList<string>> OrderedCopyGuidelines(
         IReadOnlyDictionary<string, IReadOnlyList<string>>? source)
@@ -161,7 +190,7 @@ public static class SystemPrompt
             ToolGuidelines = OrderedCopyGuidelines(input.ToolGuidelines),
             PromptGuidelines = [.. (input.PromptGuidelines ?? [])],
             AppendSystemPrompt = input.AppendSystemPrompt ?? "",
-            Sections = OrderedCopy(input.Sections),
+            Sections = OrderedSectionsCopy(input.Sections),
             Cwd = input.Cwd,
             ContextFiles = [.. (input.ContextFiles ?? [])],
             Skills = [.. (input.Skills ?? [])],

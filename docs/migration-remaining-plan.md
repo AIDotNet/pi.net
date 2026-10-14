@@ -22,9 +22,9 @@
 | `cli/` | 17 | 1,949 | — | ⬜ 未开始 |
 | `bun/` + `client/` | 6 | 62 | — | ⬜ 未开始（多为打包器垫片，多数无对应物） |
 | 根级（`config.ts` / `migrations.ts` / `main.ts` / `index.ts` / `cli.ts` / `rpc-entry.ts` / `package-manager-cli.ts`） | 7 | 3,624 | `Config.cs` / `Migrations.cs` | 🟡 仅 `config.ts` / `migrations.ts` 完成 |
-| **合计** | **299** | **85,536** | 72,493 行 C# | **约 85% 行数已落** |
+| **合计** | **299** | **85,536** | 74,560 行 C# | **约 87% 行数已落** |
 
-`src/Pi.CodingAgent` 现有 **184 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **72,493 行**（2026-10-14 P4b-5 后实测）。
+`src/Pi.CodingAgent` 现有 **186 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **74,560 行**（2026-10-14 P4b-6 后实测）。
 
 ### 1.2 构建与测试基线（本机实测）
 
@@ -41,6 +41,7 @@
 | `Pi.CodingAgent.Tests`（P4b-3 后） | ✅ **1607 项 / 0 失败**（2m39s；1570 + `McpResourceToolsTests` 37） |
 | `Pi.CodingAgent.Tests`（P4b-4 后） | ✅ **1647 项 / 0 失败**（3m08s；1607 + `McpRuntimeTests` 40） |
 | `Pi.CodingAgent.Tests`（P4b-5 后） | ✅ **1662 项 / 0 失败**（3m27s；1647 + `McpCliTests` 15） |
+| `Pi.CodingAgent.Tests`（P4b-6 后） | ✅ **1708 项 / 0 失败**（3m01s；1662 + `McpExtensionTests` 46） |
 | 其余 9 个测试工程 | 见 [porting-status.md](porting-status.md) 的环境限制说明 |
 
 ### 1.3 起始状态的一个真实缺陷（本批已修）
@@ -82,6 +83,7 @@
 | 4e-3e-9h-4b-2 | `CacheWarmer` 完整化（定时重放 / 经济学判定 / `decide` + `extensionOverride` / 三个回调）+ `AgentSessionRuntime` 编排本体（`switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose` / `createAgentSessionRuntime`）+ `createAgentSessionServices` / `createAgentSessionFromServices`；顺带修正 `GetPromptCacheTtlMs` 的 `"short"` 回落缺陷与 `FormatCacheWarmingUsage` 的尾随零语义 | C162/C163；`CacheWarmerTests` 11 项 + `AgentSessionRuntimeTests` 22 项 |
 | 4e-3c-2a | package-manager 叶子层：`PackageManagerPatterns`（patterns 纯函数）/ `PackageManagerCollectors`（目录采集器）/ `GlobSync`（node:fs `globSync` 子集）/ `SemverRange`（`validRange` / `satisfies`）；`Skills` 侧 ignore 助手（`IgnoreFileNames` / `ToPosixPath` / `PrefixIgnorePattern` / `AddIgnoreRules`）提为 `internal` 共享 | C164–C167；`82b47aa`；114 项新测试 |
 | 4e-3c-2b | `DefaultPackageManager` 全链路：`ResolveAsync` / `ResolvePackageSourcesAsync` / `DedupePackages` / `FindAutoloadDeltaBase` / `PackageRoot` / 完整 `+`/`-`/`!` override 语义 / `ResourceMap`+`Accumulator`+`ToResolvedPaths`（稳定排序）/ `ListConfiguredPackages` / `GetInstalledPath` / `ResolveExtensionSourcesAsync`；**删除 SettingsManager 里臆造的 `include`/`exclude`/`autoload` 三个 settings 键通路（8 个成员）** | C168；`PackageManagerTests` 24 项（含 `ResourceLoaderTests` 夹具修正） |
+| P4b-6（4d-13） | MCP 扩展本体：`extensions/mcp/index.ts`（1,225 行）→ `Extensions/Mcp/McpExtension.cs`（1,960 行）+ `Extensions/Mcp/Ui.cs`（71 行）：扩展闭包（`session_start` 加载配置并后台连接 / 注册服务器与 `mcp.json` 的优先级 / `mcp__<server>__<tool>` 工具注册与 `plain` 去重 hash 后缀 / `codemode`·`deferred`·`direct`·`hidden` 四种 exposure 与 `toolExposure` 覆盖 / 资源工具同步 / 启动问题一次性汇报）+ `mcp_servers` 段渲染（4096 字符预算：先裁描述、再截尾计数）+ `/mcp` 命令（状态文本 / `login`·`logout`·`reconnect` 子命令 / 参数补全）+ 6 个事件（`session_start`、`before_agent_start`、`tool_call`、`turn_start`、`mcp_servers_change`、`session_shutdown`）；`SystemPrompt` 的 `Sections` 改为可写 `OrderedDictionary` | `McpExtensionTests` 46 项；C189–C193；见 2026-10-14 台账 |
 | P4b-5（4d-12） | `pi mcp` 命令：`extensions/mcp/cli.ts`（614 行）→ `Extensions/Mcp/Cli.cs`（1,014 行）：`RunMcpCommandAsync` 的 help / add / remove / list / login / logout 七路（退出码逐条对齐 TS，`list` 在任一启用服务器未连接或存在配置错误时 exit 1）+ 参数解析（`-l`→`--local`、`--` 与 `maxPositionals` 都结束选项解析、命令自身选项透传）+ HTTP/stdio 两路 config 构造（`--bearer-token-env-var` → `Authorization: Bearer ${NAME}`、`oauth` 子对象）+ 文本/JSON 两种列表输出 + 登录（先连接判定 → challenge → `SignInServerAsync` → 清 challenge → 重连）+ 粘贴 redirect URL 的终端读取；新增 `McpServerConnection.ClearChallenge()` | `McpCliTests` 15 项；C187/C188；见 2026-10-14 台账 |
 | P4b-4（4d-11） | MCP 连接层：`extensions/mcp/runtime.ts`（491 行）→ `Extensions/Mcp/Runtime.cs`（815 行）：`McpServerConnection`（懒连接 + 记忆化打开 / 六态状态机 / 能力门控的 tools+resources 发现 / readOnly 瞬时错误 250ms 同客户端重试 / 会话过期新会话重试一次 / needs-auth 与登录文案 / stderr 尾拼进连接失败与掉线消息 / `close` 等 `authProvider.settled()` 落盘）+ `CreateDefaultTransport` + `FetchResourcesAsync` + `WithoutTemplatesAsync`；前置补 `Pi.Mcp` 的 `StdioTransport.Stderr`（64KB 滚动缓冲，此前子进程报错全丢）；**自纠一处移植陷阱**：`_opening ??= OpenOnceAsync()` 在同步完成的打开上残留已完成任务，导致掉线/登出/会话过期后的重连都拿到死客户端 | `McpRuntimeTests` 40 项；C184–C186；见 2026-10-14 台账 |
 | P4b-3（4d-10） | MCP 资源工具：`extensions/mcp/resources.ts`（339 行）→ `Extensions/Mcp/Resources.cs`（600 行）：`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` 三个工具 + `isMcpAppResource` + 单服务器分页与全服务器聚合（排序 / `_meta` 与 icons 剥离 / 逐服务器 errors 条目）+ 多内容 `uri:` 前缀；顺带补 `Pi.Mcp` 的 `McpResourceContents.MimeType`（此前 image blob 无法还原成图片块） | `McpResourceToolsTests` 37 项；C182/C183；见 2026-10-14 台账 |
@@ -117,12 +119,12 @@
 | `CacheWarmer` 完整化（`decide` / 定时重放 / 经济学判定 / 回调） | 454 行 | ✅ **本批** |
 | `CreateAgentSessionRuntimeResult` | — | ✅ 类型 + 消费方均就位 |
 
-#### 4d 尾巴：扩展层剩余（P4b-5 已收口）
+#### 4d 尾巴：扩展层剩余（P4b-6 已收口）
 
 | TS 符号 | 行数 | 现状 |
 | --- | ---: | --- |
 | `extensions/llama/*` | 1,577 | ✅ provider / client / huggingface / index 全部完成；`ui.ts` 的 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`（依赖 4f-2 / 4f-3 的 Theme 与组件）顺延 4f |
-| `extensions/mcp/*` 余下（`index.ts` 1225 / `ui.ts` 252） | ~1,477 | `oauth.ts`（P4b-2）、`resources.ts`（P4b-3）、`runtime.ts`（P4b-4）、`cli.ts`（P4b-5）已收口；余 P4b-6（`index.ts` 装配 + `ui.ts` 非 TUI 半部）→ P4b-7（`ui.ts` 的 `McpManagerView`，顺延 4f） |
+| `extensions/mcp/*` 余下（`ui.ts` 252） | ~252 | `oauth.ts`（P4b-2）、`resources.ts`（P4b-3）、`runtime.ts`（P4b-4）、`cli.ts`（P4b-5）、`index.ts` + `ui.ts` 非 TUI 半部（P4b-6）已收口；余 P4b-7（`ui.ts` 的 `McpManagerView` / `showMcpManager`，顺延 4f） |
 
 #### package-manager 包解析 ✅ 已完成（4e-3c-2a `82b47aa` + 4e-3c-2b 本批）
 
@@ -290,13 +292,15 @@
   | **P4b-3** | `resources.ts`(339) → `Extensions/Mcp/Resources.cs`：`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource` 三个工具 + `isMcpAppResource` + 分页/聚合语义 | `Tools.cs`（已就位） |
   | **P4b-4** | ✅ **已收口**（4d-11）：`runtime.ts`(491) → `Extensions/Mcp/Runtime.cs`：`McpServerConnection`（懒连接、状态机、瞬时错误重试、会话过期重连、needs-auth、stderr 尾、`close` 等刷新落盘）、`createDefaultTransport`、`fetchResources`、`withoutTemplates` | P4b-1/2/3 |
   | **P4b-5** | ✅ **已收口**（4d-12）：`cli.ts`(614) → `Extensions/Mcp/Cli.cs`：`pi mcp list/login/logout/...` 子命令 | P4b-2/4 |
-  | **P4b-6** | `index.ts`(1225) → `Extensions/Mcp/McpExtension.cs`：`createMcpExtension`（后台连接、exposure 语义、`mcp_servers` section、`/mcp` 命令、`toolExposure` 覆盖、启动问题汇报）+ `ui.ts` 的非 TUI 半部（`McpMenu` / `McpUi` 缝） | P4b-2/3/4/5 |
+  | **P4b-6** | ✅ **已收口**（4d-13）：`index.ts`(1225) → `Extensions/Mcp/McpExtension.cs`：`createMcpExtension`（后台连接、exposure 语义、`mcp_servers` section、`/mcp` 命令、`toolExposure` 覆盖、启动问题汇报）+ `ui.ts` 的非 TUI 半部（`McpMenu` / `IMcpUi` 缝） | P4b-2/3/4/5 |
   | **P4b-7（顺延 4f）** | `ui.ts` 的 `McpManagerView` / `showMcpManager`（依赖 `Theme`、`SelectList`、`DynamicBorder`、`AuthUrlComponent`、`keyHint`） | 4f-2/4f-3 |
 
 - **P4c（顺延 4f）** llama `ui.ts` 的 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`：渲染在
   4f-2 的主题与 4f-3 的组件之上，随 4f-3 落地后接上 `LlamaExtensionOptions.ShowUi`。
 - **验收标准**：逐文件对照；MCP 走真实 stdio/HTTP 假服务器回放（沙箱禁端口的部分标环境限制）。
-  P4b 完成后 `BuiltInExtensions` 最后一个占位（`mcp`）退役，4d 全部收口。
+  P4b-1…P4b-6 已全部收口；`ui.ts` 的 TUI 组件（P4b-7）随 4f 落地。`BuiltInExtensions` 里 `mcp` 的
+  `PlaceholderFactory("mcp","4d-4")` 仍在，随 P6（4g 入口接线）替换为
+  `McpExtension.CreateMcpExtension()`。
 - **前置**：无。
 
 ### 阶段 P5：4f 模式层（拆 5 个子阶段）

@@ -639,7 +639,7 @@ public static class McpCli
             // The connection records the state and error.
         }
 
-        report.State = StateName(connection.State);
+        report.State = McpServerStates.Name(connection.State);
         report.Tools = [.. connection.Tools.Select(tool => tool.Name)];
         var overrides = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var tool in connection.Tools)
@@ -823,18 +823,6 @@ public static class McpCli
             return false;
         }
     }
-
-    /// <summary>The TS spelling of a connection state. See difference C184.</summary>
-    private static string StateName(McpServerState state) => state switch
-    {
-        McpServerState.Connecting => "connecting",
-        McpServerState.Connected => "connected",
-        McpServerState.Disconnected => "disconnected",
-        McpServerState.NeedsAuth => "needs-auth",
-        McpServerState.Failed => "failed",
-        McpServerState.Closed => "closed",
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "unknown MCP server state"),
-    };
 
     /// <summary>The TS <c>Math.round</c>: halves round up, not to even as <see cref="Math.Round(double)"/> does.</summary>
     private static long JsRound(double value) => (long)Math.Floor(value + 0.5);

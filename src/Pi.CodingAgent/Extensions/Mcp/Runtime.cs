@@ -41,6 +41,25 @@ public enum McpServerState
     Closed,
 }
 
+/// <summary>
+/// The TS spelling of each <see cref="McpServerState"/>. TS keeps the state as its wire string
+/// (<c>"needs-auth"</c> …) and reports it verbatim in status lines and JSON; the port stores an
+/// enum, so every place that prints a state goes through here (difference C188's neighbour).
+/// </summary>
+public static class McpServerStates
+{
+    public static string Name(McpServerState state) => state switch
+    {
+        McpServerState.Connecting => "connecting",
+        McpServerState.Connected => "connected",
+        McpServerState.Disconnected => "disconnected",
+        McpServerState.NeedsAuth => "needs-auth",
+        McpServerState.Failed => "failed",
+        McpServerState.Closed => "closed",
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "unknown MCP server state"),
+    };
+}
+
 /// <summary>Builds the transport of one server. TS <c>McpTransportFactory</c>.</summary>
 public delegate IMcpTransport McpTransportFactory(
     McpServerEntry entry,
