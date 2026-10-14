@@ -3339,3 +3339,82 @@ TS 的 `StdioTransport` 有 `DEFAULT_MAX_STDERR_BYTES = 64 * 1024` 与 `get stde
 - 覆盖盲点自纠：`VisualLinePreview` 的 hint 截断断言原写成 `lines[0].Length == 10`，实测 18 —— 因为 `TextLayout.TruncateToWidth` 在省略号两侧加 `Reset`（`\x1b[0m`）转义，字符串长度 ≠ 可见宽。改为断言 `UnicodeWidth.VisibleWidth == 10` + `Contains("...")`。
 - **顺带修一处既有 flaky 测试**：全量复跑时 `McpOAuthTests.PrepareStoredState_KeepsRegisteredClientOnSameRedirect`（P4b-2 / 4d-9 的产物）偶发失败（`Expected 1000 / Actual 999`）。根因是断言 `Assert.Equal(1_000 + NowMs() - NowMs(), prepared.TokensExpireAt!.Value - NowMs())` 在**同一条断言里连读三次时钟**，跨毫秒边界时 `NowMs() - NowMs()` 变成 −1。`PrepareStoredStateForSignIn` 在保留客户端时确实原样带过 `TokensExpireAt`，故改为直接比较存量值 `Assert.Equal(stored.TokensExpireAt, prepared.TokensExpireAt)`（确定性，连跑 3 次 37/37 稳定）。与本仓既有的 `LoaderTests` 时序竞态同类。
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；四个新测试类合计 **35 / 0 失败**；`Pi.CodingAgent.Tests` 全量 **1924 / 0 失败**（17m13s，1889 + 35）。变异套件 `keybinding-hints` / `visual-truncate` / `dynamic-border` / `themed-text` **18 处全捕获**（无盲点；锚点唯一性已预校验）。
+
+## 4f-3b 进度（2026-10-14）：词级差分与 diff 渲染器（`JsDiff.diffWords` + `diff.ts`）
+
+4f-3 的第二批，也是 **4f-1 的最后一块阻塞**：`core/tools/renderers/edit.ts` 调
+`renderDiff`（`components/diff.ts`），而 `renderDiff` 的单行改写高亮走 jsdiff 的 `diffWords`。
+本仓 `JsDiff` 此前只有 `diffLines` / `structuredPatch`（`EditDiff.cs` 在用），所以先补词级差分本体。
+
+落点：`src/Pi.CodingAgent/Core/Tools/JsDiff.cs`（增补）与
+`src/Pi.CodingAgent/Modes/Interactive/Components/DiffRenderer.cs`。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | --- | --- | --- |
+| jsdiff 8.0.4 `diffWords` | — | `Core/Tools/JsDiff.cs`（653 → 1,095） | `WordDiff` 的 `tokenize`（含空白拼接遍）/ `equals`（按 JS `\s` 裁边后比较）/ `join`（只保留首个 token 的前导空白）/ `postProcess`（`dedupeWhitespaceInChangeObjects` 五个分支）；`DiffBase` 补 `PostProcess` 钩子 |
+| `components/diff.ts` | 147 | `Components/DiffRenderer.cs`（265） | `parseDiffLine` / `replaceTabs` / `renderIntraLineDiff` / `renderDiff`（同名 `RenderDiff`） |
+
+### 4f-3b 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C199 | `JsDiff.DiffBase` 新增 `protected virtual List<DiffPart> PostProcess(List<DiffPart>, DiffOptions) => changes;`，三处 `BuildValues(...)` 返回点与末尾 `return []` 都改走该钩子 | jsdiff 的 `diffWithOptionsObj` 在 `buildValues` 之后无条件调 `this.postProcess(...)`；原移植只实现了 `diffLines` 一族（其 `postProcess` 是恒等），所以此前不需要这个缝。缺省实现即恒等，`diffLines` / `structuredPatch` 行为不变 |
+| C200 | `diff.ts` 里模块级 `theme` 单例改为 `IRenderDiffTheme` 注入缝：`internal static string RenderDiff(string, RenderDiffOptions?, IRenderDiffTheme)`，公开重载走 `ThemeRuntime.Current` 适配器 | `Theme.Fg` / `Theme.Inverse` 不是 `virtual`，无法子类化注入；而差分语料必须在确定性的"主题"下重放（见下）。与 C197 的 `MacOsOverride` 同一约定：缝只在测试用，生产路径不变 |
+| C201 | 正则 `/^([+-\s])(\s*\d*)\s(.*)$/` 的三处 JS/.NET 语义差异显式化：`\A` / `\z` 取代 `^` / `$`；`([^\n\r\u2028\u2029]*)` 取代 `.*`；`\s` 写成 JS 集合、`\d` 写成 `[0-9]` | ① JS 无 `m` 时 `$` 是硬结尾，.NET 的 `$` 还匹配结尾换行前；② JS `.` 拒绝四个行终止符（`\n` `\r` `\u2028` `\u2029`），.NET 的 `.` 只拒绝 `\n` —— 带 `\r` 的行在 JS 里**根本解析不出来**，若用 .NET 的 `.` 会静默解析成功；③ .NET 的 `\s` 用 `\u0085` 换掉了 JS 的 `\uFEFF`，且 `\d` 接受全部 Unicode 十进制数字而 JS 只认 ASCII。三条都有语料用例钉住 |
+
+### 测试与验证
+
+两条**独立**的差分语料，都来自真实实现，不是"我照抄一遍再自己对自己"：
+
+- **`tests/Pi.CodingAgent.Tests/diffwords-corpus.json`（86 例）** —— 由
+  `tools/gen-diffwords-corpus.mjs` 驱动**上游 `diff@8.0.4` 的 UMD 包本体**
+  （`tools/ref/jsdiff-8.0.4.js`，pi 仓没有 `node_modules`）生成，记录 `diffWords(old, new)` 的逐段输出。
+- **`tests/Pi.CodingAgent.Tests/renderdiff-corpus.json`（83 例）** —— 由
+  `tools/gen-renderdiff-corpus.mjs` 生成，做法是**直接执行上游 `diff.ts` 文件本体**：读出 pi 仓的
+  `components/diff.ts`，只把两行 `import`（`diff` 与 `../theme/theme.ts`）改写到本地桩，其余逐字节原样交给
+  Node 的类型擦除执行。`theme` 桩用确定性标记（`fg → "<token>text</>"`、`inverse → "[inv]text[/inv]"`），
+  测试侧的 `MarkerTheme` 复现同一标记 —— 这样断言的是**令牌选择与反白跨度边界**（正是这个文件决定的东西），
+  而不掺进终端配色解析。
+
+测试类 **202 项**（三个类合计）：
+
+- `tests/Pi.CodingAgent.Tests/DiffWordsCorpusTests.cs`（**92**）：86 条语料 + 形态校验 + 5 条钉住示例
+  （jsdiff 文档里 `dedupeWhitespaceInChangeObjects` 的五个 worked example，以及 `const x = 1;` → `const x = 2;`）。
+- `tests/Pi.CodingAgent.Tests/RenderDiffCorpusTests.cs`（**107**）：83 条语料 + 形态校验 + 11 条行为钉住
+  （上下文/删除/新增三色、单删单增才做行内差分、前导缩进不反白、Tab 展开为三空格、不可解析行按上下文、
+  `\r` 行不解析、末尾换行留下空行、`parseDiffLine` 的 JS `\s` 前缀集合与行终止符拒绝）+ 13 条
+  `parseDiffLine` 表驱动。
+- `tests/Pi.CodingAgent.Tests/RenderDiffCorpusTests.cs` 内的 `DiffRendererThemeTests`（**3**）：走**真实主题运行时**
+  （三个令牌解析、`inverse` 走 chalk、省略 options 等价于 null），补上语料刻意绕开的生产适配器那一层。
+
+**随机化差分搜索（本轮新增的验证手段）**：手写语料证明不了"罕见分支到底有没有被走到"，所以另外做了
+`tools/find-diffwords-divergence.mjs`（种子化 PRNG 生成 15,000 组近邻输入，输出上游 `diffWords` 结果）
++ `tools/find-discriminators.py`（一次只变异一个锚点，重建后拿随机语料逐条比对，报出"变异后与上游不一致"
+的输入）。结论：
+
+- 纯净实现在 **15,000 组随机输入上与上游逐条一致**（除手写语料外的独立佐证）。
+- 该搜索直接找出并补进了 18 条判别输入（6 条让 `codepoint-surrogate-split` 可观测，12 条让
+  `overlap-scan-start` 可观测 —— 后者变异后会触发 `ReplaceSuffix` 的 "this is a bug" 不变式，
+  是**异常**而非错误输出，手写语料完全碰不到）。
+- 另外三个锚点被判定为**等价变异**（改源码但不可能改变输出），已从套件删除并在脚本里写明证明：
+  `LongestCommonSuffix` 的长度守卫冗余（循环无法前进，`first[^0..]` 本就是 `""`）；
+  `ReplaceSuffix` 的 `oldSuffix.Length == 0` 快路径正是 `value[..^0] + newSuffix` 的结果；
+  `MaximumOverlap` 的 `count is null` 分支不可达 —— 两处调用点传的都是空白串
+  （`LeadingWs` / `TrailingWs` 的产物），穷举 13.3M 组空白串（字母表 3/4/5/6，长度上限 7/5/4/3）从未出现 null。
+  该分支仍按 JS 的 `undefined` 语义保留（`int?`），因为那是 `overlapCount` 本身的忠实转写。
+
+**自纠一处移植缺陷**：`renderIntraLineDiff` 一度同时存在 2 参与 3 参重载，而 `RenderDiff` 内的调用解析到了
+2 参那个（即忽略注入主题、直接走 `ThemeRuntime.Current`），在未初始化主题的测试里抛异常，107 项里挂了 37 项。
+删掉 2 参重载、调用点显式传 `theme` 后修复 —— 这类"重载遮蔽"是 C# 特有的静默陷阱。
+
+**工具侧发现（`tools/` 不入库，记录以备后用）**：`mutate-check.py` 的套件选择必须用 `--suite <name>`，
+位置参数会被静默忽略从而跑**全部**套件（本轮误跑一次，6 分钟才发现）；被杀掉的运行会留下变异，
+需靠 journal 恢复或 `git checkout` 清掉。**变异锚点不能引入死循环**：把 `RenderDiff` 的
+`if (parsed.Prefix == "-")` 改成能同时匹配上下文行的写法后，两个内层收集循环都不会推进 `i`，
+进程直接挂死到 600 s 测试超时，harness 只能报 `-1`（本轮为此白等 10 分钟）——已换成等强度但必然终止的
+"standalone added 分支与 context 分支互换"，并把这条约束写进脚本注释。另外把源码读写的行尾往返改成保真
+（原先文本模式读、`newline=""` 写，会把 CRLF 文件静默改成 LF；本仓当前全是 LF，所以只是潜在隐患，
+不是本轮脏标记的原因 —— 那个 `M` 是 stat 缓存陈旧，`git add` 一下即消失）。
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量 **2126 / 0 失败**（3m38s，1924 + 202）；
+  变异套件 `diffwords`（13 锚点）+ `diff-renderer`（16 锚点）**29 处全捕获**（锚点唯一性已预校验，265 处全库锚点唯一）。
