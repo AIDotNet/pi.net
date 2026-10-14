@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Pi.CodingAgent.Core.Tools;
 
 /// <summary>One part of a diff result. Port of the jsdiff change object.</summary>
@@ -72,6 +74,19 @@ public static class JsDiff
         var oldTokens = RemoveEmpty(lineDiff.Tokenize(oldStr, options ?? new DiffOptions()));
         var newTokens = RemoveEmpty(lineDiff.Tokenize(newStr, options ?? new DiffOptions()));
         return lineDiff.DiffWithOptionsObj(oldTokens, newTokens, options ?? new DiffOptions());
+    }
+
+    /// <summary>
+    /// The jsdiff <c>diffWords(oldStr, newStr, options)</c>, used by the edit renderer for intra-line
+    /// change highlighting (<c>modes/interactive/components/diff.ts</c>). Always called there with no
+    /// options, so <c>ignoreCase</c> is off and the tokenizer is the default one.
+    /// </summary>
+    public static List<DiffPart> DiffWords(string oldStr, string newStr, DiffOptions? options = null)
+    {
+        var opts = options ?? new DiffOptions();
+        var oldTokens = RemoveEmpty(WordsDiff.Tokenize(oldStr, opts));
+        var newTokens = RemoveEmpty(WordsDiff.Tokenize(newStr, opts));
+        return WordsDiff.DiffWithOptionsObj(oldTokens, newTokens, opts);
     }
 
     /// <summary>
@@ -366,7 +381,7 @@ public static class JsDiff
             if (seed.OldPos + 1 >= oldLen && newPos + 1 >= newLen)
             {
                 // Identity per the equality and tokenizer.
-                return BuildValues(seed.LastComponent, newTokens, oldTokens);
+                return PostProcess(BuildValues(seed.LastComponent, newTokens, oldTokens), options);
             }
 
             var minDiagonalToConsider = int.MinValue;
@@ -420,7 +435,7 @@ public static class JsDiff
                     if (basePath.OldPos + 1 >= oldLen && newPos + 1 >= newLen)
                     {
                         // If we have hit the end of both strings, then we are done.
-                        return BuildValues(basePath.LastComponent, newTokens, oldTokens);
+                        return PostProcess(BuildValues(basePath.LastComponent, newTokens, oldTokens), options);
                     }
 
                     bestPath[diagonalPath] = basePath;
@@ -448,8 +463,14 @@ public static class JsDiff
                 }
             }
 
-            return [];
+            return PostProcess([], options);
         }
+
+        /// <summary>
+        /// The jsdiff <c>Diff.prototype.postProcess</c> hook, invoked once on the finished change list.
+        /// The base returns it unchanged; <c>WordDiff</c> overrides it to tidy up whitespace.
+        /// </summary>
+        protected virtual List<DiffPart> PostProcess(List<DiffPart> changes, DiffOptions options) => changes;
 
         private DiffPath AddToPath(DiffPath path, bool added, bool removed, int oldPosInc, DiffOptions options)
         {
@@ -553,6 +574,427 @@ public static class JsDiff
 
             return components.ConvertAll(component => new DiffPart(component.Value ?? "", component.Added, component.Removed));
         }
+    }
+
+    // ---------- word diff (diffWords) ----------
+
+    private static readonly WordDiff WordsDiff = new();
+
+    /// <summary>
+    /// Port of the jsdiff <c>WordDiff</c>: tokens are words / punctuation carrying their surrounding
+    /// whitespace, equality ignores leading and trailing whitespace, and a post-pass moves whitespace
+    /// duplicated across the inserted/removed spans back onto the surrounding keep tokens.
+    /// </summary>
+    /// <remarks>
+    /// The TS <c>diffWords</c> also honours an <c>intlSegmenter</c> option; the edit renderer never
+    /// passes one, so the segmenter path is left out (difference C199). The tokenizer is a hand-written
+    /// code-point scanner rather than a regex, because JS's <c>/…/u</c> class matching is code-point
+    /// based while .NET regex works on UTF-16 code units, which would split astral characters in two.
+    /// </remarks>
+    private sealed class WordDiff : DiffBase
+    {
+        public override List<string> Tokenize(string value, DiffOptions options)
+        {
+            // The regex only gives runs of whitespace their own token; this pass then stitches each
+            // whitespace run onto the neighbouring word/punctuation tokens, so a token carries the
+            // whitespace around it. That is what makes `equals` (whitespace-insensitive) and `join`
+            // (which drops all but the first token's leading whitespace) work out.
+            var parts = TokenizeIncludingWhitespace(value);
+            var tokens = new List<string>();
+            string? prevPart = null;
+            foreach (var part in parts)
+            {
+                if (ContainsJsWhitespace(part))
+                {
+                    if (prevPart is null) tokens.Add(part);
+                    else tokens[^1] += part;
+                }
+                else if (prevPart is not null && ContainsJsWhitespace(prevPart))
+                {
+                    if (tokens[^1] == prevPart) tokens[^1] += part;
+                    else tokens.Add(prevPart + part);
+                }
+                else
+                {
+                    tokens.Add(part);
+                }
+
+                prevPart = part;
+            }
+
+            return tokens;
+        }
+
+        protected override bool Equals(string left, string right, DiffOptions options)
+        {
+            if (options.IgnoreCase)
+            {
+                left = left.ToLowerInvariant();
+                right = right.ToLowerInvariant();
+            }
+
+            return JsTrim(left) == JsTrim(right);
+        }
+
+        protected override string Join(List<string> tokens)
+        {
+            // Tokens joined here always appeared consecutively in the same text, so stripping the
+            // leading whitespace off every token but the first restores the original spacing.
+            var builder = new StringBuilder();
+            for (var i = 0; i < tokens.Count; i++)
+            {
+                builder.Append(i == 0 ? tokens[i] : JsTrimStart(tokens[i]));
+            }
+
+            return builder.ToString();
+        }
+
+        protected override List<DiffPart> PostProcess(List<DiffPart> changes, DiffOptions options)
+        {
+            if (changes.Count == 0 || options.OneChangePerToken) return changes;
+
+            var parts = changes.ConvertAll(change => new MutablePart(change));
+            MutablePart? lastKeep = null;
+            MutablePart? insertion = null;
+            MutablePart? deletion = null;
+            foreach (var change in parts)
+            {
+                if (change.Added)
+                {
+                    insertion = change;
+                }
+                else if (change.Removed)
+                {
+                    deletion = change;
+                }
+                else
+                {
+                    if (insertion is not null || deletion is not null)
+                    {
+                        DedupeWhitespaceInChangeObjects(lastKeep, deletion, insertion, change);
+                    }
+
+                    lastKeep = change;
+                    insertion = null;
+                    deletion = null;
+                }
+            }
+
+            if (insertion is not null || deletion is not null)
+            {
+                DedupeWhitespaceInChangeObjects(lastKeep, deletion, insertion, null);
+            }
+
+            return parts.ConvertAll(part => new DiffPart(part.Value, part.Added, part.Removed));
+        }
+    }
+
+    /// <summary>A change object the whitespace post-pass can rewrite in place, like the JS objects.</summary>
+    private sealed class MutablePart(DiffPart part)
+    {
+        public string Value { get; set; } = part.Value;
+
+        public bool Added { get; } = part.Added;
+
+        public bool Removed { get; } = part.Removed;
+    }
+
+    /// <summary>
+    /// The jsdiff <c>tokenizeIncludingWhitespace</c> regex as a scanner: runs of word characters, runs
+    /// of whitespace, or a single other code point. Scanned by code point so astral characters stay whole.
+    /// </summary>
+    private static List<string> TokenizeIncludingWhitespace(string value)
+    {
+        var tokens = new List<string>();
+        var i = 0;
+        while (i < value.Length)
+        {
+            var codePoint = ReadCodePoint(value, i, out var length);
+            if (IsExtendedWordChar(codePoint))
+            {
+                var start = i;
+                while (i < value.Length)
+                {
+                    var next = ReadCodePoint(value, i, out var nextLength);
+                    if (!IsExtendedWordChar(next)) break;
+                    i += nextLength;
+                }
+
+                tokens.Add(value[start..i]);
+                continue;
+            }
+
+            if (IsJsWhitespace(codePoint))
+            {
+                var start = i;
+                while (i < value.Length)
+                {
+                    var next = ReadCodePoint(value, i, out var nextLength);
+                    if (!IsJsWhitespace(next)) break;
+                    i += nextLength;
+                }
+
+                tokens.Add(value[start..i]);
+                continue;
+            }
+
+            tokens.Add(value.Substring(i, length));
+            i += length;
+        }
+
+        return tokens;
+    }
+
+    /// <summary>One code point (surrogate pair kept together; a lone surrogate stays one code unit).</summary>
+    private static int ReadCodePoint(string value, int index, out int length)
+    {
+        var ch = value[index];
+        if (char.IsHighSurrogate(ch) && index + 1 < value.Length && char.IsLowSurrogate(value[index + 1]))
+        {
+            length = 2;
+            return char.ConvertToUtf32(ch, value[index + 1]);
+        }
+
+        length = 1;
+        return ch;
+    }
+
+    /// <summary>The jsdiff <c>extendedWordChars</c> class, as code-point ranges.</summary>
+    private static bool IsExtendedWordChar(int codePoint) => codePoint switch
+    {
+        >= 'a' and <= 'z' => true,
+        >= 'A' and <= 'Z' => true,
+        >= '0' and <= '9' => true,
+        '_' => true,
+        0x00AD => true,
+        >= 0x00C0 and <= 0x00D6 => true,
+        >= 0x00D8 and <= 0x00F6 => true,
+        >= 0x00F8 and <= 0x02C6 => true,
+        >= 0x02C8 and <= 0x02D7 => true,
+        >= 0x02DE and <= 0x02FF => true,
+        >= 0x1E00 and <= 0x1EFF => true,
+        _ => false,
+    };
+
+    /// <summary>JS <c>\s</c> (ECMAScript WhiteSpace + LineTerminator), which differs from .NET's <c>\s</c>.</summary>
+    private static bool IsJsWhitespace(int codePoint) => codePoint switch
+    {
+        0x0009 or 0x000A or 0x000B or 0x000C or 0x000D or 0x0020 => true,
+        0x00A0 or 0x1680 => true,
+        >= 0x2000 and <= 0x200A => true,
+        0x2028 or 0x2029 or 0x202F or 0x205F or 0x3000 => true,
+        0xFEFF => true,
+        _ => false,
+    };
+
+    /// <summary>The JS <c>/\s/.test(part)</c> used by the word tokenizer's stitching pass.</summary>
+    private static bool ContainsJsWhitespace(string value)
+    {
+        foreach (var ch in value)
+        {
+            if (IsJsWhitespace(ch)) return true;
+        }
+
+        return false;
+    }
+
+    private static string JsTrim(string value)
+    {
+        var start = JsTrimStartOffset(value);
+        var end = JsTrimEndOffset(value);
+        return end <= start ? "" : value[start..end];
+    }
+
+    private static string JsTrimStart(string value) => value[JsTrimStartOffset(value)..];
+
+    private static int JsTrimStartOffset(string value)
+    {
+        var start = 0;
+        while (start < value.Length && IsJsWhitespace(value[start])) start++;
+        return start;
+    }
+
+    private static int JsTrimEndOffset(string value)
+    {
+        var end = value.Length;
+        while (end > 0 && IsJsWhitespace(value[end - 1])) end--;
+        return end;
+    }
+
+    private static string LeadingWs(string value)
+    {
+        var end = 0;
+        while (end < value.Length && IsJsWhitespace(value[end])) end++;
+        return value[..end];
+    }
+
+    private static string TrailingWs(string value)
+    {
+        var start = value.Length;
+        while (start > 0 && IsJsWhitespace(value[start - 1])) start--;
+        return value[start..];
+    }
+
+    /// <summary>Port of the jsdiff <c>dedupeWhitespaceInChangeObjects</c> (segmenter path omitted).</summary>
+    private static void DedupeWhitespaceInChangeObjects(
+        MutablePart? startKeep, MutablePart? deletion, MutablePart? insertion, MutablePart? endKeep)
+    {
+        if (deletion is not null && insertion is not null)
+        {
+            var oldWsPrefix = LeadingWs(deletion.Value);
+            var oldWsSuffix = TrailingWs(deletion.Value);
+            var newWsPrefix = LeadingWs(insertion.Value);
+            var newWsSuffix = TrailingWs(insertion.Value);
+            if (startKeep is not null)
+            {
+                var commonWsPrefix = LongestCommonPrefix(oldWsPrefix, newWsPrefix);
+                startKeep.Value = ReplaceSuffix(startKeep.Value, newWsPrefix, commonWsPrefix);
+                deletion.Value = RemovePrefix(deletion.Value, commonWsPrefix);
+                insertion.Value = RemovePrefix(insertion.Value, commonWsPrefix);
+            }
+
+            if (endKeep is not null)
+            {
+                var commonWsSuffix = LongestCommonSuffix(oldWsSuffix, newWsSuffix);
+                endKeep.Value = ReplacePrefix(endKeep.Value, newWsSuffix, commonWsSuffix);
+                deletion.Value = RemoveSuffix(deletion.Value, commonWsSuffix);
+                insertion.Value = RemoveSuffix(insertion.Value, commonWsSuffix);
+            }
+        }
+        else if (insertion is not null)
+        {
+            // The whitespace all reflects the new text; just dedupe the leading whitespace.
+            if (startKeep is not null)
+            {
+                var ws = LeadingWs(insertion.Value);
+                insertion.Value = insertion.Value[ws.Length..];
+            }
+
+            if (endKeep is not null)
+            {
+                var ws = LeadingWs(endKeep.Value);
+                endKeep.Value = endKeep.Value[ws.Length..];
+            }
+        }
+        else if (startKeep is not null && endKeep is not null && deletion is not null)
+        {
+            var newWsFull = LeadingWs(endKeep.Value);
+            var delWsStart = LeadingWs(deletion.Value);
+            var delWsEnd = TrailingWs(deletion.Value);
+            // Whitespace straight after startKeep in both texts goes to startKeep.
+            var newWsStart = LongestCommonPrefix(newWsFull, delWsStart);
+            deletion.Value = RemovePrefix(deletion.Value, newWsStart);
+            // Whitespace straight before endKeep in both texts (and not already claimed) goes to endKeep.
+            var newWsEnd = LongestCommonSuffix(RemovePrefix(newWsFull, newWsStart), delWsEnd);
+            deletion.Value = RemoveSuffix(deletion.Value, newWsEnd);
+            endKeep.Value = ReplacePrefix(endKeep.Value, newWsFull, newWsEnd);
+            // Whatever is left of the new text's whitespace goes to startKeep.
+            startKeep.Value = ReplaceSuffix(
+                startKeep.Value, newWsFull, newWsFull[..(newWsFull.Length - newWsEnd.Length)]);
+        }
+        else if (endKeep is not null && deletion is not null)
+        {
+            // At the start of the text: keep endKeep's whitespace, trim the deletion's trailing overlap.
+            var endKeepWsPrefix = LeadingWs(endKeep.Value);
+            var deletionWsSuffix = TrailingWs(deletion.Value);
+            deletion.Value = RemoveSuffix(deletion.Value, MaximumOverlap(deletionWsSuffix, endKeepWsPrefix));
+        }
+        else if (startKeep is not null && deletion is not null)
+        {
+            // At the end of the text: keep startKeep's whitespace, trim the deletion's leading overlap.
+            var startKeepWsSuffix = TrailingWs(startKeep.Value);
+            var deletionWsPrefix = LeadingWs(deletion.Value);
+            deletion.Value = RemovePrefix(deletion.Value, MaximumOverlap(startKeepWsSuffix, deletionWsPrefix));
+        }
+    }
+
+    private static string LongestCommonPrefix(string first, string second)
+    {
+        var i = 0;
+        while (i < first.Length && i < second.Length && first[i] == second[i]) i++;
+        return first[..i];
+    }
+
+    private static string LongestCommonSuffix(string first, string second)
+    {
+        if (first.Length == 0 || second.Length == 0 || first[^1] != second[^1]) return "";
+        var i = 0;
+        while (i < first.Length && i < second.Length && first[^(i + 1)] == second[^(i + 1)]) i++;
+        return first[^i..];
+    }
+
+    private static string ReplacePrefix(string value, string oldPrefix, string newPrefix)
+    {
+        if (!value.StartsWith(oldPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"string {value} doesn't start with prefix {oldPrefix}; this is a bug");
+        }
+
+        return newPrefix + value[oldPrefix.Length..];
+    }
+
+    private static string ReplaceSuffix(string value, string oldSuffix, string newSuffix)
+    {
+        if (oldSuffix.Length == 0) return value + newSuffix;
+        if (!value.EndsWith(oldSuffix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"string {value} doesn't end with suffix {oldSuffix}; this is a bug");
+        }
+
+        return value[..^oldSuffix.Length] + newSuffix;
+    }
+
+    private static string RemovePrefix(string value, string oldPrefix) => ReplacePrefix(value, oldPrefix, "");
+
+    private static string RemoveSuffix(string value, string oldSuffix) => ReplaceSuffix(value, oldSuffix, "");
+
+    /// <summary>The jsdiff <c>maximumOverlap</c>: the longest suffix of <paramref name="first"/> that is
+    /// a prefix of <paramref name="second"/>.</summary>
+    private static string MaximumOverlap(string first, string second)
+    {
+        var count = OverlapCount(first, second);
+        // A null count is JS's `undefined`, and `second.slice(0, undefined)` is the whole string.
+        return count is null ? second : second[..count.Value];
+    }
+
+    /// <summary>
+    /// The jsdiff <c>overlapCount</c> (KMP failure-table based). Returns <see langword="null"/> where
+    /// the JS version's <c>k</c> degrades to <c>undefined</c> (an out-of-range <c>map[k]</c>), which
+    /// <see cref="MaximumOverlap"/> then treats as "the whole second string".
+    /// </summary>
+    private static int? OverlapCount(string first, string second)
+    {
+        var startFirst = first.Length > second.Length ? first.Length - second.Length : 0;
+        var endSecond = first.Length < second.Length ? first.Length : second.Length;
+        var map = new int[Math.Max(endSecond, 1)];
+        var k = 0;
+        map[0] = 0;
+        for (var j = 1; j < endSecond; j++)
+        {
+            map[j] = second[j] == second[k] ? map[k] : k;
+            while (k > 0 && second[j] != second[k]) k = map[k];
+            if (second[j] == second[k]) k++;
+        }
+
+        int? trailing = 0;
+        for (var i = startFirst; i < first.Length; i++)
+        {
+            while (true)
+            {
+                if (trailing is not int current || current <= 0) break;
+                if (current < second.Length && first[i] == second[current]) break;
+                trailing = current < map.Length ? map[current] : null;
+            }
+
+            if (trailing is int matched && matched < second.Length && first[i] == second[matched])
+            {
+                trailing = matched + 1;
+            }
+        }
+
+        return trailing;
     }
 
     /// <summary>Port of the jsdiff <c>LineDiff</c>.</summary>

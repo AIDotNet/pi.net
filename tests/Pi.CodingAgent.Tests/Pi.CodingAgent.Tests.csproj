@@ -64,6 +64,12 @@
     <!-- 4e-2d: core/compaction/* (utils, compaction, branch-summarization), core/skills.ts
          formatSkillsForPrompt and core/system-prompt.ts. -->
     <None Include="compaction-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4f-3b: JsDiff.DiffWords — the jsdiff 8.0.4 diffWords flavor the edit renderer uses for
+         intra-line change highlighting. -->
+    <None Include="diffwords-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4f-3b: modes/interactive/components/diff.ts renderDiff — captured by executing the upstream
+         TypeScript itself with only its `diff`/`theme` imports redirected to stubs. -->
+    <None Include="renderdiff-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" />

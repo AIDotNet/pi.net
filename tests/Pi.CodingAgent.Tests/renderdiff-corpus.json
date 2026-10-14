@@ -1,0 +1,342 @@
+{
+ "jsdiffVersion": "8.0.4",
+ "api": "renderDiff(diffText) — default options",
+ "themeStub": {
+  "fg": "<token>text</>",
+  "inverse": "[inv]text[/inv]"
+ },
+ "cases": [
+  {
+   "diff": "@@ -1,7 +1,7 @@\n context one\n context two\n-3 const x = 1;\n+3 const x = 2;\n context three\n context four\n context five",
+   "rendered": "<toolDiffContext>@@ -1,7 +1,7 @@</>\n<toolDiffContext> context one</>\n<toolDiffContext> context two</>\n<toolDiffRemoved>-3 const x = [inv]1[/inv];</>\n<toolDiffAdded>+3 const x = [inv]2[/inv];</>\n<toolDiffContext> context three</>\n<toolDiffContext> context four</>\n<toolDiffContext> context five</>"
+  },
+  {
+   "diff": "@@ -10,3 +10,4 @@\n context\n-old line\n+new line\n+extra line\n tail",
+   "rendered": "<toolDiffContext>@@ -10,3 +10,4 @@</>\n<toolDiffContext> context</>\n<toolDiffContext>-old line</>\n<toolDiffContext>+new line</>\n<toolDiffContext>+extra line</>\n<toolDiffContext> tail</>"
+  },
+  {
+   "diff": "--- a/file.ts\n+++ b/file.ts\n@@ -1,2 +1,2 @@\n-1 a\n+1 b\n 2 c",
+   "rendered": "<toolDiffContext>--- a/file.ts</>\n<toolDiffContext>+++ b/file.ts</>\n<toolDiffContext>@@ -1,2 +1,2 @@</>\n<toolDiffRemoved>-1 [inv]a[/inv]</>\n<toolDiffAdded>+1 [inv]b[/inv]</>\n<toolDiffContext> 2 c</>"
+  },
+  {
+   "diff": "-1 const x = 1;\n+1 const x = 2;",
+   "rendered": "<toolDiffRemoved>-1 const x = [inv]1[/inv];</>\n<toolDiffAdded>+1 const x = [inv]2[/inv];</>"
+  },
+  {
+   "diff": "-1 return a + b;\n+1 return a - b;",
+   "rendered": "<toolDiffRemoved>-1 return a [inv]+[/inv] b;</>\n<toolDiffAdded>+1 return a [inv]-[/inv] b;</>"
+  },
+  {
+   "diff": "-1 alpha beta gamma\n+1 alpha delta gamma",
+   "rendered": "<toolDiffRemoved>-1 alpha [inv]beta[/inv] gamma</>\n<toolDiffAdded>+1 alpha [inv]delta[/inv] gamma</>"
+  },
+  {
+   "diff": "-1 completely different\n+1 totally unrelated",
+   "rendered": "<toolDiffRemoved>-1 [inv]completely different[/inv]</>\n<toolDiffAdded>+1 [inv]totally unrelated[/inv]</>"
+  },
+  {
+   "diff": "-1 \n+1 ",
+   "rendered": "<toolDiffRemoved>-1 </>\n<toolDiffAdded>+1 </>"
+  },
+  {
+   "diff": "-1     indented = true;\n+1     indented = false;",
+   "rendered": "<toolDiffRemoved>-1     indented = [inv]true[/inv];</>\n<toolDiffAdded>+1     indented = [inv]false[/inv];</>"
+  },
+  {
+   "diff": "-1 \t\ttabbed = 1\n+1 \t\ttabbed = 2",
+   "rendered": "<toolDiffRemoved>-1       tabbed = [inv]1[/inv]</>\n<toolDiffAdded>+1       tabbed = [inv]2[/inv]</>"
+  },
+  {
+   "diff": "-1   only indentation\n+1     only indentation",
+   "rendered": "<toolDiffRemoved>-1     only indentation</>\n<toolDiffAdded>+1     only indentation</>"
+  },
+  {
+   "diff": "-1 \n+1     ",
+   "rendered": "<toolDiffRemoved>-1 </>\n<toolDiffAdded>+1     </>"
+  },
+  {
+   "diff": "-1   \n+1 ",
+   "rendered": "<toolDiffRemoved>-1   </>\n<toolDiffAdded>+1 </>"
+  },
+  {
+   "diff": "-1 \tone\n+1 \ttwo",
+   "rendered": "<toolDiffRemoved>-1    [inv]one[/inv]</>\n<toolDiffAdded>+1    [inv]two[/inv]</>"
+  },
+  {
+   "diff": "-1 a\tb\n+1 a\tc",
+   "rendered": "<toolDiffRemoved>-1 a   [inv]b[/inv]</>\n<toolDiffAdded>+1 a   [inv]c[/inv]</>"
+  },
+  {
+   "diff": " 1 \tcontext\tline",
+   "rendered": "<toolDiffContext> 1    context   line</>"
+  },
+  {
+   "diff": "-1 a\n-2 b\n+1 c",
+   "rendered": "<toolDiffRemoved>-1 a</>\n<toolDiffRemoved>-2 b</>\n<toolDiffAdded>+1 c</>"
+  },
+  {
+   "diff": "-1 a\n-2 b\n+1 c\n+2 d",
+   "rendered": "<toolDiffRemoved>-1 a</>\n<toolDiffRemoved>-2 b</>\n<toolDiffAdded>+1 c</>\n<toolDiffAdded>+2 d</>"
+  },
+  {
+   "diff": "-1 a\n+1 b\n+2 c",
+   "rendered": "<toolDiffRemoved>-1 a</>\n<toolDiffAdded>+1 b</>\n<toolDiffAdded>+2 c</>"
+  },
+  {
+   "diff": "-1 only removed",
+   "rendered": "<toolDiffRemoved>-1 only removed</>"
+  },
+  {
+   "diff": "-1 a\n-2 b",
+   "rendered": "<toolDiffRemoved>-1 a</>\n<toolDiffRemoved>-2 b</>"
+  },
+  {
+   "diff": "+1 only added",
+   "rendered": "<toolDiffAdded>+1 only added</>"
+  },
+  {
+   "diff": "+1 brand new\n+2 second new",
+   "rendered": "<toolDiffAdded>+1 brand new</>\n<toolDiffAdded>+2 second new</>"
+  },
+  {
+   "diff": " context only",
+   "rendered": "<toolDiffContext> context only</>"
+  },
+  {
+   "diff": " 1 numbered context",
+   "rendered": "<toolDiffContext> 1 numbered context</>"
+  },
+  {
+   "diff": "",
+   "rendered": "<toolDiffContext></>"
+  },
+  {
+   "diff": "-",
+   "rendered": "<toolDiffContext>-</>"
+  },
+  {
+   "diff": "+",
+   "rendered": "<toolDiffContext>+</>"
+  },
+  {
+   "diff": " ",
+   "rendered": "<toolDiffContext> </>"
+  },
+  {
+   "diff": "  ",
+   "rendered": "<toolDiffContext>  </>"
+  },
+  {
+   "diff": "123 no prefix",
+   "rendered": "<toolDiffContext>123 no prefix</>"
+  },
+  {
+   "diff": "\\ No newline at end of file",
+   "rendered": "<toolDiffContext>\\ No newline at end of file</>"
+  },
+  {
+   "diff": "@@ -1 +1 @@",
+   "rendered": "<toolDiffContext>@@ -1 +1 @@</>"
+  },
+  {
+   "diff": "diff --git a/x b/x",
+   "rendered": "<toolDiffContext>diff --git a/x b/x</>"
+  },
+  {
+   "diff": "no space after prefix+x",
+   "rendered": "<toolDiffContext>no space after prefix+x</>"
+  },
+  {
+   "diff": "not a diff at all",
+   "rendered": "<toolDiffContext>not a diff at all</>"
+  },
+  {
+   "diff": "-1x no separating space",
+   "rendered": "<toolDiffContext>-1x no separating space</>"
+  },
+  {
+   "diff": "+1x no separating space",
+   "rendered": "<toolDiffContext>+1x no separating space</>"
+  },
+  {
+   "diff": "-  no line number",
+   "rendered": "<toolDiffRemoved>-  no line number</>"
+  },
+  {
+   "diff": "+  no line number either",
+   "rendered": "<toolDiffAdded>+  no line number either</>"
+  },
+  {
+   "diff": "  leading space, no number",
+   "rendered": "<toolDiffContext>  leading space, no number</>"
+  },
+  {
+   "diff": "-12 number attached",
+   "rendered": "<toolDiffRemoved>-12 number attached</>"
+  },
+  {
+   "diff": "-  12 spaced number",
+   "rendered": "<toolDiffRemoved>-  12 spaced number</>"
+  },
+  {
+   "diff": "-\t12 tab separated",
+   "rendered": "<toolDiffRemoved>-\t12 tab separated</>"
+  },
+  {
+   "diff": "     ...",
+   "rendered": "<toolDiffContext>     ...</>"
+  },
+  {
+   "diff": " ... ",
+   "rendered": "<toolDiffContext> ... </>"
+  },
+  {
+   "diff": "-1 a\n+1 b\n",
+   "rendered": "<toolDiffRemoved>-1 [inv]a[/inv]</>\n<toolDiffAdded>+1 [inv]b[/inv]</>\n<toolDiffContext></>"
+  },
+  {
+   "diff": " context\n",
+   "rendered": "<toolDiffContext> context</>\n<toolDiffContext></>"
+  },
+  {
+   "diff": " context",
+   "rendered": "<toolDiffContext> context</>"
+  },
+  {
+   "diff": "-1 a\r\n+1 b\r\n",
+   "rendered": "<toolDiffContext>-1 a\r</>\n<toolDiffContext>+1 b\r</>\n<toolDiffContext></>"
+  },
+  {
+   "diff": " context\r\n",
+   "rendered": "<toolDiffContext> context\r</>\n<toolDiffContext></>"
+  },
+  {
+   "diff": "-1 a\r\n+1 b",
+   "rendered": "<toolDiffContext>-1 a\r</>\n<toolDiffAdded>+1 b</>"
+  },
+  {
+   "diff": "-1 日本語 = 1\n+1 日本語 = 2",
+   "rendered": "<toolDiffRemoved>-1 日本語 = [inv]1[/inv]</>\n<toolDiffAdded>+1 日本語 = [inv]2[/inv]</>"
+  },
+  {
+   "diff": "-1 😀 emoji\n+1 😀 emojis",
+   "rendered": "<toolDiffRemoved>-1 😀 [inv]emoji[/inv]</>\n<toolDiffAdded>+1 😀 [inv]emojis[/inv]</>"
+  },
+  {
+   "diff": "-1 café\n+1 café au lait",
+   "rendered": "<toolDiffRemoved>-1 café </>\n<toolDiffAdded>+1 café [inv]au lait[/inv]</>"
+  },
+  {
+   "diff": "-1 naïve approach\n+1 naive approach",
+   "rendered": "<toolDiffRemoved>-1 [inv]naïve[/inv] approach</>\n<toolDiffAdded>+1 [inv]naive[/inv] approach</>"
+  },
+  {
+   "diff": " 1 non breaking prefix",
+   "rendered": "<toolDiffContext> 1 non breaking prefix</>"
+  },
+  {
+   "diff": "﻿1 zero width no-break prefix",
+   "rendered": "<toolDiffContext> 1 zero width no-break prefix</>"
+  },
+  {
+   "diff": "1 next line prefix",
+   "rendered": "<toolDiffContext>1 next line prefix</>"
+  },
+  {
+   "diff": " 1 line separator prefix",
+   "rendered": "<toolDiffContext> 1 line separator prefix</>"
+  },
+  {
+   "diff": "-1 a b\n+1 a c",
+   "rendered": "<toolDiffContext>-1 a b</>\n<toolDiffContext>+1 a c</>"
+  },
+  {
+   "diff": "-1 ab\n+1 ac",
+   "rendered": "<toolDiffRemoved>-1 a[inv]b[/inv]</>\n<toolDiffAdded>+1 a[inv]c[/inv]</>"
+  },
+  {
+   "diff": "-1 　　wide indent\n+1 　　wide indent changed",
+   "rendered": "<toolDiffRemoved>-1 　　wide indent </>\n<toolDiffAdded>+1 　　wide indent [inv]changed[/inv]</>"
+  },
+  {
+   "diff": "-1 ﻿bom prefixed\n+1 ﻿bom prefixed changed",
+   "rendered": "<toolDiffRemoved>-1 ﻿bom prefixed </>\n<toolDiffAdded>+1 ﻿bom prefixed [inv]changed[/inv]</>"
+  },
+  {
+   "diff": "-1  nbsp indent\n+1  nbsp indent changed",
+   "rendered": "<toolDiffRemoved>-1  nbsp indent </>\n<toolDiffAdded>+1  nbsp indent [inv]changed[/inv]</>"
+  },
+  {
+   "diff": "-1 nel indent\n+1 nel indent changed",
+   "rendered": "<toolDiffRemoved>-1 nel indent </>\n<toolDiffAdded>+1 nel indent [inv]changed[/inv]</>"
+  },
+  {
+   "diff": "-1  ls indent\n+1  ls indent changed",
+   "rendered": "<toolDiffContext>-1  ls indent</>\n<toolDiffContext>+1  ls indent changed</>"
+  },
+  {
+   "diff": "-1 a\n+1 　b",
+   "rendered": "<toolDiffRemoved>-1 [inv]a[/inv]</>\n<toolDiffAdded>+1 　[inv]b[/inv]</>"
+  },
+  {
+   "diff": "-1 a\n+1 ﻿b",
+   "rendered": "<toolDiffRemoved>-1 [inv]a[/inv]</>\n<toolDiffAdded>+1 ﻿[inv]b[/inv]</>"
+  },
+  {
+   "diff": "-1 a\n+1  b",
+   "rendered": "<toolDiffRemoved>-1 [inv]a[/inv]</>\n<toolDiffAdded>+1  [inv]b[/inv]</>"
+  },
+  {
+   "diff": "-1 a\n+1 b",
+   "rendered": "<toolDiffRemoved>-1 [inv]a[/inv]</>\n<toolDiffAdded>+1 [inv]b[/inv]</>"
+  },
+  {
+   "diff": "-1 　a\n+1 b",
+   "rendered": "<toolDiffRemoved>-1 　[inv]a[/inv]</>\n<toolDiffAdded>+1 [inv]b[/inv]</>"
+  },
+  {
+   "diff": "-1 ﻿a\n+1 b",
+   "rendered": "<toolDiffRemoved>-1 ﻿[inv]a[/inv]</>\n<toolDiffAdded>+1 [inv]b[/inv]</>"
+  },
+  {
+   "diff": "-1 a\n+1 b",
+   "rendered": "<toolDiffRemoved>-1 [inv]a[/inv]</>\n<toolDiffAdded>+1 [inv]b[/inv]</>"
+  },
+  {
+   "diff": "-123 ascii digits",
+   "rendered": "<toolDiffRemoved>-123 ascii digits</>"
+  },
+  {
+   "diff": "-١٢ arabic indic digits",
+   "rendered": "<toolDiffContext>-١٢ arabic indic digits</>"
+  },
+  {
+   "diff": "-1 ١٢ arabic indic in content",
+   "rendered": "<toolDiffRemoved>-1 ١٢ arabic indic in content</>"
+  },
+  {
+   "diff": "-12０ fullwidth digit",
+   "rendered": "<toolDiffContext>-12０ fullwidth digit</>"
+  },
+  {
+   "diff": "-1 a b\n+1 a  b",
+   "rendered": "<toolDiffRemoved>-1 a  b</>\n<toolDiffAdded>+1 a  b</>"
+  },
+  {
+   "diff": "-1 a  b\n+1 a b",
+   "rendered": "<toolDiffRemoved>-1 a b</>\n<toolDiffAdded>+1 a b</>"
+  },
+  {
+   "diff": "-1 a\tb\n+1 a b",
+   "rendered": "<toolDiffRemoved>-1 a b</>\n<toolDiffAdded>+1 a b</>"
+  },
+  {
+   "diff": "-1 a b\n+1 a\nb",
+   "rendered": "<toolDiffRemoved>-1 a [inv]b[/inv]</>\n<toolDiffAdded>+1 a</>\n<toolDiffContext>b</>"
+  },
+  {
+   "diff": "--- a/src/x.ts\n+++ b/src/x.ts\n@@ -1,9 +1,10 @@\n import { a } from './a';\n-import { b } from './b';\n+import { b } from './bb';\n+import { c } from './c';\n \n export function f() {\n-\treturn a + b;\n+\treturn a - b;\n }",
+   "rendered": "<toolDiffContext>--- a/src/x.ts</>\n<toolDiffContext>+++ b/src/x.ts</>\n<toolDiffContext>@@ -1,9 +1,10 @@</>\n<toolDiffContext> import { a } from './a';</>\n<toolDiffContext>-import { b } from './b';</>\n<toolDiffContext>+import { b } from './bb';</>\n<toolDiffContext>+import { c } from './c';</>\n<toolDiffContext> </>\n<toolDiffContext> export function f() {</>\n<toolDiffRemoved>- return a [inv]+[/inv] b;</>\n<toolDiffAdded>+ return a [inv]-[/inv] b;</>\n<toolDiffContext> }</>"
+  }
+ ]
+}

@@ -1,0 +1,1626 @@
+{
+ "jsdiffVersion": "8.0.4",
+ "api": "diffWords(oldStr, newStr) — no options",
+ "cases": [
+  {
+   "old": "",
+   "new": "",
+   "parts": []
+  },
+  {
+   "old": "",
+   "new": "hello",
+   "parts": [
+    {
+     "value": "hello",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "hello",
+   "new": "",
+   "parts": [
+    {
+     "value": "hello",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": "hello world",
+   "new": "hello world",
+   "parts": [
+    {
+     "value": "hello world",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "   ",
+   "new": "   ",
+   "parts": [
+    {
+     "value": "   ",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "  ",
+   "new": " ",
+   "parts": [
+    {
+     "value": " ",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "\t",
+   "new": " ",
+   "parts": [
+    {
+     "value": " ",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo bar baz",
+   "new": "foo baz",
+   "parts": [
+    {
+     "value": "foo ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "bar ",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "baz",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo bar baz",
+   "new": "foo qux baz",
+   "parts": [
+    {
+     "value": "foo ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "bar",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "qux",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " baz",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo\nbar baz",
+   "new": "foo baz",
+   "parts": [
+    {
+     "value": "foo",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\nbar",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": " baz",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo baz",
+   "new": "foo\nbar baz",
+   "parts": [
+    {
+     "value": "foo\n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "bar ",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "baz",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo   bar baz",
+   "new": "foo  baz",
+   "parts": [
+    {
+     "value": "foo  ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": " bar ",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "baz",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo\tbar\nbaz",
+   "new": "foo baz",
+   "parts": [
+    {
+     "value": "foo ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\tbar\n",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "baz",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "the quick brown fox",
+   "new": "the quick red fox",
+   "parts": [
+    {
+     "value": "the quick ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "brown",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "red",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " fox",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "the quick brown fox",
+   "new": "the brown fox",
+   "parts": [
+    {
+     "value": "the ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "quick ",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "brown fox",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "the quick fox",
+   "new": "the very quick brown fox",
+   "parts": [
+    {
+     "value": "the ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "very ",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "quick ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "brown ",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "fox",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "one two three",
+   "new": "three two one",
+   "parts": [
+    {
+     "value": "one two ",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "three ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "two one",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "alpha",
+   "new": "beta",
+   "parts": [
+    {
+     "value": "alpha",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "beta",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "alpha beta",
+   "new": "alpha gamma delta beta",
+   "parts": [
+    {
+     "value": "alpha ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "gamma delta ",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "beta",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b c d e",
+   "new": "a x c d e",
+   "parts": [
+    {
+     "value": "a ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "b",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "x",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " c d e",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b c d e",
+   "new": "a b c d e f",
+   "parts": [
+    {
+     "value": "a b c d e ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "f",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b c d e",
+   "new": "b c d e",
+   "parts": [
+    {
+     "value": "a ",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "b c d e",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "const x = 1;",
+   "new": "const x = 2;",
+   "parts": [
+    {
+     "value": "const x = ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "1",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "2",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": ";",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "const x = 1;",
+   "new": "let x = 1;",
+   "parts": [
+    {
+     "value": "const",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "let",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " x = 1;",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "return a + b;",
+   "new": "return a - b;",
+   "parts": [
+    {
+     "value": "return a ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "+",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "-",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " b;",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "if (a) { b(); }",
+   "new": "if (a) { c(); }",
+   "parts": [
+    {
+     "value": "if (a) { ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "b",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "c",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "(); }",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo(bar, baz)",
+   "new": "foo(bar)",
+   "parts": [
+    {
+     "value": "foo(bar",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": ", baz",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": ")",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo(bar)",
+   "new": "foo(bar, baz, qux)",
+   "parts": [
+    {
+     "value": "foo(bar",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": ", baz, qux",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": ")",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "  indented = true;",
+   "new": "  indented = false;",
+   "parts": [
+    {
+     "value": "  indented = ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "true",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "false",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": ";",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "obj.key = value;",
+   "new": "obj.otherKey = value;",
+   "parts": [
+    {
+     "value": "obj.",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "key",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "otherKey",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " = value;",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "const s = \"hello\";",
+   "new": "const s = \"world\";",
+   "parts": [
+    {
+     "value": "const s = \"",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "hello",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "world",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "\";",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a.b.c()",
+   "new": "a.b.d()",
+   "parts": [
+    {
+     "value": "a.b.",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "c",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "d",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "()",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "x++",
+   "new": "x--",
+   "parts": [
+    {
+     "value": "x",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "++",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "--",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "  ",
+   "new": "    ",
+   "parts": [
+    {
+     "value": "    ",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b",
+   "new": "a  b",
+   "parts": [
+    {
+     "value": "a  b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a  b",
+   "new": "a b",
+   "parts": [
+    {
+     "value": "a b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b",
+   "new": "a\tb",
+   "parts": [
+    {
+     "value": "a\tb",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a\nb",
+   "new": "a b",
+   "parts": [
+    {
+     "value": "a b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b",
+   "new": "a\nb",
+   "parts": [
+    {
+     "value": "a\nb",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "x\ny\nz",
+   "new": "x\ny\nz",
+   "parts": [
+    {
+     "value": "x\ny\nz",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "x\ny\nz",
+   "new": "x\nq\nz",
+   "parts": [
+    {
+     "value": "x\n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "y",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "q",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "\nz",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "foo, bar",
+   "new": "foo; bar",
+   "parts": [
+    {
+     "value": "foo",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": ",",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": ";",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " bar",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "(a)",
+   "new": "[a]",
+   "parts": [
+    {
+     "value": "(",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "[",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "a",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": ")",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "]",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a-b",
+   "new": "a_b",
+   "parts": [
+    {
+     "value": "a-b",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "a_b",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a_b",
+   "new": "a-b",
+   "parts": [
+    {
+     "value": "a_b",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "a-b",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "1.0.0",
+   "new": "1.0.1",
+   "parts": [
+    {
+     "value": "1.0.",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "0",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "1",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a/b/c",
+   "new": "a/b/d",
+   "parts": [
+    {
+     "value": "a/b/",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "c",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "d",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "<div>",
+   "new": "</div>",
+   "parts": [
+    {
+     "value": "<",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "/",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "div>",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a && b",
+   "new": "a || b",
+   "parts": [
+    {
+     "value": "a ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "&&",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "||",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "café noir",
+   "new": "café au lait",
+   "parts": [
+    {
+     "value": "café ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "noir",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "au lait",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "naïve",
+   "new": "naive",
+   "parts": [
+    {
+     "value": "naïve",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "naive",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "Über alles",
+   "new": "Über nichts",
+   "parts": [
+    {
+     "value": "Über ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "alles",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "nichts",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "α β",
+   "new": "α γ",
+   "parts": [
+    {
+     "value": "α ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "β",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "γ",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "日本語 テスト",
+   "new": "日本語 テスト2",
+   "parts": [
+    {
+     "value": "日本語 テスト",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "2",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "😀 emoji",
+   "new": "😀 emojis",
+   "parts": [
+    {
+     "value": "😀 ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "emoji",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "emojis",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a😀b",
+   "new": "a😀c",
+   "parts": [
+    {
+     "value": "a😀",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "b",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "c",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b",
+   "new": "a b",
+   "parts": [
+    {
+     "value": "a b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a﻿b",
+   "new": "a b",
+   "parts": [
+    {
+     "value": "a b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "ab",
+   "new": "a b",
+   "parts": [
+    {
+     "value": "a ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b",
+   "new": "a b",
+   "parts": [
+    {
+     "value": "a b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a b",
+   "new": "a b",
+   "parts": [
+    {
+     "value": "a b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a　b",
+   "new": "a b",
+   "parts": [
+    {
+     "value": "a b",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "a­b",
+   "new": "a­c",
+   "parts": [
+    {
+     "value": "a­b",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "a­c",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "function add(a, b) {\n  return a + b;\n}\n",
+   "new": "function add(a, b) {\n  return a - b;\n}\n",
+   "parts": [
+    {
+     "value": "function add(a, b) {\n  return a ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "+",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "-",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": " b;\n}\n",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "line one\nline two\nline three\n",
+   "new": "line one\nline TWO\nline three\n",
+   "parts": [
+    {
+     "value": "line one\nline ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "two",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "TWO",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "\nline three\n",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "keep\nremove me\nkeep too\n",
+   "new": "keep\nkeep too\n",
+   "parts": [
+    {
+     "value": "keep\n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "remove me\n",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "keep too\n",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "keep\nkeep too\n",
+   "new": "keep\ninserted\nkeep too\n",
+   "parts": [
+    {
+     "value": "keep\n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "inserted\n",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "keep too\n",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "  a\n  b\n  c",
+   "new": "  a\n    b\n  c",
+   "parts": [
+    {
+     "value": "  a\n    b\n  c",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "😀\t\t\tfoo+",
+   "new": "\n\nfoo😀_ab",
+   "parts": [
+    {
+     "value": "😀\t\t\t",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "\n\nfoo",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "+",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "😀_ab",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "\"\n a😀x",
+   "new": "x\n\nab)😀xcafé",
+   "parts": [
+    {
+     "value": "\"\n a😀",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "x\n\n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "ab)😀xcafé",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "b😀foo",
+   "new": "+  foo\n😀",
+   "parts": [
+    {
+     "value": "b😀",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "+  ",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "foo\n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "😀",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "  =',😀ab",
+   "new": "ab😀baz\n )(",
+   "parts": [
+    {
+     "value": "  =',😀",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "ab",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "😀baz\n )(",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "1ab😀x\tabcafé",
+   "new": "\n\nbar;  \nx😀",
+   "parts": [
+    {
+     "value": "1ab😀",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "\n\nbar;  \n",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": "x",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\tabcafé",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "😀",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "😀x",
+   "new": "x😀\n ",
+   "parts": [
+    {
+     "value": "😀",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "x",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "😀\n ",
+     "added": true,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "x  _",
+   "new": "x  \n",
+   "parts": [
+    {
+     "value": "x  \n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "  _",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": "11\t.",
+   "new": "11\t  ",
+   "parts": [
+    {
+     "value": "11\t  ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\t.",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": "a\n😀  ",
+   "new": "a\n  ",
+   "parts": [
+    {
+     "value": "a\n  ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\n😀  ",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": ".a\n &😀",
+   "new": "\n&😀",
+   "parts": [
+    {
+     "value": ".a\n ",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "\n&😀",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "ab\n .😀",
+   "new": "\n.😀",
+   "parts": [
+    {
+     "value": "ab\n ",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": "\n.😀",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": ";baz \n😀",
+   "new": " 😀",
+   "parts": [
+    {
+     "value": ";baz \n",
+     "added": false,
+     "removed": true
+    },
+    {
+     "value": " 😀",
+     "added": false,
+     "removed": false
+    }
+   ]
+  },
+  {
+   "old": "&b\n'\t",
+   "new": "&b\n  ",
+   "parts": [
+    {
+     "value": "&b\n  ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\n'\t",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": "\n😀\tbaz",
+   "new": "\n😀\t\n ",
+   "parts": [
+    {
+     "value": "\n😀\t\n ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\tbaz",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": "b  café",
+   "new": "b  \n",
+   "parts": [
+    {
+     "value": "b  \n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "  café",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": "   :\t=",
+   "new": " ' :\t ",
+   "parts": [
+    {
+     "value": " ' ",
+     "added": true,
+     "removed": false
+    },
+    {
+     "value": ":\t ",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\t=",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": "\n\n😀\tx:",
+   "new": "\n\n😀\t \n",
+   "parts": [
+    {
+     "value": "\n\n😀\t \n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "\tx:",
+     "added": false,
+     "removed": true
+    }
+   ]
+  },
+  {
+   "old": ".   b\n ",
+   "new": ".   \n",
+   "parts": [
+    {
+     "value": ".   \n",
+     "added": false,
+     "removed": false
+    },
+    {
+     "value": "   b\n ",
+     "added": false,
+     "removed": true
+    }
+   ]
+  }
+ ]
+}
