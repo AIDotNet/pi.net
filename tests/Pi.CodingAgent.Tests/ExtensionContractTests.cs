@@ -278,12 +278,13 @@ public class ExtensionContractTests
     {
         Assert.NotNull(SourceInfos.CreateSynthetic("builtin:read", "builtin"));
         Assert.NotNull(EventBusController.CreateEventBus());
-        Assert.NotNull(new Theme());
         Assert.NotNull(new OverlayHandle());
         Assert.NotNull(new CustomMessage("t", new MessageContent.Text("c"), false, 0));
         Assert.NotNull(BashTool.CreateLocalBashOperations());
         // 4e-3e-9g 移除了两个重复占位：`Provider`（真实类型是 Pi.Ai.Models.IProvider，由
         // CoreModelRegistryTests 覆盖）与 `BashOperations`（真实类型是 IBashToolOperations）。
+        // 4f-2a 移除了 `Theme` 占位：真实类型是 Modes.Interactive.Theme，构造需要 fg/bg 色表
+        // 与终端配色模式，可构造性由 ThemeTests 覆盖，不再属于「占位类型」清单。
     }
 
     // ------------------------------------------------------------------ API surface

@@ -3227,3 +3227,80 @@ TS 的 `StdioTransport` 有 `DEFAULT_MAX_STDERR_BYTES = 64 * 1024` 与 `get stde
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`McpExtensionTests` **46/46**；
   `Pi.CodingAgent.Tests` 全量 **1708 / 0 失败**；`Pi.Mcp.Tests` 35、`Pi.Agent.Tests` 32、
   `Pi.Codemode.Tests` 39、`Pi.Ai.Tests` 301、`Pi.Tui.Tests` 23812 全绿。
+
+## 4f-2a 进度（2026-10-14）：主题层本体（`modes/interactive/theme/theme-json.ts` + `system-theme.ts` + `theme.ts`）
+
+对应 TS `modes/interactive/theme/` 的 `theme-json.ts`（148）/`system-theme.ts`（655）/`theme.ts`
+（1,160，模块级半边）与 `packages/tui/src/terminal-colors.ts`（91）。`theme-controller.ts`（253）
+依赖 4f-4 的交互模式装配，顺延 **4f-2b**。
+
+**开工前的阻塞勘察结论**：`theme.ts` 的唯一终端输入通道 —— TS 的 `queryTerminalColors()`
+（OSC 10/11/4 + DA1 收尾）在 `Pi.Tui` 里**根本不存在**。端口此前的两个自造助手
+`IsOsc11BackgroundColorResponse` / `ParseOsc11BackgroundColor` 是确认无引用的死代码
+（`_pendingOsc11Replies` 只加不减、`HandleTerminalInput` 从未接线）。不补这一环，
+`theme-controller` 与系统主题都拿不到终端配色，因此先做 `Pi.Tui` 侧的查询链路。
+
+| TS 符号 | 行数 | .NET | 说明 |
+|---|---:|---|---|
+| `TerminalColors`（接口） | 1-20 | `Pi.Tui/TerminalColors.cs` 的 `TerminalColorsSnapshot` | 端口把静态解析类占用的 `TerminalColors` 让了出来，快照改名（见下方 C194w） |
+| `parseOscColorResponse` / `parseTerminalColorSchemeReport` | 22-58 | `TerminalColors.ParseOscColorResponse` / `ParseTerminalColorSchemeReport` | OSC 4/10/11 与 6 位/12 位 hex、`rgb:/rgba:` 前缀、trim 全矩阵 |
+| `OscColorTarget` / `TerminalColorScheme` | 60-64 / 12-14 | `OscColorTarget`（`Foreground` / `Background` / `Palette`）+ `TerminalColorScheme` | 目标用嵌套记录，不再靠字符串 switch |
+| `queryTerminalColors` | 66-91 | `TuiBase.QueryTerminalColorsAsync(TerminalColorQueryOptions)` | 查询串 = OSC 10 + 11 + 16 × OSC 4 + DA1；`ITui` 同步扩成员 |
+| `consumeTerminalColorResponse` / `consumeTerminalColorSchemeReport` / `consumeCellSizeResponse` | — | `TuiBase` 私有同名成员 | 按 TS 顺序接进 `HandleTerminalInput` |
+| `setTerminalColorSchemeNotifications` / `onTerminalColorSchemeChange` / query `getTerminalColorScheme` | — | `TuiBase` 同名成员 | 重复上报取最后一条；超时用 DA1 兜底 |
+| `ThemeColor` / `ThemeBg` / `ThemeToken` | 1-120 | `ThemeTokens.cs`：`ThemeColors`（49）/ `ThemeBackgrounds`（7）/ `ThemeTokens` | 令牌即 JSON 键，保持字面字符串 |
+| `validateThemeJson` | 105-148 | `ThemeJson.ValidateThemeJson` | 见 C194 |
+| `ThemeColorValue` / `ValidatedThemeJson` / `ThemeJsonValidator` | 101-102 | `ThemeJsonColorValue` / `ValidatedThemeJson` / `ThemeJsonValidator` 委托 | 值用 `readonly record struct`（`Text?` + `Index?`） |
+| `SYSTEM_THEME_NAME` / `generateSystemThemeColors` / `wcagContrast` | 655 行全文 | `SystemTheme.cs` | 14 个色彩家族 / 15 档对比曲线（多项式）/ 规则拓扑序 / 三档降级 |
+| `theme` 单例 + `getTheme` / `initTheme` / `setTheme` / `loadTheme` / `getAvailableThemes` / `detectTerminalTheme` … | 130-1,160 | `ThemeRuntime.cs` | 全局注册表、自定义主题目录、文件监视、终端外观探测、HTML 导出色 |
+| `Theme` 类 | 121-420 | `Theme.cs` | 预计算 ANSI + `Colors` 缓存（以 `TerminalColorsSnapshot` 引用同一性为键） |
+| `getMarkdownTheme` / `getSelectListTheme` / `getEditorTheme` / `getSettingsListTheme` / `highlightCode` / `getLanguageFromPath` | 900-1,160 | `ThemeHelpers.cs` | 26 个 hljs scope → 主题令牌；65 条扩展名表 |
+
+主题资源：`Assets/theme/{dark,light,theme-schema}.json` 原样复制，csproj 走
+`Content` + `PreserveNewest`；`Config.GetThemesDir(ConfigSeams?)` 改为**bundled `Assets/theme`
+优先**（`AppContext.BaseDirectory` 下存在 `dark.json`）→ `AssetDir` 回退，与既有
+`GetExportTemplateDir` 一致；`GetCustomThemesDir` 拆出无参 + 收缝两个重载。
+
+扩展层接线：删掉 `Core/Extensions/Types/Placeholders.cs` 里的 `Theme` 空占位类与
+`ExtensionContexts.cs` 里重复的 `ThemeInfo` / `SetThemeResult`（统一到 `Modes.Interactive`），
+三个文件补 `using Pi.CodingAgent.Modes.Interactive;`，`NoOpUIContext.Theme` 改为
+`ThemeRuntime.Current`（C123 随之关闭）。
+
+### 顺带修掉的真实缺陷（非差异）
+
+- **`Pi.Tui` 的 OSC 11 通道是死的**（前述）：`QueryTerminalBackgroundColorAsync` 从未收到过回复，
+  因为 `_pendingOsc11Replies` 只入队不出队，`HandleTerminalInput` 也没消费任何色彩应答。
+  本批把两个无引用助手换成完整查询链，`Pi.Tui.Tests` 从 23,812 增至 23,854。
+- **`Pi.Tui.Tests.LoaderTests.SetIndicator_RestartsTheAnimationFromTheFirstFrame` 是时序竞态**：
+  `IntervalMs = 5` 下，`SetIndicator` 同步归零帧号后、断言读行前，5 ms 定时器就可能把帧推进到
+  第 2 帧 —— 实测全量跑中约三次里挂一次（`"b Loading..."` vs `"a Loading..."`）。
+  `SetIndicator` 确实同步把 `_currentFrame` 置 0，所以竞态在测试侧；改为 250 ms 后连跑 6/6 稳定。
+  **本项目此前从未注意到它，是因为它只在全量运行时才被调度压力触发。**
+- **测试桩的 `Theme` 占位被删后不可编译**：`ExtensionRunnerTests.StubUIContext` 与
+  `McpExtensionTests.RecordingUi` 的 `public Theme Theme { get; } = new();`、`ExtensionContractTests`
+  的 `Assert.NotNull(new Theme())` 都依赖已退役的占位类；改为
+  `ThemeRuntime.Current`（惰性，不初始化时不抛），并把「占位类型可构造」清单里的 `Theme` 移除。
+
+### 4f-2a 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C194 | `validateThemeJson` 不引 typebox，改为手写 `JsonNode` 校验 | 端口不引 17 MB 的 typebox 模块图。**接受/拒绝集、报错框架、`Missing required color tokens` 排序段、`  - <path>: <message>` 形状逐字一致**；只有 `Other errors` 各行的**措辞**是端口自己的（typebox 的 message 表无法复刻）。测试因此断言框架与排序，不断言行文 |
+| C194w | TS 的 `TerminalColors` **接口**在 C# 改名 `TerminalColorsSnapshot` | 静态解析类需要 `TerminalColors` 这个名字；已核实全仓无同类先例，故给快照改名而不是给解析类改名 |
+| C195 | `ThemeStyle.fg`/`bg` 的 `ThemeColor \| Color` 联合拆成 `FgToken` + `Fg`（`BgToken` + `Bg`）四字段 | C# 没有「字符串或 Color」的联合类型；`Style` 里 token 优先 |
+| C196 | `theme` 单例的 `globalThis` Symbol 代理退化为静态字段 | TS 用代理让每个模块加载器（node / jiti）看到同一个主题；.NET 单进程只有一个模块实例，静态字段等价 |
+| — | `localeCompare` → `StringComparer.CurrentCulture` | 既有结论 C79 |
+| — | `$` → `\z`、`\d` → `[0-9]` | JS/.NET 正则既有差异 |
+
+### 测试与验证
+
+- 新建 **181 项**：
+  - `tests/Pi.Tui.Tests/TerminalColorsTests.cs`（**42**）：OSC 应答解析全矩阵（target / 6 位与 12 位 hex / `rgb:` 前缀 / trim / 非回复）、模式 2031 重复上报取最后一条、完整查询序列、DA1 收尾、16 色到齐、重复 target 与越界 index 忽略、超时 + 迟到回调、两次查询按序、`QueryTerminalBackgroundColorAsync`、`QueryTerminalColorSchemeAsync`、`OnTerminalColorSchemeChange`、cell size 应答。
+  - `tests/Pi.CodingAgent.Tests/ThemeJsonTests.cs`（**46**）：必填令牌集（49 − 4 + 7 − 1 = 51）、接受面（完整文档回读 / 空串 / 索引 0 与 255 / 未知键）、拒绝面（非对象 / null / 缺 colors / colors 非对象 / 各类非法值 / name 与 appearance / vars / export）与报错框架。
+  - `tests/Pi.CodingAgent.Tests/SystemThemeTests.cs`（**16**）：转录自 `system-theme.test.ts` 的四个终端夹具（Dracula / Solarized Light / 仅背景 / 中灰）+ `#10255` 的 pastel 用例；另有 `wcagContrast` 定义、`terminalAppearance` 分型、调色板不足 16 色被整体忽略、`Saturation` 钳制、令牌全集。
+  - `tests/Pi.CodingAgent.Tests/ThemeTests.cs`（**19**）：转录自 `theme-style.test.ts`（`style` 与通用着色器一致 / 未知令牌 / OKLCH / OKHSL 经变量 / 外观探测 / 空令牌回落终端默认色），另补令牌→色槽、chalk 五种文本属性、`ThinkingLevel` 全档映射、dim 抽屉与 `Colors` 缓存失效。
+  - `tests/Pi.CodingAgent.Tests/ThemeRuntimeTests.cs`（**67**）：转录自 `theme-detection` / `theme-export` / `scrollbar-theme` / `system-theme` 四份 TS 测试（`COLORFGBG` 分类、终端外观优先级、`light/dark` 设置解析、导出色变量链 / OKHSL→hex / 256 索引→hex / 空串、scrollbar 与 search 回落、系统主题 faint 渲染）；另补自定义主题发现与排序、注册表、监视器四条路径（改名 / 别的文件 / 文件名缺失 / 文件被删）。
+  - `tests/Pi.CodingAgent.Tests/ThemeHelpersTests.cs`（**33**）：23 个 hljs scope → 主题令牌、emphasis/strong/link → 文本属性、两种**不同**的 highlight 兜底（`highlightCode` 回退无着色、`MarkdownTheme.highlightCode` 保留 `mdCodeBlock` 着色，TS 的不对称按原样保留）、65 条扩展名表、四个组件主题、换主题后高亮缓存失效。
+- 未覆盖（记为缺口）：`theme-controller.ts` 本体（`requestTerminalColors` / `InteractiveThemeController`）顺延 **4f-2b**，依赖 4f-4；`getResolvedThemeColors` 的索引色主题只在 256 色夹具下走通一部分；`ThemeSeams.Watch` 用桩替换真实 `FileSystemWatcher`，OSC 查询的超时定时器同样只在 `StringTerminal` 上回放。
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量 **1889 / 0 失败**
+  （原 1708 + 181，3m50s）；`Pi.Tui.Tests` 全量 **23854 / 0 失败**（含前述竞态修复后复跑）。

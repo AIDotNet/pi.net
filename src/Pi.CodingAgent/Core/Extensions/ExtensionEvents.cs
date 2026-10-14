@@ -3,6 +3,7 @@ using Pi.Agent.Types;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions.Types;
+using Pi.CodingAgent.Modes.Interactive;
 using Pi.CodingAgent.Core.Tools;
 using Pi.Tui;
 

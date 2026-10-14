@@ -78,6 +78,9 @@ internal sealed class FakeTui : ITui
     {
     }
 
+    public Task<TerminalColorsSnapshot> QueryTerminalColorsAsync(TerminalColorQueryOptions options) =>
+        Task.FromResult(new TerminalColorsSnapshot());
+
     public Task<RgbColor?> QueryTerminalBackgroundColorAsync(int timeoutMs) => Task.FromResult<RgbColor?>(null);
 
     public Task<TerminalColorScheme?> QueryTerminalColorSchemeAsync(int timeoutMs) => Task.FromResult<TerminalColorScheme?>(null);
@@ -250,10 +253,14 @@ public class LoaderTests
     [Fact]
     public void SetIndicator_RestartsTheAnimationFromTheFirstFrame()
     {
-        var (loader, _) = Create(indicator: new LoaderIndicatorOptions { Frames = ["a", "b", "c"], IntervalMs = 5 });
+        // The interval has to leave room for the assertion below. `SetIndicator` resets the frame
+        // synchronously, but with a 5 ms interval the timer could advance past the first frame before
+        // `Line(loader)` read it, so this test failed roughly one run in three (observed 2026-10-14
+        // while running the full 23,854-item suite). The frames are what matter here, not the speed.
+        var (loader, _) = Create(indicator: new LoaderIndicatorOptions { Frames = ["a", "b", "c"], IntervalMs = 250 });
         Thread.Sleep(40);
 
-        loader.SetIndicator(new LoaderIndicatorOptions { Frames = ["a", "b", "c"], IntervalMs = 5 });
+        loader.SetIndicator(new LoaderIndicatorOptions { Frames = ["a", "b", "c"], IntervalMs = 250 });
 
         Assert.Equal("a Loading...", Line(loader));
         loader.Stop();

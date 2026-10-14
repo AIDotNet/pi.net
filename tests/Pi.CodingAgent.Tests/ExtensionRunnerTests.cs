@@ -6,6 +6,7 @@ using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Core.Extensions.Types;
+using Pi.CodingAgent.Modes.Interactive;
 using Pi.Tui;
 using Pi.Tui.Components;
 using Xunit;
@@ -1606,7 +1607,7 @@ public sealed class ExtensionRunnerTests
 
         public EditorFactory? GetEditorComponent() => null;
 
-        public Theme Theme { get; } = new();
+        public Theme Theme => ThemeRuntime.Current;
 
         public IReadOnlyList<ThemeInfo> GetAllThemes() => [];
 

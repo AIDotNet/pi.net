@@ -12,8 +12,8 @@
 | TS 源码（不含 `*.test.ts`） | 45 个文件 / 19,293 行 |
 | 已移植 | 44 个文件 / 19,101 行（99.0%） |
 | 待移植 | 1 个文件 / 192 行（`index.ts` 桶文件） |
-| .NET 产出 | 62 个 `.cs` / 26,619 行 |
-| 测试 | `Pi.Tui.Tests` 23,812 项全部通过 |
+| .NET 产出 | 59 个 `.cs` / 26,902 行 |
+| 测试 | `Pi.Tui.Tests` 23,854 项全部通过（4f-2a 补 `TerminalColorsTests` 42 项） |
 | 构建 | 0 警告 0 错误（`dotnet build Pi.slnx -m:1`） |
 
 ## 逐文件清单
@@ -27,7 +27,7 @@
 | `tui.ts` | 1493 | `Tui.cs` + `MouseEvents.cs` | `Component`/`Container`、焦点与 overlay 栈、渲染调度、overlay 布局解算、`compositeTuiLine`、鼠标事件类型与 `dispatchMouseEvent`/`retargetMouseEvent`/`Container.handleMouse`，以及屏幕级鼠标路由（`renderedOverlayLayouts` / `resolveMouseFocusTarget` / `dispatchMouseToOverlay`，见差异 T21）；`isViewportTUI` 的 `Symbol` 标记改为 `IViewportTui` 接口（差异 T28） |
 | `terminal.ts` | 554 | `Terminal.cs` | `ITerminal` + `ProcessTerminal` + `StringTerminal`（测试假件，TS 侧由 vitest 注入） |
 | `tui-main-screen.ts` | 655 | `TuiMainScreen.cs` | 差分渲染全流程、同步输出（CSI 2026）、kitty 图像行预留、超宽行守卫 |
-| `terminal-colors.ts` | 91 | `TerminalColors.cs` | OSC 11 背景色、DSR 配色方案上报解析 |
+| `terminal-colors.ts` | 91 | `TerminalColors.cs` + `Tui.cs`（查询链） | OSC 10/11/4 应答与 DSR 配色方案上报解析；**2026-10-14（4f-2a）补上此前缺失的查询本体**（OSC 10 + 11 + 16×OSC 4 + DA1 收尾、最老查询 FIFO、超时后迟到回复只回调一次、cell size 应答消费），此前 `QueryTerminalBackgroundColorAsync` 从未收到过回复。TS 的 `TerminalColors` **接口**改名 `TerminalColorsSnapshot`（见 C194w）|
 | `layout-node.ts` | 51 | `LayoutNode.cs` | 栈式布局节点与视口 |
 | `fuzzy.ts` | 138 | `Fuzzy.cs` | 模糊匹配与打分排序 |
 | `kill-ring.ts` | 46 | `KillRing.cs` | Emacs 风格 kill/yank 环 |
@@ -126,6 +126,8 @@
 | T28 | **`VIEWPORT_TUI` 的 `Symbol` 标记 → `IViewportTui` 接口** | TS 用 `Symbol.for("@earendil-works/pi-tui/viewport")` 作运行期标记，`isViewportTUI(tui)` 读该键判真，让 `setLayoutRoot` 只在备用屏上可用（`TuiMainScreen` 无此能力）。C# 无「跨包共享 Symbol 作结构标记」的等价物，改为让备用屏实现 `IViewportTui : ITui`（多一个 `SetLayoutRoot`），判定即 `is IViewportTui`——同样是结构判定，且编译期可查。 |
 | T29 | **备用屏选择态自动滚动的计时器** | `tui-alt-screen.ts` 的拖拽自动滚动在 TS 用 `setInterval`（`autoScrollTimer`），C# 用 `System.Threading.Timer`（同 T13 / T14 的既定处理）：回调在线程池线程，tick 体内对选择态加锁，`RequestRender` 本身线程安全。`NowMs()` 由 `Clock.Elapsed.TotalMilliseconds` 提供（对应 TS 的 `performance.now()`）。 |
 | T30 | **备用屏词级选择同样受 ICU 词典分词限制** | `tui-alt-screen.ts` 的双击选词 / 词级拖拽走 `word-navigation.ts` 的同一套 `Intl.Segmenter`（见 T22）。差分场景因此避开「整段汉字串」的词级选择；语料里的 CJK 选择场景用**字素级**坐标驱动（`cjk-graphemes`），只钉住字素边界与宽度计算，不触碰分词。 |
+
+| T31 | **终端配色查询的「迟到回复只回调一次」** | `queryTerminalColors` 在开始时给查询装 `onResult`，超时时把它换成 `options.onLateReply`，`complete()` 再置空——所以迟到的答复**不是每条各触发一次**，而是在查询最终完成（DA1 或 18 条回复齐）时回调一次。测试首版按「每条一次」写，断言 `Assert.Single()` 失败；已按 TS 语义修正，并补两条用例区分「单条迟到回复不触发」与「迟到补齐调色板后触发一次」。另：DA1 对**最老的查询**收尾（`Available` 队列 FIFO），重复 target 由 `Replied` 去重，`palette.Index >= 16` 计数但不存储。 |
 
 ## 差分验证（latex.ts）
 

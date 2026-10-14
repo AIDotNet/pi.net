@@ -140,13 +140,7 @@ public sealed class ProviderHeaders
 // （ModelRegistry.RegisterProvider 与 ModelRuntime.RegisterNativeProvider 都收它）。
 
 // ---------------------------------------------------------------------------
-// modes/interactive/theme/theme.ts（4f）
+// modes/interactive/theme/theme.ts（4f-2）—— 占位已移除：真实类型见
+// Modes/Interactive/Theme/（Theme / ThemeRuntime / SystemTheme / ThemeJson / ThemeHelpers）。
+// 渲染器（renderCall / renderResult / setWidget 组件工厂）与 ctx.ui.theme 消费的都是它。
 // ---------------------------------------------------------------------------
-
-/// <summary>
-/// TS <c>Theme</c> 占位。渲染器（renderCall / renderResult / setWidget 组件工厂）与
-/// <c>ctx.ui.theme</c> 都消费它；4f 落地后替换为真实 Theme。// 4e/4f 接入后替换
-/// </summary>
-public sealed class Theme
-{
-}

@@ -3,6 +3,7 @@ using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions.Types;
+using Pi.CodingAgent.Modes.Interactive;
 using Pi.Tui;
 using Pi.Tui.Components;
 
@@ -109,12 +110,6 @@ public delegate IAutocompleteProvider AutocompleteProviderFactory(IAutocompleteP
 
 /// <summary>Custom editor component factory. TS <c>EditorFactory</c>.</summary>
 public delegate IEditorComponent EditorFactory(TuiBase tui, EditorTheme theme, KeybindingsManager keybindings);
-
-/// <summary>Theme list entry. TS <c>{ name: string; path: string | undefined }</c>.</summary>
-public sealed record ThemeInfo(string Name, string? Path);
-
-/// <summary>Result of <c>setTheme</c>. TS <c>{ success: boolean; error?: string }</c>.</summary>
-public sealed record SetThemeResult(bool Success, string? Error = null);
 
 /// <summary>Overlay options for <c>ui.custom</c>. TS inline options type.</summary>
 public sealed record ExtensionCustomOptions

@@ -95,6 +95,12 @@ internal sealed record ConfigSeams
 
     /// <summary>Override for <see cref="Config.GetExportTemplateDir()"/>.</summary>
     public string? ExportTemplateDir { get; init; }
+
+    /// <summary>Override for <see cref="Config.GetThemesDir()"/>.</summary>
+    public string? ThemesDir { get; init; }
+
+    /// <summary>Override for <see cref="Config.GetCustomThemesDir()"/>.</summary>
+    public string? CustomThemesDir { get; init; }
 }
 
 /// <summary>
@@ -755,7 +761,27 @@ public static partial class Config
     /// <summary>The directory holding the built-in interactive themes.</summary>
     public static string GetThemesDir() => GetThemesDir(null);
 
-    internal static string GetThemesDir(ConfigSeams? seams) => AssetDir(seams, "theme", "modes", "interactive", "theme");
+    /// <remarks>
+    /// Deviation from TS: TS resolves the directory relative to the package (<c>src/</c> or <c>dist/</c>),
+    /// which has no counterpart in a .NET deployment, so the bundled <c>Assets/theme</c> directory next
+    /// to the assembly wins when it is present. <see cref="AssetDir"/> stays as the fallback for a host
+    /// that ships the package tree as-is.
+    /// </remarks>
+    internal static string GetThemesDir(ConfigSeams? seams)
+    {
+        if (!string.IsNullOrEmpty(seams?.ThemesDir))
+        {
+            return seams.ThemesDir;
+        }
+
+        var bundled = Path.Combine(AppContext.BaseDirectory, "Assets", "theme");
+        if (Directory.Exists(bundled) && File.Exists(Path.Combine(bundled, "dark.json")))
+        {
+            return bundled;
+        }
+
+        return AssetDir(seams, "theme", "modes", "interactive", "theme");
+    }
 
     /// <summary>The directory holding the HTML export template.</summary>
     public static string GetExportTemplateDir() => GetExportTemplateDir(null);
@@ -845,7 +871,10 @@ public static partial class Config
     }
 
     /// <summary>The user's custom themes directory.</summary>
-    public static string GetCustomThemesDir() => NodePath.Join(GetAgentDir(), "themes");
+    public static string GetCustomThemesDir() => GetCustomThemesDir(null);
+
+    internal static string GetCustomThemesDir(ConfigSeams? seams) =>
+        seams?.CustomThemesDir ?? NodePath.Join(GetAgentDir(seams), "themes");
 
     /// <summary>Path to <c>models.json</c>.</summary>
     public static string GetModelsPath() => NodePath.Join(GetAgentDir(), "models.json");

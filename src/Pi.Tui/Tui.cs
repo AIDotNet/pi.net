@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Pi.Tui;
 
@@ -202,7 +204,18 @@ public interface ITui : IComponent
     void RemoveInputListener(Func<string, TuiInputListenerResult?> listener);
     Action OnTerminalColorSchemeChange(Action<TerminalColorScheme> listener);
     void SetTerminalColorSchemeNotifications(bool enabled);
+
+    /// <summary>
+    /// Query the terminal's default foreground/background and ANSI palette 0-15. Resolves when the DA1
+    /// reply or all color replies arrive, or when the timeout expires; colors the terminal did not report
+    /// stay <see langword="null"/>. Port of the TS <c>queryTerminalColors()</c>.
+    /// </summary>
+    Task<TerminalColorsSnapshot> QueryTerminalColorsAsync(TerminalColorQueryOptions options);
+
+    /// <summary>Convenience accessor over <see cref="QueryTerminalColorsAsync"/> (not in TS).</summary>
     Task<RgbColor?> QueryTerminalBackgroundColorAsync(int timeoutMs);
+
+    /// <summary>Convenience accessor over the DSR 997 report (not in TS).</summary>
     Task<TerminalColorScheme?> QueryTerminalColorSchemeAsync(int timeoutMs);
 }
 
@@ -218,7 +231,7 @@ public interface IViewportTui : ITui
 }
 
 /// <summary>Base class for TUI renderers: component container, focus, overlays, render scheduling.</summary>
-public abstract class TuiBase : Container, ITui
+public abstract partial class TuiBase : Container, ITui
 {
     private const int MinRenderIntervalMs = 16;
     private static readonly Stopwatch Clock = Stopwatch.StartNew();
@@ -244,8 +257,13 @@ public abstract class TuiBase : Container, ITui
     private bool _terminalColorSchemeNotificationsEnabled;
     private bool _showHardwareCursor;
     private bool _clearOnShrink;
-    private int _pendingOsc11Replies;
-    private readonly Queue<PendingOsc11Query> _pendingOsc11Queries = new();
+
+    /// <summary>
+    /// Color queries waiting for their DA1 reply, oldest first. Terminals answer in order, so color
+    /// replies belong to the oldest one. Queries stay here after a timeout to collect late replies.
+    /// </summary>
+    private readonly List<PendingTerminalColorQuery> _pendingTerminalColorQueries = new();
+
     private bool _stopped;
 
     protected int FullRedrawCount;
@@ -902,6 +920,15 @@ public abstract class TuiBase : Container, ITui
 
     private void HandleTerminalInput(string data)
     {
+        if (ConsumeTerminalColorResponse(data))
+        {
+            return;
+        }
+        if (ConsumeTerminalColorSchemeReport(data))
+        {
+            return;
+        }
+
         if (_inputListeners.Count > 0)
         {
             var current = data;
@@ -922,6 +949,12 @@ public abstract class TuiBase : Container, ITui
                 return;
             }
             data = current;
+        }
+
+        // Consume terminal cell size responses without blocking unrelated input.
+        if (ConsumeCellSizeResponse(data))
+        {
+            return;
         }
 
         if (Keys.MatchesKey(data, "shift+ctrl+d") && OnDebug is { } onDebug)
@@ -1183,8 +1216,30 @@ public abstract class TuiBase : Container, ITui
     }
 
     // ------------------------------------------------------------------
-    // Terminal color queries (simplified)
+    // Terminal color queries
     // ------------------------------------------------------------------
+
+    /// <summary>ANSI palette colors 0-15.</summary>
+    private const int TerminalPaletteSize = 16;
+
+    /// <summary>OSC 10 and 11 plus OSC 4 for every palette color.</summary>
+    private const int TerminalColorReplyCount = 2 + TerminalPaletteSize;
+
+    /// <summary>
+    /// Default colors, palette colors 0-15, and a trailing primary device attributes (DA1) request.
+    /// Every terminal answers DA1 and terminals answer in order, so the DA1 reply marks the end of the
+    /// color replies, including for terminals that ignore the color queries.
+    /// </summary>
+    private static readonly string TerminalColorQuery =
+        "\x1b]10;?\x07\x1b]11;?\x07"
+        + string.Concat(Enumerable.Range(0, TerminalPaletteSize).Select(index => $"\x1b]4;{index};?\x07"))
+        + "\x1b[c";
+
+    [GeneratedRegex(@"\A\x1b\[\?[0-9;]*c\z")]
+    private static partial Regex DeviceAttributesResponseRegex();
+
+    [GeneratedRegex(@"\A\x1b\[6;([0-9]+);([0-9]+)t\z")]
+    private static partial Regex CellSizeResponseRegex();
 
     public void SetTerminalColorSchemeNotifications(bool enabled)
     {
@@ -1205,26 +1260,140 @@ public abstract class TuiBase : Container, ITui
         return () => _colorSchemeListeners.RemoveAll(x => x.Listener == listener);
     }
 
-    public Task<RgbColor?> QueryTerminalBackgroundColorAsync(int timeoutMs)
+    public Task<TerminalColorsSnapshot> QueryTerminalColorsAsync(TerminalColorQueryOptions options)
     {
-        var tcs = new TaskCompletionSource<RgbColor?>();
-        var query = new PendingOsc11Query(tcs);
-        _pendingOsc11Queries.Enqueue(query);
-        _pendingOsc11Replies++;
-        query.Timer = new Timer(_ => SettleOsc11Query(query, null), null, timeoutMs, Timeout.Infinite);
-        Terminal.Write("\x1b]11;?\x07");
+        var tcs = new TaskCompletionSource<TerminalColorsSnapshot>();
+        var query = new PendingTerminalColorQuery(tcs, options.OnLateReply)
+        {
+            // Until the timeout, replies resolve the task; afterwards they go to `OnLateReply`.
+            Deliver = snapshot => tcs.TrySetResult(snapshot),
+        };
+        // Resolve with the replies so far, and keep collecting late replies for `OnLateReply`.
+        query.Timer = new Timer(
+            _ =>
+            {
+                query.Deliver = options.OnLateReply;
+                tcs.TrySetResult(TerminalColorQueryResult(query));
+            },
+            null,
+            options.TimeoutMs,
+            Timeout.Infinite);
+        _pendingTerminalColorQueries.Add(query);
+        Terminal.Write(TerminalColorQuery);
         return tcs.Task;
     }
 
-    private void SettleOsc11Query(PendingOsc11Query query, RgbColor? rgb)
+    /// <summary>Whether <paramref name="data"/> was a terminal color/scheme/cell-size response, and consumed.</summary>
+    private bool ConsumeTerminalColorResponse(string data)
     {
-        if (query.Settled)
+        if (_pendingTerminalColorQueries.Count == 0)
         {
-            return;
+            return false;
         }
-        query.Settled = true;
+        var query = _pendingTerminalColorQueries[0];
+        if (DeviceAttributesResponseRegex().IsMatch(data))
+        {
+            _pendingTerminalColorQueries.RemoveAt(0);
+            CompleteTerminalColorQuery(query);
+            return true;
+        }
+
+        var response = TerminalColors.ParseOscColorResponse(data);
+        if (response is not { } reply)
+        {
+            return false;
+        }
+
+        var key = reply.Target switch
+        {
+            OscColorTarget.Foreground => "foreground",
+            OscColorTarget.Background => "background",
+            OscColorTarget.Palette palette => palette.Index.ToString(CultureInfo.InvariantCulture),
+            _ => throw new InvalidOperationException($"Unknown OSC color target: {reply.Target}"),
+        };
+        if (query.Deliver is null || !query.Replied.Add(key))
+        {
+            return true;
+        }
+        switch (reply.Target)
+        {
+            case OscColorTarget.Foreground:
+                query.Foreground = reply.Rgb;
+                break;
+            case OscColorTarget.Background:
+                query.Background = reply.Rgb;
+                break;
+            case OscColorTarget.Palette palette when palette.Index < TerminalPaletteSize:
+                query.Palette[palette.Index] = reply.Rgb;
+                break;
+        }
+        if (query.Replied.Count == TerminalColorReplyCount)
+        {
+            CompleteTerminalColorQuery(query);
+        }
+        return true;
+    }
+
+    private static TerminalColorsSnapshot TerminalColorQueryResult(PendingTerminalColorQuery query)
+    {
+        var palette = query.Palette.All(color => color is not null)
+            ? query.Palette.Select(color => color!.Value).ToArray()
+            : null;
+        return new TerminalColorsSnapshot(query.Foreground, query.Background, palette);
+    }
+
+    private static void CompleteTerminalColorQuery(PendingTerminalColorQuery query)
+    {
+        var deliver = query.Deliver;
+        query.Deliver = null;
         query.Timer?.Dispose();
-        query.Tcs.TrySetResult(rgb);
+        query.Timer = null;
+        deliver?.Invoke(TerminalColorQueryResult(query));
+    }
+
+    private bool ConsumeTerminalColorSchemeReport(string data)
+    {
+        var scheme = TerminalColors.ParseTerminalColorSchemeReport(data);
+        if (scheme is null)
+        {
+            return false;
+        }
+
+        foreach (var (listener, _) in _colorSchemeListeners.ToArray())
+        {
+            listener(scheme.Value);
+        }
+        return true;
+    }
+
+    private bool ConsumeCellSizeResponse(string data)
+    {
+        // Response format: ESC [ 6 ; height ; width t
+        var match = CellSizeResponseRegex().Match(data);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var heightPx = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+        var widthPx = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+        if (heightPx <= 0 || widthPx <= 0)
+        {
+            return true;
+        }
+
+        TerminalImage.SetCellDimensions(new CellDimensions(widthPx, heightPx));
+        // Invalidate all components so images re-render with correct dimensions.
+        Invalidate();
+        RequestRender();
+        return true;
+    }
+
+    public async Task<RgbColor?> QueryTerminalBackgroundColorAsync(int timeoutMs)
+    {
+        var colors = await QueryTerminalColorsAsync(new TerminalColorQueryOptions { TimeoutMs = timeoutMs })
+            .ConfigureAwait(false);
+        return colors.Background;
     }
 
     public Task<TerminalColorScheme?> QueryTerminalColorSchemeAsync(int timeoutMs)
@@ -1334,11 +1503,31 @@ public abstract class TuiBase : Container, ITui
         public IComponent? Target { get; }
     }
 
-    private sealed class PendingOsc11Query
+    /// <summary>
+    /// One in-flight <see cref="QueryTerminalColorsAsync"/> call. Port of the TS
+    /// <c>PendingTerminalColorQuery</c>; <see cref="Deliver"/> is the task's completion until the
+    /// timeout replaces it with <c>onLateReply</c>, and <see langword="null"/> once the query completed,
+    /// so later replies are ignored.
+    /// </summary>
+    private sealed class PendingTerminalColorQuery(
+        TaskCompletionSource<TerminalColorsSnapshot> completion,
+        Action<TerminalColorsSnapshot>? onLateReply)
     {
-        public PendingOsc11Query(TaskCompletionSource<RgbColor?> tcs) => Tcs = tcs;
-        public TaskCompletionSource<RgbColor?> Tcs { get; }
-        public bool Settled { get; set; }
+        public TaskCompletionSource<TerminalColorsSnapshot> Completion { get; } = completion;
+
+        public Action<TerminalColorsSnapshot>? OnLateReply { get; } = onLateReply;
+
+        public RgbColor? Foreground { get; set; }
+
+        public RgbColor? Background { get; set; }
+
+        public RgbColor?[] Palette { get; } = new RgbColor?[TerminalPaletteSize];
+
+        /// <summary>Targets that already replied, so duplicates do not count twice.</summary>
+        public HashSet<string> Replied { get; } = new(StringComparer.Ordinal);
+
+        public Action<TerminalColorsSnapshot>? Deliver { get; set; }
+
         public Timer? Timer { get; set; }
     }
 }

@@ -22,9 +22,9 @@
 | `cli/` | 17 | 1,949 | — | ⬜ 未开始 |
 | `bun/` + `client/` | 6 | 62 | — | ⬜ 未开始（多为打包器垫片，多数无对应物） |
 | 根级（`config.ts` / `migrations.ts` / `main.ts` / `index.ts` / `cli.ts` / `rpc-entry.ts` / `package-manager-cli.ts`） | 7 | 3,624 | `Config.cs` / `Migrations.cs` | 🟡 仅 `config.ts` / `migrations.ts` 完成 |
-| **合计** | **299** | **85,536** | 74,560 行 C# | **约 87% 行数已落** |
+| **合计** | **299** | **85,536** | 77,321 行 C# | **约 90% 行数已落** |
 
-`src/Pi.CodingAgent` 现有 **186 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **74,560 行**（2026-10-14 P4b-6 后实测）。
+`src/Pi.CodingAgent` 现有 **192 个 `.cs`**（`find . -name '*.cs'` 排除 `obj/`），`wc -l` 合计 **77,321 行**（2026-10-14 4f-2a 后实测；新增 `Modes/Interactive/Theme/` 6 个文件 2,745 行）。
 
 ### 1.2 构建与测试基线（本机实测）
 
@@ -42,6 +42,8 @@
 | `Pi.CodingAgent.Tests`（P4b-4 后） | ✅ **1647 项 / 0 失败**（3m08s；1607 + `McpRuntimeTests` 40） |
 | `Pi.CodingAgent.Tests`（P4b-5 后） | ✅ **1662 项 / 0 失败**（3m27s；1647 + `McpCliTests` 15） |
 | `Pi.CodingAgent.Tests`（P4b-6 后） | ✅ **1708 项 / 0 失败**（3m01s；1662 + `McpExtensionTests` 46） |
+| `Pi.CodingAgent.Tests`（4f-2a 后） | ✅ **1889 项 / 0 失败**（3m50s；1708 + 181） |
+| `Pi.Tui.Tests`（4f-2a 后） | ✅ **23854 项 / 0 失败**（9s；23812 + `TerminalColorsTests` 42；另修掉 `LoaderTests` 的一处时序竞态） |
 | 其余 9 个测试工程 | 见 [porting-status.md](porting-status.md) 的环境限制说明 |
 
 ### 1.3 起始状态的一个真实缺陷（本批已修）
@@ -83,6 +85,7 @@
 | 4e-3e-9h-4b-2 | `CacheWarmer` 完整化（定时重放 / 经济学判定 / `decide` + `extensionOverride` / 三个回调）+ `AgentSessionRuntime` 编排本体（`switchSession` / `newSession` / `fork` / `importFromJsonl` / `dispose` / `createAgentSessionRuntime`）+ `createAgentSessionServices` / `createAgentSessionFromServices`；顺带修正 `GetPromptCacheTtlMs` 的 `"short"` 回落缺陷与 `FormatCacheWarmingUsage` 的尾随零语义 | C162/C163；`CacheWarmerTests` 11 项 + `AgentSessionRuntimeTests` 22 项 |
 | 4e-3c-2a | package-manager 叶子层：`PackageManagerPatterns`（patterns 纯函数）/ `PackageManagerCollectors`（目录采集器）/ `GlobSync`（node:fs `globSync` 子集）/ `SemverRange`（`validRange` / `satisfies`）；`Skills` 侧 ignore 助手（`IgnoreFileNames` / `ToPosixPath` / `PrefixIgnorePattern` / `AddIgnoreRules`）提为 `internal` 共享 | C164–C167；`82b47aa`；114 项新测试 |
 | 4e-3c-2b | `DefaultPackageManager` 全链路：`ResolveAsync` / `ResolvePackageSourcesAsync` / `DedupePackages` / `FindAutoloadDeltaBase` / `PackageRoot` / 完整 `+`/`-`/`!` override 语义 / `ResourceMap`+`Accumulator`+`ToResolvedPaths`（稳定排序）/ `ListConfiguredPackages` / `GetInstalledPath` / `ResolveExtensionSourcesAsync`；**删除 SettingsManager 里臆造的 `include`/`exclude`/`autoload` 三个 settings 键通路（8 个成员）** | C168；`PackageManagerTests` 24 项（含 `ResourceLoaderTests` 夹具修正） |
+| 4f-2a | 主题层本体：`modes/interactive/theme/theme-json.ts`（148）→ `ThemeJson.cs`（332，无 typebox 的手写校验）＋ `system-theme.ts`（655）→ `SystemTheme.cs`（803，14 家族 / 15 档对比曲线 / 三档降级）＋ `theme.ts`（1,160）→ `Theme.cs`（269）+ `ThemeRuntime.cs`（855）+ `ThemeTokens.cs`（221）+ `ThemeHelpers.cs`（265）；另补 `Pi.Tui` 的 `TerminalColors.cs` 与 OSC 10/11/4 + DA1 查询链（此前 OSC 11 通道是死的），`Assets/theme/*` 三个 JSON 落盘，删掉 `Placeholders.cs` 的 `Theme` 空占位类与 `ExtensionContexts` 里重复的 `ThemeInfo` / `SetThemeResult` | 181 项新测试；C194–C196；见 2026-10-14 台账 |
 | P4b-6（4d-13） | MCP 扩展本体：`extensions/mcp/index.ts`（1,225 行）→ `Extensions/Mcp/McpExtension.cs`（1,960 行）+ `Extensions/Mcp/Ui.cs`（71 行）：扩展闭包（`session_start` 加载配置并后台连接 / 注册服务器与 `mcp.json` 的优先级 / `mcp__<server>__<tool>` 工具注册与 `plain` 去重 hash 后缀 / `codemode`·`deferred`·`direct`·`hidden` 四种 exposure 与 `toolExposure` 覆盖 / 资源工具同步 / 启动问题一次性汇报）+ `mcp_servers` 段渲染（4096 字符预算：先裁描述、再截尾计数）+ `/mcp` 命令（状态文本 / `login`·`logout`·`reconnect` 子命令 / 参数补全）+ 6 个事件（`session_start`、`before_agent_start`、`tool_call`、`turn_start`、`mcp_servers_change`、`session_shutdown`）；`SystemPrompt` 的 `Sections` 改为可写 `OrderedDictionary` | `McpExtensionTests` 46 项；C189–C193；见 2026-10-14 台账 |
 | P4b-5（4d-12） | `pi mcp` 命令：`extensions/mcp/cli.ts`（614 行）→ `Extensions/Mcp/Cli.cs`（1,014 行）：`RunMcpCommandAsync` 的 help / add / remove / list / login / logout 七路（退出码逐条对齐 TS，`list` 在任一启用服务器未连接或存在配置错误时 exit 1）+ 参数解析（`-l`→`--local`、`--` 与 `maxPositionals` 都结束选项解析、命令自身选项透传）+ HTTP/stdio 两路 config 构造（`--bearer-token-env-var` → `Authorization: Bearer ${NAME}`、`oauth` 子对象）+ 文本/JSON 两种列表输出 + 登录（先连接判定 → challenge → `SignInServerAsync` → 清 challenge → 重连）+ 粘贴 redirect URL 的终端读取；新增 `McpServerConnection.ClearChallenge()` | `McpCliTests` 15 项；C187/C188；见 2026-10-14 台账 |
 | P4b-4（4d-11） | MCP 连接层：`extensions/mcp/runtime.ts`（491 行）→ `Extensions/Mcp/Runtime.cs`（815 行）：`McpServerConnection`（懒连接 + 记忆化打开 / 六态状态机 / 能力门控的 tools+resources 发现 / readOnly 瞬时错误 250ms 同客户端重试 / 会话过期新会话重试一次 / needs-auth 与登录文案 / stderr 尾拼进连接失败与掉线消息 / `close` 等 `authProvider.settled()` 落盘）+ `CreateDefaultTransport` + `FetchResourcesAsync` + `WithoutTemplatesAsync`；前置补 `Pi.Mcp` 的 `StdioTransport.Stderr`（64KB 滚动缓冲，此前子进程报错全丢）；**自纠一处移植陷阱**：`_opening ??= OpenOnceAsync()` 在同步完成的打开上残留已完成任务，导致掉线/登出/会话过期后的重连都拿到死客户端 | `McpRuntimeTests` 40 项；C184–C186；见 2026-10-14 台账 |
@@ -144,6 +147,10 @@
 + `modes/rpc/`（`rpc-mode.ts` 819 / `rpc-client.ts` 617 / `rpc-types.ts` 303 / `jsonl.ts` 58）
 + `modes/print-mode.ts` / `json-output` / `json-event.ts`。
 依赖：`Pi.Tui`（**已收口，44/45 文件**）+ `core/tools/renderers/*`（未移植，Theme 依赖）。
+
+> **2026-10-14 进度**：**4f-2a 已收口**（`theme-json.ts` + `system-theme.ts` + `theme.ts` 模块级半边
+> + `Pi.Tui` 的 OSC 终端配色查询链，2,745 行新 C# / 181 项新测试）。余 **4f-2b**
+> （`theme-controller.ts`）顺延到 4f-4 之后，因为它要装 `InteractiveThemeController`。
 
 #### 4g：入口与实验层（~12,000 行）
 
@@ -316,7 +323,7 @@
 
 | 子阶段 | 范围 | 验收标准 |
 | --- | --- | --- |
-| 4f-2 | `modes/interactive/theme/*`（2,216 行：`theme.ts` 1,160 / `system-theme.ts` 655 / `theme-controller.ts` 253 / `theme-json.ts` 148） | 替换 `Theme` 占位；主题 JSON 校验 / 系统主题生成 / 终端配色探测 / 自定义主题目录与文件监视 / `initTheme`·`setTheme` 全局注册表；补 `MarkdownTheme` / `SelectListTheme` / `SettingsListTheme` 三个形状 |
+| 4f-2 | `modes/interactive/theme/*`（2,216 行：`theme.ts` 1,160 / `system-theme.ts` 655 / `theme-controller.ts` 253 / `theme-json.ts` 148） | **4f-2a ✅ 已收口**（`theme.ts` 模块级半边 + `system-theme.ts` + `theme-json.ts` + `Theme` 类 + TUI 助手 + OSC 查询链）；`Theme` 占位已删；`MarkdownTheme` / `SelectListTheme` / `SettingsListTheme` 三个形状已由 `ThemeHelpers` 产出。**4f-2b 余**：`theme-controller.ts`，依赖 4f-4 |
 | 4f-3 | `modes/interactive/components/*`（~9,000 行） | 每个组件一个测试类；选择器交互路径。**先做 `keybinding-hints`（48 行）与 `visual-truncate`（98 行）**，它们解 4f-1 的阻塞 |
 | 4f-1 | `core/tools/renderers/*`（1,033 行 / 8 文件）+ `core/tools/render-utils.ts`（112 行） | renderers 逐文件对照；`ToolRenderers` 补 `RenderCall` / `RenderResult`（当前只有 `RenderShell`，差异 C85） |
 | 4f-4 | `modes/interactive/interactive-mode.ts`（7,072 行） | 主循环 / 键位 / 视口 / 共享 |
@@ -361,5 +368,7 @@
 | 2026-10-14 | P4b-4（4d-11） | MCP 连接层：`Extensions/Mcp/Runtime.cs`（815 行）——`McpServerConnection`（懒连接与记忆化打开；六态状态机；能力门控的 tools/resources 发现并剔除 MCP App；`readOnly` 请求遇瞬时 HTTP 错误 250ms 后同客户端重试一次而工具调用不重试；会话过期在新会话重试一次；needs-auth 标记 + `/login <provider>` 或 `/mcp` 文案；stderr 尾拼进「连接失败」与「连接关闭」消息；`close` 中止在途连接并等 `authProvider.settled()`）+ `CreateDefaultTransport`（HTTP/stdio 两路、env 与 args 解析展开）+ `FetchResourcesAsync`（并行、失败降级为空）+ `WithoutTemplatesAsync`（`method-not-found` → 空模板）；前置补 `Pi.Mcp` 的 `StdioTransport.Stderr`（`MaxStderrBytes` 64KB 滚动缓冲 + `Stderr` 属性，此前子进程报错全丢，用户只看到 `spawn failed`）；**自纠一处移植陷阱**：`_opening ??= OpenOnceAsync()` 在同步完成的打开上会残留已完成任务（C# async 无挂起时 `finally` 同步执行，JS 的 `.finally` 总在微任务），导致掉线/登出/会话过期后的重连拿到死客户端，改为「先赋值 memo 再注册清空续体」；新登记 C184–C186 | 本轮提交 | `McpRuntimeTests` 40/40；`Pi.Mcp.Tests` 35/35；`Pi.CodingAgent.Tests` 全类 **1647 / 0 失败**（3m08s）；构建 0 警告 0 错误 |
 | 2026-10-14 | P4b-3（4d-10） | MCP 资源工具：`Extensions/Mcp/Resources.cs`——`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`（`isMcpAppResource` 过滤 `ui://` 与 `profile=mcp-app`；`listed` 剥离 `_meta`/`icons` 并前置 `server`；带 `server` 走一页 + `nextCursor`，不带则每服务器全量、按名字排序聚合、逐服务器记 `{server,error}`；多条 contents 前置 `uri:` 文本块；text/blob/image 三路还原）；顺带补 `Pi.Mcp` 的 `McpResourceContents.MimeType`（此前 image blob 无法还原成图片块，只能退化成 binary omitted 占位）；新登记 C182/C183 | 本轮提交 | `McpResourceToolsTests` 37/37；`Pi.Mcp.Tests` 35/35；`Pi.CodingAgent.Tests` 全类 **1607 / 0 失败**；构建 0 警告 0 错误 |
 | 2026-10-14 | P4b-2（4d-9） | MCP OAuth 凭据层：`Extensions/Mcp/OAuth.cs`（816 行）——`McpOAuthCredentialStore`（`mcp-auth.json`、legacy 键接管、`withRefreshLock`）、`CreateAuthProvider`（30s 提前刷新 / 401 刷新 / `insufficient_scope` 重新登录 / 进程内共享一次刷新 / 跨进程刷新锁 / 令牌被替换即用不刷新 / `settled`）、`SignInServerAsync`（PKCE、CIMD、粘贴 redirect URL 竞速、端口回退）；顺带修正 `Pi.Mcp` 两处真实缺陷（`McpOAuthProvider.clientMetadataDocument` 固定值 → 元数据相关钩子；`OAuthTypes` 六记录补 `[JsonPropertyName]` snake_case，修 .NET/TS `mcp-auth.json` 互不识别）；新登记 C179–C181 | 本轮提交 | `McpOAuthTests` 37/37；`Pi.Mcp.Tests` 35/35；`Pi.CodingAgent.Tests` 全类 **1570 / 0 失败**；构建 0 警告 0 错误 |
+
+| 2026-10-14 | 4f-2a | 主题层本体：`ThemeTokens`（56 令牌）/ `ThemeJson`（手写 schema 校验，替代 typebox）/ `SystemTheme`（ families + 对比曲线 + 规则拓扑序 + 三档降级）/ `Theme`（预计算 ANSI + `Colors` 按快照引用同一性缓存 + dim 抽屉）/ `ThemeRuntime`（全局注册表、自定义主题目录与文件监视、`COLORFGBG`/OSC 11/2031 终端外观探测、HTML 导出色）/ `ThemeHelpers`（26 scope + 65 扩展名 + 四个组件主题）；**先补 `Pi.Tui` 的 OSC 终端配色查询链**（OSC 10/11/4 + DA1 收尾，此前 `QueryTerminalBackgroundColorAsync` 从未收到过回复，是阻塞 `theme-controller` 的真实缺陷）；删掉 `Placeholders.cs` 的 `Theme` 占位类与 `ExtensionContexts` 里重复的 `ThemeInfo` / `SetThemeResult`；另修 `Pi.Tui.Tests.LoaderTests` 的一处 5 ms 定时器时序竞态（全量跑约三次挂一次） | 本轮提交 | `Pi.CodingAgent.Tests` **1889 / 0 失败**（3m50s，1708 + 181）；`Pi.Tui.Tests` 23854 / 0；构建 0 警告 0 错误 |
 
 （后续阶段完成后逐行追加。）

@@ -18,6 +18,7 @@ using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Ai.Utils;
 using Pi.CodingAgent.Core.Extensions.Types;
+using Pi.CodingAgent.Modes.Interactive;
 using Pi.Tui;
 using Pi.Tui.Components;
 
@@ -1943,14 +1944,13 @@ public sealed class ExtensionRunner
     /// Port of the module-level <c>noOpUIContext</c>: what <c>ctx.ui</c> is before a mode binds a UI.
     /// </summary>
     /// <remarks>
-    /// Difference C123: TS returns the process-global <c>theme</c> object. The port has no theme
-    /// registry until 4f, so a single shared placeholder instance is returned instead.
+    /// C123 is resolved as of 4f-2: TS returns the process-global <c>theme</c>, and so does the port now
+    /// that the theme registry exists (<see cref="ThemeRuntime.Current"/>). Reading it before
+    /// <c>initTheme</c> throws, exactly as TS's <c>Proxy</c> does.
     /// </remarks>
     private sealed class NoOpUIContext : IExtensionUIContext
     {
         public static readonly NoOpUIContext Instance = new();
-
-        private static readonly Theme PlaceholderTheme = new();
 
         private NoOpUIContext()
         {
@@ -2045,7 +2045,7 @@ public sealed class ExtensionRunner
 
         public EditorFactory? GetEditorComponent() => null;
 
-        public Theme Theme => PlaceholderTheme;
+        public Theme Theme => ThemeRuntime.Current;
 
         public IReadOnlyList<ThemeInfo> GetAllThemes() => [];
 

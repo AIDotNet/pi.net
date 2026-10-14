@@ -7,6 +7,7 @@ using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Core.Extensions.Types;
+using Pi.CodingAgent.Modes.Interactive;
 using Pi.CodingAgent.Extensions.Mcp;
 using Pi.CodingAgent.Utils;
 using Pi.Mcp.OAuth;
@@ -931,7 +932,7 @@ public class McpExtensionTests
 
         public EditorFactory? GetEditorComponent() => null;
 
-        public Theme Theme { get; } = new();
+        public Theme Theme => ThemeRuntime.Current;
 
         public IReadOnlyList<ThemeInfo> GetAllThemes() => [];
 
