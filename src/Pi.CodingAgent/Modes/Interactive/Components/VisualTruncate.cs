@@ -86,6 +86,13 @@ public sealed class VisualLinePreview : IComponent
 
     public VisualLinePreview(VisualLinePreviewOptions options) => _options = options;
 
+    /// <summary>The options this preview was built with. TS <c>private options</c> (readable at runtime).</summary>
+    /// <remarks>
+    /// Exposed read-only so a caller can inspect a built preview — in particular the differential
+    /// corpus of 4f-1, which compares the component tree a tool renderer produces.
+    /// </remarks>
+    public VisualLinePreviewOptions Options => _options;
+
     public string[] Render(int width)
     {
         if (_cachedLines is null || _cachedWidth != width)

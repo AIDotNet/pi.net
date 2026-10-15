@@ -33,6 +33,30 @@ public class Text : IComponent
         ClearCache();
     }
 
+    /// <summary>Current text. TS <c>private text</c>.</summary>
+    /// <remarks>
+    /// TS's <c>private</c> is erased at runtime, so a renderer (or a test) can read a component's
+    /// state directly. C#'s is not, and the tool renderers of 4f-1 build text components whose
+    /// content the differential corpus has to observe, so the state is exposed read-only here.
+    /// The name cannot be <c>Text</c> (CS0542: a member may not share its enclosing type's name).
+    /// </remarks>
+    public string CurrentText => _text;
+
+    /// <summary>Current left/right padding. TS <c>private paddingX</c>.</summary>
+    public int PaddingX => _paddingX;
+
+    /// <summary>Current top/bottom padding. TS <c>private paddingY</c>.</summary>
+    public int PaddingY => _paddingY;
+
+    /// <summary>Whether a custom background function is installed. TS <c>private customBgFn</c>.</summary>
+    public bool HasCustomBgFn => _customBgFn is not null;
+
+    /// <summary>
+    /// The installed custom background function. TS <c>private customBgFn</c>; exposed so the tool
+    /// renderer corpus can probe which token the closure paints with.
+    /// </summary>
+    public Func<string, string>? CustomBgFn => _customBgFn;
+
     public void SetCustomBgFn(Func<string, string>? customBgFn)
     {
         _customBgFn = customBgFn;

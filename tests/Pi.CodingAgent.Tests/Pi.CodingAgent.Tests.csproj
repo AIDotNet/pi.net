@@ -70,6 +70,10 @@
     <!-- 4f-3b: modes/interactive/components/diff.ts renderDiff — captured by executing the upstream
          TypeScript itself with only its `diff`/`theme` imports redirected to stubs. -->
     <None Include="renderdiff-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 4f-1: core/tools/render-utils.ts + core/tools/renderers/*.ts — captured by executing the
+         upstream TypeScript renderers themselves (only their imports are redirected) and recording the
+         component tree, the text each component was given, and the framing each one was built with. -->
+    <None Include="tool-renderers-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" />

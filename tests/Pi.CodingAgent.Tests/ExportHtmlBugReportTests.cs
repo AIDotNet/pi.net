@@ -2,6 +2,8 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Pi.CodingAgent;
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Core.Extensions;
+using Pi.CodingAgent.Modes.Interactive;
 using Pi.Tui;
 using Xunit;
 
@@ -56,11 +58,11 @@ public sealed class ExportHtmlBugReportTests
         var component = new ScriptedComponent(["", "\u001b[31mone\u001b[0m", "two", ""]);
         var renderer = ToolHtmlRendererFactory.Create(new ToolHtmlRendererDeps
         {
-            GetToolRenderers = _ => new ToolHtmlRenderers
+            GetToolRenderers = _ => new ToolRenderers
             {
                 RenderResult = (_, _, _, _) => component,
             },
-            Theme = new object(),
+            Theme = MinimalTheme(),
             Cwd = "/tmp",
         });
 
@@ -68,6 +70,24 @@ public sealed class ExportHtmlBugReportTests
             """<div class="ansi-line"><span style="color:#800000">one</span></div><div class="ansi-line">two</div>""",
             renderer.RenderResult("id", "custom", Array.Empty<object>(), null, false)?.Expanded);
     }
+
+    /// <summary>
+    /// A theme with the tokens the constructor fills in for its optional slots, which is all the
+    /// renderer under test needs.
+    /// </summary>
+    private static Theme MinimalTheme() => new(
+        new Dictionary<string, ThemeJsonColorValue>(StringComparer.Ordinal)
+        {
+            [ThemeColors.Text] = "#ffffff",
+            [ThemeColors.Muted] = "#cccccc",
+            [ThemeColors.ThinkingXhigh] = "#dddddd",
+        },
+        new Dictionary<string, ThemeJsonColorValue>(StringComparer.Ordinal)
+        {
+            [ThemeBackgrounds.SelectedBg] = "#111111",
+        },
+        TerminalColorMode.Truecolor,
+        new ThemeOptions { Name = "export-html-test", Appearance = ThemeAppearance.Dark });
 
     private sealed class ScriptedComponent(string[] lines) : IComponent
     {

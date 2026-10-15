@@ -7,6 +7,9 @@ public sealed class Spacer : IComponent
 
     public Spacer(int lines = 1) => _lines = lines;
 
+    /// <summary>Number of blank lines. TS <c>private lines</c> (readable at runtime).</summary>
+    public int Lines => _lines;
+
     public void SetLines(int lines) => _lines = lines;
 
     public string[] Render(int width)

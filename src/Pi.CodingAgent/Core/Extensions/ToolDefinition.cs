@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Pi.Agent.Types;
 using Pi.Ai.Models;
 using Pi.Ai.Types;
+using Pi.CodingAgent.Modes.Interactive;
 using Pi.Tui;
 
 namespace Pi.CodingAgent.Core.Extensions;
@@ -157,7 +158,45 @@ public sealed record ToolRenderContext
     public bool ShowImages { get; init; }
 
     public bool IsError { get; init; }
+
+    /// <summary>
+    /// Milliseconds the tool's execution took, from the final result; null while it runs, when it did
+    /// not run, or for results stored before durations were recorded. TS <c>durationMs</c>.
+    /// </summary>
+    public long? DurationMs { get; init; }
+
+    /// <summary>
+    /// Horizontal padding configured by the outputPad setting. Renderers with
+    /// <see cref="RenderShellMode.Self"/> apply it themselves. TS <c>outputPad</c>.
+    /// </summary>
+    public int OutputPad { get; init; }
 }
+
+/// <summary>
+/// A tool's call renderer. Port of the TS
+/// <c>renderCall?: (args, theme, context) =&gt; Component</c>.
+/// </summary>
+/// <remarks>
+/// The TS is generic over the argument type; the port takes the raw arguments as <see cref="object"/>
+/// (the JSON-shaped dictionary the runtime hands tools), for the same reason as
+/// <see cref="ToolRenderContext"/>.
+/// </remarks>
+public delegate IComponent ToolRenderCall(object? args, Theme theme, ToolRenderContext context);
+
+/// <summary>
+/// A tool's result renderer. Port of the TS
+/// <c>renderResult?: (result, options, theme, context) =&gt; Component</c>.
+/// </summary>
+/// <remarks>
+/// The TS <c>result</c> is <c>AgentToolResult&lt;TDetails&gt;</c>; the port passes the
+/// <see cref="AgentToolResult"/> itself, whose <c>Details</c> member is already <see cref="object"/>
+/// (see C62).
+/// </remarks>
+public delegate IComponent ToolRenderResult(
+    AgentToolResult result,
+    ToolRenderResultOptions options,
+    Theme theme,
+    ToolRenderContext context);
 
 /// <summary>Helpers shared by tools that read an optional <see cref="IExtensionToolContext"/>.</summary>
 /// <remarks>
@@ -199,10 +238,9 @@ public static class ToolContexts
 /// <see cref="ToolRenderContext"/>).
 /// </para>
 /// <para>
-/// Difference C85: <c>renderCall</c> / <c>renderResult</c> are not declared yet. Both take a
-/// <c>Theme</c> (<c>modes/interactive/theme/theme.ts</c>), which belongs to 4f, so the renderer half of
-/// the tool definitions lands with the renderers themselves. <c>renderShell</c> is declarable today and
-/// is kept.
+/// Difference C85 (resolved in 4f-1): <c>renderCall</c> / <c>renderResult</c> are declared here, and
+/// <c>renderShell</c> is kept. Both take a <see cref="Theme"/>, which is why they could not be
+/// declared before the theme half of 4f landed.
 /// </para>
 /// </remarks>
 public sealed record ToolDefinition
@@ -236,6 +274,12 @@ public sealed record ToolDefinition
 
     /// <summary><see cref="RenderShellMode.Default"/> or <see cref="RenderShellMode.Self"/>.</summary>
     public string? RenderShell { get; init; }
+
+    /// <summary>Custom rendering for tool call display.</summary>
+    public ToolRenderCall? RenderCall { get; init; }
+
+    /// <summary>Custom rendering for tool result display.</summary>
+    public ToolRenderResult? RenderResult { get; init; }
 
     /// <summary>
     /// Compatibility shim to prepare raw tool call arguments before schema validation. Must return an
@@ -287,10 +331,13 @@ public sealed record ToolDefinition
 /// The renderer triple a tool may supply. Port of the TS <c>ToolRenderers</c>
 /// (<c>Pick&lt;AnyToolDefinition, "renderShell" | "renderCall" | "renderResult"&gt;</c>).
 /// </summary>
-/// <remarks>Only <see cref="RenderShell"/> exists until 4f; see difference C85.</remarks>
 public sealed record ToolRenderers
 {
     public string? RenderShell { get; init; }
+
+    public ToolRenderCall? RenderCall { get; init; }
+
+    public ToolRenderResult? RenderResult { get; init; }
 }
 
 /// <summary>

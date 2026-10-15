@@ -1,13 +1,18 @@
 namespace Pi.Tui.Components;
 
 /// <summary>Box component - a container that applies padding and background to all children.</summary>
-public sealed class Box : IComponent
+/// <remarks>
+/// Not sealed: the edit tool's call component is a <c>Box</c> with extra renderer fields, exactly as the
+/// TS models it (<c>type EditCallRenderComponent = Box &amp; {...}</c>). <see cref="Pi.Tui.Components.Text"/>
+/// is unsealed for the same reason — <c>Loader</c> derives from it.
+/// </remarks>
+public class Box : IComponent
 {
     private sealed record RenderCache(string[] ChildLines, int Width, string? BgSample, string[] Lines);
 
     public List<IComponent> Children { get; } = new();
 
-    private readonly int _paddingX;
+    private int _paddingX;
     private readonly int _paddingY;
     private Func<string, string>? _bgFn;
     private RenderCache? _cache;
@@ -18,6 +23,20 @@ public sealed class Box : IComponent
         _paddingY = paddingY;
         _bgFn = bgFn;
     }
+
+    /// <summary>Current left/right padding. TS <c>private paddingX</c>.</summary>
+    /// <remarks>
+    /// TS's <c>private</c> is erased at runtime, so a renderer (or a test) can read a component's
+    /// state directly. C#'s is not, and the tool renderers of 4f-1 build boxes whose shape the
+    /// differential corpus has to observe, so the state is exposed read-only here.
+    /// </remarks>
+    public int PaddingX => _paddingX;
+
+    /// <summary>Current top/bottom padding. TS <c>private paddingY</c>.</summary>
+    public int PaddingY => _paddingY;
+
+    /// <summary>The background function, if any. TS <c>private bgFn</c> (readable at runtime).</summary>
+    public Func<string, string>? BgFn => _bgFn;
 
     public void AddChild(IComponent component)
     {
@@ -40,6 +59,13 @@ public sealed class Box : IComponent
     }
 
     public void SetBgFn(Func<string, string>? bgFn) => _bgFn = bgFn;
+
+    /// <summary>Set the left/right padding and drop the render cache. TS <c>setPaddingX</c>.</summary>
+    public void SetPaddingX(int paddingX)
+    {
+        _paddingX = paddingX;
+        InvalidateCache();
+    }
 
     private void InvalidateCache() => _cache = null;
 
