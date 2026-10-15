@@ -39,6 +39,22 @@ using Text = Pi.Tui.Components.Text;
 
 namespace Pi.CodingAgent.Tests;
 
+/// <summary>
+/// Runs this class outside the assembly-wide parallelization (xUnit defers disabled-parallelization
+/// collections until the parallel ones have drained). <see cref="ToolRenderersCorpusTests"/> is the
+/// only suite that lets a renderer kick off a fire-and-forget background task
+/// (<c>edit</c>'s preview, TS <c>computeEditsDiff(...).then(...)</c>), and that task reads
+/// <see cref="ThemeRuntime.Current"/> on a thread-pool thread. Every other suite flips the process-wide
+/// theme through <c>ThemeRuntime.ResetCachesForTests()</c> in its constructor and Dispose, and between
+/// the two writes <c>_current</c> is null — a background task crossing that window throws
+/// "Theme not initialized", dies silently (exactly like the TS unhandled rejection), and leaves
+/// <c>PreviewPending</c> stuck true. Vitest never saw this because it isolates files in separate
+/// workers; a disabled-parallelization collection is the xUnit equivalent.
+/// </summary>
+[CollectionDefinition("tool-renderers-corpus-sequential", DisableParallelization = true)]
+public sealed class ToolRenderersCorpusSequentialCollection;
+
+[Collection("tool-renderers-corpus-sequential")]
 public sealed class ToolRenderersCorpusTests : IDisposable
 {
     private const string CorpusFileName = "tool-renderers-corpus.json";
@@ -47,6 +63,7 @@ public sealed class ToolRenderersCorpusTests : IDisposable
     private static readonly int[] HintCounts = [0, 1, 3, 7, 42];
 
     private readonly bool? _previousChalk = Chalk.EnabledOverride;
+    private readonly Pi.Tui.KeybindingsManager _previousGlobalKeybindings = GlobalKeybindings.Get();
 
     public ToolRenderersCorpusTests()
     {
@@ -55,11 +72,16 @@ public sealed class ToolRenderersCorpusTests : IDisposable
         ThemeRuntime.ResetCachesForTests();
         TerminalImage.ResetCapabilitiesCache();
         ThemeRuntime.SetThemeInstance(Corpus.Theme);
+        // The TS generator ran with the full coding-agent binding table installed globally (TS
+        // interactive-mode.ts: `setKeybindings(KeybindingsManager.create())`); without the app ids
+        // keyText("app.tools.expand") renders as the empty string and every keyHint diverges.
+        GlobalKeybindings.Set(new Pi.Tui.KeybindingsManager(Pi.CodingAgent.Core.AppKeybindings.Definitions));
     }
 
     public void Dispose()
     {
         BashRenderers.NowOverride = null;
+        GlobalKeybindings.Set(_previousGlobalKeybindings);
         Chalk.EnabledOverride = _previousChalk;
         ThemeRuntime.ResetCachesForTests();
         TerminalImage.ResetCapabilitiesCache();
@@ -267,9 +289,16 @@ public sealed class ToolRenderersCorpusTests : IDisposable
 
     private static void RunCase(Case testCase)
     {
+        // The TS generator stores the corpus' literal "none" string in TerminalCapabilities.images.
+        // TS's ImageProtocol type is "kitty" | "iterm2" | null, so "none" is an out-of-type value
+        // that stays **truthy** at runtime: `!caps.images` is false and a shown image
+        // (showImages: true) takes no fallback placeholder (ls/result-image-shown). C#'s enum has no
+        // such value, so Kitty stands in as the truthy representative — the renderers only branch on
+        // None vs not-None, never on which real protocol it is.
         TerminalImage.SetCapabilities(new TerminalCapabilities(
             testCase.Images switch
             {
+                "none" => ImageProtocol.Kitty,
                 "kitty" => ImageProtocol.Kitty,
                 "iterm2" => ImageProtocol.Iterm2,
                 _ => ImageProtocol.None,
@@ -284,11 +313,23 @@ public sealed class ToolRenderersCorpusTests : IDisposable
         IComponent? callSlot = null;
         IComponent? resultSlot = null;
 
+        // The generator's Date.now mock, reverse-engineered from the corpus itself (all 24 bash
+        // cases are self-consistent under this rule and none other): a call step's clock is the
+        // step's recorded time; a result step's clock is the call time **plus the recorded
+        // duration** (nothing recorded → the clock has not advanced), except a *partial* result,
+        // which is still running and whose clock is the step's wall-clock time. The recorded
+        // `nowMs` fields are labels, not the mock values — bash/result-elapsed-without-partial-flag
+        // records a 3 s gap while the expected tree says "Took 0.0s" (no duration → clock unmoved).
+        var callNowMs = testCase.Steps.FirstOrDefault(step => step.Kind == "call")?.NowMs ?? 0;
+
         try
         {
             foreach (var step in testCase.Steps)
             {
-                BashRenderers.NowOverride = () => step.NowMs;
+                var clockMs = step.Kind == "call" || step.OptionsPartial
+                    ? step.NowMs
+                    : callNowMs + (step.DurationMs ?? 0);
+                BashRenderers.NowOverride = () => clockMs;
                 var args = step.Kind == "call" ? step.Args : callArgs;
                 var context = new ToolRenderContext
                 {
@@ -304,7 +345,6 @@ public sealed class ToolRenderersCorpusTests : IDisposable
                     Expanded = step.Expanded,
                     ShowImages = step.ShowImages,
                     IsError = step.IsError,
-                    DurationMs = step.DurationMs,
                     OutputPad = step.OutputPad,
                 };
 
@@ -325,8 +365,8 @@ public sealed class ToolRenderersCorpusTests : IDisposable
                         context);
                 }
 
-                AssertTree(step.CallTree, callSlot, $"{testCase.Id}: {step.Kind} → call slot");
-                AssertTree(step.ResultTree, resultSlot, $"{testCase.Id}: {step.Kind} → result slot");
+                AssertTree(RewriteExpectedRoots(step.CallTree), callSlot, $"{testCase.Id}: {step.Kind} → call slot");
+                AssertTree(RewriteExpectedRoots(step.ResultTree), resultSlot, $"{testCase.Id}: {step.Kind} → result slot");
             }
         }
         finally
@@ -551,6 +591,24 @@ public sealed class ToolRenderersCorpusTests : IDisposable
 
     private static string RewriteRoot(string value) =>
         value.Replace(Corpus.PackageRoot, PortPackageRoot, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Applies the same package-root rewrite to a recorded expectation tree that
+    /// <see cref="RewriteRoot"/> applies to the inputs. The corpus records absolute generated-machine
+    /// paths inside rendered text (a read call outside the compact-classification set shows its
+    /// absolute path, `ls`/`read` echoes args back), so both sides have to speak the port's root —
+    /// otherwise the comparison would test the deployment layout instead of the renderer logic.
+    /// </summary>
+    private static JsonNode? RewriteExpectedRoots(JsonNode? node) => node switch
+    {
+        null => null,
+        JsonObject obj => new JsonObject(obj.Select(
+            pair => new KeyValuePair<string, JsonNode?>(pair.Key, RewriteExpectedRoots(pair.Value)))),
+        JsonArray array => new JsonArray(array.Select(RewriteExpectedRoots).ToArray()),
+        JsonValue value when value.GetValueKind() == JsonValueKind.String =>
+            JsonValue.Create(RewriteRoot(value.GetValue<string>())),
+        _ => node.DeepClone(),
+    };
 
     private static List<ContentBlock> ToContent(JsonNode? content)
     {

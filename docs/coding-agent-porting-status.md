@@ -3418,3 +3418,97 @@ TS 的 `StdioTransport` 有 `DEFAULT_MAX_STDERR_BYTES = 64 * 1024` 与 `get stde
 
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量 **2126 / 0 失败**（3m38s，1924 + 202）；
   变异套件 `diffwords`（13 锚点）+ `diff-renderer`（16 锚点）**29 处全捕获**（锚点唯一性已预校验，265 处全库锚点唯一）。
+
+## 4f-1 进度（2026-10-15 补记）：工具 renderer 全套（`core/tools/renderers/*` + `render-utils.ts`）
+
+> 本批工作已在 `a0caf71` 提交并推送，但当时提交信息为通用的 "Refactor code structure…"、未随提交更新
+> 本文档（流程偏离，与 1.3 节 `f208567` 教训同类）。4f-3c 收口时发现该套件实际带 27 处失败，一并修复后
+> 在此补记。生成脚本 `tools/gen-toolrenderers-corpus.mjs` 按惯例未入库且本地已丢失，本节以提交内容与
+> 语料结构为准。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `renderers/bash.ts` + `createShellRenderers` | 146 | `Core/Tools/Renderers/BashRenderers.cs`（275） | `$` 提示行、输出预览（`VisualLinePreview` + `keyHint` 折叠提示）、截断警告、`Took`/`Elapsed` 时长行、`state.startedAt/endedAt` 时序 |
+| `renderers/edit.ts` | 238 | `Core/Tools/Renderers/EditRenderers.cs`（391） | `EditCallRenderComponent`（`Box` 子类，对齐 TS 交叉类型）+ 后台 preview（`computeEditsDiff().then` → `Task.Run` + `ComputePreviewAsync`）+ `renderResult` 从 details 取 diff |
+| `renderers/find.ts` / `grep.ts` / `ls.ts` | 222 | `FindRenderers`（115）/ `GrepRenderers`（127）/ `LsRenderers`（110） | 参数格式化 + 图片 fallback |
+| `renderers/read.ts` | 176 | `ReadRenderers.cs`（272） | compact 分类（`docs`/`resource`/`skill`）依赖 `getReadmePath()` 的包根判定；行号区间 `:5-10` 着色 |
+| `renderers/write.ts` | 181 | `WriteRenderers.cs`（285） | 内容摘要 + diff 预览 |
+| `renderers/index.ts` | 63 | `BuiltInToolRenderers.cs`（65） | 内置 renderer 注册表 |
+| `render-utils.ts` | 112 | `Core/Tools/RenderUtils.cs`（407） | `getTextOutput` / `renderToolPath` / `formatToolCallWithArgs` / `sanitizeBinaryOutput` 等共享原语 |
+| — | — | `Utils/Js.cs`（319） | 4f-1 期间沉淀的 JS 语义助手 |
+
+语料 `tests/Pi.CodingAgent.Tests/tool-renderers-corpus.json`（11,242 行 / **104 case / 110 断言**）由生成脚本
+驱动 **TS renderer 本体**（只重写 import）产出组件树；测试侧断言走 C# 真实组件的只读状态访问器
+（`Text.CurrentText` / `Box.PaddingX` / `Spacer.Lines` / `VisualLinePreview.Options`…）。
+
+## 4f-3c 进度（2026-10-15）：消息类组件 11 个 + 4f-1 语料套件修复
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/assistant-message.ts` | 202 | `Components/AssistantMessageComponent.cs`（274） | OSC 133 zone（无 tool call 时首尾包裹）、相邻 thinking 合并、点击折叠单个 thinking run（`MouseRegion` + 可见性 override）、transformer 链接入（`assistant` / `assistant-thinking` 两种 messageType）、Length/Aborted/Error 尾注 |
+| `components/user-message.ts` | 71 | `Components/UserMessageComponent.cs`（83） | `Container` + Markdown（自带 padding/bg）+ zone 包裹 |
+| `components/custom-message.ts` | 113 | `Components/CustomMessageComponent.cs`（134） | 自定义 renderer 优先、异常回退默认渲染、`MessageRenderOptions`（expanded/outputPad） |
+| `components/branch-summary-message.ts` | 67 | `Components/BranchSummaryMessageComponent.cs`（86） | 折叠/展开 + MouseRegion 点击切换 |
+| `components/compaction-summary-message.ts` | 68 | `Components/CompactionSummaryMessageComponent.cs`（87） | 同上 + `tokensBefore.toLocaleString()` |
+| `components/skill-invocation-message.ts` | 64 | `Components/SkillInvocationMessageComponent.cs`（87） | 折叠单行 `[skill] name (…)` / 展开全文 |
+| `components/status-indicator.ts` | 123 | `Components/StatusIndicator.cs`（175） | `StatusIndicator`（`Loader` 子类 + `renderInBorder`/`renderSpinnerInBorder`）+ Working/Retry（CountdownTimer 驱动文案）/Compaction/BranchSummary 四子类 + `IdleStatus` |
+| `components/countdown-timer.ts` | 39 | `Components/CountdownTimer.cs`（53） | `setInterval` → `System.Threading.Timer` |
+| `components/auth-url.ts` | 39 | `Components/AuthUrlComponent.cs`（58） | hyperlink URL + 平台相关点击提示 + `copy()` |
+| `components/pi-logo.ts` | 40 | `Components/PiLogo.cs`（52） | 半块像素 logo + Apple Terminal 文字回退 |
+| `components/markdown-transform.ts` | 29 | `Components/MarkdownTransform.cs`（61） | `createMarkdownTransform`：扩展 transformer 顺序应用、非字符串跳过、异常跳过 |
+
+前置补齐 `Pi.Tui` 三个真实缺口（此前 `Box` 是按 `implements Component` 独立实现的，但 TS `Box` 自带的
+鼠标命中测试与子类重建钩子没有转译过来）：
+
+1. `Box.HandleMouse` + `_mouseLayout` 命中缓存（TS `box.ts:75-97,121`）：padding 感知的坐标映射 + 子组件命中分发；
+2. `Box.Invalidate` 改 `virtual`（TS 的 `Box` 子类 override `invalidate()` 重建内容，如三个折叠消息组件）；
+3. 新增 `TerminalSession.IsAppleTerminalSession`（TS `terminal.ts` 自由函数，`pi-logo` 的回退判定用）；
+   `JsNumber` 补 `ToLocaleString`。
+
+### 4f-3c 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C202 | `MarkdownTransformer` 委托固定双参 `(string, MarkdownTransformContext)`；TS 测试里的单参 transformer 向量在 C# 侧改写为忽略 context 的双参 lambda | JS 函数允许声明少于调用处实参的形参；C# 委托转换要求签名精确匹配。链式语义（前一个的输出是下一个的输入）不变 |
+| C203 | `CountdownTimer` 的 `setInterval` → `System.Threading.Timer`；`OnTick` / `RequestRender` 可在线程池线程触发；`Dispose` 用 `Interlocked.Exchange` 防重入 | 与 Loader 动画定时器（T13）同一约定；JS 单线程事件循环没有对应的并发面 |
+| C204 | `Box` 保留独立实现（不继承 `Container`），鼠标分发以自有 `HandleMouse` 补齐；`Invalidate` 由 sealed 改 virtual | TS 里 `Box implements Component`（非继承 `Container`），其 `handleMouse`/`invalidate` 是本体行为——此前遗漏，本批补齐属缺口修复；C# 用 `virtual` 承载 TS 的方法 override |
+| C205 | `JsNumber.ToLocaleString`：无参 `Number.prototype.toLocaleString()` 按 small-icu en-US 语义实现（每三位 `,` 分组；NaN/Infinity 走 `ToJsString`） | Node 沙箱默认 full-icu 时随环境 locale 变化，但生成语料的执行环境是 small-icu en-US；以可观测行为为准 |
+| C206 | `EditRenderers` 的后台 preview 用 `Task.Run` 启动（TS 为 `computeEditsDiff(...).then(...)`） | JS 的 fulfillment 回调最早在微任务执行，`renderCall` 返回时 `previewPending` 必然可观测为 true；C# 的 async 链在热缓存小文件上会同步跑完，破坏该不变量（全量回归两轮里偶发 1 失败）。线程池排队恢复"回调不占当前同步栈"的语义 |
+
+**同批删除一处臆造**：`ToolRenderContext.DurationMs`（连同 `BashRenderers` 的 `durationMs` 直算分支）——
+TS `ToolRenderContext` 没有 `durationMs` 字段，renderers 也不消费它；时长行只来自 `state.startedAt/endedAt`
+与 `Date.now()`（`bash.ts:101-105,113-116,127`）。
+
+### 4f-1 语料套件修复（27 处失败，四类根因）
+
+4f-3c 收口跑全量时发现 `ToolRenderersCorpusTests` 带伤（上批未实测全量即提交）：
+
+1. **键位注册表未初始化（26 处 CorpusCase 失败的主因）**：语料由 TS 生成，生成环境里全局键位注册表持有
+   coding-agent 全表（`interactive-mode.ts` 的 `setKeybindings(KeybindingsManager.create())`），期望树里的
+   `ctrl+o` 等提示由此而来。C# 夹具只装了主题，`KeyText("app.tools.expand")` 渲染成空串。修：构造函数
+   `GlobalKeybindings.Set(new KeybindingsManager(AppKeybindings.Definitions))`，Dispose 恢复原实例。
+2. **生成器时钟语义（`bash/result-elapsed-without-partial-flag` 等）**：反推语料全部 24 个 bash 用例后可
+   自洽的唯一规则——call 步时钟 = call 的 `nowMs`；result 步时钟 = call 时刻 **+ `durationMs`**（未记录则
+   时钟未推进），partial result 仍在执行故用挂钟（step 的 `nowMs`）。`nowMs` 字段只是记录标签，与 mock
+   值弱相关（如上例记录 3 s 差而期望 `Took 0.0s`）。旧夹具 `NowOverride = () => step.NowMs` 在该规则下
+   算出 3 s。修：夹具按规则构造时钟；产品代码删除 `durationMs` 直算分支回归 TS 逐行语义。
+3. **期望树的包根重写缺失（`read/call-pi-docs*` 2 处）**：夹具对输入路径做 `RewriteRoot`（生成机包根 →
+   端口包根，测分类逻辑而非部署布局），但期望树文本里记录的绝对路径未同步重写。修：补
+   `RewriteExpectedRoots` 递归替换字符串值后断言。
+4. **`"none"` 图片能力的 truthy quirk（`ls/result-image-shown`）**：TS 生成器把语料的字面 `"none"` 原样塞进
+   `TerminalCapabilities.images`——out-of-type（TS 类型是 `"kitty"|"iterm2"|null`）但运行时 truthy，
+   `!caps.images` 为 false，`showImages: true` 时不渲染 fallback 占位。C# 枚举把它映射成 falsy 的
+   `None` → 占位多渲染。修：夹具把 `"none"` 映射为 truthy 代表值 `Kitty`（renderer 只判 None 与否）。
+
+另修一处**并行污染 flaky**：`EditPreview_IsComputedInTheBackgroundAndRebuildsTheCallComponent` 全量跑
+偶发失败——它是唯一依赖 fire-and-forget 后台任务的用例，任务读 `ThemeRuntime.Current`，而其他测试类在
+构造/Dispose 里 `ResetCachesForTests()`（`_current = null`），窗口期异常使任务静默死亡（与 TS unhandled
+rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移入 `DisableParallelization` collection
+（vitest 文件隔离的 xUnit 等价物）；C206 的 `Task.Run` 恢复"回调不占同步栈"后，连续三轮全量稳定。
+
+### 测试与验证
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `ToolRenderersCorpusTests` **110 / 0**（27 失败清零）；`MessageComponentsTests` **20 / 0**
+- `Pi.CodingAgent.Tests` 全量 **2256 / 0 失败**（1m15s；2126 + 110 语料 + 20 组件）——**连续三轮**全绿
+- `Pi.Tui.Tests` **23854 / 0 失败**（`Box` 改动无回归）

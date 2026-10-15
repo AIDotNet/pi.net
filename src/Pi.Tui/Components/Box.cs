@@ -17,6 +17,12 @@ public class Box : IComponent
     private Func<string, string>? _bgFn;
     private RenderCache? _cache;
 
+    /// <summary>
+    /// Child heights observed during the last render, reused for mouse hit-testing when the content
+    /// width is unchanged (port of the TS <c>Box.mouseLayout</c>).
+    /// </summary>
+    private (int Width, List<(IComponent Component, int Height)> Children)? _mouseLayout;
+
     public Box(int paddingX = 1, int paddingY = 1, Func<string, string>? bgFn = null)
     {
         _paddingX = paddingX;
@@ -79,13 +85,56 @@ public class Box : IComponent
             && cache.ChildLines.SequenceEqual(childLines);
     }
 
-    public void Invalidate()
+    /// <summary>
+    /// Drops the render cache and invalidates children. Virtual so subclasses can rebuild their
+    /// content on invalidation, exactly as the TS <c>Box</c> subclasses override
+    /// <c>Container.invalidate()</c> (TS <c>Box extends Container</c>).
+    /// </summary>
+    public virtual void Invalidate()
     {
         InvalidateCache();
         foreach (var child in Children)
         {
             child.Invalidate();
         }
+    }
+
+    /// <summary>
+    /// Mouse hit-testing across children with padding-aware coordinate mapping (port of the TS
+    /// <c>Box.handleMouse</c>). The event coordinates are local to the padded box: content space
+    /// strips <c>paddingX</c>/<c>paddingY</c>, and the hit child receives coordinates local to it.
+    /// </summary>
+    public TuiMouseEventResult? HandleMouse(TuiMouseEvent @event)
+    {
+        var contentWidth = Math.Max(1, @event.Width - _paddingX * 2);
+        var contentY = @event.Y - _paddingY;
+        var contentX = @event.X - _paddingX;
+        if (contentY < 0 || contentX < 0 || contentX >= contentWidth)
+        {
+            return null;
+        }
+
+        var mouseChildren = _mouseLayout is { } cached && cached.Width == contentWidth
+            ? cached.Children
+            : Children.Select(child => (Component: child, Height: child.Render(contentWidth).Length)).ToList();
+
+        var childY = 0;
+        foreach (var (child, childHeight) in mouseChildren)
+        {
+            if (contentY >= childY && contentY < childY + childHeight)
+            {
+                var childEvent = @event.Clone();
+                childEvent.X = contentX;
+                childEvent.Y = contentY - childY;
+                childEvent.Width = contentWidth;
+                childEvent.Height = childHeight;
+                return MouseDispatch.Dispatch(child, childEvent);
+            }
+
+            childY += childHeight;
+        }
+
+        return null;
     }
 
     public string[] Render(int width)
@@ -99,13 +148,18 @@ public class Box : IComponent
         var leftPad = new string(' ', _paddingX);
 
         var childLines = new List<string>();
+        var mouseChildren = new List<(IComponent Component, int Height)>();
         foreach (var child in Children)
         {
-            foreach (var line in child.Render(contentWidth))
+            var lines = child.Render(contentWidth);
+            mouseChildren.Add((child, lines.Length));
+            foreach (var line in lines)
             {
                 childLines.Add(leftPad + line);
             }
         }
+
+        _mouseLayout = (contentWidth, mouseChildren);
 
         if (childLines.Count == 0)
         {

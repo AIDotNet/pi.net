@@ -160,12 +160,6 @@ public sealed record ToolRenderContext
     public bool IsError { get; init; }
 
     /// <summary>
-    /// Milliseconds the tool's execution took, from the final result; null while it runs, when it did
-    /// not run, or for results stored before durations were recorded. TS <c>durationMs</c>.
-    /// </summary>
-    public long? DurationMs { get; init; }
-
-    /// <summary>
     /// Horizontal padding configured by the outputPad setting. Renderers with
     /// <see cref="RenderShellMode.Self"/> apply it themselves. TS <c>outputPad</c>.
     /// </summary>

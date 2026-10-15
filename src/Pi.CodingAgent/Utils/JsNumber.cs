@@ -82,6 +82,21 @@ public static class JsNumber
     public static string ToFixed(double value, int digits) =>
         value.ToString($"F{digits}", CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// The TS <c>Number.prototype.toLocaleString()</c> with no arguments (en-US grouping:
+    /// <c>(12345).toLocaleString() == "12,345"</c>). Used by the compaction summary message
+    /// (<c>tokensBefore.toLocaleString()</c>).
+    /// </summary>
+    /// <remarks>
+    /// TS with no locale argument formats with the runtime default locale; the sandbox TS runs
+    /// small-icu with en-US as the only locale, so grouping every three digits with "," is the
+    /// observable behavior this port reproduces.
+    /// </remarks>
+    public static string ToLocaleString(double value) =>
+        double.IsNaN(value) || double.IsInfinity(value)
+            ? ToJsString(value)
+            : ((long)value).ToString("N0", CultureInfo.InvariantCulture);
+
     private static double ParseRadix(string digits, int radix)
     {
         if (digits.Length == 0)

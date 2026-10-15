@@ -327,7 +327,12 @@ public static class EditRenderers
             if (context.ArgsComplete && previewInput is { } input && component.Preview is null && !component.PreviewPending)
             {
                 component.PreviewPending = true;
-                _ = ComputePreviewAsync(component, input, context, argsKey);
+                // TS `void computeEditsDiff(...).then(...)`: the promise's fulfillment callback runs
+                // as a microtask, so it can never complete inside the renderCall stack that started
+                // it — previewPending is observable as true right after the call. A C# async chain
+                // over a warm, tiny file can complete synchronously, so start the work through the
+                // thread pool (divergence C206) to preserve that invariant.
+                _ = Task.Run(() => ComputePreviewAsync(component, input, context, argsKey));
             }
 
             return BuildEditCallComponent(component, args, theme, context.Cwd, context.OutputPad);

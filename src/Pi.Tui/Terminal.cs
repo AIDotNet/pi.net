@@ -440,3 +440,15 @@ public sealed class StringTerminal : ITerminal
 
     public void SetProgress(bool active) => Write(active ? "\x1b]9;4;3\x07" : "\x1b]9;4;0\x07");
 }
+
+/// <summary>Session-level terminal helpers (port of <c>terminal.ts</c> free functions).</summary>
+public static class TerminalSession
+{
+    /// <summary>
+    /// Whether the current session is Apple Terminal. TS <c>isAppleTerminalSession()</c>:
+    /// <c>process.platform === "darwin" &amp;&amp; process.env.TERM_PROGRAM === "Apple_Terminal"</c>.
+    /// </summary>
+    public static bool IsAppleTerminalSession() =>
+        OperatingSystem.IsMacOS()
+        && Environment.GetEnvironmentVariable("TERM_PROGRAM") == "Apple_Terminal";
+}
