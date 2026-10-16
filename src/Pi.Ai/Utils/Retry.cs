@@ -138,6 +138,9 @@ public static class Retry
         "stream ended before message_stop",
         "stream ended before a terminal response event",
         "http2 request did not get a response",
+        // Node ERR_HTTP2_STREAM_CANCEL：请求发出前 HTTP/2 会话就死了
+        // （例如 Bedrock SDK 5 分钟会话超时之后，#10379）。
+        "pending stream has been canceled",
 
         // provider 要求的重试延迟上限失败，应走外层重试策略（便于调用方中止退避）。
         "retry delay",

@@ -32,9 +32,14 @@ public class RetryTests
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "429 Too Many Requests")));
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "Connection refused")));
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "Anthropic stream ended before message_stop")));
+        // 基线内既有、端口此前漏掉的一条：Node ERR_HTTP2_STREAM_CANCEL（Bedrock SDK 5 分钟会话超时，#10379）。
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "pending stream has been canceled")));
         // 上游 8b5708dbb（R2 漂移）：OpenRouter 等网关的 server_busy 瞬时故障文案。
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "server_busy")));
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "All servers are currently busy")));
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "The model is overloaded")));
+        Assert.True(Retry.IsRetryableAssistantError(
+            Message(StopReason.Error, "We are currently experiencing high demand")));
         // 订阅/计费限额不可重试。
         Assert.False(Retry.IsRetryableAssistantError(Message(StopReason.Error, "insufficient_quota")));
         Assert.False(Retry.IsRetryableAssistantError(Message(StopReason.Error, "GoUsageLimitError")));
