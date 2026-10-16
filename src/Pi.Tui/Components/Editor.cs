@@ -16,7 +16,11 @@ public sealed class EditorTheme
 }
 
 /// <summary>Construction options for <see cref="Editor"/> (port of <c>EditorOptions</c>).</summary>
-public sealed class EditorOptions
+/// <remarks>
+/// Not sealed: TS's <c>CustomEditorOptions = EditorOptions &amp; { embedWorkingStatus?: boolean }</c>
+/// is an intersection, and C#'s nearest equivalent is a derived options type (C238).
+/// </remarks>
+public class EditorOptions
 {
     /// <summary>
     /// TS <c>paddingX?: number</c>. A <see cref="double"/> so that the JS <c>Number.isFinite</c>
@@ -973,7 +977,13 @@ public class Editor : IEditorComponent, IFocusable
     // Input
     // ---------------------------------------------------------------------------------------------
 
-    public void HandleInput(string data)
+    /// <summary>
+    /// Port of <c>Editor.handleInput</c>. Declared <c>virtual</c> so subclasses can intercept app-level
+    /// keybindings before the editor sees them (<c>CustomEditor</c> does exactly that), and so the
+    /// interface map built here — <see cref="Editor"/> is the class that lists
+    /// <see cref="IEditorComponent"/> — keeps pointing at the subclass override (C233).
+    /// </summary>
+    public virtual void HandleInput(string data)
     {
         var kb = GlobalKeybindings.Get();
 
