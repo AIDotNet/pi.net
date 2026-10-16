@@ -2,7 +2,7 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d26`（= 当前检出）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`97eae94`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94`）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`3cd141d`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d`）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
 > 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C215`）。
 
@@ -30,7 +30,7 @@
 | `36a686ee8` | 记录响应 / 工具执行 / durable 任务耗时（`durationMs` 贯穿 ai → agent → coding-agent） |
 | `f284a2460` | 响应计时用私有字段 + 真实流（`AssistantMessageEventStream` 自己计时） |
 | `ddaa0a034` | `--tools` 接受 `+name` / `-name` 修饰符（并新增 `getToolListError` 校验） |
-| `eb326d265` | codemode 输出条目分离 |
+| `eb326d265` | codemode 输出条目分离（**横跨 `packages/codemode` + `packages/coding-agent` 两个包**——只在目标包 grep 会漏掉对侧，S4 的教训） |
 | `83c9e2645` | transcript 重建时清空全屏选区（`TuiAltScreen.resetTextSelection`） |
 | 其余 5 项 | `bedrock` gpt-oss/gpt 思考档位映射、`radius` 网关目录替换内置基线、`faux` 逐消息 prompt cache、`retry` 增加 `server_busy`、`ai` 事件流可赋值性 |
 
@@ -76,7 +76,7 @@
 | **S2** | `--tools` 修饰符：`GetToolListError` 回填 + `Sdk` tools 语义 + `AgentSessionConfig.DefaultToolModifiers` + 决策叶子修饰符 + `AgentSession.ReloadAsync` 编排本体 | ✅ `3b1346a`（S2a）；✅ `e657dac`（S2b） |
 | **S3** | ai provider 层：`retry` `server_busy`（`8b5708dbb`）、`radius` 网关目录替换（`43d376399`）、`bedrock` OpenAI reasoning（`2989eb581`）、`faux` 逐消息 prompt cache + 用量估算子系统（`fe11328b0`） | ✅ `2c74e2c`（S3a）；✅ `a633cb2` + `97eae94`（S3b） |
 | **S3c** | faux 补全（**新增**）：`tokensPerSecond` 限速 / `tokenSize` 随机切块 / `deferred` 全链 / `FauxResponseFactory` / `fauxProvider()` / `aborted` 中断 / 四个 `*_start`·`*_end` 事件 / 自定义模型目录 | 待办（见 [coding-agent-porting-status.md](coding-agent-porting-status.md) 的「已知缺口（转入 S3c）」） |
-| **S4** | codemode 输出条目分离 | 待办 |
+| **S4** | codemode 输出条目分离（`eb326d265`）：`==> text N/M <==` 编号 + `<console_output>` 分组 + console 标记 | ✅ `3cd141d` |
 | **S5** | 回到原计划：4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals | 待办 |
 
 ---
@@ -461,5 +461,10 @@
 
 | 2026-10-16 | **S3a（R2-4）** | `packages/ai` provider 层漂移三条：**`retry`**（`8b5708dbb`）增加 `overloaded` / `server_busy` / `servers are currently busy` / `currently experiencing high demand`；**`radius`**（`43d376399`）网关目录由「叠加」改「**替换**」随包基线目录（`_dynamic` 由 `[]` 改可空，新增纯决策叶子 `ResolveModels(baseline, dynamic) => dynamic ?? baseline`，凭据恢复路径保留 `Count > 0` 守卫、网络路径无条件覆盖含空目录）；**`bedrock`**（`2989eb581`，#10142）给 OpenAI 系模型发 reasoning effort（`gpt-oss` → 扁平 `reasoning_effort` 且 xhigh/max 夹到 high；`gpt-` → 嵌套 `reasoning.effort` 且 `thinkingLevelMap` 优先；**gpt-oss 必须先判**因为同时命中 `gpt-`），Claude 分支抽成 `BuildClaudeAdditionalModelRequestFields`。**顺带修掉的既有缺陷（非漂移）**：`BuildCommandInput` 原先把未设字段写成 `"k":null`，而 TS 的 `JSON.stringify` 会丢 `undefined` 键（用最小 .NET 程序实测确认），四路改为「非 null 才写键」 | `2c74e2c`（已推送） | `Pi.Ai.Tests` **310 / 0**（新增 3：`BuildAdditionalModelRequestFieldsOpenAiReasoning` / `BuildCommandInputOmitsUnsetFieldsInsteadOfEmittingNull` / `RadiusResolveModelsReplacesInsteadOfOverlaying`；并改写 `BedrockTests` 里「非 Claude → null」的样本模型，因为 `openai.gpt-5.6` 现在**有** OpenAI 分支了）；`Pi.CodingAgent.Tests` 全量 **2280 / 0 失败**；构建 0 警告 0 错误 |
 | 2026-10-16 | **S3b（R2-5）** | `faux` 逐消息 prompt cache（`fe11328b0`）。核对时发现 C# 的 `Faux` 只移植了半个 provider——**整个用量估算子系统缺失**，本批补齐：新增 `EstimateTokens`（固定 `/4`，与 `Utils/Estimate` 的 3.5 **无关**）、`ContentToText` / `BlockToText` / `AssistantContentToText` / `ToolResultToText` / `MessageToText` / `SystemMessageToText` / `RoleOf` / `JsonStringify`、`JoinedLength` / `CommonPrefixLength` / `CommonPromptPrefixLength`、`WithUsageEstimate`（按 `sessionId` 键控缓存：首次全额写、命中时 `cacheRead=ceil(cached/4)` / `cacheWrite=ceil((len-cached)/4)` / `input=max(0,promptTokens-cacheRead)`，`cacheRetention:"none"` 读写双禁且不落缓存）；`Faux.Response` 去掉 `Usage` 形参（C214）；`FauxCore` 自持 `_promptCache` 并新增 `Provider`（C215）；`Replay` 形参补 `modelId`/`api`/`provider`。**顺带修掉两处既有缺陷（非漂移）**：① `Replay` 身份字段原先写死 `"faux-1"/"faux"/"faux"`，而 TS 走 `cloneMessage(resolved, api, provider, requestModel.id)` 取自请求上下文（`FauxCore.Api` 是随机 id、`CreateModel` 允许自定义 id，写死会让消息的 api/model 与请求模型对不上）；② `error`/`aborted` 终态原先多发一个 `done`，TS 只发 `error` 并 return。**另**：逐条比对 retry 模式表发现漏抄 `"pending stream has been canceled"`（`5b6c792b4`，**早于漂移基线**，属首移植漏抄），已补齐 | `a633cb2` + `97eae94`（已推送） | 新增 `FauxUsageEstimateTests` **16 / 0**（期望值全部按 TS 源码手算；另把 TS 纯函数逐行抄进独立 Node 脚本跑 11 组输入做**差分验证**，输出与手算值逐条一致）；`Pi.Ai.Tests` 全量 **326 / 0**（310 + 16）；`Pi.Agent.Tests` **33 / 0**；`Pi.CodingAgent.Tests` 全量 **2280 / 0 失败**（16m41s）；构建 0 警告 0 错误。新登记 **C214–C215**，并新开 **S3c** 阶段记录 faux 未移植面 |
+
+| 2026-10-16 | **S4（R2-6 收口）** | codemode 输出条目分离（`eb326d265`）。**关键发现：该提交横跨 `packages/codemode` 与 `packages/coding-agent` 两个包，端口此前只移植了 coding-agent 半边**——4d-5 已带 `execute.ts` 的 `formatOutput` / `joinAdjacentText`、`types.ts` 的 `console?: true` 与 `tool.ts` 的 describeGlobals 文案，但 `prelude-source.ts` 的 `console.*` 仍以 `output("text", …)` 上报。而 kind→条目的映射是**注入引擎的职责**（对应 TS `worker.ts`，端口不内置 JS 引擎），引擎按 `"text"` 构造出的条目 `Console` 恒为 `null`，于是 `FormatOutput` 的 `<console_output>` 分组**永远不会触发**、console 行混进正文。本批：`PreludeSource` 的 `output("text", …)` → `output("console", …)` + 类文档与 bridge kind 列表同步；`Engine.cs` 的「实现方职责」补 kind→条目映射规则；`Host`/`Protocol` 无需改（`Output` 直接承载结构化条目）。**另补一大块缺失覆盖**：`executeCodemode` 的编排在 C# 侧此前**完全没有测试**（`CodemodeCorpusTests` 注释所称的「脚本化引擎集成测试」并不存在），新增 `CodemodeOutputLayoutTests` 5 例锁死版式；`SandboxTests` 加正/反向断言（prelude 里必须是 `output("console", …)`，旧的 `output("text", …)` 必须不存在） | `3cd141d`（已推送） | `CodemodeOutputLayoutTests` **5 / 0**（新建）；`Pi.Codemode.Tests` **40 / 0**（39 + 1）；`Pi.CodingAgent.Tests` 全量 **2285 / 0 失败**（12m49s）；构建 0 警告 0 错误。无新增差异编号 |
+
+> **R2 漂移对账（S0–S4）到此全部完成。** 剩余工作回到原计划：**S3c**（faux 补全，新增阶段）
+> 与 **S5**（4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
 
 （后续阶段完成后逐行追加。）

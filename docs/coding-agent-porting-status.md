@@ -3830,3 +3830,65 @@ toolCall JSON 计长 / 图片占位 / system 的 `tool-:` 增量 / 空提示）�
 - `Pi.Agent.Tests` **33 / 0**
 - `Pi.CodingAgent.Tests` 全量 **2280 / 0 失败**
 
+### S4：codemode 输出条目分离（`eb326d265`）
+
+上游把脚本输出改得「模型能分清一项到哪结束」：文本项多于一个时每项以
+`==> text N/M <==` 起头，`console.*` 的行聚成一个 `<console_output>` 块排在其它输出之后，
+并给 console 文本项打上 `console: true`。
+
+这个提交横跨两个包，**端口此前只移植了 coding-agent 那半边**（4d-5 落地
+`FormatOutput` / `JoinAdjacentText` 时一并带了 `CodemodeOutputItem.Text.Console` 与
+`CodemodeTool.DescribeGlobals` 的新文案），`packages/codemode` 那半边漏了：
+
+| 上游文件 | 上游改动 | 端口原状 |
+| --- | --- | --- |
+| `codemode/src/types.ts` | 文本项加 `console?: true` | ✅ 4d-5 已带 |
+| `codemode/src/runtime/worker.ts` | bridge 的 `"console"` kind → `{ type:"text", …, console:true }` | ⚠️ 见下 |
+| `codemode/src/runtime/prelude-source.ts` | `console.*` 由 `output("text", …)` 改 `output("console", …)` | ❌ **漏了** |
+| `coding-agent/src/extensions/codemode/execute.ts` | `formatOutput` / `joinAdjacentText` + 调用点重排 | ✅ 4d-5 已带 |
+| `coding-agent/src/extensions/codemode/tool.ts` | `describeGlobals` 文案 | ✅ 4d-5 已带 |
+
+**漏掉的后果**：prelude 仍以 `"text"` kind 上报 console 输出，而 kind→条目的映射是注入引擎的
+职责（对应 TS `worker.ts`，端口不内置 JS 引擎），所以引擎按 `"text"` 分支构造出的条目
+`Console` 恒为 `null`——`FormatOutput` 的 `<console_output>` 分组**永远不会触发**，
+console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失的行为。
+
+#### 本批改动
+
+| 落点 | 改动 |
+| --- | --- |
+| `Pi.Codemode/Runtime/PreludeSource.cs` | `console[level]` 处理器的 `output("text", …)` → `output("console", …)`（与 TS `prelude-source.ts` 逐字一致） |
+| `Pi.Codemode/Runtime/PreludeSource.cs` | 类文档：`console.*` 的说明由「像 `text()` 一样追加文本项」改为「追加带 console 标记的文本项（kind 为 `"console"`）」；`bridge(kind, …)` 的 kind 列表由 `"output"（"text", text）` 改为 `"output"（"text" 或 "console", text）` |
+| `Pi.Codemode/Runtime/Engine.cs` | `ICodemodeJsEngine` 的「实现方职责（对应 worker.ts）」补上 kind→条目的映射规则：`"image"` → `Image`、`"console"` → 带 `Console = true` 的 `Text`、其余（`"text"`）→ 普通 `Text` |
+
+`Pi.Codemode/Runtime/Host.cs` 与 `Protocol.cs` 无需改动：`WorkerToHostMessage.Output` 直接承载
+已结构化的 `CodemodeOutputItem`，`Console` 随记录一起过线。
+
+#### 顺带补上的测试覆盖
+
+**`executeCodemode` 的编排此前在 C# 侧完全没有测试**（`CodemodeCorpusTests` 的注释写着
+「由脚本化引擎的集成测试覆盖」，但那样的测试并不存在）——`FormatOutput` / `JoinAdjacentText` /
+`Script error:` 的插入位置全都没被验证过。本批补 `CodemodeOutputLayoutTests`：
+
+| 用例 | 断言 |
+| --- | --- |
+| `NumbersEachTextItemAndGroupsConsoleLinesIntoOneTrailingBlock` | 上游同名用例的期望值逐字复刻：3 项文本（含 `return` 那项）→ 编号 1/3…3/3，console 两行聚成块排最后；合并后 `content` 恰为 2 项（头 + 一块正文） |
+| `SingleTextItemGetsNoHeader` | 只有一项文本时**不加**编号头 |
+| `ConsoleLinesStillFormABlockWhenTheyAreTheOnlyOutput` | 非 console 文本项为 0 → 无编号，console 块仍是唯一输出 |
+| `ScriptErrorFollowsTheConsoleBlock` | `Script error:` 排在 `<console_output>` **之后**（对应上游失败用例的期望） |
+| `EmptyTextItemStillCountsTowardTheTotal` | 空文本项也计入 M |
+
+`SandboxTests` 另加 `ConsoleOutputUsesTheConsoleBridgeKind`：直接断言 prelude 源码里是
+`output("console", args.map(format).join(" "));`，并**反向断言**旧的
+`output("text", args.map(format).join(" "));` 已不存在——这样一旦回退会立刻失败。
+
+### 测试与验证（S4）
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `CodemodeOutputLayoutTests` **5 / 0**（新建）
+- `Pi.Codemode.Tests` **40 / 0**（39 + `ConsoleOutputUsesTheConsoleBridgeKind`）
+- `Pi.CodingAgent.Tests` 全量 **2285 / 0 失败**
+
+> **R2 漂移对账到此全部完成**（S0–S4）。剩余工作回到原计划：S3c（faux 补全）与 S5
+> （4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
+
