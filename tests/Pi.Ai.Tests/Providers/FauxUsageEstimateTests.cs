@@ -300,7 +300,9 @@ public class FauxUsageEstimateTests
         var events = await CollectAsync(core.Stream(model, new TranscriptContext([UserText("hi")])));
 
         var error = Assert.IsType<AssistantMessageEvent.Error>(Assert.Single(events));
-        Assert.Equal("Faux script exhausted", error.ErrorMessage);
+        // 文案逐字取自 TS `createFauxCore` 的 `new Error("No more faux responses queued")`。
+        // 端口早期自造过 "Faux script exhausted"，S3c 已按上游改正。
+        Assert.Equal("No more faux responses queued", error.ErrorMessage);
         Assert.Equal("custom-api", error.Message.Api);
         Assert.Equal("custom-provider", error.Message.Provider);
         Assert.Equal("custom-model", error.Message.Model);

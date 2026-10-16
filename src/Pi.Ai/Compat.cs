@@ -15,17 +15,17 @@ public sealed record FauxProviderRegistration
     /// <summary>该 api 下的模型表。</summary>
     public required IReadOnlyList<ModelSpec> Models { get; init; }
 
-    /// <summary>按 id 取模型。</summary>
-    public required Func<string, ModelSpec?> GetModel { get; init; }
+    /// <summary>按 id 取模型（<c>null</c> 取第一个）。对应 TS 的重载 <c>getModel()</c>。</summary>
+    public required Func<string?, ModelSpec?> GetModel { get; init; }
 
-    /// <summary>可变脚本内核。</summary>
-    public required Faux.FauxCore State { get; init; }
+    /// <summary>运行时状态（调用计数 / 续取计数 / 已取消句柄）。对应 TS <c>FauxProviderRegistration.state</c>。</summary>
+    public required Faux.FauxProviderState State { get; init; }
 
     /// <summary>替换脚本。</summary>
-    public required Action<IEnumerable<Faux.Response>> SetResponses { get; init; }
+    public required Action<IEnumerable<Faux.FauxResponseStep>> SetResponses { get; init; }
 
     /// <summary>追加脚本。</summary>
-    public required Action<IEnumerable<Faux.Response>> AppendResponses { get; init; }
+    public required Action<IEnumerable<Faux.FauxResponseStep>> AppendResponses { get; init; }
 
     /// <summary>未回放响应数。</summary>
     public required Func<int> GetPendingResponseCount { get; init; }
@@ -170,13 +170,12 @@ public static class CompatApi
                 model, context, options, cancellationToken),
         }, sourceId);
 
-        var models = new List<ModelSpec> { core.CreateModel() };
         return new FauxProviderRegistration
         {
             Api = core.Api,
-            Models = models,
-            GetModel = id => models.FirstOrDefault(model => model.Id == id),
-            State = core,
+            Models = core.Models,
+            GetModel = core.GetModel,
+            State = core.State,
             SetResponses = core.SetResponses,
             AppendResponses = core.AppendResponses,
             GetPendingResponseCount = () => core.PendingResponseCount,

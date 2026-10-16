@@ -1,3 +1,6 @@
+using System.Text;
+using Pi.Ai.Api;
+using Pi.Ai.Auth;
 using Pi.Ai.Models;
 using Pi.Ai.Stream;
 using Pi.Ai.Types;
@@ -5,17 +8,55 @@ using Pi.Ai.Types;
 namespace Pi.Ai.Providers;
 
 /// <summary>
-/// Faux 测试 provider。对应 TS <c>providers/faux.ts</c>：以脚本化的响应序列
-/// 回放"助手回合"，不访问网络。用于测试 agent 循环与上层消费方。
+/// Faux 测试 provider。对应 TS <c>providers/faux.ts</c>（710 行）：以脚本化的响应序列
+/// 回放"助手回合"，不访问网络。用于测试 agent 循环、coding-agent 会话与上层消费方。
 /// </summary>
+/// <remarks>
+/// 两条入口与 TS 一致：
+/// <list type="bullet">
+///   <item><see cref="FauxCore"/>（= TS <c>createFauxCore</c>）：可变脚本 + 状态 + 延后句柄，
+///   由 <c>CompatApi.RegisterFauxProvider()</c> 注册进 api-registry；</item>
+///   <item><see cref="CreateProvider"/>（= TS <c>fauxProvider</c>）：经 <c>createProvider</c> 装配出
+///   带认证语义的真实 <see cref="IProvider"/> 句柄，供 <c>Models.SetProvider</c> 使用。</item>
+/// </list>
+/// 另有端口专有的 <see cref="CreateStreamFn"/> 便捷入口（TS 无对应导出），供 <c>Pi.Agent</c> 的
+/// <c>StreamFn</c> 边界直接使用。
+/// </remarks>
 public static class Faux
 {
-    /// <summary>默认 faux 模型描述。</summary>
-    public static Model DefaultModel { get; } = new(
-        Id: "faux-1",
-        Name: "Faux Model",
-        Api: "faux",
-        Provider: "faux");
+    /// <summary>默认 api id。对应 TS <c>DEFAULT_API</c>。</summary>
+    public const string DefaultApi = "faux";
+
+    /// <summary>默认 provider id。对应 TS <c>DEFAULT_PROVIDER</c>。</summary>
+    public const string DefaultProvider = "faux";
+
+    /// <summary>默认模型 id。对应 TS <c>DEFAULT_MODEL_ID</c>。</summary>
+    public const string DefaultModelId = "faux-1";
+
+    /// <summary>默认模型显示名。对应 TS <c>DEFAULT_MODEL_NAME</c>。</summary>
+    public const string DefaultModelName = "Faux Model";
+
+    /// <summary>默认 base url。对应 TS <c>DEFAULT_BASE_URL</c>。</summary>
+    public const string DefaultBaseUrl = "http://localhost:0";
+
+    /// <summary>默认最小 token 块。对应 TS <c>DEFAULT_MIN_TOKEN_SIZE</c>。</summary>
+    internal const int DefaultMinTokenSize = 3;
+
+    /// <summary>默认最大 token 块。对应 TS <c>DEFAULT_MAX_TOKEN_SIZE</c>。</summary>
+    internal const int DefaultMaxTokenSize = 5;
+
+    /// <summary>
+    /// 全零用量：脚本条目与错误 / 延后消息的起点。
+    /// 对应 TS <c>DEFAULT_USAGE</c>（<c>cost</c> 四桶与 <c>total</c> 全零）。
+    /// </summary>
+    public static Usage DefaultUsage { get; } = new(0, 0, 0, 0)
+    {
+        TotalTokens = 0,
+        Cost = UsageCost.Zero,
+    };
+
+    /// <summary>默认 faux 模型描述（<see cref="StreamFn"/> 边界用；非 <see cref="ModelSpec"/>）。</summary>
+    public static Model DefaultModel { get; } = new(DefaultModelId, DefaultModelName, DefaultApi, DefaultProvider);
 
     // ---------- 内容块工厂（对应 fauxText / fauxThinking / fauxToolCall） ----------
 
@@ -23,8 +64,92 @@ public static class Faux
 
     public static ThinkingContent Thinking(string thinking) => new(thinking);
 
+    /// <summary>工具调用块。缺省 id 走 <see cref="RandomId"/>（对应 TS <c>randomId("tool")</c>）。</summary>
     public static ToolCallContent ToolCall(string name, object? arguments, string? id = null)
-        => new(id ?? $"tool_{Guid.NewGuid():N}", name, arguments);
+        => new(id ?? RandomId("tool"), name, arguments);
+
+    /// <summary>
+    /// 助手脚本内容归一化。对应 TS <c>normalizeFauxAssistantContent</c>：
+    /// 裸字符串 → 单个文本块；单块 → 单元素列表；列表原样返回。
+    /// </summary>
+    public static IReadOnlyList<ContentBlock> NormalizeFauxAssistantContent(string content) => [new TextContent(content)];
+
+    public static IReadOnlyList<ContentBlock> NormalizeFauxAssistantContent(ContentBlock content) => [content];
+
+    public static IReadOnlyList<ContentBlock> NormalizeFauxAssistantContent(IReadOnlyList<ContentBlock> content)
+        => content;
+
+    /// <summary>
+    /// 构造一条脚本化助手消息。对应 TS <c>fauxAssistantMessage</c>。
+    /// </summary>
+    /// <remarks>
+    /// <c>usage</c> 一律写 <see cref="DefaultUsage"/>——与 TS 相同，它会在回放时被
+    /// <see cref="WithUsageEstimate"/> 无条件覆盖，所以这里给什么都不影响最终结果。
+    /// </remarks>
+    public static AssistantMessage ScriptedMessage(
+        string content,
+        StopReason stopReason = StopReason.Stop,
+        DeferredHandle? deferred = null,
+        string? errorMessage = null,
+        string? responseId = null,
+        long? timestamp = null)
+        => ScriptedMessage(NormalizeFauxAssistantContent(content), stopReason, deferred, errorMessage, responseId, timestamp);
+
+    public static AssistantMessage ScriptedMessage(
+        ContentBlock content,
+        StopReason stopReason = StopReason.Stop,
+        DeferredHandle? deferred = null,
+        string? errorMessage = null,
+        string? responseId = null,
+        long? timestamp = null)
+        => ScriptedMessage([content], stopReason, deferred, errorMessage, responseId, timestamp);
+
+    public static AssistantMessage ScriptedMessage(
+        IReadOnlyList<ContentBlock> content,
+        StopReason stopReason = StopReason.Stop,
+        DeferredHandle? deferred = null,
+        string? errorMessage = null,
+        string? responseId = null,
+        long? timestamp = null)
+    {
+        var message = new AssistantMessage(
+            content,
+            stopReason,
+            ErrorMessage: errorMessage,
+            UsageStats: DefaultUsage,
+            Model: DefaultModelId,
+            Api: DefaultApi,
+            Provider: DefaultProvider,
+            Timestamp: timestamp);
+        message.Deferred = deferred;
+        message.ResponseId = responseId;
+        return message;
+    }
+
+    // ---------- 脚本条目类型 ----------
+
+    /// <summary>
+    /// 脚本条目：静态响应或响应工厂。对应 TS <c>FauxResponseStep = AssistantMessage | FauxResponseFactory</c>。
+    /// </summary>
+    /// <remarks>
+    /// 端口用**继承**表达这个联合（而非 <c>OneOf</c> 之类的包装）：<see cref="Response"/> 直接派生自它，
+    /// 于是既有的 <c>IEnumerable&lt;Response&gt;</c> 实参能靠 <c>IEnumerable&lt;out T&gt;</c> 的协变
+    /// 直接喂给 <c>IEnumerable&lt;FauxResponseStep&gt;</c> 形参，无需在调用点做转换。
+    /// </remarks>
+    public abstract record FauxResponseStep
+    {
+        private protected FauxResponseStep() { }
+    }
+
+    /// <summary>动态响应工厂：按上下文 / 选项 / 状态 / 模型现场产出助手消息。对应 TS <c>FauxResponseFactory</c>。</summary>
+    public delegate Task<AssistantMessage> FauxResponseFactory(
+        TranscriptContext context,
+        SimpleStreamOptions? options,
+        FauxProviderState state,
+        ModelSpec model);
+
+    /// <summary>工厂型脚本条目。对应 TS 里直接放进脚本数组的函数。</summary>
+    public sealed record FactoryStep(FauxResponseFactory Factory) : FauxResponseStep;
 
     /// <summary>脚本条目：一个待回放的助手回合（内容块 + 停止原因）。</summary>
     /// <remarks>
@@ -35,7 +160,10 @@ public static class Faux
     public sealed record Response(
         IReadOnlyList<ContentBlock> Content,
         StopReason StopReason = StopReason.Stop,
-        string? ErrorMessage = null)
+        string? ErrorMessage = null,
+        DeferredHandle? Deferred = null,
+        string? ResponseId = null,
+        long? Timestamp = null) : FauxResponseStep
     {
         /// <summary>纯文本回复。</summary>
         public static Response Text(string text) => new([new TextContent(text)]);
@@ -43,6 +171,88 @@ public static class Faux
         /// <summary>工具调用回复（停止原因 ToolUse）。</summary>
         public static Response ToolUse(params ToolCallContent[] calls)
             => new(calls, StopReason.ToolUse);
+
+        /// <summary>延后回复（停止原因 Deferred，携带续取句柄）。</summary>
+        public static Response DeferredResponse(DeferredHandle handle)
+            => new([], StopReason.Deferred, Deferred: handle);
+    }
+
+    /// <summary>
+    /// provider 运行时状态。对应 TS <c>FauxProviderState</c>：调用计数、续取计数、已取消句柄。
+    /// </summary>
+    public sealed class FauxProviderState
+    {
+        /// <summary>已处理的 <c>stream</c> 调用数（含脚本耗尽的那次）。对应 TS <c>callCount</c>。</summary>
+        public int CallCount { get; internal set; }
+
+        /// <summary>已处理的 <c>fetchDeferred</c> 调用数。对应 TS <c>deferredFetchCount</c>。</summary>
+        public int DeferredFetchCount { get; internal set; }
+
+        /// <summary>被取消的句柄快照（按取消顺序）。对应 TS <c>cancelledDeferred</c>。</summary>
+        public List<DeferredHandle> CancelledDeferred { get; } = [];
+    }
+
+    // ---------- 注册选项（对应 RegisterFauxProviderOptions / FauxModelDefinition） ----------
+
+    /// <summary>自定义模型定义。对应 TS <c>FauxModelDefinition</c>。</summary>
+    public sealed record FauxModelDefinition
+    {
+        public required string Id { get; init; }
+
+        public string? Name { get; init; }
+
+        public bool? Reasoning { get; init; }
+
+        /// <summary>输入模态（text/image）；缺省两者皆可。</summary>
+        public IReadOnlyList<string>? Input { get; init; }
+
+        public ModelInputLimits? InputLimits { get; init; }
+
+        public ModelCostRates? Cost { get; init; }
+
+        public long? ContextWindow { get; init; }
+
+        public long? MaxTokens { get; init; }
+    }
+
+    /// <summary>延后响应选项。对应 TS <c>RegisterFauxProviderOptions.deferred</c>。</summary>
+    public sealed record FauxDeferredOptions
+    {
+        /// <summary>脚本响应就绪前仍返回原句柄的续取次数。对应 TS <c>pendingFetches</c>。</summary>
+        public int? PendingFetches { get; init; }
+
+        /// <summary>写进句柄的建议轮询间隔（毫秒）。对应 TS <c>pollAfterMs</c>。</summary>
+        public long? PollAfterMs { get; init; }
+    }
+
+    /// <summary>随机切块尺寸（token）。对应 TS <c>tokenSize</c>。</summary>
+    public sealed record FauxTokenSize
+    {
+        public int? Min { get; init; }
+
+        public int? Max { get; init; }
+    }
+
+    /// <summary>faux 注册选项。对应 TS <c>RegisterFauxProviderOptions</c>。</summary>
+    public sealed record FauxProviderOptions
+    {
+        /// <summary>api id；缺省为随机 <c>faux-&lt;hex&gt;</c>（避免并发测试互相覆盖）。</summary>
+        public string? Api { get; init; }
+
+        /// <summary>provider id；缺省 <see cref="DefaultProvider"/>。</summary>
+        public string? Provider { get; init; }
+
+        /// <summary>自定义模型目录；缺省单模型 <c>faux-1</c>。</summary>
+        public IReadOnlyList<FauxModelDefinition>? Models { get; init; }
+
+        /// <summary>延后响应行为。</summary>
+        public FauxDeferredOptions? Deferred { get; init; }
+
+        /// <summary>token 速率（token/秒）；设置后流式增量按估算 token 数真实延迟。</summary>
+        public double? TokensPerSecond { get; init; }
+
+        /// <summary>随机切块尺寸范围。</summary>
+        public FauxTokenSize? TokenSize { get; init; }
     }
 
     // ---------- 提示文本与用量估算（对应 TS faux.ts 的 messageToText / withUsageEstimate 区） ----------
@@ -53,6 +263,30 @@ public static class Faux
     /// 上游漂移里 estimate.ts 改成 3.5 时**没有**改动 faux 的 <c>/4</c>。
     /// </summary>
     private static long EstimateTokens(string text) => (long)Math.Ceiling(text.Length / 4.0);
+
+    /// <summary>
+    /// 随机 id。对应 TS <c>randomId(prefix)</c>：
+    /// <c>`${prefix}:${Date.now()}:${Math.random().toString(36).slice(2)}`</c>。
+    /// </summary>
+    private static string RandomId(string prefix)
+        => $"{prefix}:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}:{RandomBase36Fraction()}";
+
+    /// <summary>
+    /// <c>Math.random().toString(36).slice(2)</c> 的等价物：把 <c>[0,1)</c> 的小数逐位转成 base36 数字。
+    /// </summary>
+    private static string RandomBase36Fraction()
+    {
+        var value = Random.Shared.NextDouble();
+        var builder = new StringBuilder();
+        for (var index = 0; index < 11 && value > 0; index++)
+        {
+            value *= 36;
+            var digit = (int)Math.Floor(value);
+            value -= digit;
+            builder.Append(digit < 10 ? (char)('0' + digit) : (char)('a' + digit - 10));
+        }
+        return builder.Length > 0 ? builder.ToString() : "0";
+    }
 
     /// <summary>user 内容 → 文本。对应 TS <c>contentToText</c>。</summary>
     private static string ContentToText(MessageContent content) => content switch
@@ -228,52 +462,388 @@ public static class Faux
         }
     }
 
+    // ---------- 切块与限速（对应 splitStringByTokenSize / scheduleChunk） ----------
+
+    /// <summary>默认切块采样：<c>min + floor(random * (max - min + 1))</c>。对应 TS 的 <c>Math.random()</c> 一行。</summary>
+    private static int SampleTokenSize(int min, int max) => min + Random.Shared.Next(max - min + 1);
+
     /// <summary>
-    /// 创建脚本化 <see cref="StreamFn"/>：每次调用按顺序回放一条 <see cref="Response"/>。
-    /// 文本按小块切分以模拟流式；脚本耗尽时返回 <see cref="StopReason.Error"/> 终态（不抛异常，
-    /// 符合 <see cref="StreamFn"/> 的「错误必须编码为终态事件」契约），测试应保证脚本长度匹配。
+    /// 按随机 token 尺寸把文本切成小块（1 token ≈ 4 字符）。对应 TS <c>splitStringByTokenSize</c>。
+    /// </summary>
+    /// <remarks>空串返回 <c>[""]</c>（TS 的 <c>chunks.length &gt; 0 ? chunks : [""]</c>）。</remarks>
+    private static List<string> SplitStringByTokenSize(
+        string text, int minTokenSize, int maxTokenSize, Func<int, int, int> sampleTokenSize)
+    {
+        var chunks = new List<string>();
+        var index = 0;
+        while (index < text.Length)
+        {
+            var tokenSize = sampleTokenSize(minTokenSize, maxTokenSize);
+            var charSize = Math.Max(1, tokenSize * 4);
+            chunks.Add(text.Substring(index, Math.Min(charSize, text.Length - index)));
+            index += charSize;
+        }
+        return chunks.Count > 0 ? chunks : [""];
+    }
+
+    /// <summary>
+    /// 流式形状：切块尺寸、速率与两个可注入的缝（采样器 / 延迟器）。
+    /// 对应 TS <c>createFauxCore</c> 里被 <c>streamWithDeltas</c> 捕获的那几个闭包变量。
+    /// </summary>
+    private sealed record StreamShape(
+        int MinTokenSize,
+        int MaxTokenSize,
+        double? TokensPerSecond,
+        Func<int, int, int> SampleTokenSize,
+        Func<double, Task> DelayAsync)
+    {
+        public static StreamShape Default { get; } = new(
+            DefaultMinTokenSize,
+            DefaultMaxTokenSize,
+            null,
+            Faux.SampleTokenSize,
+            DefaultDelayAsync);
+
+        /// <summary>对应 TS <c>scheduleChunk</c>：速率缺省/非正 → 不延迟。</summary>
+        public Task DelayForChunkAsync(string chunk)
+        {
+            if (TokensPerSecond is not > 0) return Task.CompletedTask;
+            var delayMs = EstimateTokens(chunk) / TokensPerSecond.Value * 1000;
+            return DelayAsync(delayMs);
+        }
+    }
+
+    private static Task DefaultDelayAsync(double delayMs)
+        => delayMs <= 0 ? Task.CompletedTask : Task.Delay(TimeSpan.FromMilliseconds(delayMs));
+
+    // ---------- 消息构造（对应 cloneMessage / createDeferredMessage / createErrorMessage / createAbortedMessage） ----------
+
+    /// <summary>
+    /// 把脚本给出的消息身份字段替换为**请求上下文**的值。对应 TS <c>cloneMessage</c>。
+    /// </summary>
+    /// <remarks>
+    /// TS 先 <c>structuredClone</c> 再覆盖 <c>api</c> / <c>provider</c> / <c>model</c> / <c>timestamp</c> / <c>usage</c>。
+    /// 端口的 <see cref="ContentBlock"/> 全是不可变 record，回放过程只替换列表元素、从不就地改写，
+    /// 所以无需深拷贝。
+    /// </remarks>
+    private static AssistantMessage CloneMessage(AssistantMessage message, string api, string provider, string modelId)
+        => message with
+        {
+            Api = api,
+            Provider = provider,
+            Model = modelId,
+            Timestamp = message.Timestamp ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UsageStats = message.UsageStats ?? DefaultUsage,
+        };
+
+    /// <summary>延后占位消息：空内容 + <c>deferred</c> 停止原因 + 句柄。对应 TS <c>createDeferredMessage</c>。</summary>
+    private static AssistantMessage CreateDeferredMessage(ModelSpec model, DeferredHandle handle)
+    {
+        var message = new AssistantMessage(
+            [],
+            StopReason.Deferred,
+            UsageStats: DefaultUsage,
+            Model: model.Id,
+            Api: model.Api,
+            Provider: model.Provider,
+            Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        message.Deferred = handle;
+        return message;
+    }
+
+    /// <summary>错误消息。对应 TS <c>createErrorMessage</c>（非 <c>Error</c> 取 <c>String(error)</c>）。</summary>
+    private static AssistantMessage CreateErrorMessage(object? error, string api, string provider, string modelId)
+        => new(
+            [],
+            StopReason.Error,
+            ErrorMessage: error is Exception exception ? exception.Message : error?.ToString() ?? "undefined",
+            UsageStats: DefaultUsage,
+            Model: modelId,
+            Api: api,
+            Provider: provider,
+            Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+    /// <summary>中止消息：保留已累计的部分内容。对应 TS <c>createAbortedMessage</c>。</summary>
+    private static AssistantMessage CreateAbortedMessage(AssistantMessage partial)
+        => partial with
+        {
+            StopReason = StopReason.Aborted,
+            ErrorMessage = "Request was aborted",
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        };
+
+    /// <summary>
+    /// 判断本次请求是否已被中止。对应 TS 的 <c>signal?.aborted</c>：
+    /// 端口的 <c>options.signal</c> 与 <c>StreamFn</c> 的取消令牌都是中止源（agent 运行时传的是后者）。
+    /// </summary>
+    private static bool IsAborted(SimpleStreamOptions? options, CancellationToken cancellationToken)
+        => cancellationToken.IsCancellationRequested || options?.Signal.IsCancellationRequested == true;
+
+    // ---------- 流式回放（对应 streamWithDeltas） ----------
+
+    /// <summary>
+    /// 逐块回放助手消息并推送增量事件。对应 TS <c>streamWithDeltas</c>。
+    /// </summary>
+    /// <remarks>
+    /// 逐条对齐 TS 的语义：<c>signal</c> 预中止 → 只发 error 终态；每块与每个 chunk 前各查一次中止；
+    /// <c>pending</c> 停止原因视为脚本错误（抛出，由调用方的 catch 转成 error 终态）；
+    /// <c>error</c> / <c>aborted</c> 只发 error 并 return，**不发 done**。
+    /// </remarks>
+    private static async Task StreamWithDeltasAsync(
+        AssistantMessageEventStream stream,
+        AssistantMessage message,
+        StreamShape shape,
+        Func<bool> isAborted)
+    {
+        var blocks = new List<ContentBlock>();
+        var partial = message with { Content = blocks, StopReason = StopReason.Pending };
+
+        AssistantMessage Snapshot() => partial with { Content = blocks.ToList() };
+
+        void Abort()
+        {
+            var aborted = CreateAbortedMessage(Snapshot());
+            stream.Push(new AssistantMessageEvent.Error(aborted.StopReason, aborted.ErrorMessage ?? "", aborted));
+            stream.End(aborted);
+        }
+
+        if (isAborted())
+        {
+            Abort();
+            return;
+        }
+
+        stream.Push(new AssistantMessageEvent.Start(Snapshot()));
+        var sequence = 0L;
+
+        for (var index = 0; index < message.Content.Count; index++)
+        {
+            if (isAborted())
+            {
+                Abort();
+                return;
+            }
+
+            var block = message.Content[index];
+
+            if (block is ThinkingContent thinking)
+            {
+                blocks.Add(new ThinkingContent(""));
+                stream.Push(new AssistantMessageEvent.ThinkingStart(index, Snapshot()));
+                foreach (var chunk in SplitStringByTokenSize(
+                             thinking.Thinking, shape.MinTokenSize, shape.MaxTokenSize, shape.SampleTokenSize))
+                {
+                    await shape.DelayForChunkAsync(chunk).ConfigureAwait(false);
+                    if (isAborted())
+                    {
+                        Abort();
+                        return;
+                    }
+
+                    var current = (ThinkingContent)blocks[index];
+                    blocks[index] = current with { Thinking = current.Thinking + chunk };
+                    stream.Push(new AssistantMessageEvent.ThinkingDelta(
+                        index, chunk, ++sequence, current.Signature, Snapshot()));
+                }
+
+                stream.Push(new AssistantMessageEvent.ThinkingEnd(index, thinking.Thinking, Snapshot()));
+                continue;
+            }
+
+            if (block is TextContent text)
+            {
+                blocks.Add(new TextContent(""));
+                stream.Push(new AssistantMessageEvent.TextStart(index, Snapshot()));
+                foreach (var chunk in SplitStringByTokenSize(
+                             text.Text, shape.MinTokenSize, shape.MaxTokenSize, shape.SampleTokenSize))
+                {
+                    await shape.DelayForChunkAsync(chunk).ConfigureAwait(false);
+                    if (isAborted())
+                    {
+                        Abort();
+                        return;
+                    }
+
+                    var current = (TextContent)blocks[index];
+                    blocks[index] = current with { Text = current.Text + chunk };
+                    stream.Push(new AssistantMessageEvent.TextDelta(index, chunk, ++sequence, Snapshot()));
+                }
+
+                stream.Push(new AssistantMessageEvent.TextEnd(index, text.Text, Snapshot()));
+                continue;
+            }
+
+            if (block is ToolCallContent toolCall)
+            {
+                // TS：先放一个 arguments 为 `{}` 的占位块，参数以 JSON 文本增量流出，最后一次性落定。
+                blocks.Add(new ToolCallContent(toolCall.Id, toolCall.Name, new Dictionary<string, object?>()));
+                stream.Push(new AssistantMessageEvent.ToolCallStart(index, Snapshot()));
+                foreach (var chunk in SplitStringByTokenSize(
+                             JsonStringify(toolCall.Arguments), shape.MinTokenSize, shape.MaxTokenSize,
+                             shape.SampleTokenSize))
+                {
+                    await shape.DelayForChunkAsync(chunk).ConfigureAwait(false);
+                    if (isAborted())
+                    {
+                        Abort();
+                        return;
+                    }
+
+                    stream.Push(new AssistantMessageEvent.ToolCallDelta(index, index, chunk, Snapshot()));
+                }
+
+                blocks[index] = toolCall;
+                stream.Push(new AssistantMessageEvent.ToolCallEnd(index, toolCall, Snapshot()));
+                continue;
+            }
+
+            // TS 的 `block.type` 三路之外不会有第四种（联合类型穷尽）；端口若出现未知块，
+            // 等价于 TS 在 `(partial.content[index] as TextContent).text` 上抛 TypeError。
+            throw new InvalidOperationException($"faux streamWithDeltas does not support {block.GetType().Name}.");
+        }
+
+        if (message.StopReason == StopReason.Pending)
+        {
+            throw new InvalidOperationException("Faux response ended without a stop reason");
+        }
+
+        // TS：error / aborted 只发错误终态并 return，**不再**发 done。
+        if (message.StopReason is StopReason.Error or StopReason.Aborted)
+        {
+            stream.Push(new AssistantMessageEvent.Error(
+                message.StopReason, message.ErrorMessage ?? "unknown", message));
+            stream.End(message);
+            return;
+        }
+
+        stream.Push(new AssistantMessageEvent.Done(message.StopReason, message));
+        stream.End(message);
+    }
+
+    // ---------- 端口专有的静态便捷入口 ----------
+
+    /// <summary>
+    /// 创建脚本化 <see cref="StreamFn"/>：每次调用按顺序回放一条脚本条目。
     /// </summary>
     /// <remarks>
     /// 这是端口为测试提供的静态便捷入口，TS 侧没有对应导出（TS 走 <c>fauxProvider()</c> /
     /// <c>createFauxCore()</c>）。提示缓存挂在**这个 StreamFn 实例**上——TS 挂在
     /// <c>createFauxCore</c> 的闭包上，两者生命周期等价（一个内核一份缓存）。
+    /// 脚本耗尽时以 <see cref="StopReason.Error"/> 终态收尾（文案与 TS 一致：<c>No more faux responses queued</c>）。
     /// </remarks>
-    public static StreamFn CreateStreamFn(IReadOnlyList<Response> script)
+    public static StreamFn CreateStreamFn(IReadOnlyList<FauxResponseStep> script)
     {
-        var cursor = 0;
-        var promptCache = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
-        return (model, context, options, cancellationToken) =>
-        {
-            if (cursor >= script.Count)
-            {
-                var exhausted = new AssistantMessageEventStream();
-                var msg = WithUsageEstimate(
-                    new AssistantMessage([], StopReason.Error, ErrorMessage: "Faux script exhausted",
-                        Model: model.Id, Api: model.Api, Provider: model.Provider,
-                        Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
-                    context, options, promptCache);
-                exhausted.Push(new AssistantMessageEvent.Error(msg.StopReason, "Faux script exhausted", msg));
-                exhausted.End(msg);
-                return Task.FromResult<IAssistantMessageEventStream>(exhausted);
-            }
+        var core = new FauxCore();
+        core.SetResponses(script);
+        return (model, context, options, cancellationToken) => Task.FromResult(
+            core.Stream(ToModelSpec(model), context, options, cancellationToken));
+    }
 
-            var response = script[cursor++];
-            var stream = new AssistantMessageEventStream();
-            _ = Task.Run(
-                () => Replay(stream, response, model.Id, model.Api, model.Provider,
-                    context, options, promptCache, cancellationToken),
-                cancellationToken);
-            return Task.FromResult<IAssistantMessageEventStream>(stream);
+    /// <summary>
+    /// <see cref="StreamFn"/> 边界的 <see cref="Model"/> → 内核的 <see cref="ModelSpec"/> 适配。
+    /// TS 只有一个 <c>Model</c> 类型，端口把「边界模型」与「目录模型」分开，故需要这一次转换。
+    /// </summary>
+    private static ModelSpec ToModelSpec(Model model) => new()
+    {
+        Id = model.Id,
+        Name = model.Name,
+        Api = model.Api,
+        Provider = model.Provider,
+        BaseUrl = DefaultBaseUrl,
+    };
+
+    // ---------- fauxProvider() ----------
+
+    /// <summary>真实 provider 句柄。对应 TS <c>FauxProviderHandle</c>。</summary>
+    public sealed record FauxProviderHandle
+    {
+        /// <summary>经 <c>createProvider</c> 装配出的 provider（含认证语义）。</summary>
+        public required IProvider Provider { get; init; }
+
+        public required string Api { get; init; }
+
+        public required IReadOnlyList<ModelSpec> Models { get; init; }
+
+        public required FauxProviderState State { get; init; }
+
+        /// <summary>按 id 取模型；<c>null</c> 取第一个。对应 TS 的重载 <c>getModel()</c>。</summary>
+        public required Func<string?, ModelSpec?> GetModel { get; init; }
+
+        public required Action<IEnumerable<FauxResponseStep>> SetResponses { get; init; }
+
+        public required Action<IEnumerable<FauxResponseStep>> AppendResponses { get; init; }
+
+        public required Func<int> GetPendingResponseCount { get; init; }
+    }
+
+    /// <summary>
+    /// 装配一个带认证语义的 faux provider。对应 TS <c>fauxProvider()</c>。
+    /// </summary>
+    /// <remarks>
+    /// TS：
+    /// <code>
+    /// const faux = fauxProvider();
+    /// const models = createModels();
+    /// models.setProvider(faux.provider);
+    /// faux.setResponses([fauxAssistantMessage("hi")]);
+    /// </code>
+    /// 与 <c>CompatApi.RegisterFauxProvider()</c> 的区别：那条路走 api-registry（按 <c>model.api</c>
+    /// 分派，不需要 <c>Models.SetProvider</c>），这条路走 provider 注册表（<c>model.provider</c> 分派）。
+    /// 认证按 TS 给一个恒成功的 <c>apiKey.resolve</c>（返回空 <c>ModelAuth</c>），所以 faux 模型永远"已配置"。
+    /// </remarks>
+    public static FauxProviderHandle CreateProvider(FauxProviderOptions? options = null)
+    {
+        var core = new FauxCore(options);
+        var provider = ProviderFactory.Create(new CreateProviderOptions
+        {
+            Id = core.Provider,
+            Auth = new ProviderAuth { ApiKey = new FauxApiKeyAuth() },
+            Models = core.Models,
+            Api = new ProviderStreams
+            {
+                Stream = (model, context, streamOptions) => core.Stream(
+                    model, context, ProviderStreamOptions.FromDictionary(streamOptions)),
+                StreamSimple = (model, context, streamOptions) => core.Stream(
+                    model, context, ProviderStreamOptions.FromDictionary(streamOptions)),
+                FetchDeferred = (model, handle, streamOptions) => core.FetchDeferred(
+                    model, handle, ProviderStreamOptions.FromDictionary(streamOptions)),
+                CancelDeferred = (model, handle, streamOptions, cancellationToken) => core.CancelDeferredAsync(
+                    model, handle, ProviderStreamOptions.FromDictionary(streamOptions), cancellationToken),
+            },
+        });
+
+        return new FauxProviderHandle
+        {
+            Provider = provider,
+            Api = core.Api,
+            Models = core.Models,
+            State = core.State,
+            GetModel = core.GetModel,
+            SetResponses = core.SetResponses,
+            AppendResponses = core.AppendResponses,
+            GetPendingResponseCount = () => core.PendingResponseCount,
         };
+    }
+
+    /// <summary>TS <c>auth: { apiKey: { name: "Faux", resolve: async () =&gt; ({ auth: {} }) } }</c>。</summary>
+    private sealed class FauxApiKeyAuth : IApiKeyAuth
+    {
+        public string Name => "Faux";
+
+        public Task<AuthResult?> ResolveAsync(Credential.ApiKey? credential, IAuthContext ctx,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<AuthResult?>(new AuthResult { Auth = new ModelAuth() });
     }
 
     /// <summary>
     /// 可变脚本的 faux 内核：注册进 api-registry 后按序回放响应，支持追加。
-    /// 对应 TS <c>providers/faux.ts</c> 的 <c>createFauxCore</c> 核心（响应队列 + 状态）。
+    /// 对应 TS <c>providers/faux.ts</c> 的 <c>createFauxCore</c>（响应队列 + 状态 + 延后句柄）。
     /// </summary>
     public sealed class FauxCore
     {
-        private readonly List<Response> _responses = [];
+        private readonly StreamShape _shape;
+        private readonly FauxDeferredOptions? _deferredOptions;
+        private readonly List<FauxResponseStep> _responses = [];
         private int _cursor;
 
         /// <summary>
@@ -282,10 +852,84 @@ public static class Faux
         /// </summary>
         private readonly Dictionary<string, IReadOnlyList<string>> _promptCache = new(StringComparer.Ordinal);
 
-        public FauxCore(string? api = null, string? provider = null)
+        /// <summary>延后响应登记表，键为句柄 id。对应 TS <c>deferredResponses</c>。</summary>
+        private readonly Dictionary<string, DeferredEntry> _deferredResponses = new(StringComparer.Ordinal);
+
+        /// <summary>延后响应登记条目。对应 TS <c>deferredResponses</c> 的 value 形状。</summary>
+        private sealed class DeferredEntry
         {
-            Api = api ?? $"faux-{Guid.NewGuid():N}"[..12];
-            Provider = provider ?? "faux";
+            public required DeferredHandle Handle { get; init; }
+
+            public required FauxResponseStep Step { get; init; }
+
+            public required TranscriptContext Context { get; init; }
+
+            public required SimpleStreamOptions? Options { get; init; }
+
+            public required ModelSpec Model { get; init; }
+
+            public int PendingFetches { get; set; }
+
+            public bool Cancelled { get; set; }
+
+            public AssistantMessage? Final { get; set; }
+        }
+
+        /// <summary>按选项装配内核。对应 TS <c>createFauxCore(options)</c>。</summary>
+        public FauxCore(FauxProviderOptions? options = null)
+        {
+            options ??= new FauxProviderOptions();
+            Api = options.Api ?? $"faux-{Guid.NewGuid():N}"[..12];
+            Provider = options.Provider ?? DefaultProvider;
+
+            // TS：min = max(1, min(tokenSize.min ?? 3, tokenSize.max ?? 5))；max = max(min, tokenSize.max ?? 5)
+            var minTokenSize = Math.Max(
+                1,
+                Math.Min(options.TokenSize?.Min ?? DefaultMinTokenSize, options.TokenSize?.Max ?? DefaultMaxTokenSize));
+            var maxTokenSize = Math.Max(minTokenSize, options.TokenSize?.Max ?? DefaultMaxTokenSize);
+            _shape = StreamShape.Default with
+            {
+                MinTokenSize = minTokenSize,
+                MaxTokenSize = maxTokenSize,
+                TokensPerSecond = options.TokensPerSecond,
+            };
+            _deferredOptions = options.Deferred;
+
+            var definitions = options.Models is { Count: > 0 }
+                ? options.Models
+                : [new FauxModelDefinition
+                {
+                    Id = DefaultModelId,
+                    Name = DefaultModelName,
+                    Reasoning = false,
+                    Input = [ModelInput.Text, ModelInput.Image],
+                    Cost = new ModelCostRates(0, 0, 0, 0),
+                    ContextWindow = 128000,
+                    MaxTokens = 16384,
+                }];
+            Models = definitions.Select(definition => new ModelSpec
+            {
+                Id = definition.Id,
+                Name = definition.Name ?? definition.Id,
+                Api = Api,
+                Provider = Provider,
+                BaseUrl = DefaultBaseUrl,
+                Reasoning = definition.Reasoning ?? false,
+                Input = definition.Input ?? [ModelInput.Text, ModelInput.Image],
+                InputLimits = definition.InputLimits,
+                Cost = definition.Cost ?? new ModelCostRates(0, 0, 0, 0),
+                ContextWindow = definition.ContextWindow ?? 128000,
+                MaxTokens = definition.MaxTokens ?? 16384,
+            }).ToList();
+        }
+
+        /// <summary>
+        /// 位置参数构造（端口专有，保留以兼容既有测试夹具）。
+        /// TS 侧只有 <c>createFauxCore(options)</c>；新代码请改用 <see cref="FauxProviderOptions"/>。
+        /// </summary>
+        public FauxCore(string? api, string? provider)
+            : this(new FauxProviderOptions { Api = api, Provider = provider })
+        {
         }
 
         /// <summary>本内核注册的 api id（唯一，避免并发测试互相覆盖）。</summary>
@@ -297,11 +941,38 @@ public static class Faux
         /// </summary>
         public string Provider { get; }
 
+        /// <summary>本内核的模型目录。对应 TS <c>createFauxCore</c> 返回的 <c>models</c>。</summary>
+        public IReadOnlyList<ModelSpec> Models { get; }
+
+        /// <summary>运行时状态（调用计数 / 续取计数 / 已取消句柄）。对应 TS <c>state</c>。</summary>
+        public FauxProviderState State { get; } = new();
+
         /// <summary>尚未回放的响应数。对应 TS <c>getPendingResponseCount()</c>。</summary>
         public int PendingResponseCount => Math.Max(0, _responses.Count - _cursor);
 
+        /// <summary>
+        /// 切块采样器缝（端口专有，测试注入用）：<c>(min, max) =&gt; tokenSize</c>。
+        /// 缺省走 <c>Random.Shared</c>（对应 TS 的 <c>Math.random()</c>）。
+        /// </summary>
+        internal Func<int, int, int>? SampleTokenSizeOverride { get; set; }
+
+        /// <summary>
+        /// 延迟器缝（端口专有，测试注入用）。缺省 <c>Task.Delay</c>（对应 TS 的 <c>setTimeout</c>）。
+        /// </summary>
+        internal Func<double, Task>? DelayAsyncOverride { get; set; }
+
+        /// <summary>
+        /// 当前生效的流式形状：静态配置 + 两个**在使用时**求值的缝
+        /// （缝必须在构造之后设置，所以不能像普通字段那样在构造函数里定值）。
+        /// </summary>
+        private StreamShape CurrentShape => _shape with
+        {
+            SampleTokenSize = SampleTokenSizeOverride ?? SampleTokenSize,
+            DelayAsync = DelayAsyncOverride ?? DefaultDelayAsync,
+        };
+
         /// <summary>替换全部脚本并重置游标。对应 TS <c>setResponses()</c>。</summary>
-        public void SetResponses(IEnumerable<Response> responses)
+        public void SetResponses(IEnumerable<FauxResponseStep> responses)
         {
             _responses.Clear();
             _responses.AddRange(responses);
@@ -309,163 +980,230 @@ public static class Faux
         }
 
         /// <summary>追加脚本（不改动游标）。对应 TS <c>appendResponses()</c>。</summary>
-        public void AppendResponses(IEnumerable<Response> responses) => _responses.AddRange(responses);
+        public void AppendResponses(IEnumerable<FauxResponseStep> responses) => _responses.AddRange(responses);
 
-        /// <summary>构造该 api 下的模型描述。对应 TS 的 faux 模型表。</summary>
-        public ModelSpec CreateModel(string id = "faux-1", string name = "Faux Model")
+        /// <summary>按 id 取模型；<c>null</c> 取第一个。对应 TS <c>getModel()</c> 的两个重载。</summary>
+        public ModelSpec? GetModel(string? id = null)
+            => string.IsNullOrEmpty(id) ? Models[0] : Models.FirstOrDefault(model => model.Id == id);
+
+        /// <summary>
+        /// 构造该 api 下的模型描述（端口专有便捷入口，保留以兼容既有夹具）。
+        /// 目录内的模型请走 <see cref="Models"/> / <see cref="GetModel"/>。
+        /// </summary>
+        public ModelSpec CreateModel(string id = DefaultModelId, string name = DefaultModelName)
             => new()
             {
                 Id = id,
                 Name = name,
                 Api = Api,
                 Provider = Provider,
-                BaseUrl = "https://faux.invalid",
+                BaseUrl = DefaultBaseUrl,
+                Input = [ModelInput.Text, ModelInput.Image],
+                Cost = new ModelCostRates(0, 0, 0, 0),
+                ContextWindow = 128000,
+                MaxTokens = 16384,
             };
 
-        /// <summary>按序回放一条响应；脚本耗尽以 error 终态终止。</summary>
+        /// <summary>
+        /// 按序回放一条响应；脚本耗尽以 error 终态终止。
+        /// 对应 TS <c>createFauxCore</c> 返回的 <c>stream</c>。
+        /// </summary>
         public IAssistantMessageEventStream Stream(
             ModelSpec model,
             TranscriptContext context,
             SimpleStreamOptions? options = null,
             CancellationToken cancellationToken = default)
         {
-            var stream = new AssistantMessageEventStream();
-            if (_cursor >= _responses.Count)
+            var outer = new AssistantMessageEventStream();
+            var step = _responses.Count > _cursor ? _responses[_cursor++] : null;
+            State.CallCount++;
+
+            // TS 用 queueMicrotask 让事件流先返回；端口用 Task.Run 达到同样效果。
+            // 注意**不能**把 cancellationToken 交给 Task.Run——令牌已取消时任务根本不会启动，
+            // 流就永远不会收尾。TS 的语义是「已取消 → 发一个 aborted 终态」，由流内部处理。
+            _ = Task.Run(async () =>
             {
-                var message = WithUsageEstimate(
-                    new AssistantMessage([], StopReason.Error,
-                        ErrorMessage: "Faux script exhausted",
-                        Model: model.Id, Api: Api, Provider: Provider,
-                        Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
-                    context, options, _promptCache);
-                stream.Push(new AssistantMessageEvent.Error(message.StopReason, "Faux script exhausted", message));
-                stream.End(message);
-                return stream;
-            }
-
-            var response = _responses[_cursor++];
-            _ = Task.Run(
-                () => Replay(stream, response, model.Id, Api, Provider,
-                    context, options, _promptCache, cancellationToken),
-                cancellationToken);
-            return stream;
-        }
-    }
-
-    /// <summary>
-    /// 回放一条脚本响应。对应 TS <c>resolveResponse</c> + <c>streamWithDeltas</c> 的合体：
-    /// 先 <c>cloneMessage</c> 语义补 api/provider/model/timestamp，再 <c>withUsageEstimate</c> 覆盖 usage，
-    /// 最后按内容块逐块发增量事件。
-    /// </summary>
-    /// <param name="modelId">
-    /// 对应 TS <c>cloneMessage(resolved, api, provider, requestModel.id)</c> 的 <c>requestModel.id</c>——
-    /// 必须取请求模型自身的 id，而不是内建的 <c>"faux-1"</c>：<c>FauxCore.CreateModel(id)</c> 允许自定义 id。
-    /// </param>
-    /// <param name="api">对应 TS <c>createFauxCore</c> 闭包里的 <c>api</c>（可被 <c>options.api</c> 覆盖）。</param>
-    /// <param name="provider">对应 TS <c>createFauxCore</c> 闭包里的 <c>provider</c>（可被 <c>options.provider</c> 覆盖）。</param>
-    private static async Task Replay(
-        AssistantMessageEventStream stream,
-        Response response,
-        string modelId,
-        string api,
-        string provider,
-        TranscriptContext context,
-        SimpleStreamOptions? options,
-        Dictionary<string, IReadOnlyList<string>> promptCache,
-        CancellationToken ct)
-    {
-        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var sequence = 0L;
-
-        // TS：先 cloneMessage 补 api/provider/model/timestamp，再 withUsageEstimate 覆盖 usage。
-        var resolved = new AssistantMessage(response.Content, response.StopReason, response.ErrorMessage,
-            Model: modelId, Api: api, Provider: provider, Timestamp: timestamp);
-        var message = WithUsageEstimate(resolved, context, options, promptCache);
-
-        // 先发 start（空内容，但已带估算用量）。
-        var partial = message with { Content = [] };
-        stream.Push(new AssistantMessageEvent.Start(partial));
-
-        foreach (var block in response.Content)
-        {
-            ct.ThrowIfCancellationRequested();
-            switch (block)
-            {
-                case TextContent text:
+                try
                 {
-                    // 按小块切分文本模拟流式增量。
-                    const int chunkSize = 5;
-                    var chunks = Enumerable.Range(0, (int)Math.Ceiling(text.Text.Length / (double)chunkSize))
-                        .Select(i => text.Text.Substring(i * chunkSize, Math.Min(chunkSize, text.Text.Length - i * chunkSize)))
-                        .ToList();
-                    stream.Push(new AssistantMessageEvent.TextStart(0, partial));
-                    var accumulated = string.Empty;
-                    foreach (var chunk in chunks)
+                    await NotifyResponseAsync(options, model).ConfigureAwait(false);
+                    if (step is null)
                     {
-                        accumulated += chunk;
-                        sequence++;
-                        partial = ReplaceOrAppendText(partial, accumulated);
-                        stream.Push(new AssistantMessageEvent.TextDelta(0, chunk, sequence, partial));
+                        var exhausted = WithUsageEstimate(
+                            CreateErrorMessage(
+                                new InvalidOperationException("No more faux responses queued"),
+                                Api, Provider, model.Id),
+                            context, options, _promptCache);
+                        outer.Push(new AssistantMessageEvent.Error(
+                            exhausted.StopReason, exhausted.ErrorMessage ?? "unknown", exhausted));
+                        outer.End(exhausted);
+                        return;
                     }
-                    stream.Push(new AssistantMessageEvent.TextEnd(0, partial.Content.OfType<TextContent>().LastOrDefault()?.Text ?? "", partial));
-                    break;
+
+                    if (options?.Deferred == true)
+                    {
+                        var handle = new DeferredHandle
+                        {
+                            Provider = model.Provider,
+                            ModelId = model.Id,
+                            Api = model.Api,
+                            Id = RandomId("deferred"),
+                            PollAfterMs = _deferredOptions?.PollAfterMs,
+                        };
+                        _deferredResponses[handle.Id] = new DeferredEntry
+                        {
+                            Handle = handle,
+                            Step = step,
+                            Context = context,
+                            Options = options,
+                            Model = model,
+                            PendingFetches = Math.Max(0, _deferredOptions?.PendingFetches ?? 0),
+                        };
+                        await StreamWithDeltasAsync(
+                            outer,
+                            CreateDeferredMessage(model, handle),
+                            CurrentShape,
+                            () => IsAborted(options, cancellationToken)).ConfigureAwait(false);
+                        return;
+                    }
+
+                    var message = await ResolveResponseAsync(step, context, options, model).ConfigureAwait(false);
+                    await StreamWithDeltasAsync(
+                        outer, message, CurrentShape, () => IsAborted(options, cancellationToken)).ConfigureAwait(false);
                 }
-                case ThinkingContent thinking:
+                catch (Exception error)
                 {
-                    sequence++;
-                    partial = AppendBlock(partial, new ThinkingContent(thinking.Thinking, thinking.Signature));
-                    stream.Push(new AssistantMessageEvent.ThinkingDelta(0, thinking.Thinking, sequence, thinking.Signature, partial));
-                    break;
+                    var message = CreateErrorMessage(error, Api, Provider, model.Id);
+                    outer.Push(new AssistantMessageEvent.Error(
+                        message.StopReason, message.ErrorMessage ?? "unknown", message));
+                    outer.End(message);
                 }
-                case ToolCallContent toolCall:
-                {
-                    // 工具调用一次性给出（参数增量解析留待真实 provider 移植时实现）。
-                    partial = AppendBlock(partial, toolCall);
-                    stream.Push(new AssistantMessageEvent.ToolCallDelta(
-                        partial.Content.OfType<ToolCallContent>().ToList().IndexOf(toolCall),
-                        partial.Content.OfType<ToolCallContent>().ToList().IndexOf(toolCall), "", partial));
-                    break;
-                }
-            }
+            });
+
+            return outer;
         }
 
-        var final = partial with
+        /// <summary>
+        /// 续取延后响应。对应 TS <c>createFauxCore</c> 返回的 <c>fetchDeferred</c>。
+        /// </summary>
+        public IAssistantMessageEventStream FetchDeferred(
+            ModelSpec model,
+            DeferredHandle handle,
+            SimpleStreamOptions? options = null,
+            CancellationToken cancellationToken = default)
         {
-            StopReason = response.StopReason,
-            ErrorMessage = response.ErrorMessage,
-            UsageStats = message.UsageStats,
-            Model = modelId,
-            Api = api,
-            Provider = provider,
-            ThinkingLevel = null,
-            Timestamp = timestamp,
-        };
+            var outer = new AssistantMessageEventStream();
+            State.DeferredFetchCount++;
 
-        // TS streamWithDeltas：error / aborted 只发错误终态并 return，**不再**发 done。
-        if (response.StopReason is StopReason.Error or StopReason.Aborted)
-        {
-            stream.Push(new AssistantMessageEvent.Error(final.StopReason, response.ErrorMessage ?? "unknown", final));
-            stream.End(final);
-            return;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await NotifyResponseAsync(options, model).ConfigureAwait(false);
+                    if (!_deferredResponses.TryGetValue(handle.Id, out var entry)
+                        || entry.Handle.Provider != handle.Provider
+                        || entry.Handle.ModelId != handle.ModelId
+                        || entry.Handle.Api != handle.Api)
+                    {
+                        throw new InvalidOperationException($"Unknown faux deferred response: {handle.Id}");
+                    }
+                    if (entry.Cancelled)
+                    {
+                        throw new InvalidOperationException($"Faux deferred response was cancelled: {handle.Id}");
+                    }
+
+                    var isAborted = () => IsAborted(options, cancellationToken);
+
+                    if (entry.PendingFetches > 0)
+                    {
+                        entry.PendingFetches--;
+                        await StreamWithDeltasAsync(
+                            outer, CreateDeferredMessage(model, entry.Handle), CurrentShape, isAborted).ConfigureAwait(false);
+                        return;
+                    }
+
+                    if (entry.Final is null)
+                    {
+                        // TS 在提交最终请求前剥掉 deferred / signal / onResponse 三个字段，
+                        // 其余（sessionId / cacheRetention 等）保留，用量估算据此照常命中缓存。
+                        var submissionOptions = entry.Options is null
+                            ? null
+                            : entry.Options with { Deferred = false, Signal = default, OnResponse = null };
+                        try
+                        {
+                            entry.Final = await ResolveResponseAsync(
+                                entry.Step, entry.Context, submissionOptions, entry.Model).ConfigureAwait(false);
+                        }
+                        catch (Exception error)
+                        {
+                            entry.Final = CreateErrorMessage(error, Api, Provider, entry.Model.Id);
+                        }
+                    }
+
+                    await StreamWithDeltasAsync(outer, entry.Final, CurrentShape, isAborted).ConfigureAwait(false);
+                }
+                catch (Exception error)
+                {
+                    var message = CreateErrorMessage(error, Api, Provider, model.Id);
+                    outer.Push(new AssistantMessageEvent.Error(
+                        message.StopReason, message.ErrorMessage ?? "unknown", message));
+                    outer.End(message);
+                }
+            });
+
+            return outer;
         }
 
-        stream.Push(new AssistantMessageEvent.Done(final.StopReason, final));
-        stream.End(final);
-    }
+        /// <summary>尽力取消延后响应。对应 TS <c>createFauxCore</c> 返回的 <c>cancelDeferred</c>。</summary>
+        public async Task CancelDeferredAsync(
+            ModelSpec model,
+            DeferredHandle handle,
+            SimpleStreamOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            // TS：`state.cancelledDeferred.push(structuredClone(handle))`——存的是**快照**，
+            // 之后调用方改写句柄对象也不会影响已记录的历史。
+            State.CancelledDeferred.Add(handle with { });
+            if (_deferredResponses.TryGetValue(handle.Id, out var entry)) entry.Cancelled = true;
+            await NotifyResponseAsync(options, model).ConfigureAwait(false);
+        }
 
-    private static AssistantMessage ReplaceOrAppendText(AssistantMessage message, string fullText)
-    {
-        var blocks = message.Content.ToList();
-        var index = blocks.FindIndex(b => b is TextContent);
-        if (index >= 0) blocks[index] = new TextContent(fullText);
-        else blocks.Add(new TextContent(fullText));
-        return message with { Content = blocks };
-    }
+        /// <summary>解析脚本条目 → 助手消息（工厂求值 + 身份字段 + 用量估算）。对应 TS <c>resolveResponse</c>。</summary>
+        private async Task<AssistantMessage> ResolveResponseAsync(
+            FauxResponseStep step,
+            TranscriptContext context,
+            SimpleStreamOptions? options,
+            ModelSpec requestModel)
+        {
+            var resolved = step switch
+            {
+                FactoryStep factory => await factory.Factory(context, options, State, requestModel).ConfigureAwait(false),
+                Response response => ToMessage(response),
+                _ => throw new InvalidOperationException($"Unsupported faux response step: {step.GetType().Name}"),
+            };
+            return WithUsageEstimate(
+                CloneMessage(resolved, Api, Provider, requestModel.Id), context, options, _promptCache);
+        }
 
-    private static AssistantMessage AppendBlock(AssistantMessage message, ContentBlock block)
-    {
-        var blocks = message.Content.ToList();
-        blocks.Add(block);
-        return message with { Content = blocks };
+        /// <summary>把静态脚本条目转成助手消息（尚未补身份字段与用量）。</summary>
+        private static AssistantMessage ToMessage(Response response)
+        {
+            var message = new AssistantMessage(
+                response.Content,
+                response.StopReason,
+                ErrorMessage: response.ErrorMessage,
+                Timestamp: response.Timestamp);
+            message.Deferred = response.Deferred;
+            message.ResponseId = response.ResponseId;
+            return message;
+        }
+
+        /// <summary>对应 TS 每次请求开头与取消时都调的 <c>options.onResponse?.({status:200,headers:{}}, model)</c>。</summary>
+        private static async Task NotifyResponseAsync(SimpleStreamOptions? options, ModelSpec model)
+        {
+            if (options?.OnResponse is not { } onResponse) return;
+            await onResponse(
+                new ProviderResponse { Status = 200, Headers = new Dictionary<string, string>() }, model)
+                .ConfigureAwait(false);
+        }
     }
 }
