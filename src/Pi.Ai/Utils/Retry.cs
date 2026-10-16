@@ -90,6 +90,8 @@ public static class Retry
     [
         // 通用 provider 负载、HTTP 状态与服务端瞬时故障。
         "overloaded",
+        "server_busy",
+        "servers are currently busy",
         "currently experiencing high demand",
         "model is at capacity",
         "rate.?limit",

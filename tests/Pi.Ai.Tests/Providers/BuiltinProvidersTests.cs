@@ -129,7 +129,7 @@ public class BuiltinProvidersTests
     }
 
     [Fact]
-    public void RadiusProviderMergesBaselineAndDynamicCatalog()
+    public void RadiusProviderReplacesBaselineWithDynamicCatalog()
     {
         var provider = new RadiusProvider();
         Assert.Empty(provider.GetModels());
@@ -164,6 +164,34 @@ public class BuiltinProvidersTests
         var custom = new RadiusProvider(gateway: "https://other.example");
         Assert.Empty(custom.GetModels());
         Assert.Equal("https://other.example", custom.Gateway);
+    }
+
+    /// <summary>
+    /// 上游 <c>43d376399</c>（R2 漂移）：网关目录**替换**随包基线目录，而不是叠加。
+    /// Radius 组织管理员可以停用模型，一旦取到目录，被停用的模型就不该从随包目录里重新冒出来。
+    /// </summary>
+    [Fact]
+    public void RadiusResolveModelsReplacesInsteadOfOverlaying()
+    {
+        var baseline = new List<ModelSpec>
+        {
+            Spec("balanced"), Spec("disabled-by-org"),
+        };
+        var dynamic = new List<ModelSpec> { Spec("balanced"), Spec("organization-only") };
+
+        // 尚未取得目录（null）→ 基线。
+        Assert.Equal(["balanced", "disabled-by-org"],
+            RadiusProvider.ResolveModels(baseline, null).Select(model => model.Id));
+
+        // 已取得目录 → 只留目录里的条目；基线独有的 "disabled-by-org" 不得回归。
+        Assert.Equal(["balanced", "organization-only"],
+            RadiusProvider.ResolveModels(baseline, dynamic).Select(model => model.Id));
+
+        // 组织停用了全部模型 → 空目录（不是基线）。
+        Assert.Empty(RadiusProvider.ResolveModels(baseline, []));
+
+        static ModelSpec Spec(string id)
+            => new() { Id = id, Name = id, Api = "pi-messages", Provider = "radius", BaseUrl = "" };
     }
 
     [Fact]

@@ -216,13 +216,116 @@ public class BedrockTests
         Assert.Equal("enabled", budgetFields!.Obj("thinking")!.Str("type"));
         Assert.Equal(8192, budgetFields.Obj("thinking")!.Num("budget_tokens"));
         Assert.Equal("interleaved-thinking-2025-05-14", ((JsonArray)budgetFields["anthropic_beta"]!)[0]?.GetValue<string>());
-        // 非 Claude 模型无扩展字段。
+        // 既非 Claude 也非 OpenAI GPT 的模型无扩展字段。
+        // 注：`openai.gpt-*` 在 R2 漂移后已改走 reasoning.effort 分支，不能再当「无扩展字段」的样本。
         Assert.Null(BedrockConverseStream.BuildAdditionalModelRequestFields(
             new ModelSpec
             {
-                Id = "openai.gpt-5.6", Name = "GPT", Api = "bedrock-converse-stream",
+                Id = "meta.llama3-70b-instruct-v1:0", Name = "Llama 3 70B", Api = "bedrock-converse-stream",
                 Provider = "amazon-bedrock", BaseUrl = "", Reasoning = true,
             }, new BedrockOptions { Reasoning = "medium" }));
+    }
+
+    /// <summary>
+    /// 上游 <c>2989eb581</c>（R2 漂移，#9331）：配置的思考档位此前从未传给 Bedrock 上的 OpenAI 模型。
+    /// </summary>
+    [Fact]
+    public void BuildAdditionalModelRequestFieldsOpenAiReasoning()
+    {
+        static ModelSpec Gpt(string id, string name = "GPT-6 Sol", ThinkingLevelMap? map = null)
+            => new()
+            {
+                Id = id, Name = name, Api = "bedrock-converse-stream", Provider = "amazon-bedrock",
+                BaseUrl = "https://bedrock-runtime.us-east-1.amazonaws.com", Reasoning = true,
+                ThinkingLevelMap = map,
+            };
+
+        // GPT-6 / GPT-5.x：嵌套 reasoning.effort，minimal 收敛到 low。
+        (string Level, string Effort)[] gptCases =
+        [
+            ("minimal", "low"), ("low", "low"), ("medium", "medium"),
+            ("high", "high"), ("xhigh", "xhigh"), ("max", "max"),
+        ];
+        foreach (var (level, effort) in gptCases)
+        {
+            foreach (var id in (string[])["global.openai.gpt-6-sol", "us.openai.gpt-6-luna", "global.openai.gpt-5.6-sol"])
+            {
+                var fields = BedrockConverseStream.BuildAdditionalModelRequestFields(Gpt(id),
+                    new BedrockOptions { Reasoning = level })!;
+                Assert.Equal(effort, fields.Obj("reasoning")!.Str("effort"));
+                // GPT 分支不得混入 Claude 的字段。
+                Assert.Null(fields.Obj("thinking"));
+                Assert.Null(fields.Obj("output_config"));
+            }
+        }
+
+        // 仅凭 name 识别 GPT 模型（id 是 ARN 时）。
+        var arn = BedrockConverseStream.BuildAdditionalModelRequestFields(
+            Gpt("arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/my-profile"),
+            new BedrockOptions { Reasoning = "medium" })!;
+        Assert.Equal("medium", arn.Obj("reasoning")!.Str("effort"));
+
+        // thinkingLevelMap 的字符串映射优先于内置档位表。
+        var mapped = BedrockConverseStream.BuildAdditionalModelRequestFields(
+            Gpt("global.openai.gpt-6-sol", map: ThinkingLevelMap.FromJsonObject(
+                new JsonObject { ["medium"] = "high" })),
+            new BedrockOptions { Reasoning = "medium" })!;
+        Assert.Equal("high", mapped.Obj("reasoning")!.Str("effort"));
+
+        // gpt-oss：扁平 reasoning_effort，xhigh/max 夹到 high；且必须先于 "gpt-" 命中。
+        var oss = BedrockConverseStream.BuildAdditionalModelRequestFields(
+            Gpt("openai.gpt-oss-120b-1:0", "gpt-oss 120B"),
+            new BedrockOptions { Reasoning = "minimal" })!;
+        Assert.Equal("low", oss.Str("reasoning_effort"));
+        Assert.Null(oss.Obj("reasoning"));
+
+        Assert.Equal("medium", BedrockConverseStream.BuildAdditionalModelRequestFields(
+            Gpt("openai.gpt-oss-120b-1:0", "gpt-oss 120B"),
+            new BedrockOptions { Reasoning = "medium" })!.Str("reasoning_effort"));
+        Assert.Equal("high", BedrockConverseStream.BuildAdditionalModelRequestFields(
+            Gpt("openai.gpt-oss-120b-1:0", "gpt-oss 120B"),
+            new BedrockOptions { Reasoning = "xhigh" })!.Str("reasoning_effort"));
+
+        // reasoning 未开 → 无扩展字段（与 Claude 分支同一前置判定）。
+        Assert.Null(BedrockConverseStream.BuildAdditionalModelRequestFields(
+            Gpt("global.openai.gpt-6-sol"), new BedrockOptions()));
+        // 模型不支持推理 → 同样无扩展字段。
+        Assert.Null(BedrockConverseStream.BuildAdditionalModelRequestFields(
+            Gpt("global.openai.gpt-6-sol") with { Reasoning = false },
+            new BedrockOptions { Reasoning = "medium" }));
+    }
+
+    /// <summary>
+    /// TS 用 <c>undefined</c> 表示「不下发该字段」，<c>JSON.stringify</c> 会把键整个丢掉；
+    /// C# 的 <c>JsonObject</c> 会把 null 序列化成 <c>"k":null</c>。载荷组装必须逐键省略。
+    /// </summary>
+    [Fact]
+    public void BuildCommandInputOmitsUnsetFieldsInsteadOfEmittingNull()
+    {
+        var model = Model("meta.llama3-70b-instruct-v1:0") with { Name = "Llama 3 70B", Reasoning = false };
+        var context = new TranscriptContext([new UserMessage([new TextContent("hi")], 1)]);
+
+        var bare = BedrockConverseStream.BuildCommandInput(
+            model, context, new BedrockOptions(), "short",
+            isClaude: false, inferenceMaxTokens: null, initialSystemPrompt: null);
+
+        var json = bare.ToJsonString();
+        Assert.DoesNotContain("null", json);
+        Assert.DoesNotContain("\"system\"", json);
+        Assert.DoesNotContain("\"toolConfig\"", json);
+        Assert.DoesNotContain("\"additionalModelRequestFields\"", json);
+        Assert.DoesNotContain("\"maxTokens\"", json);
+        Assert.DoesNotContain("\"temperature\"", json);
+        // inferenceConfig 本身恒在（TS 里也是空对象）。
+        Assert.Equal("{}", bare.Obj("inferenceConfig")!.ToJsonString());
+
+        // 设置了就照常出现。
+        var full = BedrockConverseStream.BuildCommandInput(
+            model, context, new BedrockOptions { Temperature = 0.5 }, "short",
+            isClaude: false, inferenceMaxTokens: 128, initialSystemPrompt: "be brief");
+        Assert.Equal(0.5, full.Obj("inferenceConfig")!.Num("temperature"));
+        Assert.Equal(128, full.Obj("inferenceConfig")!.Num("maxTokens"));
+        Assert.NotNull(full["system"]);
     }
 
     [Fact]

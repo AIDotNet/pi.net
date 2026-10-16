@@ -399,22 +399,39 @@ public static class BedrockConverseStream
         int? inferenceMaxTokens,
         string? initialSystemPrompt)
     {
+        var supportsStrictMode = model.Compat?["supportsStrictMode"] is System.Text.Json.Nodes.JsonValue { } strictValue
+            && strictValue.TryGetValue<bool>(out var strictFlag) && strictFlag;
+
+        // TS 用 `...(x !== undefined && { … })` / 直接赋 `undefined` 组装；JSON.stringify 会把
+        // undefined 的键整个丢掉。C# 的 JsonObject 会把 null 序列化成 `"k":null`，与 TS 不等价，
+        // 故这里一律「非 null 才写键」。
+        var inferenceConfig = new JsonObject();
+        if (inferenceMaxTokens is not null) inferenceConfig["maxTokens"] = inferenceMaxTokens;
+        if (options?.Temperature is not null) inferenceConfig["temperature"] = options.Temperature;
+
         var commandInput = new JsonObject
         {
             ["modelId"] = model.Id,
             ["messages"] = ConvertMessages(normalizedContext, model, cacheRetention, options?.Env),
-            ["system"] = BuildSystemPrompt(initialSystemPrompt, model, cacheRetention, options?.Env),
-            ["inferenceConfig"] = new JsonObject
-            {
-                ["maxTokens"] = inferenceMaxTokens,
-                ["temperature"] = options?.Temperature,
-            },
-            ["toolConfig"] = ConvertToolConfig(
-                Transcript.GetCurrentTools(normalizedContext.Messages), options?.ToolChoice,
-                model.Compat?["supportsStrictMode"] is System.Text.Json.Nodes.JsonValue { } strictValue
-                    && strictValue.TryGetValue<bool>(out var strictFlag) && strictFlag),
-            ["additionalModelRequestFields"] = BuildAdditionalModelRequestFields(model, options),
+            ["inferenceConfig"] = inferenceConfig,
         };
+        if (BuildSystemPrompt(initialSystemPrompt, model, cacheRetention, options?.Env) is { } system)
+        {
+            commandInput["system"] = system;
+        }
+
+        if (ConvertToolConfig(
+                Transcript.GetCurrentTools(normalizedContext.Messages), options?.ToolChoice, supportsStrictMode)
+            is { } toolConfig)
+        {
+            commandInput["toolConfig"] = toolConfig;
+        }
+
+        if (BuildAdditionalModelRequestFields(model, options) is { } additionalFields)
+        {
+            commandInput["additionalModelRequestFields"] = additionalFields;
+        }
+
         if (options?.RequestMetadata is { Count: > 0 } metadata)
         {
             commandInput["requestMetadata"] = metadata.DeepClone();
@@ -490,12 +507,48 @@ public static class BedrockConverseStream
         return config;
     }
 
-    /// <summary>思考扩展字段（adaptive/budget、display、block binding、interleaved beta、GovCloud）。对应 TS <c>buildAdditionalModelRequestFields</c>。</summary>
+    /// <summary>思考扩展字段（adaptive/budget、display、block binding、interleaved beta、GovCloud、OpenAI GPT）。对应 TS <c>buildAdditionalModelRequestFields</c>。</summary>
     public static JsonObject? BuildAdditionalModelRequestFields(ModelSpec model, BedrockOptions? options)
     {
         if (string.IsNullOrEmpty(options?.Reasoning) || !model.Reasoning) return null;
-        if (!IsAnthropicClaudeModel(model)) return null;
 
+        if (IsAnthropicClaudeModel(model))
+        {
+            return BuildClaudeAdditionalModelRequestFields(model, options);
+        }
+
+        // OpenAI 系模型（Bedrock 上的 gpt-oss / GPT-5.x / GPT-6）：两者都不走 Anthropic 的
+        // thinking 结构，改用各自的 reasoning 字段。顺序要紧——"gpt-oss" 同时命中 "gpt-"，
+        // gpt-oss 必须先判。
+        var reasoning = options.Reasoning!;
+        var candidates = GetModelMatchCandidates(model.Id, model.Name);
+
+        if (candidates.Any(candidate => candidate.Contains("gpt-oss", StringComparison.Ordinal)))
+        {
+            // 档位不在映射表内（TS 里是类型不可达）时，TS 的 `{ reasoning_effort: undefined }` 会被
+            // JSON.stringify 丢键成 `{}`；端口保持同一形状，而不是抛错。
+            return OpenAiGptOssEffort.TryGetValue(reasoning, out var ossEffort)
+                ? new JsonObject { ["reasoning_effort"] = ossEffort }
+                : new JsonObject();
+        }
+
+        if (candidates.Any(candidate => candidate.Contains("gpt-", StringComparison.Ordinal)))
+        {
+            var mapped = model.ThinkingLevelMap?[reasoning];
+            var effort = mapped
+                ?? (OpenAiGptEffort.TryGetValue(reasoning, out var gptEffort) ? gptEffort : null);
+            // 同理：effort 为 undefined 时 JSON.stringify 丢键，只剩 `{"reasoning":{}}`。
+            return effort is null
+                ? new JsonObject { ["reasoning"] = new JsonObject() }
+                : new JsonObject { ["reasoning"] = new JsonObject { ["effort"] = effort } };
+        }
+
+        return null;
+    }
+
+    /// <summary>Anthropic Claude 在 Bedrock 上的 thinking 扩展字段。对应 TS <c>buildAdditionalModelRequestFields</c> 的 Claude 分支。</summary>
+    private static JsonObject BuildClaudeAdditionalModelRequestFields(ModelSpec model, BedrockOptions options)
+    {
         var isGovCloud = IsGovCloudBedrockTarget(model, options);
         var display = isGovCloud ? null : options.ThinkingDisplay ?? "summarized";
         var useBlockBinding = !isGovCloud && SupportsThinkingBlockBinding(model.Id, model.Name);
@@ -547,6 +600,37 @@ public static class BedrockConverseStream
         }
         return result;
     }
+
+    /// <summary>
+    /// OpenAI GPT 模型（GPT-5.x、GPT-6）取嵌套的 <c>reasoning.effort</c>，且拒绝 <c>minimal</c>。
+    /// 对应 TS <c>OPENAI_GPT_EFFORT</c>。
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> OpenAiGptEffort =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["minimal"] = "low",
+            ["low"] = "low",
+            ["medium"] = "medium",
+            ["high"] = "high",
+            ["xhigh"] = "xhigh",
+            ["max"] = "max",
+        };
+
+    /// <summary>
+    /// gpt-oss 取扁平的 <c>reasoning_effort</c>，只接受 low / medium / high。
+    /// 对应 TS <c>OPENAI_GPT_OSS_EFFORT</c>。
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> OpenAiGptOssEffort =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["minimal"] = "low",
+            ["low"] = "low",
+            ["medium"] = "medium",
+            ["high"] = "high",
+            ["xhigh"] = "high",
+            ["max"] = "high",
+        };
+
 
     /// <summary>GovCloud 目标判定。对应 TS <c>isGovCloudBedrockTarget</c>。</summary>
     public static bool IsGovCloudBedrockTarget(ModelSpec model, BedrockOptions? options)

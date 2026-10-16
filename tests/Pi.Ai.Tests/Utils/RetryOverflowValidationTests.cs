@@ -32,6 +32,9 @@ public class RetryTests
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "429 Too Many Requests")));
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "Connection refused")));
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "Anthropic stream ended before message_stop")));
+        // 上游 8b5708dbb（R2 漂移）：OpenRouter 等网关的 server_busy 瞬时故障文案。
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "server_busy")));
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "All servers are currently busy")));
         // 订阅/计费限额不可重试。
         Assert.False(Retry.IsRetryableAssistantError(Message(StopReason.Error, "insufficient_quota")));
         Assert.False(Retry.IsRetryableAssistantError(Message(StopReason.Error, "GoUsageLimitError")));
