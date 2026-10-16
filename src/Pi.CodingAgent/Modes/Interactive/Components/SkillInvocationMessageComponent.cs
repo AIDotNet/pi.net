@@ -22,8 +22,9 @@ public sealed class SkillInvocationMessageComponent : Box
 
     public SkillInvocationMessageComponent(
         Core.ParsedSkillBlock skillBlock,
-        MarkdownTheme? markdownTheme = null)
-        : base(1, 1, t => ThemeRuntime.Current.Bg("customMessageBg", t))
+        MarkdownTheme? markdownTheme = null,
+        int outputPad = 1)
+        : base(outputPad, 1, t => ThemeRuntime.Current.Bg("customMessageBg", t))
     {
         _skillBlock = skillBlock;
         _markdownTheme = markdownTheme ?? ThemeHelpers.GetMarkdownTheme();
@@ -35,6 +36,9 @@ public sealed class SkillInvocationMessageComponent : Box
         _expanded = expanded;
         UpdateDisplay();
     }
+
+    /// <summary>Update the horizontal padding. TS <c>setOutputPad</c>.</summary>
+    public void SetOutputPad(int outputPad) => SetPaddingX(outputPad);
 
     public override void Invalidate()
     {

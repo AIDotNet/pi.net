@@ -20,8 +20,11 @@ public sealed class BranchSummaryMessageComponent : Box
     private readonly BranchSummaryMessage _message;
     private readonly MarkdownTheme _markdownTheme;
 
-    public BranchSummaryMessageComponent(BranchSummaryMessage message, MarkdownTheme? markdownTheme = null)
-        : base(1, 1, t => ThemeRuntime.Current.Bg("customMessageBg", t))
+    public BranchSummaryMessageComponent(
+        BranchSummaryMessage message,
+        MarkdownTheme? markdownTheme = null,
+        int outputPad = 1)
+        : base(outputPad, 1, t => ThemeRuntime.Current.Bg("customMessageBg", t))
     {
         _message = message;
         _markdownTheme = markdownTheme ?? ThemeHelpers.GetMarkdownTheme();
@@ -33,6 +36,9 @@ public sealed class BranchSummaryMessageComponent : Box
         _expanded = expanded;
         UpdateDisplay();
     }
+
+    /// <summary>Update the horizontal padding. TS <c>setOutputPad</c>.</summary>
+    public void SetOutputPad(int outputPad) => SetPaddingX(outputPad);
 
     public override void Invalidate()
     {

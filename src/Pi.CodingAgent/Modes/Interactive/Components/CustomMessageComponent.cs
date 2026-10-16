@@ -105,6 +105,7 @@ public sealed class CustomMessageComponent : Container
         // Default rendering uses our box.
         AddChild(_box);
         _box.Clear();
+        _box.SetPaddingX(_outputPad);
 
         // Default rendering: label + content.
         var label = ThemeRuntime.Current.Fg("customMessageLabel", $"\x1b[1m[{_message.CustomType}]\x1b[22m");

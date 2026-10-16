@@ -488,6 +488,66 @@ public sealed class MessageComponentsTests : IDisposable
     }
 
     [Fact]
+    public void CollapsibleMessages_ApplyOutputPadToBoxPadding()
+    {
+        // TS: these three components forward `outputPad` into the Box `paddingX`
+        // (upstream "apply outputPad to all transcript blocks"), both at construction and
+        // via `setOutputPad`.
+        var branch = new BranchSummaryMessageComponent(
+            new BranchSummaryMessage("branch details", "entry-1", 0),
+            null,
+            1);
+        Assert.Contains(
+            branch.Render(80).Select(AnsiText.StripAnsi),
+            line => line.StartsWith(" [branch]", StringComparison.Ordinal));
+        branch.SetOutputPad(0);
+        Assert.Contains(
+            branch.Render(80).Select(AnsiText.StripAnsi),
+            line => line.StartsWith("[branch]", StringComparison.Ordinal));
+
+        var compaction = new CompactionSummaryMessageComponent(
+            new CompactionSummaryMessage("compaction details", 1234, 0),
+            null,
+            1);
+        Assert.Contains(
+            compaction.Render(80).Select(AnsiText.StripAnsi),
+            line => line.StartsWith(" [compaction]", StringComparison.Ordinal));
+        compaction.SetOutputPad(0);
+        Assert.Contains(
+            compaction.Render(80).Select(AnsiText.StripAnsi),
+            line => line.StartsWith("[compaction]", StringComparison.Ordinal));
+
+        var skill = new SkillInvocationMessageComponent(
+            new Core.ParsedSkillBlock("example-skill", "/tmp/example-skill.md", "skill details", null),
+            null,
+            1);
+        Assert.Contains(
+            skill.Render(80).Select(AnsiText.StripAnsi),
+            line => line.StartsWith(" [skill]", StringComparison.Ordinal));
+        skill.SetOutputPad(0);
+        Assert.Contains(
+            skill.Render(80).Select(AnsiText.StripAnsi),
+            line => line.StartsWith("[skill]", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CustomMessage_DefaultRenderingAppliesOutputPadToBox()
+    {
+        // TS `rebuild()` default path: `this.box.setPaddingX(this.outputPad)`.
+        var message = new CustomMessage("test", MessageContent.From("plain text"), true, 0);
+
+        var component = new CustomMessageComponent(message, null, null, 1);
+        Assert.Contains(
+            component.Render(80).Select(AnsiText.StripAnsi),
+            line => line.StartsWith(" [test]", StringComparison.Ordinal));
+
+        component.SetOutputPad(0);
+        Assert.Contains(
+            component.Render(80).Select(AnsiText.StripAnsi),
+            line => line.StartsWith("[test]", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void CustomMessage_FallsBackToDefaultRenderingWhenRendererThrows()
     {
         MessageRenderer renderer = (_, _, _) => throw new InvalidOperationException("broken renderer");        var message = new CustomMessage("test", MessageContent.From("plain text"), true, 0);
