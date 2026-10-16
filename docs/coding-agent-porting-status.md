@@ -3574,15 +3574,72 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
   `thinking-selector.test.ts` 的 2 个用例全部转写（路径类断言改为按临时目录推导，因 Windows 下
   `normalizeCwd` 会把 `/project` 解析成当前盘符下的路径）
 
-> **4f-3d 余 16 个 / 6,922 行**：`extension-input`（94）/ `radius-login-selector`（114）/
-> `extension-selector`（117）/ `extension-editor`（141）/ `custom-editor`（148）/
-> `first-time-setup`（148）/ `session-selector-search`（194）/ `oauth-selector`（224）/
-> `login-dialog`（238）/ `settings-submenu`（258）/ `scoped-models-selector`（401）/
-> `model-selector`（421）/ `config-selector`（951）/ `settings-selector`（993）/
-> `session-selector`（1045）/ `tree-selector`（1435）→ 继续切批。
+> **4f-3d 余 16 个 / 6,922 行**（Batch D 收口后余 **12 个 / 6,449 行**）：
+> `extension-input`（94）/ `radius-login-selector`（114）/ `extension-selector`（117）/
+> `extension-editor`（141）/ `custom-editor`（148）/ `first-time-setup`（148）/
+> `session-selector-search`（194）/ `oauth-selector`（224）/ `login-dialog`（238）/
+> `settings-submenu`（258）/ `scoped-models-selector`（401）/ `model-selector`（421）/
+> `config-selector`（951）/ `settings-selector`（993）/ `session-selector`（1045）/
+> `tree-selector`（1435）→ 继续切批。
 > 其后 4f-3e 的 10 个（`footer` / `tool-execution` / `bash-execution` / `armin` /
 > `earendil-announcement` / `bordered-loader` / `custom-entry` / `easter-egg-3d`（+ `.lazy`）/
 > `mermaid` / `index.ts`）仍待启动。
+
+---
+
+## 4f-3d 进度（2026-10-16）：选择器 Batch D（extension-selector / extension-input / radius-login-selector / first-time-setup）
+
+4f-3d 的**第二子批**：扩展面向的对话框 4 个（TS 473 行 → C# 653 行）。它们只依赖
+`CountdownTimer`（4f-3c）与 `KeybindingHints`（4f-3a），不碰 4f-4 的装配层。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/extension-selector.ts` | 117 | `Components/ExtensionSelector.cs`（157） | 标题（accent+bold）+ 可选描述 + 字符串选项列表 + `↑↓/enter/escape` 提示行；`app.tools.expand` 优先于导航键；`timeout` + `tui` 时挂 `CountdownTimer`（每秒改写标题为 `Title (Ns)`，归零时取消） |
+| `components/extension-input.ts` | 94 | `Components/ExtensionInput.cs`（127） | 单行输入：标题 + 可选描述 + `Input` + 提示行；`initialValue` 预填；确认回传 `GetValue()`；`Focusable` 转发到 `Input` |
+| `components/radius-login-selector.ts` | 114 | `Components/RadiusLoginSelector.cs`（170） | `RadiusLoginMenuComponent : ExtensionSelectorComponent`：把被选中的 Radius 行换成 `radiusShimmer`（四色 16 字符循环、10 字符/秒、smoothstep 混色、`srgb` 空间）+ 50 ms 定时 `requestRender`；`createLoginMenuSelector` 工厂 |
+| `components/first-time-setup.ts` | 148 | `Components/FirstTimeSetup.cs`（199） | 两步向导（theme → analytics）；`invalidate()` 整树重建（换主题预览时重新着色）；主题步每次移动都 `onThemePreview`，分析步不预览；确认在第二步才提交 |
+
+### 4f-3d Batch D 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C225 | `ExtensionSelectorComponent.HandleInput` 是 **`virtual`**（TS 没有这个概念）；`RadiusLoginMenuComponent` override 它在确认/取消键上先 `StopAnimation()` 再走基类逻辑 | TS 在派生类构造函数里把 `onSelect`/`onCancel` 各包一层以停动画；C# 的 `base(...)` 实参列表里不能用 `this`（CS0027），无法复刻该包装。改走 override 后调用顺序与 TS 逐字一致（先停、再回调）。`Dispose` 同理设为 `virtual`（TS 的 `dispose()` 被派生类 override） |
+| C226 | `RadiusLoginMenuComponent.RadiusShimmer` 提为 `internal static`（TS 是模块私有函数 `radiusShimmer`） | 逐字节的颜色流（每字符一个 SGR、16 字符循环、末尾 `\x1b[39m`）是唯一能钉住混色算法的观测点。与 C219 / C224 同一约定 |
+| C227 | `setInterval(…, 50).unref?.()` → `System.Threading.Timer`；`unref` 无对应物（线程池定时器本就不阻止进程退出）；`_animating` 用 `volatile`（渲染线程写、定时器线程读） | 与 C203 同一约定。TS 单线程事件循环没有跨线程可见性问题，C# 有 |
+| C228 | TS 未导出的结构类型 `RadiusOption` 在 C# 必须具名为公开记录 | TS 靠结构化类型让 `createLoginMenuSelector` 的形参匿名成立；C# 需要名字 |
+| C229 | 只读测试缝：`ExtensionSelectorComponent.SelectedIndex`、`FirstTimeSetupComponent.StepName` / `ThemeIndex` / `AnalyticsIndex` | TS 的 `private` 在运行时可读，C# 的 `private` 不行。与 C219 / C224 同一约定 |
+
+**同批记录（不单独编号）**：
+
+- `ExtensionInputComponent` 的 `placeholder` 形参在 TS 里就叫 `_placeholder` 且**从不读取**；端口保留
+  签名并显式丢弃（`_ = placeholder;`），测试反向断言占位文本**不会**出现在渲染里。
+- `ExtensionSelectorComponent` 的确认分支对**空选项列表**补了守卫：TS 读
+  `this.options[this.selectedIndex]` 会得到 `undefined`，C# 越界会抛；改成先做范围判断再判空串，
+  与 TS 的「无可选项」结局一致。
+- `Description` / `InitialValue` 的「空串视同未提供」按 TS 的 truthiness 写成 `is { Length: > 0 }`
+  （而非 `is not null`）。
+
+### 测试与验证（4f-3d Batch D）
+
+新建 `tests/Pi.CodingAgent.Tests/ExtensionComponentsTests.cs`（**39** 项；另含一个 `FakeTui`
+`ITui` 桩，只记录 `RequestRender` 次数）：
+
+| 测试类 | 项数 | 覆盖 |
+| --- | ---: | --- |
+| `ExtensionSelectorComponentTests` | 12 | 标题/选项/提示行（`keyHint` 是**小写**键名）；预选第 0 行；描述空串不渲染；两端钳制；`j`/`k`；确认回传高亮项；Escape 取消；`ctrl+o` 触发展开回调且**不动选择**、无回调时忽略；空选项列表确认无操作；`timeout` 首帧同步改写标题为 `(1s)` 且归零时取消；无 `timeout` 时 `Dispose` 可重入 |
+| `ExtensionInputComponentTests` | 9 | 标题/提示行 + 占位文本**不**渲染；描述空串不渲染；`initialValue` 预填、空串留空；逐键累积后确认回传；Escape 取消；`Focusable` 转发；`timeout` 首帧与归零取消；`Dispose` 可重入 |
+| `RadiusLoginMenuComponentTests` | 10 | `radiusShimmer` 逐字符着色 + 末尾 `\x1b[39m`、随时间变化、**16 字符循环整周期（1600 ms）后与原帧逐字节相同**、空串只留复位；选中行被动画（可见文本不变、转义不同）；选中别的行时 Radius 行是普通行；确认 / `Dispose` 后定时器不再请求渲染（各等待 300 ms 观察 `RequestRender` 计数停止）；工厂返回动画子类；取消回调 |
+| `FirstTimeSetupComponentTests` | 8 | 欢迎页 + 主题步三选项 + `enter continue` / `escape/ctrl+c skip setup`；确认进入分析步（`StepName`、文案、`enter finish`）；分析步确认提交 `(theme, shareAnalytics)`；主题步每次移动都预览、末尾钳制不再预览；`j`/`k`；分析步**不**预览；取消；`Invalidate` 重建后子节点数与渲染不变 |
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.CodingAgent.Tests` 全量 **2366 / 0 失败**（38s；2327 + 39）
+- 时序类用例（`ConfirmingStopsTheRenderRequests` / `DisposingStopsTheRenderRequests`）**连跑三轮**全绿
+
+> **4f-3d 余 12 个 / 6,449 行**：`extension-editor`（141，依赖未移植的 `external-editor.ts`）/
+> `custom-editor`（148）/ `session-selector-search`（194）/ `oauth-selector`（224）/
+> `login-dialog`（238）/ `settings-submenu`（258）/ `scoped-models-selector`（401）/
+> `model-selector`（421）/ `config-selector`（951）/ `settings-selector`（993）/
+> `session-selector`（1045）/ `tree-selector`（1435）。
 
 ---
 
