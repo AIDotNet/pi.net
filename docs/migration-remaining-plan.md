@@ -77,7 +77,7 @@
 | **S3** | ai provider 层：`retry` `server_busy`（`8b5708dbb`）、`radius` 网关目录替换（`43d376399`）、`bedrock` OpenAI reasoning（`2989eb581`）、`faux` 逐消息 prompt cache + 用量估算子系统（`fe11328b0`） | ✅ `2c74e2c`（S3a）；✅ `a633cb2` + `97eae94`（S3b） |
 | **S3c** | faux 补全（**新增**）：`tokensPerSecond` 限速 / `tokenSize` 随机切块 / `deferred` 全链 / `FauxResponseFactory` / `fauxProvider()` / `aborted` 中断 / 四个 `*_start`·`*_end` 事件 / 自定义模型目录 | ✅ 本批（见 [coding-agent-porting-status.md](coding-agent-porting-status.md) 的「S3c」节） |
 | **S4** | codemode 输出条目分离（`eb326d265`）：`==> text N/M <==` 编号 + `<console_output>` 分组 + console 标记 | ✅ `3cd141d` |
-| **S5** | 回到原计划：4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals | 待办 |
+| **S5** | 回到原计划：4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals | 🟡 **进行中**：4f-3d Batch C ✅（5/21 个选择器，`theme`/`show-images`/`trust`/`thinking`/`user-message`），余 16 个 / 6,922 行 |
 
 ---
 
@@ -117,7 +117,8 @@
 | `Pi.CodingAgent.Tests`（P4b-6 后） | ✅ **1708 项 / 0 失败**（3m01s；1662 + `McpExtensionTests` 46） |
 | `Pi.CodingAgent.Tests`（4f-2a 后） | ✅ **1889 项 / 0 失败**（3m50s；1708 + 181） |
 | `Pi.Tui.Tests`（4f-2a 后） | ✅ **23854 项 / 0 失败**（9s；23812 + `TerminalColorsTests` 42；另修掉 `LoaderTests` 的一处时序竞态） |
-| `Pi.CodingAgent.Tests`（S3c 后，= 当前 HEAD） | ✅ **2285 项 / 0 失败**（S0–S4 期间由 2256 逐步到 2285） |
+| `Pi.CodingAgent.Tests`（S3c 后） | ✅ **2285 项 / 0 失败**（S0–S4 期间由 2256 逐步到 2285） |
+| `Pi.CodingAgent.Tests`（4f-3d Batch C 后，= 当前 HEAD） | ✅ **2327 项 / 0 失败**（38s；2285 + `SelectorComponentsTests` 42） |
 | `Pi.Ai.Tests`（S3c 后） | ✅ **359 项 / 0 失败**（S3a 后 310 → S3b 326 → S3c 359） |
 | `Pi.Agent.Tests`（S3c 后） | ✅ **33 项 / 0 失败**（S1 后 33） |
 | 其余 9 个测试工程 | 见 [porting-status.md](porting-status.md) 的环境限制说明 |
@@ -404,7 +405,7 @@
 | 子阶段 | 范围 | 验收标准 |
 | --- | --- | --- |
 | 4f-2 | `modes/interactive/theme/*`（2,216 行：`theme.ts` 1,160 / `system-theme.ts` 655 / `theme-controller.ts` 253 / `theme-json.ts` 148） | **4f-2a ✅ 已收口**（`theme.ts` 模块级半边 + `system-theme.ts` + `theme-json.ts` + `Theme` 类 + TUI 助手 + OSC 查询链）；`Theme` 占位已删；`MarkdownTheme` / `SelectListTheme` / `SettingsListTheme` 三个形状已由 `ThemeHelpers` 产出。**4f-2b 余**：`theme-controller.ts`，依赖 4f-4 |
-| 4f-3 | `modes/interactive/components/*`（实测 **11,652 行** / 49 文件） | 每个组件一个测试类；选择器交互路径。**4f-3a ✅ 已收口**（原语层：`keybinding-hints` + `visual-truncate`，解 4f-1 阻塞；另附 `dynamic-border` + `themed-text`）。**4f-3b ✅ 已收口**（`diff.ts` 渲染器 + 前置的 `JsDiff.DiffWords` 词级差分；解 4f-1 的 `edit` renderer 阻塞）。**4f-3c ✅ 已收口**（消息类组件 11 个：assistant / user / custom / branch-summary / compaction-summary / skill-invocation / status-indicator / countdown-timer / auth-url / pi-logo / markdown-transform；另修 4f-1 语料套件的 27 处遗留失败）。**4f-3d 余**：选择器（含 `config-selector` / `settings-selector` / `session-selector` / `tree-selector` 四个 900+ 行大件）；**4f-3e 余**：`footer` / `tool-execution` / `bash-execution` / `armin` / `earendil-announcement` / `bordered-loader` / `custom-entry` / `easter-egg-3d` / `mermaid` / `index.ts` |
+| 4f-3 | `modes/interactive/components/*`（实测 **11,652 行** / 49 文件） | 每个组件一个测试类；选择器交互路径。**4f-3a ✅ 已收口**（原语层：`keybinding-hints` + `visual-truncate`，解 4f-1 阻塞；另附 `dynamic-border` + `themed-text`）。**4f-3b ✅ 已收口**（`diff.ts` 渲染器 + 前置的 `JsDiff.DiffWords` 词级差分；解 4f-1 的 `edit` renderer 阻塞）。**4f-3c ✅ 已收口**（消息类组件 11 个：assistant / user / custom / branch-summary / compaction-summary / skill-invocation / status-indicator / countdown-timer / auth-url / pi-logo / markdown-transform；另修 4f-1 语料套件的 27 处遗留失败）。**4f-3d 🟡 进行中**：选择器组共 **21 个**，按体量切三批。**Batch C ✅ 已收口**（`theme-selector` / `show-images-selector` / `trust-selector` / `thinking-selector` / `user-message-selector` 五个无外部依赖的，合计 560 行 TS → 625 行 C#，附 42 项测试）。**余 16 个 / 6,922 行**：`extension-input`（94）/ `radius-login-selector`（114）/ `extension-selector`（117）/ `extension-editor`（141）/ `custom-editor`（148）/ `first-time-setup`（148）/ `session-selector-search`（194）/ `oauth-selector`（224）/ `login-dialog`（238）/ `settings-submenu`（258）/ `scoped-models-selector`（401）/ `model-selector`（421）/ `config-selector`（951）/ `settings-selector`（993）/ `session-selector`（1045）/ `tree-selector`（1435）；**4f-3e 余**：`footer` / `tool-execution` / `bash-execution` / `armin` / `earendil-announcement` / `bordered-loader` / `custom-entry` / `easter-egg-3d` / `mermaid` / `index.ts` |
 | 4f-1 | `core/tools/renderers/*`（1,033 行 / 8 文件）+ `core/tools/render-utils.ts`（112 行） | ✅ **已收口**（`a0caf71`，2026-10-15 补记）：8 renderer + `RenderUtils` 全量 + 104 case 组件树语料；`ToolRenderers` 已补 `RenderCall` / `RenderResult`（C85 解除） |
 | 4f-4 | `modes/interactive/interactive-mode.ts`（7,072 行） | 主循环 / 键位 / 视口 / 共享 |
 | 4f-5 | `modes/rpc/*` + `print-mode` + `json-*`（~2,300 行） | RPC 端到端（Unix 域套接字回放） |
@@ -469,7 +470,10 @@
 
 | 2026-10-16 | **S3c（faux 补全）** | `packages/ai/src/providers/faux.ts`（710 行）剩余面**逐行覆盖**：`FauxProviderOptions`（消解 C215：`Api`/`Provider`/`Models`/`Deferred`/`TokensPerSecond`/`TokenSize`，位置参数构造保留为端口兼容重载）；`FauxResponseFactory` + `FactoryStep` + `FauxProviderState.CallCount`；`tokensPerSecond`/`scheduleChunk`（`ceil(len/4)/tps*1000`）；`tokenSize`/`splitStringByTokenSize`（含 `min` 夹到 1 与 max、空串仍产出一块）；`deferred` 全链（句柄身份三元组校验、`pendingFetches` 递减、取消登记句柄快照、提交时剥离 `deferred`/`signal`/`onResponse`）；`Faux.CreateProvider()`（= `fauxProvider()`，经 `ProviderFactory` + 恒成功的 `apiKey.resolve`）；`aborted` 中断（预中止无 `start`、流中中止保留已累计内容）；`thinking_start`/`thinking_end`/`toolcall_start`/`toolcall_end` 四个事件（`*_end` 带整块原文、`toolcall` 参数以 JSON 增量流出后落定真实对象）；自定义模型目录 + `getModel(id)` 重载；`ScriptedMessage`/`NormalizeFauxAssistantContent`/`DefaultUsage`。**顺带修掉 5 处既有缺陷**：脚本耗尽文案（自造 → TS 原文案）、取消令牌被交给 `Task.Run` 导致流永不收尾、`ToolCallDelta.Index` 填工具调用序号（应填内容块下标）、工具调用默认 id 格式、默认 `BaseUrl`。新登记 **C216–C220** | `413718a` | 新增 `FauxProviderTests` **33 / 0**；`Pi.Ai.Tests` **359 / 0**（326 + 33）；`Pi.Agent.Tests` **33 / 0**；`Pi.CodingAgent.Tests` 全量 **2285 / 0 失败**；构建 0 警告 0 错误 |
 
-> **R2 漂移对账（S0–S4）与 S3c 到此全部完成。** `packages/ai` 已无已知缺口；
-> 剩余工作回到原计划 **S5**（4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
+| 2026-10-16 | **4f-3d Batch C** | 选择器组第一子批 5 个（TS 560 行 → C# 625 行 + 测试 709 行）：`ThemeSelectorComponent`（10 行可视列表 + `(current)` 描述 + 实时预览）、`ShowImagesSelectorComponent`（yes/no 按当前值预选）、`TrustSelectorComponent`（`formatDecision` 的 `inherited from` 分支 + `✓`/`→` 双标记 + `j`/`k` 等价方向键 + **两端钳制不环绕**）、`ThinkingSelectorComponent`（七档描述 + `Input` 搜索框 + `Fuzzy.Filter` 重建列表 + `app.thinking.save` 优先于导航键、无回调时穿透）、`UserMessageSelectorComponent`（10 行可视列表 + 滚动指示 + 上下环绕 + `initialSelectedId` 未命中回落最新 + 空列表 100 ms 自动取消）。**逐行核对** TS 源；`trust-selector.test.ts` 4 例与 `thinking-selector.test.ts` 2 例全部转写（路径类断言改为按临时目录推导，因 Windows 下 `normalizeCwd` 会把 `/project` 解析成当前盘符下的路径）。新登记 **C221–C224**（默认接口成员 `HandleInput` 的隐式实现、`as ThinkingLevel` → `ThinkingLevelText.Parse`、`setTimeout` → `Task.Delay`、`SelectedIndex` 测试缝） | `1cb2dae` | 新建 `SelectorComponentsTests` **42 / 0**（5 个类：5 + 5 + 9 + 12 + 11）；`Pi.CodingAgent.Tests` 全量 **2327 / 0 失败**（38s）；构建 0 警告 0 错误 |
+
+> **R2 漂移对账（S0–S4）与 S3c 已全部完成。** `packages/ai` 已无已知缺口。
+> 4f-3d 已开第一批（Batch C，5/21 个选择器），**余 16 个 / 6,922 行**；
+> 其后仍是原计划 **S5**（4f-3d 余 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
 
 （后续阶段完成后逐行追加。）
