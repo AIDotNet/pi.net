@@ -4747,5 +4747,59 @@ console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失�
 
 > **4f-3d 余 2 个 / 2,480 行**：`session-selector`（1045）/ `tree-selector`（1435）。
 
+## 4f-3d Batch F-4：session-selector（2026-10-17）
+
+**范围**：`session-selector.ts`（1045 行，未被漂移触及）→
+`Modes/Interactive/Components/SessionSelector.cs`（约 1,290 行）+ `SessionSelectorTests.cs`（22 例）。
+
+**落地内容**：
+- 纯函数层：`shortenPath`（home 折叠，slice 保留原始分隔符）、`formatSessionDate`
+  （now/m/h/d/w/mo/y 八档，`Math.floor` 全保留以对齐 JS 负数取整）、`canonicalizePath` 包装。
+- 树构建：`buildSessionTree`（canonicalize 键控、父在场聚合/缺失成根、`latestActivity` 自底向上、
+  稳定降序排序）、`flattenSessionTree`（depth/isLast/ancestorContinues 与渲染前缀
+  `├─ / └─ / │  ` 完整复刻）。
+- `SessionSelectorHeader`（IComponent）：全状态机（scope/sortMode/nameFilter/loading/progress/
+  showPath/confirmingDelete/statusMessage+自动隐藏计时器/showRenameHint）与三行渲染（标题、
+  `○/◉` 作用域指示 + Name/Sort 标签、hint 三分支：删除确认/状态消息/键位提示两行）。
+- `SessionList`（IComponent + IFocusable）：`filterSessions`（threaded+空查询 → 树形，否则
+  `filterAndSortSessions` 平铺）、`setSessions` 的选中恢复（selectionTouched 语义）、渲染
+  （搜索框、空列表四分支文案、树前缀行、name ?? firstMessage 显示 + 控制字符清理、右侧
+  cwd/path/消息数/年龄、四色着色 name=warning/current=accent/delete=error、selectedBg、
+  滚动指示 `(N/M)`）、键盘全链（删除确认态全拦截、tab/sort/namedFilter（注入实例）/path/
+  delete/rename/deleteNoninvasive（查询非空转发搜索）/up/down/pageUp/pageDown/confirm/cancel、
+  其余转发搜索框）。
+- `deleteSessionFile`：`trash` CLI 同步调用（spawnSync → `Process`，status==0 或文件已消失即
+  trash 成功），失败回退 `unlink` 并拼接 trash 错误提示（200 字符截断）。
+- `SessionSelectorComponent`（Container + IFocusable）：`buildBaseLayout` 装配、双 loader 异步
+  加载（进度回调 + AbortController → `CancellationTokenSource`，isActive 门控、partial 缓存、
+  失败状态消息 4000ms、双启动防抖）、删除编排（双缓存列表过滤 + 状态消息 +
+  `refreshSessionsAfterMutation`）、重命名模式（面板构建、Esc 退出、Enter 确认 → 回调 → 刷新 →
+  finally 返回列表）、toggleSortMode/toggleNameFilter/toggleScope（缓存缺失时惰性加载）、
+  Focusable 传播。
+
+**关键移植差异**（不编号）：
+- `AbortController` → `CancellationTokenSource`（C231 先例）；`setTimeout/clearTimeout` →
+  `System.Threading.Timer`；`spawnSync` → `Process` 同步运行；`Date.getTime()` →
+  `ToUnixTimeMilliseconds()`；`loadScope` 为 `OperationCanceledException` 单列 catch 分支
+  （TS 的 abort 走同一 catch 但被 isActive 门控挡下，C# 分支行为等价）；`app.session.*` 键位
+  常量在 `AppKeybindings`（非 `TuiKeybindingIds`）；两个 `KeybindingsManager` 类名冲突 →
+  using 别名（C241 先例）。
+- 测试认知修正三处：`ShortenPath` 保留原始分隔符（Windows 为 `~\sub`）；渲染行以搜索框 +
+  空行开头（会话行从 index 2 起）；渲染显示 name ?? firstMessage 而非 basename。
+
+**测试与验证（Batch F-4）**：
+- `SessionSelectorTests` **22 / 0**（上游无该组件测试，全部照源码行为自定观测点）：日期分桶、
+  home 折叠、树聚合（父在场/缺失成根）、扁平元数据（depth/isLast/ancestorContinues + 前缀
+  渲染）、行渲染（消息数+年龄、warning 色码、空列表四分支）、搜索过滤、named 过滤（ctrl+n）、
+  Tab 作用域切换（header 跟随）、ctrl+s 三态循环、ctrl+p 路径显隐、Enter/Esc、pageDown、
+  删除确认全链（trash 不在场 → unlink 回退 + "Session deleted" 状态、当前会话拒绝、Esc 取消 +
+  其他键拦截、deleteNoninvasive 查询非空转发）、重命名全链（回调 + 返回列表、Esc 不触发回调）、
+  异步加载（进度 N/M、partial 先行渲染、完成落列表、失败错误状态）。
+- `Pi.CodingAgent.Tests` 全量 **2596 / 0 失败**（新增 22）；`dotnet build Pi.slnx -m:1`
+  **0 警告 0 错误**。
+
+> **4f-3d 余 1 个 / 1,435 行**：`tree-selector`。
+
+
 
 
