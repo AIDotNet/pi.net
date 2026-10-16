@@ -4561,3 +4561,82 @@ console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失�
 > **R2 漂移对账到此全部完成**（S0–S4）。剩余工作回到原计划：S3c（faux 补全）与 S5
 > （4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
 
+---
+
+## 4f-3d 进度（2026-10-16）：Batch F-1（external-editor / extension-editor / model-selector）
+
+第三子批收口后的**第四子批首件**，三个文件一次打包（合计 608 行 TS → 4 个 C# 文件 1,041 行 +
+3 个测试文件 837 行）。动工前按第零节约定重新核对了参照检出——**见 migration-remaining-plan.md
+第零节的「R2 追记」**：参照检出已回到 `428a12bc7`，`eb326d26` 状态（S0–S4 的移植依据）在本地
+不再可达；本批三个文件在两基线间未被漂移触及（最后上游改动分别为 2026-09-20 及更早），按当前
+检出移植。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `modes/interactive/external-editor.ts` | 46 | `Modes/Interactive/ExternalEditor.cs`（118） | `ExternalEditorOptions` / `ExternalEditorResult`（abstract record + Complete/Failed 两态）/ `EditInExternalEditorAsync` |
+| `modes/interactive/model-catalog-refresh.ts` | 55 | `Modes/Interactive/ModelCatalogRefresh.cs`（120） | `ModelCatalogRefreshCoordinator` 共享刷新协调器 |
+| `components/extension-editor.ts` | 141 | `Components/ExtensionEditor.cs`（176） | `ExtensionEditorOptions`（C238 派生 options 类型）+ `ExtensionEditorComponent` |
+| `components/model-selector.ts` | 421 | `Components/ModelSelector.cs`（627） | `ModelSelectorComponent` + 嵌套 `ModelItem`/`ScopedModelItem`/`DefaultModelReference`/`ModelScope` |
+
+### Batch F-1 设计差异
+
+- **C239**（external-editor）：TS `spawn(…, { stdio: "inherit", shell: win32 })` → C# win32 走
+  `cmd.exe /d /s /c "<quoted command>"`（参数含空白/引号时双引号包裹，node shell:true 的近似），
+  非 win32 直接 spawn；stdio inherit = 不重定向、共享控制台句柄。TS 的注释明说**刻意避开
+  `spawnSync`**（Windows 上同步子进程会让 libuv 的控制台输入读保持活跃、与 vim/nvim 抢输入缓冲），
+  C# 本就异步 `WaitForExitAsync`，语义天然对齐。`child.on("error")` → 捕获
+  Win32Exception/InvalidOperationException 返回 null；`exitCode !== 0` 对 null 同样成立（C# `int?`）。
+  临时目录 `mkdtempSync(join(tmpdir(), "pi-editor-"))` → `Directory.CreateTempSubdirectory("pi-editor-")`；
+  写文件用无 BOM 的 `UTF8Encoding(false)`（TS `writeFileSync utf-8` 不写 BOM）；
+  `stripBom(…).replace(/\n$/, "")` → `Text.StripBom` + `EndsWith('\n')` 只剥一个尾随换行
+  （CRLF 文件读回后剥 `\n` 留 `\r`，与 TS 一致）。测试缝：`SpawnOverride`
+  （editor, args, filePath）→ `Task<int?>`，对齐 C232 `OpenBrowser.OpenOverride` 先例。
+- **C240**（model-catalog-refresh）：TS `WeakMap<ModelCatalogRuntime, …>` →
+  `ConditionalWeakTable<object, ActiveRefresh>`（同生命周期语义）；`raceWithAbortSignal` 两处
+  （共享操作 vs 自身 controller、caller await vs caller signal）→ `Abort.RaceWithAbortSignalAsync`
+  两处；`.finally` 的 waiters 递减 / 最后一人中止 / 条目清理 → `try/finally` + `ContinueWith`。
+  `RefreshOverride` 测试缝承载 TS 测试的 `vi.spyOn(modelRuntime, "refresh")`——`ModelRuntime` 是
+  sealed 类，spy 只能落在协调器边界。
+- **C241**（model-selector）：TS 文件本地的 `ModelItem` / `ScopedModelItem` /
+  `DefaultModelReference` / `ModelScope` → **嵌套在 `ModelSelectorComponent` 内的公开类型**——
+  组件命名空间已有 `ScopedModelsSelectorComponent` 的 `ModelItem`（不同形状），1:1 命名只能靠
+  嵌套承载。`sortModels` 的 V8 稳定 sort + `localeCompare` → LINQ 稳定链
+  （`OrderByDescending(IsCurrent) → ThenByDescending(IsDefault) → ThenBy(Provider, CurrentCulture)`，
+  沿用 E-1 的「不稳定 List.Sort 会漂平局序」结论）。`fuzzyFilter` 的 default 置顶去重用
+  `provider\0id` 键（TS 同字符）。后台刷新 `setTimeout(15s) → abort` → `Timer` +
+  `CancellationTokenSource`；`result.errors.keys().next().value`（插入序首键）→ `Keys.First()`
+  （结果字典 append-only，Dictionary 插入序成立）。
+- 不编号：`Input.OnSubmit` 在 C# 是 `Action<string>`（带提交值），TS handler 无参——lambda 忽略实参；
+  `Text` 在 `Pi.Tui.Components` 与 `Pi.Ai.Utils` 重名，两文件用 using 别名消解；
+  extension-editor 的 VISUAL/EDITOR 回退与 TS 同为 truthy 链（空串穿透），
+  但未测（进程级环境变量在并行测试下不可安全注入）。
+
+### 测试与验证（Batch F-1）
+
+- `ExternalEditorTests` **7 / 0**（新建）：上游 3 例全部转写（私有临时目录/失败保留原文/清空后为空；
+  POSIX 目录权限断言按上游同样跳过 Windows）+ 3 个真实 spawn 用例（`cmd /c exit 0` 完成、
+  `cmd /c exit 3` 失败、不存在的编辑器 → spawn 错误 → failed）+ 1 个尾随换行裁剪用例。
+  上游用 node fixture 脚本当编辑器；C# 端文件生命周期用例走 `SpawnOverride`，
+  shell 接线用例走真实子进程。
+- `ExtensionEditorTests` **6 / 0**（新建，上游无该组件测试）：标题/描述/四键提示/prefill 布局、
+  escape 取消、普通输入转发、Enter 提交、注入键位管理器的 app.editor.external 重绑
+  （ctrl+e 生效且 ctrl+g 穿透到编辑器）、外部编辑失败保留原文。
+- `ModelSelectorTests` **5 / 0**（新建）：上游 3 例全部转写——
+  ① current 标记随浏览保持（`→ ✓ id [provider]` → 下移后 `  ✓` + 第二行获得 `→`）；
+  ② 配置化 save 键位（`app.models.save: ctrl+r`，ctrl+s 不触发 / ctrl+r 触发并回传当前模型）；
+  ③ 刷新失败目录聚合文案 `Could not refresh 2 model catalogs (openai, anthropic); showing cached models.`
+  （经 `RefreshOverride` 缝）。另加 2 个自定用例：cancel 先 dispose 再回调、
+  初始搜索无命中走 "No matching models" 路径。
+  模型数据来自离线 `ModelRuntime.CreateAsync` fixture（PI_OFFLINE + OPENAI/ANTHROPIC env key，
+  与会话测试同款），断言按动态 provider/id 读取而非硬编码 TS 夹具 id。
+  **flake 记录**：首轮全量跑两个用例超时——等待条件原写死「Model catalogs refreshed.」成功文案，
+  而真实 `ModelRuntime.RefreshAsync` 在并行负载下可能 >5s 或走 provider 错误路径
+  （渲染 "Could not refresh …"）。改为等「Refreshing model catalogs…」占位消失 + 20s 上限后
+  连跑两轮全量无复发。
+- `Pi.CodingAgent.Tests` 全量 **2544 / 0 失败**（38s 与 35s 两轮）；`dotnet build Pi.slnx -m:1`
+  **0 警告 0 错误**。提交 `3de7e0a`。
+
+> **4f-3d 余 4 个 / 4,424 行**：`config-selector`（951）/ `settings-selector`（993）/
+> `session-selector`（1045）/ `tree-selector`（1435）；`extension-editor`（141）与
+> `external-editor`（46）本批已收口。
+

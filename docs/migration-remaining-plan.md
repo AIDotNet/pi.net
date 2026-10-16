@@ -58,6 +58,26 @@
 > 结论：对账不能只盯 `git log` 的窗口，对「表驱动」的常量（正则表、档位映射表、目录表）
 > 必须逐项 diff 一遍。
 
+### 0.5 R2 追记（2026-10-16 晚，Batch F-1 动工前核对）
+
+参照检出**已退回** `428a12bc7`（`git reflog` 显示 2026-10-12 起 HEAD 即在该提交，此后无移动；
+`eb326d26` 及漂移窗口的 6 组提交在本地**全部不可解析**，也无其他 worktree/克隆承载该状态）。
+逐项实测两基线的特征差异：
+
+| 特征 | 当前检出（428a12bc7） | 结论 |
+| --- | --- | --- |
+| `getToolListError`（settings-manager.ts） | 无 | S2a 领先参照 |
+| `agent-loop.ts` `durationMs` 计时 | 无 | S1 领先参照 |
+| `branch-summary-message.ts` `outputPad` | 无 | S0 领先参照 |
+| codemode prelude `output("console", …)` | 无 | S4 领先参照 |
+| `retry.ts` `server_busy` | 无（`pending stream has been canceled` 在） | S3a 领先参照 |
+| `faux.ts` `tokensPerSecond`（13 处，全文 710 行） | **有** | S3c 与当前检出一致 |
+
+**处置**：S0–S4 的移植成果保留（真实上游演化 + 测试齐全，回退即功能回归）；后续批次以**当前检出
+`428a12bc7` 为参照真值**。已登记的对账风险：待 4f-4 移植 `interactive-mode.ts` 时，当前检出的
+该文件**不含** outputPad 全量接线 / durationMs / `ctx.reload()` 编排，需对照 S0/S1/S2b 已落地的
+C# 组件语义手工补齐，不得直接照抄旧版 TS。
+
 ### 0.3 R2 对账结果（逐包）
 
 | 包 | 漂移面 | C# 现状 | 处置 |
@@ -77,7 +97,7 @@
 | **S3** | ai provider 层：`retry` `server_busy`（`8b5708dbb`）、`radius` 网关目录替换（`43d376399`）、`bedrock` OpenAI reasoning（`2989eb581`）、`faux` 逐消息 prompt cache + 用量估算子系统（`fe11328b0`） | ✅ `2c74e2c`（S3a）；✅ `a633cb2` + `97eae94`（S3b） |
 | **S3c** | faux 补全（**新增**）：`tokensPerSecond` 限速 / `tokenSize` 随机切块 / `deferred` 全链 / `FauxResponseFactory` / `fauxProvider()` / `aborted` 中断 / 四个 `*_start`·`*_end` 事件 / 自定义模型目录 | ✅ 本批（见 [coding-agent-porting-status.md](coding-agent-porting-status.md) 的「S3c」节） |
 | **S4** | codemode 输出条目分离（`eb326d265`）：`==> text N/M <==` 编号 + `<console_output>` 分组 + console 标记 | ✅ `3cd141d` |
-| **S5** | 回到原计划：4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals | 🟡 **进行中**：4f-3d Batch C ✅（5 个：`theme`/`show-images`/`trust`/`thinking`/`user-message`）+ Batch D ✅（4 个：`extension-selector`/`extension-input`/`radius-login-selector`/`first-time-setup`）+ Batch E ✅（6 个：`session-selector-search`/`login-dialog`/`settings-submenu`/`oauth-selector`/`custom-editor`/`scoped-models-selector`），共 15/21，余 6 个 / 4,984 行。**另收口 C233**：`Container`/`Text`/`Box` 三个基类补 `virtual HandleInput`、9 个派生组件改 `override`（此前经 `IComponent` 引用调用会落到空默认实现，影响 Batch C/D 全部组件） |
+| **S5** | 回到原计划：4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals | 🟡 **进行中**：4f-3d Batch C ✅（5 个：`theme`/`show-images`/`trust`/`thinking`/`user-message`）+ Batch D ✅（4 个：`extension-selector`/`extension-input`/`radius-login-selector`/`first-time-setup`）+ Batch E ✅（6 个：`session-selector-search`/`login-dialog`/`settings-submenu`/`oauth-selector`/`custom-editor`/`scoped-models-selector`）+ **Batch F-1 ✅**（`external-editor`/`extension-editor`/`model-selector`），共 17/21 个选择器，余 4 个 / 4,424 行（`config-selector`/`settings-selector`/`session-selector`/`tree-selector`）。**另收口 C233**：`Container`/`Text`/`Box` 三个基类补 `virtual HandleInput`、9 个派生组件改 `override`（此前经 `IComponent` 引用调用会落到空默认实现，影响 Batch C/D 全部组件） |
 
 ---
 
@@ -491,8 +511,11 @@
 | 2026-10-16 | **4f-3d Batch E-5** | 选择器组第三子批第五件（非选择器，是所有面板/输入流共用的宿主组件）：`custom-editor.ts`（148 行 → `Components/CustomEditor.cs` 220 行 + 测试 428 行）。`CustomEditor : Editor` + `CustomEditorOptions : EditorOptions`（TS 的 `EditorOptions & { embedWorkingStatus? }` 交叉类型）；`renderTopBorder` 三段回退（零宽状态 → 溢出标签放不下时塌成纯转轮**再重算一次** `canFitOverflow`（闭包读被重新赋值的 `statusWidth`）→ 前缀截断）；`handleInput` 七层优先级（扩展快捷键 truthy 判定 → pasteImage → interrupt **仅当自动完成未激活** → exit **仅当文本为空**且 `onCtrlD ?? actionHandlers.get(...)` 只跑一个 → history 交还基类 → 其余应用动作按 `Map` 插入序 → 兜底基类）。上游 5 例中 4 例转写。新登记 **C238**（`EditorOptions` 去掉 `sealed`：C# 无交叉类型，且与 C233 同链——接口映射建在「列出 `IComponent` 的类」上，子类必须 `override` 才进映射，`Tui` 正是经接口引用驱动焦点组件）。另记不编号：`actionHandlers` 用 `Dictionary(Ordinal)` 复现 `Map` 插入序（**仅无删除时**）。踩坑 7 条（5 条是测试自身写错）：`SetText` 把光标放行尾使 delete-char-forward 成 no-op；空格不触发自动完成而 T25 又晚一个微任务；`Editor` 自己不画 `> ` 提示符；上游 `render` 无 `width <= 0` 守卫故宽度 0 渲染三条线是忠于 TS；溢出回退宽度要手算；带 timer 的指示器必须 `try/finally` dispose 否则夹具拆主题后抛未处理异常 | `9665bc6` | 新建 `CustomEditorTests` **22 / 0**（上游 5 例转写 + 输入优先级 9 项 + 边框布局 8 项）；单跑 3s；`Pi.CodingAgent.Tests` 全量 **2502 / 0 失败**（40s）；`Pi.Tui.Tests` 全量 **23854 / 0 失败** 连跑两轮（动了共享基类 `Editor`）；构建 0 警告 0 错误
 | 2026-10-16 | **4f-3d Batch E-6** | 选择器组第三子批第六件：`scoped-models-selector.ts`（401 行 → `Components/ScopedModelsSelector.cs` 520 行 + `Interactive/ModelSearch.cs` 42 行 + 测试 469 行）。模型配置面板（Ctrl+P 循环用的启用/禁用，会话内有效、Ctrl+S 才落盘）：`ModelsConfig`/`ModelsCallbacks` 两个记录 + `EnabledIds`（`null` = 全开，显式列表 = 有序名单，两者在页脚可观测地区分）代数七个纯函数（`isEnabled`/`normalizeEnabled`/`toggle`/`enableAll`/`clearAll`/`move`/`getSortedIds`）+ `ScopedModelsSelectorComponent`。钉住的语义：启用 id 排在其余之前（含已不在目录里的）；`normalizeEnabled` 在显式列表覆盖全目录时塌回 `null`；页脚分母是**目录规模**且 `· N unavailable` 只在 N > 0 时出现；搜索时 `enableAll`/`clearAll` 只作用于过滤集；`toggleProvider` 按 provider 全开则清、否则补；reorder 只在显式列表内、越界与未启用都是 no-op 且不通知；Ctrl+C 先清搜索再取消；`updateModels` 按 fullId 找回选中行。上游 4 例全部转写。新登记不编号的三处：`void | Promise<void>` 回调 → `Action`（组件从不 await）；`enabledModelIds?: string[] | null` 三态用**两个重载**承载（C# 分不出「省略实参」与「显式传 null」）；`setRefreshStatus` 的 `"muted" | "success" | "warning"` → `enum StatusKind` + 显式映射 | `3870e58` | 新建 `ScopedModelsSelectorTests` **24 / 0**（上游 4 例全部转写 + 20 项补）；单跑 461ms；`Pi.CodingAgent.Tests` 全量 **2526 / 0 失败**（42s）；构建 0 警告 0 错误
 
+| 2026-10-16 | **4f-3d Batch F-1** | 第四子批首件，三文件打包（TS 608 行 → C# 1,041 行 + 测试 837 行）：`external-editor.ts`（46）→ `Modes/Interactive/ExternalEditor.cs`（私有临时目录 prompt.md 往返、win32 shell 包装、异步子进程、StripBom + 单尾随换行裁剪、`SpawnOverride` 缝）、`model-catalog-refresh.ts`（55）→ `ModelCatalogRefresh.cs`（ConditionalWeakTable 承载 WeakMap、waiters 计数、最后一人中止共享刷新、`RefreshOverride` 缝承载 vi.spyOn）、`extension-editor.ts`（141）→ `Components/ExtensionEditor.cs`（注入 app 键位管理器解析 app.editor.external、VISUAL/EDITOR 三级回退）、`model-selector.ts`（421）→ `Components/ModelSelector.cs`（快照即渲染 + 后台刷新三路文案、current/default 优先的稳定排序、all/scoped Tab 切换、fuzzy + "default" 置顶去重、10 行可视窗口）。**动工前基线核对发现参照检出已退回 `428a12bc7`、`eb326d26` 不可达**（见第零节 0.5 追记）；本批三文件未被漂移触及，按当前检出移植，S0–S4 成果保留。新登记 **C239–C241**。**flake 记录**：首轮全量 2 用例超时（等待条件写死成功文案），改等「刷新中」占位消失后连跑两轮无复发 | `3de7e0a` | 新增 18 项（ExternalEditorTests 7 / ExtensionEditorTests 6 / ModelSelectorTests 5）；`Pi.CodingAgent.Tests` 全量 **2544 / 0 失败**（两轮）；构建 0 警告 0 错误 |
+
 > **R2 漂移对账（S0–S4）与 S3c 已全部完成。** `packages/ai` 已无已知缺口。
-> 4f-3d 已收口 Batch C + D + E（15/21 个选择器），**余 6 个 / 4,984 行**；
+> 4f-3d 已收口 Batch C + D + E + F-1（17/21 个选择器 + external-editor），**余 4 个 / 4,424 行**
+> （`config-selector` / `settings-selector` / `session-selector` / `tree-selector`）；
 > 另已修掉 C233（`IComponent.HandleInput` 接口映射）这一影响全部已收口组件的系统性缺陷。
 > 其后仍是原计划 **S5**（4f-3d 余 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
 
