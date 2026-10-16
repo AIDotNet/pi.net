@@ -7,7 +7,8 @@ namespace Pi.Codemode.Runtime;
 /// 与全局函数。工具参数与结果以 JSON 字符串跨界，并在这一侧解析。<para/>
 /// 输出助手：<c>text(value)</c> 追加文本项（非字符串被 JSON 序列化）、<c>image(urlOrItem)</c> 从 base64
 /// <c>data:</c> URL、<c>{ image_url }</c> 对象或 MCP <c>ImageContent</c> 块追加图片、<c>exit()</c> 成功结束脚本；
-/// <c>console.*</c> 像 <c>text()</c> 一样追加文本项。<para/>
+/// <c>console.*</c> 追加**带 console 标记**的文本项（kind 为 <c>"console"</c>，由引擎映射为
+/// <c>console: true</c>），宿主据此把它们聚进一个 <c>&lt;console_output&gt;</c> 块。<para/>
 /// <c>store(key, value)</c> 与 <c>load(key)</c> 是同步的：作用于随 <c>storeJson</c> 传入的 JSON 文本快照，
 /// 脚本写入的键在一次成功的 "done" 里上报。<para/>
 /// 求值结果为函数 <c>(bridge, toolsJson, globalsJson, storeJson) =&gt; { settle, run, stalled }</c>：
@@ -15,8 +16,8 @@ namespace Pi.Codemode.Runtime;
 /// 调用工具，<c>ALL_TOOLS</c> 列出 <c>{ name: jsName, description }</c>；<c>stalled()</c> 上报「未结束且无
 /// host 调用挂起」的脚本（VM 里没有定时器与 I/O，这样的脚本永远无法被恢复）；<c>globalsJson</c> 列出
 /// <c>{ name, spread }</c>，<c>a.b</c> 形式的名字归入一个冻结的 <c>a</c> 对象。<c>bridge(kind, a, b, c)</c>
-/// 的 kind 为 "call"/"global"（id, name, argsJson）、"output"（"text", text）或（"image", data, mimeType）、
-/// "done"（ok, valueJsonOrErrorJson, writesJson）。
+/// 的 kind 为 "call"/"global"（id, name, argsJson）、"output"（"text" 或 "console", text）或
+/// （"image", data, mimeType）、"done"（ok, valueJsonOrErrorJson, writesJson）。
 /// </summary>
 public static class CodemodePrelude
 {
@@ -347,7 +348,7 @@ public static class CodemodePrelude
 	const console = {};
 	for (const level of ["log", "info", "warn", "error", "debug"]) {
 		console[level] = (...args) => {
-			output("text", args.map(format).join(" "));
+			output("console", args.map(format).join(" "));
 		};
 	}
 	Object.freeze(console);

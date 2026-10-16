@@ -507,6 +507,21 @@ public class SandboxTests
     }
 
     [Fact]
+    public void ConsoleOutputUsesTheConsoleBridgeKind()
+    {
+        var source = CodemodePrelude.Source;
+
+        // 上游 eb326d265：console.* 走独立的 "console" kind，引擎据此置 console: true，
+        // 宿主才能把它们聚进一个 <console_output> 块。若退回 "text"，分组会静默失效。
+        Assert.Contains("""output("console", args.map(format).join(" "));""", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("""output("text", args.map(format).join(" "));""", source, StringComparison.Ordinal);
+
+        // 三个 kind 的取值保持互不相同。
+        Assert.Contains("""output("text", rendered);""", source, StringComparison.Ordinal);
+        Assert.Contains("""output("image", data, signature[0]);""", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LoadsAndCachesQuickJSWasmPerPath()
     {
         var path = Path.Combine(Path.GetTempPath(), $"pi-codemode-{Guid.NewGuid():n}.wasm");

@@ -9,7 +9,11 @@ namespace Pi.Codemode.Runtime;
 /// 实现方职责（对应 worker.ts）：在全新 VM 里求值 <see cref="CodemodePrelude.Source"/> 得到
 /// <c>{ settle, run, stalled }</c>；把 <c>data.Code</c> 包成
 /// <c>(async (tools, console) =&gt; {${code}\n})</c> 后运行（前缀与脚本共享首行，报错行号才与
-/// 手写脚本一致）；VM 消息经 <c>onMessage</c> 有序送达 host；host 的 result 消息经
+/// 手写脚本一致）；VM 消息经 <c>onMessage</c> 有序送达 host；<c>bridge("output", kind, …)</c> 按
+/// <c>kind</c> 映射为输出条目——<c>"image"</c> → <see cref="CodemodeOutputItem.Image"/>，
+/// <c>"console"</c> → 带 <see cref="CodemodeOutputItem.Text.Console"/><c>= true</c> 的
+/// <see cref="CodemodeOutputItem.Text"/>（宿主据此聚进 <c>&lt;console_output&gt;</c> 块），
+/// 其余（<c>"text"</c>）→ 普通文本项；host 的 result 消息经
 /// <see cref="ICodemodeVm.Post"/> 送入 <c>settle</c>；每条消息处理后执行待决作业并调用
 /// <c>stalled()</c>（对应 TS 的 drain）；VM 在脚本控制之外失败（wasm trap 等）以
 /// <see cref="WorkerToHostMessage.Crash"/> 上报；QuickJS 写向 fd 1/2 的引擎诊断应被丢弃
