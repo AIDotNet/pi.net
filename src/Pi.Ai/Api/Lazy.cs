@@ -11,8 +11,11 @@ namespace Pi.Ai.Api;
 /// </summary>
 public static class LazyStream
 {
-    /// <summary>准备失败时构造的错误终态消息（零用量 + StopReason.Error）。</summary>
-    public static AssistantMessage SetupErrorMessage(ModelSpec model, Exception error)
+    /// <summary>
+    /// 准备失败时构造的错误终态消息（零用量 + StopReason.Error）。
+    /// <paramref name="timestamp"/> 是流创建时刻——准备失败消息沿用请求开始时间，而不是失败发生的时刻。
+    /// </summary>
+    public static AssistantMessage SetupErrorMessage(ModelSpec model, Exception error, long timestamp)
         => new(
             Content: [],
             StopReason: StopReason.Error,
@@ -21,7 +24,7 @@ public static class LazyStream
             Model: model.Id,
             Api: model.Api,
             Provider: model.Provider,
-            Timestamp: DateTimeOffset.Now.ToUnixTimeMilliseconds());
+            Timestamp: timestamp);
 
     /// <summary>
     /// 运行延迟准备并把内层事件流转发到外层流。对应 TS <c>lazyStream</c> +
@@ -30,6 +33,7 @@ public static class LazyStream
     public static IAssistantMessageEventStream Run(
         ModelSpec model, Func<Task<IAssistantMessageEventStream>> setup)
     {
+        var startedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var outer = new AssistantMessageEventStream();
         _ = Task.Run(async () =>
         {
@@ -44,7 +48,7 @@ public static class LazyStream
             }
             catch (Exception error)
             {
-                var message = SetupErrorMessage(model, error);
+                var message = SetupErrorMessage(model, error, startedAt);
                 outer.Push(new AssistantMessageEvent.Error(message.StopReason, message.ErrorMessage!, message));
                 outer.End(message);
             }

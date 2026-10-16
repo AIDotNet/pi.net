@@ -507,7 +507,7 @@ public partial class AgentSession
             NestedToolExecutionEvent.Update update => new AgentSessionEvent.ToolExecutionUpdateEvent(
                 update.ToolCallId, update.ToolName, update.Args, update.PartialResult, update.ParentToolCallId),
             NestedToolExecutionEvent.End end => new AgentSessionEvent.ToolExecutionEndEvent(
-                end.ToolCallId, end.ToolName, end.Result, end.IsError, end.ParentToolCallId),
+                end.ToolCallId, end.ToolName, end.Result, end.IsError, end.DurationMs, end.ParentToolCallId),
             _ => throw new InvalidOperationException("Unknown nested tool execution event"),
         };
     }
@@ -1180,7 +1180,7 @@ public partial class AgentSession
         AgentEvent.ToolExecutionUpdate update => new AgentSessionEvent.ToolExecutionUpdateEvent(
             update.ToolCallId, update.ToolName, update.Args, update.PartialResult),
         AgentEvent.ToolExecutionEnd end => new AgentSessionEvent.ToolExecutionEndEvent(
-            end.ToolCallId, end.ToolName, end.Result, end.IsError),
+            end.ToolCallId, end.ToolName, end.Result, end.IsError, end.DurationMs),
         _ => throw new InvalidOperationException($"Unknown agent event {@event.GetType().Name}"),
     };
 

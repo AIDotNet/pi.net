@@ -39,7 +39,12 @@ public abstract record AgentEvent
 
     public sealed record ToolExecutionUpdate(string ToolCallId, string ToolName, object? Args, object? PartialResult) : AgentEvent;
 
-    public sealed record ToolExecutionEnd(string ToolCallId, string ToolName, object? Result, bool IsError) : AgentEvent;
+    public sealed record ToolExecutionEnd(
+        string ToolCallId,
+        string ToolName,
+        object? Result,
+        bool IsError,
+        long? DurationMs = null) : AgentEvent;
 }
 
 /// <summary>事件槽：AgentLoop 的每一事件都经过它发出。对应 TS <c>AgentEventSink</c>。</summary>

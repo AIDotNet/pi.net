@@ -114,7 +114,8 @@ public static class BashRenderers
         ToolRenderResultOptions options,
         bool showImages,
         long? startedAt,
-        long? endedAt)
+        long? endedAt,
+        long? durationMs)
     {
         var theme = ThemeRuntime.Current;
         component.Clear();
@@ -193,7 +194,14 @@ public static class BashRenderers
 
         // A final result's recorded duration wins: it is monotonic and survives reloads. The renderer's
         // own clock is the fallback for live progress and for results stored without one.
-        if (startedAt is not null)
+        if (!options.IsPartial && durationMs is not null)
+        {
+            component.AddChild(new Text(
+                $"\n{theme.Fg(ThemeColors.Muted, $"Took {FormatDuration(durationMs.Value)}")}",
+                0,
+                0));
+        }
+        else if (startedAt is not null)
         {
             var label = options.IsPartial ? "Elapsed" : "Took";
             var endTime = endedAt ?? Now();
@@ -248,7 +256,8 @@ public static class BashRenderers
                 options,
                 context.ShowImages,
                 state.StartedAt,
-                state.EndedAt);
+                state.EndedAt,
+                context.DurationMs);
             component.Invalidate();
             return component;
         },

@@ -1,14 +1,79 @@
 # coding-agent 剩余迁移：现状分析、迁移清单与分阶段计划
 
-> 生成时间：2026-10-13
-> 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`428a12bc7`（= `origin/main`）**
-> 目标仓库：`D:\AI\参考项目\pi.net`（`src/Pi.CodingAgent`），起始 commit **`f208567`**
+> 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段）
+> 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d26`（= 当前检出）**
+> 目标仓库：`D:\AI\参考项目\pi.net`（`src/Pi.CodingAgent`），当前 commit **`42ed85c`**
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C188`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C206`）。
 
 ---
 
-## 一、现状快照（2026-10-13 实测）
+## 零、2026-10-16 修订：参照基线漂移（R2 已发生）
+
+### 0.1 事实
+
+动工前按约定执行 `git -C D:\AI\参考项目\pi log -1`，发现参照检出**已不在** `428a12bc7`：
+
+| 项 | 值 |
+| --- | --- |
+| 台账记录的基线 | `428a12bc7`（2026-10-06 08:18 UTC） |
+| 实际检出 HEAD | `eb326d26`（2026-10-06 21:51 UTC） |
+| 漂移提交数 | **25** |
+| 其中触及 `packages/coding-agent` | 8 |
+| 其中触及 `modes/interactive` | 3 |
+
+漂移不是排版/文档改动，而是一组**真实特性**：
+
+| 提交 | 内容 |
+| --- | --- |
+| `18336987a` | `outputPad` 应用到**所有** transcript 块（此前只覆盖消息类组件） |
+| `36a686ee8` | 记录响应 / 工具执行 / durable 任务耗时（`durationMs` 贯穿 ai → agent → coding-agent） |
+| `f284a2460` | 响应计时用私有字段 + 真实流（`AssistantMessageEventStream` 自己计时） |
+| `ddaa0a034` | `--tools` 接受 `+name` / `-name` 修饰符（并新增 `getToolListError` 校验） |
+| `eb326d265` | codemode 输出条目分离 |
+| `83c9e2645` | transcript 重建时清空全屏选区（`TuiAltScreen.resetTextSelection`） |
+| 其余 5 项 | `bedrock` gpt-oss/gpt 思考档位映射、`radius` 网关目录替换内置基线、`faux` 逐消息 prompt cache、`retry` 增加 `server_busy`、`ai` 事件流可赋值性 |
+
+### 0.2 关键发现：端口本就**部分领先于**台账基线
+
+逐文件核对后发现，端口**并非**统一停在 `428a12bc7`：若干模块早已包含 post-baseline 特性
+（`AssistantMessage.DurationMs`、`ToolResultMessage.DurationMs`、`ExtensionEvent.ToolExecutionEnd.DurationMs`、
+`NestedToolExecutionEvent.End.DurationMs`、`NestedToolCalls` 计时、`Estimate.CharsPerToken = 3.5`）。
+
+反过来，也有若干处是**按旧基线主动删掉、而上游后来又加回来**的：
+
+| C# 站点 | 旧处置 | 依据 | 现处置 |
+| --- | --- | --- | --- |
+| `ToolRenderContext.DurationMs` | 4f-1 判为「臆造」删除 | 旧基线 `types.ts` 无此字段 | **加回**（上游 `36a686ee8` 真加了） |
+| `BashRenderers` 的 `durationMs` 优先分支 | 同上删除 | 同上 | **加回** |
+| `SettingsManager.GetToolListError` | 4f-3 前判为「TS 没有」删除 | 旧基线无校验 | **加回**（上游 `ddaa0a034` 真加了） |
+
+> **结论（约定修订）**：以**当前检出**为唯一参照真值。旧基线下「TS 没有 → 删除」的判定不再自动成立，
+> 每批动工前必须重新核对当前检出。这条取代原来的「确认仍在 `428a12bc7`」。
+
+### 0.3 R2 对账结果（逐包）
+
+| 包 | 漂移面 | C# 现状 | 处置 |
+| --- | --- | --- | --- |
+| `packages/tui` | `box.ts` / `text.ts` 加 `setPaddingX`；`tui-alt-screen.ts` 加 `resetTextSelection` | **已全部具备**（`Box.SetPaddingX` / `Text.SetPaddingX` / `TuiAltScreen.ResetTextSelection`） | 无需改动 ✅ |
+| `packages/agent` | `agent-loop.ts` 在 `execute()` 周围计时；`ToolExecutionEnd` 事件带 `durationMs` | `AgentToolCallOutcome.DurationMs` 已有；**事件与计时缺失** | S1 补齐 |
+| `packages/ai` | 事件流自计时、`lazy` 用流创建时刻、`bedrock` gpt-oss 映射、`radius` 目录替换、`faux` 逐消息 cache、`retry` `server_busy` | `Estimate` 已对齐；**其余 5 项缺失** | S1（事件流/`lazy`）+ S3（provider 层） |
+| `packages/coding-agent` | `outputPad` 全量 / `durationMs` 贯穿 / `--tools` 修饰符 / codemode 条目分离 / 选区重置 | 见下表 | S0 / S1 / S2 / S4 |
+
+### 0.4 修订后的阶段计划
+
+| 阶段 | 范围 | 状态 |
+| --- | --- | --- |
+| **S0** | `outputPad` 回填到 4f-3c 已收口的 3 个折叠消息组件 + `CustomMessageComponent` 默认渲染 | ✅ `42ed85c` |
+| **S1** | `durationMs` 贯穿：`agent-loop` 计时 → `ToolExecutionEnd` 事件 → `ToolResultMessage`；`AssistantMessageEventStream` 自计时；`lazy` 用流创建时刻；coding-agent 侧 `ToolRenderContext.DurationMs` / `ToolExecutionEndEvent.DurationMs` / `BashRenderers` 优先分支 / `ToolHtmlRenderer` | 本批 |
+| **S2** | `--tools` 修饰符：`GetToolListError` 回填 + `Sdk` tools 语义 + `AgentSessionConfig.DefaultToolModifiers` + reload 接线 | 待办 |
+| **S3** | ai provider 层：`bedrock` gpt-oss/gpt 档位映射、`radius` 网关目录替换、`faux` 逐消息 prompt cache、`retry` `server_busy` | 待办 |
+| **S4** | codemode 输出条目分离 | 待办 |
+| **S5** | 回到原计划：4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals | 待办 |
+
+---
+
+## 一、现状快照（2026-10-16 复测）
 
 ### 1.1 规模对照
 
@@ -346,7 +411,7 @@
 | # | 风险 | 影响 | 处置 |
 | --- | --- | --- | --- |
 | R1 | **推送通道间歇不可用（本轮再次发生，已有可用绕行）** | 阶段产出无法上远端 | 实测（2026-10-13 上午）：`https` 经本机代理对 `github.com` 返回 **502 CONNECT tunnel failed**；`ssh -p 443 git@ssh.github.com` 可达但 **publickey 未授权**。**2026-10-13 下午代理短暂恢复**：`git push origin main` 成功（`f208567..7b942b3`）。**2026-10-13 晚再次 502（连续 5 次重试均失败，`github.com` CONNECT 502 / `Empty reply`）**，但同代理下 `api.github.com` 正常（200）→ 改用 **REST API 复制提交**绕行（见下），已成功推送 `bb874f6`；**P2b 推送时代理又恢复**，`git push origin main` 成功（`e70f5dd..02707fd`）。**4e-3c-2a / 4e-3c-2b 推送时代理再次 502**（`fatal: unable to access … schannel: server closed abruptly`），改用下述 REST API 绕行**一次推上两个提交**（`82b47aa` + `05e9c58`，远端 head `05e9c58d`）。**P4a 推送时代理/SSH 恢复**：`git push origin main`（走 `git@github.com`）一次成功（`696dab5..bafb72e`）。<br>**绕行做法（可复用）**：`GET /repos/:o/:r/git/ref/heads/main` 确认远端 HEAD == 本地 `HEAD^`；对每个改动文件 `POST /git/blobs`（内容取 `git cat-file blob <sha>:<path>` 的原始字节，base64），校验返回 SHA == 本地 blob SHA；`POST /git/trees`（`base_tree` = 父树）校验树 SHA == 本地树 SHA；`POST /git/commits`（message / author / committer / date 与本地**逐字节一致**）校验提交 SHA == 本地 SHA；最后 `PATCH /git/refs/heads/main`。因 SHA 完全相同，本地与远端天然同步，无需 `fetch`；本地 `refs/remotes/origin/main` 用 `git update-ref` 手工对齐。<br>**其它出路**：把 `~/.ssh/id_rsa.pub` 加到 GitHub 账号后改走 `ssh://git@ssh.github.com:443/xuzeyu91/pi.net.git`。 |
-| R2 | 参照检出漂移 | 语义错位（9-0 已发生过一次） | 每阶段动工前 `git -C D:\AI\参考项目\pi log -1` 确认仍在 `428a12bc7` |
+| R2 | 参照检出漂移 | 语义错位（9-0 已发生过一次） | **2026-10-16 再次发生并已处置**：检出从 `428a12bc7` 漂到 `eb326d26`（25 提交，6 组真实特性）。**约定修订**：以当前检出为唯一参照真值；旧基线下「TS 没有 → 删除」的判定不再自动成立（`ToolRenderContext.DurationMs` / `GetToolListError` / `BashRenderers` 优先分支三处即因此被误删）。详见第零节 |
 | R3 | 沙箱构建/测试限制 | 假阳性失败 | 构建必须 `-m:1`；`dotnet test` stdout 为空，改跑 `.exe` + `iconv GBK→UTF-8`；过滤用 `--filter-class` |
 | R4 | `4f` 体量（23.7k 行） | 单会话不可完成 | 已切 5 个子阶段，每子阶段独立提交 |
 | R5 | ~~package-manager 缺口~~ ✅ 已关闭 | 真机装包链路失效 | 已于 2026-10-13 收口（4e-3c-2a `82b47aa` + 4e-3c-2b）；余 `4e-3c-3` 的 update/网络检查不阻塞 4f/4g |
@@ -379,5 +444,8 @@
 | 2026-10-14 | 4f-3b | 词级差分与 diff 渲染器：`Core/Tools/JsDiff.cs`（653 → 1,095 行）补 jsdiff 8.0.4 `diffWords` 本体（`WordDiff` 的 tokenize 空白拼接遍 / 按 JS `\s` 裁边的 `equals` / 只留首 token 前导空白的 `join` / `dedupeWhitespaceInChangeObjects` 五分支的 `postProcess`），并给 `DiffBase` 补 `PostProcess` 钩子；`Modes/Interactive/Components/DiffRenderer.cs`（265 行）移植 `diff.ts` 的 `renderDiff` / `parseDiffLine` / `replaceTabs` / `renderIntraLineDiff`，正则的三处 JS/.NET 语义差异显式化；新登记 C199/C200/C201；**这解掉了 4f-1 的最后一块阻塞**（`renderers/edit.ts` 要 `renderDiff`） | `6821cda`（已推送） | 两条新差分语料（`diffwords-corpus.json` 86 例驱动上游 jsdiff UMD 包本体；`renderdiff-corpus.json` 83 例**直接执行上游 `diff.ts` 文件本体**、只改写两行 import）；三个新测试类 **202 / 0 失败**；另用随机化差分搜索确认纯净实现在 **15,000 组随机输入上与上游逐条一致**，并据此补进 18 条判别输入、判定 3 个锚点为等价变异；`Pi.CodingAgent.Tests` 全量 **2126 / 0 失败**（3m38s，1924 + 202）；`dotnet build Pi.slnx -m:1` 0 警告 0 错误；变异套件 `diffwords`（13 锚点）+ `diff-renderer`（16 锚点）**29 处全捕获** |
 | 2026-10-15 | 4f-1（补记） | **八个工具 renderer 全套**（TS `core/tools/renderers/*` 9 文件 1,145 行 → C# 10 文件 2,242 行 + `Utils/Js.cs` 319 行）：`BashRenderers` / `EditRenderers`（含后台 preview）/ `FindRenderers` / `GrepRenderers` / `LsRenderers` / `ReadRenderers`（compact 分类与 pi-docs 识别）/ `WriteRenderers` / `BuiltInToolRenderers`（`index.ts` 注册表）+ `RenderUtils`（`render-utils.ts` 112 行全量）。语料 `tool-renderers-corpus.json`（11,242 行 / 104 case / 110 断言）由生成脚本驱动 **TS renderer 本体**产出（脚本按惯例未入库已丢失）；`ToolRenderersCorpusTests.cs` 798 行重放组件树。`Pi.Tui` 侧 `Box` 去 sealed + 状态只读访问器（语料观察用）、`Text`/`Spacer` 同理。**流程偏离**：提交 `a0caf71` 的信息是通用的 "Refactor code structure…"，未按仓库惯例写明内容、未随提交更新本文档——发现于 4f-3c 收口时，此处补记 | `a0caf71`（已推送） | 语料 110/0；全量见 4f-3c 行（本批修复前该套件 27 处失败，见下） |
 | 2026-10-15 | 4f-3c | **消息类组件 11 个**（TS 855 行 → C# 1,150 行 + 测试 515 行）：`AssistantMessageComponent`（OSC 133 zone / thinking 合并与点击折叠 / transformer 链 / 流式语义）/ `UserMessageComponent`（transform 复用 + zone）/ `CustomMessageComponent`（自定义 renderer 优先 + 回退）/ `BranchSummary` / `CompactionSummary` / `SkillInvocation`（三个折叠消息 + MouseRegion）/ `StatusIndicator`（4 子类 + `IdleStatus` + 边框内渲染）/ `CountdownTimer`（`setInterval`→`Timer`）/ `AuthUrlComponent`（hyperlink + 复制提示）/ `PiLogo`（半块像素画 + Apple Terminal 回退）/ `MarkdownTransform`（扩展 transformer 链）。**前置补齐 `Pi.Tui` 三个真实缺口**：`Box` 补 `HandleMouse` + `mouseLayout` 命中缓存（TS `Box` 本体就有，此前遗漏）、`Box.Invalidate` 改 virtual（子类重建内容）、新增 `TerminalSession.IsAppleTerminalSession`；`JsNumber` 补 `ToLocaleString`。**本批修复上批（4f-1）遗留的 27 处语料失败**，根因四类：① 夹具未装载 `AppKeybindings` 全表进全局注册表（`keyText` 渲染空串）；② C# `BashRenderers` 臆造 `durationMs` 直算分支（TS 无此语义，`ToolRenderContext.DurationMs` 系臆造成员）——已删，夹具改为按语料反推出的生成器时钟规则 mock（call 时刻 + durationMs；partial 用挂钟）；③ 夹具对输入路径做包根重写但期望树未同步——补 `RewriteExpectedRoots`；④ TS 生成器把语料 `"none"` 字符串原样塞进 `capabilities.images`（out-of-type、truthy），C# 枚举映射为 falsy `None` 导致图片占位多渲染——夹具改用 truthy 代表值。另修 EditPreview 后台任务被并行测试的主题重置打断（fire-and-forget 死亡 → pending 卡死）：整个套件移入 `DisableParallelization` collection（vitest 文件隔离的 xUnit 等价物）。新登记 C202–C205 | 本轮提交 | 语料 110/0；`MessageComponentsTests` 20/20；`Pi.CodingAgent.Tests` 全量 **2256 / 0 失败**（1m15s，连续两轮）；`Pi.Tui.Tests` 23854 / 0；构建 0 警告 0 错误 |
+
+| 2026-10-16 | **S0（R2-1）** | `outputPad` 回填到已收口组件：`BranchSummaryMessageComponent` / `CompactionSummaryMessageComponent` / `SkillInvocationMessageComponent` 构造函数新增 `outputPad`（默认 1）并传给 `Box` 的 `paddingX`，新增 `SetOutputPad` → `SetPaddingX`；`CustomMessageComponent` 默认渲染路径补 `_box.SetPaddingX(_outputPad)`。**动因**：参照检出已从 `428a12bc7` 漂移到 `eb326d26`（25 提交），漂移含 6 组真实特性（见第零节）。`Pi.Tui` 侧 `Box.SetPaddingX` / `Text.SetPaddingX` / `TuiAltScreen.ResetTextSelection` 经核实已具备，无需改动 | `42ed85c`（已推送） | `MessageComponentsTests` **22 / 0**（新增 2）；`Pi.CodingAgent.Tests` 全量 **2258 / 0 失败**（5m12s）；构建 0 警告 0 错误 |
+| 2026-10-16 | **S1（R2-2）** | `durationMs` 全链路贯通（上游 `36a686ee8` + `f284a2460`）：**`Pi.Agent`** 在 `execute()` 周围用单调时钟计时（`ExecutePrepared` / `ExecutePreparedAsync` 返回 `ExecutedToolResult`），`AgentEvent.ToolExecutionEnd` 增加 `DurationMs`，`ToolResultMessage.DurationMs` 随之落地（被阻断的调用不执行 → 不记录耗时）；**`Pi.Ai`** `AssistantMessageEventStream` 自计时（`done`/`error`/`end` 三路，`timestamp` 早于流创建时刻或已有 `DurationMs` 则跳过），`EventStream` 暴露 `IsEnded`，`LazyStream.SetupErrorMessage` 改用**流创建时刻**而非失败时刻；**`Pi.CodingAgent`** 加回 `ToolRenderContext.DurationMs`（4f-1 曾按旧基线判为「臆造」删除，上游已真加）、`AgentSessionEvent.ToolExecutionEndEvent.DurationMs` 并接线两处构造点、`BashRenderers` 恢复「记录时长优先于渲染器时钟」分支、`ToolHtmlRenderer` 补 `DurationMs = null`；**语料夹具修正**：`ToolRenderersCorpusTests` 把 `step.DurationMs` 真正传进 `ToolRenderContext`（此前只用于推进 mock 时钟，导致 9 条语料从未覆盖该分支） | 本批提交 | `Pi.Agent.Tests` **33 / 0**；`Pi.Ai.Tests` **307 / 0**（新增 6）；`BashRenderersDurationTests` 新增 4；`ToolRenderersCorpusTests` 110/0（夹具修正后仍全绿，验证「时钟推演值 == 记录值」）；`Pi.CodingAgent.Tests` 全量 **2262 / 0 失败**（4m54s）；构建 0 警告 0 错误。新登记 **C207–C209** |
 
 （后续阶段完成后逐行追加。）

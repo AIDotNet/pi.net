@@ -53,6 +53,9 @@ public sealed class EventStream<TEvent, TResult> : IAssistantEventStream<TEvent,
         _completion.TrySetException(error);
     }
 
+    /// <summary>流是否已结束（对齐 TS <c>EventStream.done</c> 的可见性）。</summary>
+    public bool IsEnded => _ended;
+
     /// <summary>等待终值（流结束后完成）。</summary>
     public Task<TResult> WaitForResultAsync(CancellationToken cancellationToken = default)
         => _completion.Task.WaitAsync(cancellationToken);

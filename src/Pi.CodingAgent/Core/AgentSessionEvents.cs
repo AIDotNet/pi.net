@@ -94,11 +94,15 @@ public abstract record AgentSessionEvent
     }
 
     /// <summary>TS <c>tool_execution_end</c>（+ 可选 parentToolCallId，差异 C147）。</summary>
+    /// <param name="DurationMs">
+    /// <c>execute()</c> 的耗时（毫秒，单调时钟）；工具未运行时为 <c>null</c>。TS <c>durationMs?</c>。
+    /// </param>
     public sealed record ToolExecutionEndEvent(
         string ToolCallId,
         string ToolName,
         object? Result,
         bool IsError,
+        long? DurationMs = null,
         string? ParentToolCallId = null) : AgentSessionEvent
     {
         public override string Type => "tool_execution_end";

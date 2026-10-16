@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Pi.Ai.Types;
 using Pi.Agent.Types;
 
@@ -63,22 +64,27 @@ public static partial class ToolExecution
         }
 
         var executed = await ExecutePreparedAsync(ready, signal, onUpdate).ConfigureAwait(false);
-        return await Finalize(executed, ready, context, assistantMessage, config, signal).ConfigureAwait(false);
+        return await Finalize(executed.Result, executed.DurationMs, ready, context, assistantMessage, config, signal)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
     /// <see cref="ExecutePrepared"/> 的 onUpdate 直通变体：<see cref="RunToolCallAsync"/>
     /// 不经过事件槽，流式增量按 TS 的 <c>onUpdate</c> 回调转发。
     /// </summary>
-    private static async Task<AgentToolResult> ExecutePreparedAsync(
+    private static async Task<ExecutedToolResult> ExecutePreparedAsync(
         PreparedCall.Ready prepared,
         CancellationToken signal,
         AgentToolUpdateCallback? onUpdate)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        long Elapsed() => (long)Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+
         try
         {
-            return await prepared.Tool.Execute(
+            var result = await prepared.Tool.Execute(
                 prepared.ToolCall.Id, prepared.Args, signal, onUpdate).ConfigureAwait(false);
+            return new ExecutedToolResult(result, Elapsed());
         }
         catch (OperationCanceledException)
         {
@@ -88,7 +94,7 @@ public static partial class ToolExecution
         catch (Exception error)
         {
             // 抛出的错误视为失败结果（模型可见文本，UI 可读异常）。
-            return AgentToolResult.FromError(error.Message);
+            return new ExecutedToolResult(AgentToolResult.FromError(error.Message), Elapsed());
         }
     }
 
@@ -134,7 +140,8 @@ public static partial class ToolExecution
             finalized.Add(outcome);
             // 顺序模式：每个调用终结后立即发出 end 事件。
             await emit(new AgentEvent.ToolExecutionEnd(
-                outcome.ToolCall.Id, outcome.ToolCall.Name, outcome.Result, outcome.IsError)).ConfigureAwait(false);
+                outcome.ToolCall.Id, outcome.ToolCall.Name, outcome.Result, outcome.IsError, outcome.DurationMs))
+                .ConfigureAwait(false);
             var message = CreateToolResultMessage(outcome);
             await emit(new AgentEvent.MessageStart(message)).ConfigureAwait(false);
             await emit(new AgentEvent.MessageEnd(message)).ConfigureAwait(false);
@@ -207,7 +214,8 @@ public static partial class ToolExecution
             completed[index] = outcome;
             // end 事件按完成序发出（对齐 TS 的完成顺序语义）。
             await emit(new AgentEvent.ToolExecutionEnd(
-                outcome.ToolCall.Id, outcome.ToolCall.Name, outcome.Result, outcome.IsError)).ConfigureAwait(false);
+                outcome.ToolCall.Id, outcome.ToolCall.Name, outcome.Result, outcome.IsError, outcome.DurationMs))
+                .ConfigureAwait(false);
         }
 
         // 阶段三：tool-result 消息按助手消息源顺序合成并发出。
@@ -293,22 +301,30 @@ public static partial class ToolExecution
         AgentEventSink emit)
     {
         var executed = await ExecutePrepared(prepared, signal, emit).ConfigureAwait(false);
-        return await Finalize(executed, prepared, context, assistantMessage, config, signal).ConfigureAwait(false);
+        return await Finalize(executed.Result, executed.DurationMs, prepared, context, assistantMessage, config, signal)
+            .ConfigureAwait(false);
     }
 
+    /// <summary>执行结果 + 单调时钟测得的耗时（毫秒）。对应 TS <c>ExecutedToolCallOutcome</c>。</summary>
+    private sealed record ExecutedToolResult(AgentToolResult Result, long DurationMs);
+
     /// <summary>执行已预检的工具调用（onUpdate 转发为 tool_execution_update 事件）。</summary>
-    private static async Task<AgentToolResult> ExecutePrepared(
+    private static async Task<ExecutedToolResult> ExecutePrepared(
         PreparedCall.Ready prepared,
         CancellationToken signal,
         AgentEventSink emit)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        long Elapsed() => (long)Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+
         try
         {
             // onUpdate 转发为 tool_execution_update 事件（对齐 TS 的 emitToolExecutionUpdate）。
             AgentToolUpdateCallback? onUpdate = partial =>
                 emit(new AgentEvent.ToolExecutionUpdate(
                     prepared.ToolCall.Id, prepared.ToolCall.Name, prepared.Args, partial));
-            return await prepared.Tool.Execute(prepared.ToolCall.Id, prepared.Args, signal, onUpdate).ConfigureAwait(false);
+            var result = await prepared.Tool.Execute(prepared.ToolCall.Id, prepared.Args, signal, onUpdate).ConfigureAwait(false);
+            return new ExecutedToolResult(result, Elapsed());
         }
         catch (OperationCanceledException)
         {
@@ -318,13 +334,14 @@ public static partial class ToolExecution
         catch (Exception error)
         {
             // 抛出的错误视为失败结果（模型可见文本，UI 可读异常）。
-            return AgentToolResult.FromError(error.Message);
+            return new ExecutedToolResult(AgentToolResult.FromError(error.Message), Elapsed());
         }
     }
 
     /// <summary>应用 afterToolCall 覆盖并产出最终结果。对应 TS <c>finalizeExecutedToolCall</c>。</summary>
     private static async Task<AgentToolCallOutcome> Finalize(
         AgentToolResult executed,
+        long durationMs,
         PreparedCall.Ready prepared,
         AgentContext context,
         AssistantMessage assistantMessage,
@@ -359,7 +376,7 @@ public static partial class ToolExecution
             }
         }
 
-        return new AgentToolCallOutcome(prepared.ToolCall, result, isError);
+        return new AgentToolCallOutcome(prepared.ToolCall, result, isError) { DurationMs = durationMs };
     }
 
     /// <summary>批提前终止：所有终结结果均要求终止才生效。</summary>
@@ -374,5 +391,8 @@ public static partial class ToolExecution
             outcome.Result.Content,
             outcome.IsError,
             outcome.Result.Details,
-            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+        {
+            DurationMs = outcome.DurationMs,
+        };
 }

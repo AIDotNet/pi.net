@@ -173,6 +173,7 @@ public static partial class ToolHtmlRendererFactory
             Expanded = expanded,
             ShowImages = false,
             IsError = isError,
+            DurationMs = null,
             OutputPad = 1,
         };
 

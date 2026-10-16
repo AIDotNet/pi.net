@@ -101,6 +101,31 @@ public class AgentLoopTests
     }
 
     [Fact]
+    public async Task ToolCallTurnRecordsExecutionDuration()
+    {
+        var streamFn = Faux.CreateStreamFn([
+            Faux.Response.ToolUse(Faux.ToolCall("echo", new Dictionary<string, object?> { ["input"] = "x" }, id: "call-1")),
+            Faux.Response.Text("done"),
+        ]);
+        var context = new AgentContext { Messages = [], Tools = [CreateEchoTool()] };
+        var config = CreateConfig(Faux.DefaultModel) with { ToolExecution = ToolExecutionMode.Sequential };
+
+        var stream = AgentLoop.Run(
+            [Messages.UserText("use the tool")], context, config, CancellationToken.None, streamFn);
+        var events = await Subscribe(stream);
+        var result = await stream.WaitForResultAsync();
+
+        // 上游 36a686ee8：execute() 的耗时（单调时钟，毫秒）落到 tool_execution_end 事件与
+        // toolResult 消息上，两处取同一个值。
+        var endEvent = events.OfType<AgentEvent.ToolExecutionEnd>().Single();
+        Assert.NotNull(endEvent.DurationMs);
+        Assert.True(endEvent.DurationMs >= 0, $"durationMs 应非负，实际 {endEvent.DurationMs}");
+
+        var toolResult = Assert.IsType<ToolResultMessage>(result[3]);
+        Assert.Equal(endEvent.DurationMs, toolResult.DurationMs);
+    }
+
+    [Fact]
     public async Task BlockedToolCallProducesErrorResult()
     {
         var streamFn = Faux.CreateStreamFn([
@@ -127,6 +152,9 @@ public class AgentLoopTests
         // 工具本体不应被执行（echo 工具若执行会返回非错误结果）。
         var endEvent = events.OfType<AgentEvent.ToolExecutionEnd>().Single();
         Assert.True(endEvent.IsError);
+        // 被阻断的调用没有执行过，故没有耗时（TS 只在 execute() 周围计时）。
+        Assert.Null(endEvent.DurationMs);
+        Assert.Null(Assert.IsType<ToolResultMessage>(result[3]).DurationMs);
     }
 
     [Fact]

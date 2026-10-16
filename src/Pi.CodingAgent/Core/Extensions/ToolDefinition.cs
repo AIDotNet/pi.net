@@ -160,6 +160,12 @@ public sealed record ToolRenderContext
     public bool IsError { get; init; }
 
     /// <summary>
+    /// 工具执行耗时（毫秒），来自最终结果；运行中、未运行或早于时长记录的结果为 <c>null</c>。
+    /// TS <c>durationMs</c>。
+    /// </summary>
+    public long? DurationMs { get; init; }
+
+    /// <summary>
     /// Horizontal padding configured by the outputPad setting. Renderers with
     /// <see cref="RenderShellMode.Self"/> apply it themselves. TS <c>outputPad</c>.
     /// </summary>

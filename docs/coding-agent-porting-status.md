@@ -3512,3 +3512,58 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
 - `ToolRenderersCorpusTests` **110 / 0**（27 失败清零）；`MessageComponentsTests` **20 / 0**
 - `Pi.CodingAgent.Tests` 全量 **2256 / 0 失败**（1m15s；2126 + 110 语料 + 20 组件）——**连续三轮**全绿
 - `Pi.Tui.Tests` **23854 / 0 失败**（`Box` 改动无回归）
+
+---
+
+## R2 漂移对账（2026-10-16）
+
+参照检出已从 `428a12bc7` 漂移到 `eb326d26`（25 提交 / 8 触及 `packages/coding-agent` / 3 触及
+`modes/interactive`）。完整事实与修订后的阶段计划见
+[migration-remaining-plan.md](migration-remaining-plan.md) 第零节。此处只记本仓侧的处置与设计差异。
+
+### 已核实「无需改动」
+
+| 上游漂移 | 本仓现状 |
+| --- | --- |
+| `packages/tui` `box.ts` / `text.ts` 新增 `setPaddingX` | `Box.SetPaddingX` / `Text.SetPaddingX` 已具备 |
+| `packages/tui` `tui-alt-screen.ts` 新增 `resetTextSelection` | `TuiAltScreen.ResetTextSelection` 已具备 |
+| `packages/ai` `estimate.ts` `CHARS_PER_TOKEN` 4 → 3.5 | `Estimate.CharsPerToken = 3.5` 已对齐 |
+| `packages/coding-agent` `renderers/edit.ts` 用 `context.outputPad` | `EditRenderers` 已在用（`ToolRenderContext.OutputPad` 属基线字段） |
+
+### S1：`durationMs` 全链路（`Pi.Agent` / `Pi.Ai` / `Pi.CodingAgent`）
+
+上游 `36a686ee8`（+ `f284a2460` 的事件流计时）引入：`execute()` 的耗时用**单调时钟**测量，落到
+`tool_execution_end` 事件、`ToolResultMessage`、`ToolRenderContext`，以及助手响应的
+`AssistantMessage.durationMs`。
+
+| 落点 | 改动 |
+| --- | --- |
+| `Pi.Agent/Types/AgentTypes.cs` | `AgentEvent.ToolExecutionEnd` 增加 `long? DurationMs = null` |
+| `Pi.Agent/ToolExecution.cs` | 新增 `ExecutedToolResult(Result, DurationMs)`；`ExecutePrepared` / `ExecutePreparedAsync` 在 `execute()` 前后取 `Stopwatch` 时间戳并 `Math.Round`；`Finalize` 带上 `durationMs` → `AgentToolCallOutcome.DurationMs`；`CreateToolResultMessage` 写入 `ToolResultMessage.DurationMs`；三处 `ToolExecutionEnd` 事件构造点透传 |
+| `Pi.Ai/Utils/EventStream.cs` | 新增 `IsEnded`（对齐 TS `EventStream.done` 的可见性，`AssistantMessageEventStream` 计时需要读它） |
+| `Pi.Ai/Stream/AssistantMessageEventStream.cs` | 自计时：构造时记墙钟 + 单调时钟；`Push(done/error)` 与 `End(result)` 在 **转发前** 调用 `Time()`；跳过条件为「流已结束 ∨ 已有 `DurationMs` ∨ `Timestamp` 早于流创建时刻」 |
+| `Pi.Ai/Api/Lazy.cs` | `SetupErrorMessage` 增 `timestamp` 参数，`LazyStream.Run` 传**流创建时刻**（准备失败消息沿用请求开始时间） |
+| `Pi.CodingAgent/Core/Extensions/ToolDefinition.cs` | **加回** `ToolRenderContext.DurationMs`（4f-1 曾按旧基线删除） |
+| `Pi.CodingAgent/Core/AgentSessionEvents.cs` | `ToolExecutionEndEvent` 增加 `DurationMs`（插在 `ParentToolCallId` 之前） |
+| `Pi.CodingAgent/Core/AgentSessionInstallers.cs` | 两处构造点透传（`NestedToolExecutionEvent.End` / `AgentEvent.ToolExecutionEnd`） |
+| `Pi.CodingAgent/Core/Tools/Renderers/BashRenderers.cs` | **恢复**「最终结果的记录时长优先」分支（`!IsPartial && durationMs != null` → `Took …`），渲染器时钟降为回退；`RebuildBashResultRenderComponent` 增 `durationMs` 形参 |
+| `Pi.CodingAgent/Core/ExportHtml/ToolHtmlRenderer.cs` | 上下文补 `DurationMs = null` |
+| `tests/…/ToolRenderersCorpusTests.cs` | **夹具修正**：`step.DurationMs` 真正传入 `ToolRenderContext`（此前只用于推进 mock 时钟，9 条带 `durationMs` 的语料从未覆盖该分支） |
+
+### 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C207 | `AgentToolCallOutcome.DurationMs` / `ToolExecutionEnd.DurationMs` / `ToolResultMessage.DurationMs` 用 `long?`；TS 是 `number` | 毫秒整数落在 `long` 内；`null` 对应 TS 的 `undefined`，且 `[JsonIgnore(WhenWritingNull)]` 复现「`undefined` 不参与序列化」 |
+| C208 | `AssistantMessageEventStream` 用 `Stopwatch.GetElapsedTime` 而非 `performance.now()` | 同为单调时钟；`Stopwatch.GetTimestamp()` 在流构造时取一次，`Math.Round` 后 `Math.Max(0, …)` 与 TS 逐字对齐 |
+| C209 | `EventStream` 新增 `IsEnded` 只读属性 | TS 的 `done` 字段在漂移中由 `private` 改 `protected`（供子类读）；C# 端口用**组合**而非继承承载 `AssistantMessageEventStream`，故以公开只读属性暴露同一信息 |
+
+### 测试与验证（S0 + S1）
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.Agent.Tests` **33 / 0**（`ToolCallTurnRecordsExecutionDuration` 新增；`BlockedToolCallProducesErrorResult`
+  补「被阻断的调用无耗时」断言）
+- `Pi.Ai.Tests` **307 / 0**（`AssistantMessageEventStreamTests` 新增 6）
+- `BashRenderersDurationTests` **4 / 0**（记录值优先 / 时钟回退 / partial 忽略记录值 / 两者皆无则无时长行）
+- `ToolRenderersCorpusTests` **110 / 0**（夹具修正后仍全绿——反证「时钟推演值 == 记录值」这一反推规则成立）
+- `Pi.CodingAgent.Tests` 全量 **2262 / 0 失败**（4m54s）

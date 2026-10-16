@@ -345,6 +345,7 @@ public sealed class ToolRenderersCorpusTests : IDisposable
                     Expanded = step.Expanded,
                     ShowImages = step.ShowImages,
                     IsError = step.IsError,
+                    DurationMs = step.DurationMs,
                     OutputPad = step.OutputPad,
                 };
 
