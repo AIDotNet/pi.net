@@ -4699,4 +4699,53 @@ console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失�
 > **4f-3d 余 3 个 / 3,431 行**：`config-selector`（951）/ `session-selector`（1045）/
 > `tree-selector`（1435）。
 
+## 4f-3d Batch F-3：config-selector（2026-10-16）
+
+**范围**：`config-selector.ts`（951 行，未被漂移触及）→
+`Modes/Interactive/Components/ConfigSelector.cs`（约 1,190 行）+ `ConfigSelectorTests.cs`（14 例）。
+
+**落地内容**：
+- `ScopedResolvedPaths` → `ScopedResolvedResources`（**C245**）；`buildGroups` 全量（groupKey
+  组合、subgroup 聚合、displayName 四规则：builtin 前缀剥离 / extensions 非规范目录 →
+  `parent/file` / skills `SKILL.md` → 父目录名 / 其余文件名；排序 = package 先 → user 先 →
+  source `localeCompare`（CurrentCulture，C241 先例）、subgroup 按 typeOrder、item 按
+  displayName——三段全用稳定排序）；`getGroupLabel` 四分支与 `formatBaseDir`（home 折叠 + `~`
+  前缀 + 分隔符归一）。
+- `ConfigSelectorHeader`（IComponent 手写）：标题随 writeScope 切换、`keyHint("tui.input.tab")`、
+  `rawKeyHint("space", …)` 双文案、两行渲染含 spacing 计算。
+- `ResourceList`（IComponent + IFocusable）：扁平三态列表（group/subgroup/item 判别联合 →
+  `FlatEntry` record struct）、继承启用快照（`buildInheritedEnabledMap(groups.global)`）、级联
+  搜索过滤（item 命中 → subgroup/group 保留）、渲染的三级行样式（组头 bold/accent·dim、子组头
+  缩进、条目 cursor + checkbox + dim 标注）、global 取反与 project 三态状态机全链
+  （`toggleTopLevelResource` / `togglePackageResource` 的 ±pattern 重写、字符串包 ↔ 对象包转换、
+  空过滤对象回字符串、`autoload:false` 删包；`setProjectTopLevelOverride` 的继承文件用绝对路径
+  命名 + builtin 不加裸路径；`setProjectPackageOverride` 的 override source 创建与
+  `isLocalPath` 分支；`getNextOverrideState` 状态机依赖 `getInheritedEnabled` 的 map-fallback
+  语义——stored `false` 不得穿透）。
+- `ConfigSelectorComponent`（Container + IFocusable）：子组件装配、Tab 切换 writeScope、
+  `onToggle → requestRender`。
+
+**关键移植差异**：
+- **C245**：TS `Record<"global"|"project", ResolvedPaths>` → `ScopedResolvedResources` 记录
+  （`ResolvedPaths` 在端口中名为 `ResolvedResources`）。
+- 不编号：空列表的 space/confirm 分支——TS `filteredItems[i]` 越界得 `undefined` 被可选链兜住，
+  C# 补索引守卫等价复刻；字符串联合 → string 常量（C242）；`localeCompare` → CurrentCulture
+  （C241 先例）；搜索的 `toLowerCase().includes()` → `ToLowerInvariant` + OrdinalIgnoreCase。
+
+**测试与验证（Batch F-3）**：
+- `ConfigSelectorTests` **14 / 0**（上游无该组件测试，全部照源码行为自定观测点）：
+  分组排序（package→user→source）、displayName 四规则、组标签（builtin/auto）与
+  `formatBaseDir`、渲染三级行、header 双态、global top-level/package 资源 toggle 的 ±pattern
+  写回（经 `SettingsManager.InMemory` + `FromStorage`）、project 模式继承资源
+  inherit→unload→load→inherit 全循环（绝对路径命名 + 条目清空）、npm: 包 override 创建
+  （`autoload:false`）、project 资源 unload 覆盖、级联搜索、pageDown 跳转、
+  Esc/ctrl+c 的 cancel 语义（默认键位下 ctrl+c 亦为 cancel，与 TS 一致）。
+- 测试夹具修正一处认知：`resolvedPaths.project` 由 `resolvePackageSources` 生成，
+  **包含继承的全局资源（scope=user）**——首轮夹具把 alpha 只放 Global 视图导致继承链不可测。
+- `Pi.CodingAgent.Tests` 全量 **2574 / 0 失败**（新增 14）；`dotnet build Pi.slnx -m:1`
+  **0 警告 0 错误**。
+
+> **4f-3d 余 2 个 / 2,480 行**：`session-selector`（1045）/ `tree-selector`（1435）。
+
+
 
