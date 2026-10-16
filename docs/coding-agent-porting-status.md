@@ -3515,6 +3515,77 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
 
 ---
 
+## 4f-3d 进度（2026-10-16）：选择器 Batch C（theme / show-images / trust / thinking / user-message）
+
+4f-3d 的**第一子批**。TS `modes/interactive/components/` 实测 **48 个 `.ts` / 11,652 行**；4f-3a（原语层 4 个）、
+4f-3b（`diff` 1 个）、4f-3c（消息类 11 个）已消化 16 个文件。4f-3d 的**选择器组共 21 个**（余下 16 个合计
+**6,922 行**，含 `config-selector` / `settings-selector` / `session-selector` / `tree-selector` 四个 900+ 行大件），
+按体量切三批；本批取**无外部依赖、可直接单测**的 5 个：
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/theme-selector.ts` | 67 | `Components/ThemeSelector.cs`（60） | 上下 `DynamicBorder` 夹一条 10 行可视的 `SelectList`；主题名同时是 `value` 与 `label`，当前主题的 `description` 为 `"(current)"`；`onSelectionChange` → 实时预览、`onSelect` → 确认、`onCancel` → 取消 |
+| `components/show-images-selector.ts` | 50 | `Components/ShowImagesSelector.cs`（49） | 两行 yes/no（`"Show images inline in terminal"` / `"Show text placeholder instead"`）；按当前值预选；确认回传 `bool` |
+| `components/trust-selector.ts` | 134 | `Components/TrustSelector.cs`（149） | `TrustSelection` / `TrustSelectorOptions` 记录；`formatDecision` 的 `inherited from` 分支；`getProjectTrustOptions` 的列表 + `✓`（已保存）/`→`（高亮）双标记；`j`/`k` 与方向键等价、**两端钳制不环绕**（与 `SelectList` 不同） |
+| `components/thinking-selector.ts` | 154 | `Components/ThinkingSelector.cs`（184） | `LEVEL_DESCRIPTIONS` 七档文案；`Input` 搜索框 + `Fuzzy.Filter` 实时过滤并**重建**列表；`app.thinking.save` 优先于导航键（未提供回调时**穿透**到搜索框）；默认档在描述后追加 `· default` |
+| `components/user-message-selector.ts` | 155 | `Components/UserMessageSelector.cs`（183） | `UserMessageList`（10 行可视 + 滚动指示 + 上下环绕）+ 外壳标题；`initialSelectedId` 未命中回落最新一条；空列表 100 ms 后自动取消 |
+
+### 4f-3d Batch C 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C221 | `IComponent.HandleInput` 是**默认接口成员**，`Container` 子类用 `public void HandleInput(string)` **隐式实现**，不能写 `override`（`TrustSelectorComponent` / `ThinkingSelectorComponent`） | `Container` 不自带该成员，派生类里同签名的公开方法会被接口映射优先选中。既有同机制先例：`CancellableLoader : Loader : Text : IComponent`。照 TS 习惯写 `override` 会 CS0115 |
+| C222 | `ThinkingSelectorComponent.ParseLevel` 用 `ThinkingLevelText.Parse` 取代 TS 的 `item.value as ThinkingLevel`；不可解析时回落 `ThinkingLevel.Off` | TS 的 `SelectItem.value` 是 `ThinkingLevel` 字面量联合，C# 的 `SelectItem.Value` 是 `string`，必须解析。TS 的断言在 `allItems` 由 `availableLevels` 构造时恒成立，故该回落**不可达**，只为让「调用方自造 `SelectItem`」的路径有确定行为 |
+| C223 | `UserMessageSelectorComponent` 的空列表自动取消用 `Task.Delay(100).ContinueWith(…, TaskScheduler.Default)` 取代 `setTimeout(…, 100)`；回调在**线程池线程**触发 | 与 C203（`CountdownTimer` 的 `setInterval`）同一约定：JS 单线程事件循环没有对应的并发面，只能约定「回调可能不在调用线程」。测试因此用 `TaskCompletionSource` + 超时等待，而非立即断言 |
+| C224 | `UserMessageList.SelectedIndex` 暴露为 `internal` 只读属性 | TS 的 `private selectedIndex` 在运行时可读，C# 的 `private` 不行；该游标是断言「环绕」与「未命中回落」的唯一观测点。与 C219（faux 测试缝）同一约定 |
+
+**同批记录（不单独编号）**：
+
+- `ThinkingSelectorComponent` 的**构造顺序**与 TS 不同：TS 先给 `searchInput.onSubmit` 赋值、后创建
+  `selectList`（闭包在调用时才读 `this.selectList`，所以成立）；C# 的 lambda 同样延迟读字段，但为了让
+  `_selectList` 在创建 `OnSubmit` 时**确定已赋值**（可空引用分析），端口把 `BuildSelectList` 提到
+  `Input` 之前。`AddChild` 的次序与 TS 逐条一致；`_selectListChildIndex` 仍在 `AddChild(_selectList)`
+  **之前**取 `Children.Count`，故 `ApplyFilter` 的替换下标与 TS 相同。
+- `TrustSelectorComponent` 的确认分支不再复刻 TS 的 `if (selected)` 守卫：`_selectedIndex` 由
+  `Math.Max(0, FindSavedOptionIndex())` 初始化、两条移动分支都夹在 `[0, Count-1]`，恒在界内；
+  `GetProjectTrustOptions` 恒返回 ≥2 项，构造函数里的 `_trustOptions[0]` 与 TS 的 `[0]?.savedPath` 等价。
+- `getSelectList()` / `getMessageList()` 都保留：TS 里 `handleInput` 属于**列表**，宿主
+  （`interactive-mode.ts`）把按键转给 `component.getSelectList().handleInput(...)`；端口沿用同一分层，
+  测试也照 TS 测试的写法经 `GetSelectList()` 驱动。
+- `ThemeSelectorComponent` 的 `onPreview` 只经 `SelectList.OnSelectionChange` 触发，**构造期不触发**
+  （TS 亦然）——预选走 `setSelectedIndex`，不回调。
+
+### 测试与验证（4f-3d Batch C）
+
+新建 `tests/Pi.CodingAgent.Tests/SelectorComponentsTests.cs`（**42** 项；5 个测试类共用一个
+`SelectorTestFixture` 抽象夹具，按 4f-2a 的三件套约定装好主题与全局键位表）：
+
+| 测试类 | 项数 | 覆盖 |
+| --- | ---: | --- |
+| `ThemeSelectorComponentTests` | 5 | 预选当前主题且描述为 `(current)`；当前主题不在列表时回落第 0 行；移动选择触发 `onPreview`；确认 / 取消回调；从首行向上**环绕**到末行 |
+| `ShowImagesSelectorComponentTests` | 5 | `true` 预选 `yes` 且两行描述齐全；`false` 预选 `no`；确认回传布尔（`true`/`false` 两例）；取消回调 |
+| `TrustSelectorComponentTests` | 9 | 已保存的信任决策浏览时仍带 `✓`；确认回传 `trusted` + 单条 update；祖先决策标 `inherited from`；信任父目录行的两条 update（含 `null` 删除）；无决策时 `none` / `untrusted`；`j`/`k` 等价方向键；两端钳制；Escape 取消；导航提示行文案 |
+| `ThinkingSelectorComponentTests` | 12 | 当前档带 `✓` 且浏览时保留；配置化保存键（`ctrl+r`）与缺省键（`Ctrl+S`）；无回调时保存键穿透到搜索框；导航 / 取消转发；模糊过滤（`hi` → `high`+`low` 两行）；清空搜索恢复四档并重选；`· default` 标注；标题与提示行；焦点转发到搜索框；回车确认 |
+| `UserMessageSelectorComponentTests` | 11 | 默认选最新一条；`initialSelectedId` 命中与未命中回落；标题与 `Message n of m`；上下**环绕**；确认回传 entryId；取消；空列表占位；空列表自动取消（≤5 s）；非空列表**不**自动取消；长消息截断 + 滚动指示 |
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.CodingAgent.Tests` 全量 **2327 / 0 失败**（38s；2285 + 42）
+- 一致性核对：5 个组件逐行对照 TS 源；`trust-selector.test.ts` 的 4 个用例、
+  `thinking-selector.test.ts` 的 2 个用例全部转写（路径类断言改为按临时目录推导，因 Windows 下
+  `normalizeCwd` 会把 `/project` 解析成当前盘符下的路径）
+
+> **4f-3d 余 16 个 / 6,922 行**：`extension-input`（94）/ `radius-login-selector`（114）/
+> `extension-selector`（117）/ `extension-editor`（141）/ `custom-editor`（148）/
+> `first-time-setup`（148）/ `session-selector-search`（194）/ `oauth-selector`（224）/
+> `login-dialog`（238）/ `settings-submenu`（258）/ `scoped-models-selector`（401）/
+> `model-selector`（421）/ `config-selector`（951）/ `settings-selector`（993）/
+> `session-selector`（1045）/ `tree-selector`（1435）→ 继续切批。
+> 其后 4f-3e 的 10 个（`footer` / `tool-execution` / `bash-execution` / `armin` /
+> `earendil-announcement` / `bordered-loader` / `custom-entry` / `easter-egg-3d`（+ `.lazy`）/
+> `mermaid` / `index.ts`）仍待启动。
+
+---
+
 ## R2 漂移对账（2026-10-16）
 
 参照检出已从 `428a12bc7` 漂移到 `eb326d26`（25 提交 / 8 触及 `packages/coding-agent` / 3 触及
