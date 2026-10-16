@@ -3643,6 +3643,82 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
 
 ---
 
+## 4f-3d 进度（2026-10-16）：选择器 Batch E-1（session-selector-search）
+
+4f-3d 的**第三子批首件**。这一件是纯查询层（无组件、无渲染），也是四个大件
+（`session-selector` / `tree-selector` / `config-selector` / `settings-selector`）共同的依赖底座，
+所以先落它。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/session-selector-search.ts` | 194 | `Components/SessionSelectorSearch.cs`（355） | `SortMode` / `NameFilter` / `ParsedSearchQuery` / `MatchResult` 四个类型 + 七个函数：`normalizeWhitespaceLower` / `getSessionSearchText`（私有）、`hasSessionName` / `parseSearchQuery` / `matchSession` / `filterAndSortSessions`（公开）、`matchesNameFilter`（私有） |
+
+覆盖的 TS 语义细节：
+
+- **引号短语**：`foo "node cve" bar` → `[fuzzy foo, phrase "node cve", fuzzy bar]`；短语 token 与
+  haystack **都**先过 `normalizeWhitespaceLower`（小写 + `\s+`→单空格 + trim）再 `indexOf`，
+  所以 `"node cve"` 能命中 `node\n\n   cve`。
+- **引号不闭合**：整个解析结果作废，退回纯空白分词；**那个多余的引号字符会留在首个 token 里**
+  （`"foo bar` → `[fuzzy "\"foo", fuzzy bar]`），因为回退分支是对 `trimmed` 整体 `split(/\s+/)`。
+- **`re:` 分支**：`re:` 空模式 → `error: "Empty regex"`；编译失败 → `error: <异常文案>`；
+  两者都是 `regex: null`，`matchSession` 对 `regex: null` 一律返回「不匹配」，`filterAndSortSessions`
+  对 `error` 非空一律返回空列表。
+- **评分**：正则模式按首个命中位置 `index * 0.1`；短语模式按 `indexOf` 位置 `index * 0.1`；
+  fuzzy 模式用 `Fuzzy.Match` 的 score。**所有 token 必须命中**，分数累加。
+- **排序**：`recent` 只过滤、保持入参顺序；`threaded` 与 `relevance` **共用**评分分支
+  （上游只特判 `recent`），平局按 `modified` 降序。
+- **名字过滤**先于查询短路：`nameFilter === "all"` 时不过滤，`"named"` 时要求
+  `Boolean(name?.trim())`（纯空白名视为无名）。
+
+### 4f-3d Batch E-1 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C230 | `re:` 的**用户正则**直接交给 .NET `Regex`（`IgnoreCase \| CultureInvariant`），不逐条模拟 JS 正则方言；编译失败的 `error` 取 .NET 的 `ArgumentException.Message` | 完整模拟 V8 正则方言（`\d` = `[0-9]` 而非 `\p{Nd}`、`\s` 集合不同、`$` 在 .NET 里还匹配结尾换行之前的位置、命名组重名规则、lookbehind 变长限制等）代价远超收益，且该分支是**用户主动写正则**的逃生口。`CultureInvariant` 是必须的：JS 的 `i` 用 Unicode 简单大小写折叠，.NET 的 `IgnoreCase` 默认走**当前区域**的大小写表，土耳其语区域下 `i`/`İ` 会出错。测试只依赖「编译失败 → 空结果」，不依赖文案 |
+
+**同批记录（不单独编号）**：
+
+- TS 的字符串字面量联合全部枚举化：`SortMode` / `NameFilter` / `SearchQueryMode` / `SearchTokenKind`；
+  `MatchResult` 是 `readonly record struct`。
+- **`FilterAndSortSessions` 总是返回新列表**：TS 在「查询为空」时把调用方的数组原样交回，
+  端口改为拷贝（`[.. nameFiltered]`），避免调用方持有别名后误改入参。用测试
+  `EmptyQueryReturnsADetachedList` 反向钉住。
+- **排序必须稳定**：TS 用 `Array.prototype.sort`（ES2019 起稳定）。C# 的 `List<T>.Sort` 是
+  introsort（**不稳定**），不能直接用，否则「分数与 `modified` 都相等」的两项相对顺序会漂。
+  端口改用 LINQ `OrderBy(...).ThenByDescending(...)`，在 LINQ-to-Objects 下是稳定排序。
+- `ParsedSearchQuery.Regex` 的属性名与类型名同名，靠 C# 的「Color Color」规则合法；为免方法体里
+  `Regex` 被成员遮蔽，全部函数放在**独立的静态类** `SessionSelectorSearch` 里。
+- `normalizeWhitespaceLower` 的 `/\s+/g` 用 `[GeneratedRegex(JsRegex.WhitespaceClass + "+")]`
+  （JS 空白集，与 .NET `\s` 不同集），`toLowerCase` 用 `JsString.ToLowerCase`（Unicode **全**映射），
+  `trim` 用 `JsString.Trim`。
+- 解析末尾 TS 写 `flush(inQuote ? "phrase" : "fuzzy")`；该三元在此处**恒为 `fuzzy`**
+  （不闭合引号已走回退分支），端口写死 `Fuzzy` 并留注释说明这是死分支而非简化。
+
+### 测试与验证（4f-3d Batch E-1）
+
+新建 `tests/Pi.CodingAgent.Tests/SessionSelectorSearchTests.cs`（**27** 项；TS 的 9 例全部转写，
+另补 18 项钉住 TS 测试未覆盖的解析层行为）：
+
+| 组 | 项数 | 覆盖 |
+| --- | ---: | --- |
+| 过滤 / 排序（TS 转写） | 6 | 引号短语 + 空白归一；`re:` 大小写不敏感 + `\b` 边界（`bravery` 不命中 `\bbrave\b`）；`recent` 保持入参顺序；`relevance` 按分数 + 平局按 `modified` 降序（含「分数相同 → 新的在前」）；`threaded` 与 `relevance` 同分支；非法正则 → 空列表 |
+| 名字过滤（TS 转写） | 4 | `all` 返回全部；`named` 只返回有名者；名字过滤**先于**查询；纯空白名被排除 |
+| 名字过滤（补） | 6 | `HasSessionName` 对 `null` / `""` / `"   "` / `"\t\n"` 为 false，对 `"x"` / `"  named  "` 为 true（`[Theory]`） |
+| 解析层（补） | 7 | 空/纯空白查询 → 空 token 列表；空白分词；引号短语成单个 phrase token；不闭合引号回退且引号留在 token 里；`re:` → `"Empty regex"`；`re:(` → 非空 error 且 `Regex` 为 null；`re:^a` → 大小写不敏感且 `^` 锚定串首 |
+| 匹配层（补） | 3 | 正则按命中位置计分（`"id  xxxx brave "` → index 9 → 0.9）；error 查询不匹配；**每个** token 都必须命中（fuzzy + phrase 混用） |
+| 返回值（补） | 1 | 空查询返回的是**脱离**入参的新列表 |
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.CodingAgent.Tests` 全量 **2393 / 0 失败**（37s；2366 + 27）
+- 新类单跑 **27 / 0**（400ms）
+
+> **4f-3d 余 11 个 / 6,255 行**：`extension-editor`（141，依赖未移植的 `external-editor.ts`）/
+> `custom-editor`（148）/ `oauth-selector`（224）/ `login-dialog`（238）/ `settings-submenu`（258）/
+> `scoped-models-selector`（401）/ `model-selector`（421）/ `config-selector`（951）/
+> `settings-selector`（993）/ `session-selector`（1045）/ `tree-selector`（1435）。
+
+---
+
 ## R2 漂移对账（2026-10-16）
 
 参照检出已从 `428a12bc7` 漂移到 `eb326d26`（25 提交 / 8 触及 `packages/coding-agent` / 3 触及
