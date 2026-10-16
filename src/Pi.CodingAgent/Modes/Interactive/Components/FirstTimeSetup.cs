@@ -162,11 +162,11 @@ public sealed class FirstTimeSetupComponent : Container
     }
 
     /// <summary>
-    /// Port of <c>FirstTimeSetupComponent.handleInput</c>. Plain public method: the class inherits
-    /// <see cref="IComponent"/>'s default no-op <c>HandleInput</c> through <see cref="Container"/>, so
-    /// this implicitly implements it (C221).
+    /// Port of <c>FirstTimeSetupComponent.handleInput</c>. Declared <c>override</c> of
+    /// <see cref="Container"/>'s virtual (C233): the interface map is built on the class that lists
+    /// <see cref="IComponent"/>, so a fresh public method here would never become the implementation.
     /// </summary>
-    public void HandleInput(string data)
+    public override void HandleInput(string data)
     {
         var keybindings = GlobalKeybindings.Get();
         if (keybindings.Matches(data, TuiKeybindingIds.SelectUp) || data == "k")

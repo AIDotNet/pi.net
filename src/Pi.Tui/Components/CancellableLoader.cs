@@ -34,7 +34,12 @@ public sealed class CancellableLoader : Loader, IDisposable
     {
     }
 
-    public void HandleInput(string data)
+    /// <summary>
+    /// Port of <c>CancellableLoader.handleInput</c>. Declared <c>override</c> of <see cref="Text"/>'s
+    /// virtual (C233): <see cref="Text"/> is the class that lists <see cref="IComponent"/>, so a fresh
+    /// public method on this subclass would never become the interface implementation.
+    /// </summary>
+    public override void HandleInput(string data)
     {
         var kb = GlobalKeybindings.Get();
         if (kb.Matches(data, TuiKeybindingIds.SelectCancel))

@@ -20,6 +20,20 @@ public static class UnicodeWidth
     private static readonly Dictionary<string, int> WidthCache = new();
     private static readonly Queue<string> WidthCacheOrder = new();
 
+    /// <summary>
+    /// Guards <see cref="WidthCache"/> / <see cref="WidthCacheOrder"/>.
+    /// </summary>
+    /// <remarks>
+    /// The cache is a port-side optimisation (TS <c>visibleWidth</c> recomputes every time) and it is
+    /// process-wide, but rendering happens from several threads: xUnit v3 runs test classes in
+    /// parallel, and the TUI can render while a background task measures a line. An unsynchronised
+    /// eviction (<c>Count &gt;= 512 → dequeue + remove</c>) corrupts the dictionary's internal state,
+    /// which surfaces as a bogus <c>IndexOutOfRangeException</c> from the indexer rather than a wrong
+    /// width. Measured once on 2026-10-16 in a full <c>Pi.Tui.Tests</c> run: 39 <c>AltScreenCorpus</c>
+    /// scenarios failed at once, then passed on the immediate re-run.
+    /// </remarks>
+    private static readonly object WidthCacheLock = new();
+
     /// <summary>Enumerate UAX #29 extended grapheme clusters.</summary>
     public static IEnumerable<string> Graphemes(string text)
     {
@@ -96,9 +110,13 @@ public static class UnicodeWidth
         {
             return str.Length;
         }
-        if (WidthCache.TryGetValue(str, out var cached))
+
+        lock (WidthCacheLock)
         {
-            return cached;
+            if (WidthCache.TryGetValue(str, out var cached))
+            {
+                return cached;
+            }
         }
 
         var clean = str;
@@ -117,13 +135,16 @@ public static class UnicodeWidth
             width += GraphemeWidth(segment);
         }
 
-        if (WidthCache.Count >= WidthCacheSize)
+        lock (WidthCacheLock)
         {
-            var first = WidthCacheOrder.Dequeue();
-            WidthCache.Remove(first);
+            if (WidthCache.Count >= WidthCacheSize && WidthCacheOrder.Count > 0)
+            {
+                var first = WidthCacheOrder.Dequeue();
+                WidthCache.Remove(first);
+            }
+            WidthCache[str] = width;
+            WidthCacheOrder.Enqueue(str);
         }
-        WidthCache[str] = width;
-        WidthCacheOrder.Enqueue(str);
         return width;
     }
 

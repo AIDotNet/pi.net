@@ -71,6 +71,16 @@ public class Text : IComponent
 
     public virtual void Invalidate() => ClearCache();
 
+    /// <summary>
+    /// Optional keyboard handler, declared here so subclasses (<c>Loader</c> → <c>CancellableLoader</c>)
+    /// can <c>override</c> it. Without this the interface map would point at
+    /// <see cref="IComponent"/>'s empty default and an <see cref="IComponent"/>-typed call would never
+    /// reach the subclass (C233).
+    /// </summary>
+    public virtual void HandleInput(string data)
+    {
+    }
+
     private void ClearCache()
     {
         _cachedText = null;

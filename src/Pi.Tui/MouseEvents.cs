@@ -1,5 +1,7 @@
 namespace Pi.Tui;
 
+using Pi.Tui.Components;
+
 /// <summary>Kind of a normalized mouse event (port of the TS <c>TuiMouseEventType</c> union).</summary>
 public enum TuiMouseEventType
 {
@@ -167,6 +169,23 @@ public static class MouseDispatch
 internal static class TuiComponents
 {
     /// <summary>
+    /// Framework base types whose <c>HandleInput</c> is a deliberate no-op.
+    /// </summary>
+    /// <remarks>
+    /// TS's <c>Component.handleInput</c> is optional and <c>Container</c>/<c>Text</c>/<c>Box</c> simply do
+    /// not have it, so a truthiness test on a bare instance is false. The C# port has to declare the
+    /// member on the class that lists <see cref="IComponent"/> — otherwise a subclass method never enters
+    /// the interface map (C233) — which would make every instance look like an input handler. The shims
+    /// are therefore excluded here. Any new no-op shim added to a base type must be registered too.
+    /// </remarks>
+    private static readonly Type[] NoOpHandleInputDeclarations =
+    [
+        typeof(Container),
+        typeof(Text),
+        typeof(Box),
+    ];
+
+    /// <summary>
     /// TS checks <c>component.handleInput</c> for truthiness to decide whether a delegating container
     /// keeps keyboard focus. In C# the method always exists (it has an interface default), so instead
     /// check whether the component overrides that default.
@@ -174,6 +193,8 @@ internal static class TuiComponents
     public static bool HasHandleInput(IComponent component)
     {
         var method = component.GetType().GetMethod(nameof(IComponent.HandleInput), Type.EmptyTypes);
-        return method is not null && method.DeclaringType != typeof(IComponent);
+        return method is not null
+            && method.DeclaringType != typeof(IComponent)
+            && !NoOpHandleInputDeclarations.Contains(method.DeclaringType);
     }
 }

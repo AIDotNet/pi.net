@@ -145,10 +145,11 @@ public sealed class ThinkingSelectorComponent : Container, IFocusable
     }
 
     /// <summary>
-    /// Port of <c>ThinkingSelectorComponent.handleInput</c>. Plain public method for the same reason as
-    /// <see cref="TrustSelectorComponent"/>.
+    /// Port of <c>ThinkingSelectorComponent.handleInput</c>. Declared <c>override</c> of
+    /// <see cref="Container"/>'s virtual, for the same reason as <see cref="TrustSelectorComponent"/>
+    /// (C233).
     /// </summary>
-    public void HandleInput(string data)
+    public override void HandleInput(string data)
     {
         var keybindings = GlobalKeybindings.Get();
         if (keybindings.Matches(data, AppKeybindings.AppThinkingSave) && _onSelectAsDefault is not null)

@@ -276,11 +276,11 @@ public sealed class LoginDialogComponent : Container, IFocusable
     }
 
     /// <summary>
-    /// Port of <c>LoginDialogComponent.handleInput</c>. Plain public method: the class inherits
-    /// <see cref="IComponent"/>'s default no-op <c>HandleInput</c> through <see cref="Container"/>, so
-    /// this implicitly implements it (C221).
+    /// Port of <c>LoginDialogComponent.handleInput</c>. Declared <c>override</c> of
+    /// <see cref="Container"/>'s virtual (C233): the interface map is built on the class that lists
+    /// <see cref="IComponent"/>, so a fresh public method here would never become the implementation.
     /// </summary>
-    public void HandleInput(string data)
+    public override void HandleInput(string data)
     {
         var keybindings = GlobalKeybindings.Get();
 

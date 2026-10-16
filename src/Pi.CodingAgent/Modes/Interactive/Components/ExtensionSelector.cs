@@ -113,12 +113,13 @@ public class ExtensionSelectorComponent : Container
     }
 
     /// <summary>
-    /// Port of <c>ExtensionSelectorComponent.handleInput</c>. Plain public method: the class inherits
-    /// <see cref="IComponent"/>'s default no-op <c>HandleInput</c> through <see cref="Container"/>, so
-    /// this implicitly implements it (C221). <c>virtual</c> because the Radius login subclass has to
-    /// intercept the confirm/cancel keys (see <see cref="RadiusLoginMenuComponent.HandleInput"/>).
+    /// Port of <c>ExtensionSelectorComponent.handleInput</c>. Declared <c>override</c> of
+    /// <see cref="Container"/>'s virtual (C233): the interface map is built on the class that lists
+    /// <see cref="IComponent"/>, so a subclass declaring a fresh public method would never become the
+    /// implementation. Kept <c>virtual</c> because the Radius login subclass has to intercept the
+    /// confirm/cancel keys (see <see cref="RadiusLoginMenuComponent.HandleInput"/>).
     /// </summary>
-    public virtual void HandleInput(string data)
+    public override void HandleInput(string data)
     {
         var keybindings = GlobalKeybindings.Get();
         if (keybindings.Matches(data, AppKeybindings.AppToolsExpand))

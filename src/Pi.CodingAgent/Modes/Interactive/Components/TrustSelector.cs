@@ -119,11 +119,14 @@ public sealed class TrustSelectorComponent : Container
     }
 
     /// <summary>
-    /// Port of <c>TrustSelectorComponent.handleInput</c>. Declared as a plain public method (not
-    /// <c>override</c>): <see cref="Container"/> does not implement <c>IComponent.HandleInput</c>
-    /// (it relies on the interface's default no-op), so the class implicitly implements it here.
+    /// Port of <c>TrustSelectorComponent.handleInput</c>. Declared <c>override</c> of
+    /// <see cref="Container"/>'s virtual (C233). It must be an <c>override</c>, not a fresh public
+    /// method: the interface map is built on the class that lists <see cref="IComponent"/>
+    /// (<see cref="Container"/>), so a subclass method of the same name would never be reached through
+    /// an <see cref="IComponent"/> reference — which is exactly how <see cref="Tui"/> drives the
+    /// focused component.
     /// </summary>
-    public void HandleInput(string data)
+    public override void HandleInput(string data)
     {
         var keybindings = GlobalKeybindings.Get();
         if (keybindings.Matches(data, TuiKeybindingIds.SelectUp) || data == "k")

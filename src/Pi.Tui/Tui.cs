@@ -1549,6 +1549,18 @@ public class Container : IComponent
 
     public virtual void Clear() => Children.Clear();
 
+    /// <summary>
+    /// Optional keyboard handler. Declared here rather than left to <see cref="IComponent"/>'s default
+    /// implementation, because the interface map is built for the class that <em>lists</em>
+    /// <see cref="IComponent"/>: a subclass that merely declares a matching public method never becomes
+    /// the implementation, so <c>((IComponent)child).HandleInput(data)</c> — which is exactly how
+    /// <see cref="Tui"/> drives the focused component — would silently hit the empty default (C233).
+    /// Subclasses must therefore write <c>override</c>.
+    /// </summary>
+    public virtual void HandleInput(string data)
+    {
+    }
+
     public virtual void Invalidate()
     {
         foreach (var child in Children)

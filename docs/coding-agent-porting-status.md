@@ -3799,6 +3799,115 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
 
 ---
 
+## 4f-3d 进度（2026-10-16）：选择器 Batch E-3（settings-submenu）+ C233 接口映射缺陷
+
+4f-3d 的**第三子批第三件**：设置界面里所有「选一项」交互的共用底座。它不含任何新渲染算法，
+但它是 `settings-selector`（993 行）与 `config-selector`（951 行）的直接依赖，必须先落地。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/settings-submenu.ts` | 258 | `Components/SettingsSubmenu.cs`（387） | 两个类：`SelectSubmenu : Container`（单步：标题 + 说明 + 可选搜索框 + `SelectList` + 提示行，`applyFilter` 用 `fuzzyFilter` 重建列表并**原地替换子节点**）与 `SteppedSubmenu : Container`（N 步向导：`context` 累积选择、Enter 前进、Esc 退一步、`loop` 回到第 0 步）；另有 `SubmenuText` 联合类型与 `SteppedSubmenuStep` / `SelectSubmenuOptions` / `SteppedSubmenuOptions` 三个记录 |
+
+覆盖的 TS 语义细节：
+
+- **`children[listChildIndex] = newList`**：过滤时不是「加一个子节点」，而是把原来那个
+  `SelectList` 换成新的（子节点数不变、渲染行数会变，因为新列表的 `maxVisible` 是
+  `min(filtered.length, 10)`）。测试两个都断言，避免只钉住其中一个而误判。
+- **`applyFilter` 重建列表时 `preselect` 传 `""`**，于是过滤后选择回到第 0 行——即使过滤前
+  选中的是别的行。这是 TS 的既有行为（`buildSelectList(filtered, "")`），不是端口疏漏。
+- **`stepLabel` 只在 `total > 1` 时出现**，且是 `Step {i+1}/{total} · `（含尾随 `· `）。
+- **Esc 在非首步 `delete context[step.key]` 后退回上一步**（把这一步的选择**删掉**，不是留着）；
+  首步才 `onCancel()`。
+- **`loop` 时先 `onComplete({...context})` 再 `context = {}` 回到第 0 步**；非 `loop` 时
+  走 `onCancel()`（TS 就是这样用「取消」回调表示「正常结束并关闭」）。
+- **`step.searchable || step.layout ? {...} : undefined`**：两者都为假时传 `undefined`，
+  于是该步走 `SUBMENU_SELECT_LIST_LAYOUT`（12/32）而不是「传了个空 options」。
+
+### 4f-3d Batch E-3 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C233 | **`IComponent.HandleInput` 的接口映射建在「列出 `IComponent` 的那个类」上**：`Container`（`Tui.cs`）、`Text`、`Box` 三个可继承基类各声明 `public virtual void HandleInput(string data) { }`，所有派生组件改写成 `public override void HandleInput` | TS 的 `Component.handleInput?` 是**可选属性**，靠结构化类型，`Container`/`Text`/`Box` 都没有它；任何子类写一个同名方法就自动满足接口。C# 是名义类型：接口映射在**声明 `IComponent` 的类**上一次性建好，子类里新写的 `public void HandleInput` **不会**成为实现，经 `IComponent` 引用调用会落到默认空实现。而 `Tui.cs:1008` 的 `_focusedComponent.HandleInput(data)` 正是接口调用 → **整条键盘链路会静默失效**。详见下节 |
+| C234 | TS 的 `string \| ((context) => string)` 联合 → `public readonly record struct SubmenuText`（两个私有字段 + `Literal` / `Factory` / `IsLiteral` + `FromText` / `FromFactory` + 两个 `implicit operator` + `Resolve`） | 与 C194 的兄弟联合 `ThemeJsonColorValue`（`string \| number`）同一写法。**lambda 省略参数类型时没有自然类型**，隐式转换不成立，必须写 `SubmenuText.FromFactory(ctx => …)`（CS1660）；已在 XML 注释里写明 |
+| C235 | `UnicodeWidth` 的进程级 `WidthCache` / `WidthCacheOrder` 加 `lock`；淘汰分支补 `WidthCacheOrder.Count > 0` 守卫 | 该缓存是**端口自加的优化**（TS `visibleWidth` 每次重算），而渲染会从多线程进入（xUnit v3 并行跑测试类；TUI 也可能边渲染边被后台任务量行）。未同步的淘汰会**破坏字典内部状态**，表现为索引器抛 `IndexOutOfRangeException`（不是「宽度算错」这种可解释的失败）。2026-10-16 一次全量 `Pi.Tui.Tests` 里 39 个 `AltScreenCorpus` 场景同时失败、紧接着复跑全绿，即此因 |
+
+### C233：一个影响**全部已收口组件**的缺陷（重点）
+
+定位过程：Batch E-3 的 26 项测试一开始 9 项失败，症状是「直接 `sub.HandleInput(...)` 有效，
+但 `((IComponent)sub).HandleInput(...)` 无效」。用三步探针得到
+
+```
+directImplementer_viaInterface=1 | containerSubclass_viaInterface=0
+containerSubclass_viaConcrete=1  | containerDeclaresHandleInput=none
+containerSubclassDeclaresHandleInput=SelectSubmenu
+```
+
+即：`SelectList : IComponent`（**直接**列出接口）经接口调用正常；`SelectSubmenu : Container`
+（`Container` 列出接口）经接口调用是空实现。**`Container` 没有声明 `HandleInput`**。
+
+为什么此前一直没暴露：Batch C/D 的测试（以及 E-1/E-2 的测试）全部**直接持有具体类型**调用
+`selector.HandleInput(...)`，走的是普通虚方法/静态分派，从未经过接口。只有 Batch E-3 里
+`SteppedSubmenu` 持有 `IComponent _activeComponent` 才第一次踩到。
+
+**追溯影响面**（这些类此前都只在「接口调用」下坏，直接调用看不出来）：
+
+| 类 | 基类 | 修复 |
+| --- | --- | --- |
+| `SelectSubmenu` / `SteppedSubmenu` | `Container` | `override` |
+| `ExtensionInputComponent` | `Container` | `override` |
+| `FirstTimeSetupComponent` | `Container` | `override` |
+| `LoginDialogComponent` | `Container` | `override` |
+| `ThinkingSelectorComponent` | `Container` | `override` |
+| `TrustSelectorComponent` | `Container` | `override` |
+| `ExtensionSelectorComponent` | `Container` | 原为 `public virtual void`（同样**没进接口映射**）→ 改 `public override void`，仍是 `virtual` 供 `RadiusLoginMenuComponent` 继续 override |
+| `CancellableLoader` | `Loader` → `Text` | `override` |
+| `StatusIndicator` | `Loader` → `Text` | 无 `handleInput`（TS 也没有），不动 |
+| `RadiusLoginMenuComponent` | `ExtensionSelectorComponent` | 已是 `override`，不动 |
+
+修 `Container` / `Text` / `Box` 三个基类（而不是逐个类补 `, IComponent`）的理由：**编译器会替我们
+把关**——基类一旦有 `virtual`，子类里忘记写 `override` 的新同名方法会产生 CS0108（隐藏继承成员），
+而本仓 `TreatWarningsAsErrors=true`，直接构建失败。逐个重新列出接口则没有任何保护，下一次新增
+组件还会踩同一个坑。
+
+**副作用与配套修正**：`TuiComponents.HasHandleInput`（`MouseEvents.cs`）原本靠
+`GetMethod("HandleInput").DeclaringType != typeof(IComponent)` 判断「有没有输入处理器」，对应 TS 的
+`component.handleInput` 真值判定。基类补上 no-op 之后，**裸 `Container` / `Text` / `Box` 实例也会
+返回 true**，与 TS 相反 → 增加 `NoOpHandleInputDeclarations` 排除表（`Container` / `Text` / `Box`）。
+该表需要随新基类同步维护，已在注释里写明。
+
+### 测试与验证（4f-3d Batch E-3）
+
+新建 `tests/Pi.CodingAgent.Tests/SettingsSubmenuTests.cs`（**26** 项）。**上游没有任何针对该模块的
+测试**（`settings-submenu` 只被 `settings-selector` 间接覆盖），所以这 26 项全部是照源码行为自己
+定的观测点，不是转写：
+
+| 组 | 项数 | 覆盖 |
+| --- | ---: | --- |
+| `SelectSubmenuTests` | 14 | 标题/说明/列表/普通提示齐全且**无** `Type to filter`；`Searchable` 加 `Input` 并换提示；空说明少 2 行；`currentValue` 命中则预选、未命中回落第 0 行；确认回调拿到选中值；取消回调；`onSelectionChange` 只在给了回调时接线；打字过滤是**原地换子节点**（子节点数不变）；`fuzzyFilter` 是**子序列**匹配（"aa" 命中 Alpha/Gamma、不命中 Beta）；退格清空后恢复全部；上下键走列表而不进搜索框（搜索框仍为空）；`searchInput.onSubmit` 接到列表；`Layout` 覆盖默认 12/32 且主列被截断而**说明列不被截断** |
+| `SteppedSubmenuTests` | 12 | 单步不带 `Step 1/1 ·`、多步带 `Step 1/2 · `；`context` 累积后下一步的 `Options`/`Title` 能读到；末步 Enter 触发 `onComplete` 并带上全部 key；非末步不触发；末步非 `loop` 走 `onCancel`；`loop` 触发 `onComplete` 后回到第 0 步且 `context` 清空；非首步 Esc 退回上一步并**删掉**该步的 key；首步 Esc 走 `onCancel`；`startAtStep` + `initialContext` 跳过前置步；`preselect` 缺省为第 0 行；`searchable` 步出现 `Type to filter` 提示 |
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.CodingAgent.Tests` 全量 **2436 / 0 失败**（42s；2410 + 26）
+- `Pi.Tui.Tests` 全量 **23854 / 0 失败**，**连跑三轮**全绿（C233 动了共享基类，必须验）
+- 新类单跑 `SelectSubmenuTests` **14 / 0**、`SteppedSubmenuTests` **12 / 0**
+- 踩坑记录（**测试自身写错的两处**，值得记下）：
+  1. `LayoutOverrideReplacesTheDefaultColumns` 原断言 `DoesNotContain("second")` —— 想当然地以为
+     「列宽变窄会把行截短」，实际被截的是**主列（label）**，说明列按 `remainingWidth` 单独截断，
+     `second` 照常显示。改为断言选中行前缀 `→ Be `（主列 4 − `PRIMARY_COLUMN_GAP` 2 = 2 个字符）
+     + 说明列仍在。
+  2. `TypingFiltersTheListInPlace` 原断言「渲染行数不变」——错。子节点数是变的（原地替换），
+     但重建后的列表只装命中项，`maxVisible = min(filtered.length, 10)` 随之变小，**渲染行数会减少**。
+     改为断言 `Children.Count` 不变。
+  3. `FuzzyFilterMatchesSubsequences` 原用 "am" 期望命中 Alpha —— 错。`fuzzyFilter` 的 haystack 是
+     `label + " " + description`，"Alpha first" 里**没有 `m`**，只有 Gamma 命中。改用 "aa"。
+
+> **4f-3d 余 9 个 / 5,759 行**：`extension-editor`（141，依赖未移植的 `external-editor.ts`）/
+> `custom-editor`（148）/ `oauth-selector`（224）/ `scoped-models-selector`（401）/
+> `model-selector`（421）/ `config-selector`（951）/ `settings-selector`（993）/
+> `session-selector`（1045）/ `tree-selector`（1435）。
+
+---
+
 ## R2 漂移对账（2026-10-16）
 
 参照检出已从 `428a12bc7` 漂移到 `eb326d26`（25 提交 / 8 触及 `packages/coding-agent` / 3 触及

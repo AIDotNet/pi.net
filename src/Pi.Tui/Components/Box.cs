@@ -100,6 +100,17 @@ public class Box : IComponent
     }
 
     /// <summary>
+    /// Optional keyboard handler. <see cref="Box"/> is the class that lists <see cref="IComponent"/>, so
+    /// the interface map is built here; a subclass that merely declares a matching public method would
+    /// never become the implementation and an <see cref="IComponent"/>-typed call (exactly how
+    /// <see cref="Tui"/> drives the focused component) would hit the empty default. Subclasses must
+    /// therefore write <c>override</c> (C233).
+    /// </summary>
+    public virtual void HandleInput(string data)
+    {
+    }
+
+    /// <summary>
     /// Mouse hit-testing across children with padding-aware coordinate mapping (port of the TS
     /// <c>Box.handleMouse</c>). The event coordinates are local to the padded box: content space
     /// strips <c>paddingX</c>/<c>paddingY</c>, and the hit child receives coordinates local to it.
