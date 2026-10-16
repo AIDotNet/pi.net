@@ -5,6 +5,18 @@ namespace Pi.CodingAgent.Utils;
 /// <summary>Port of <c>utils/open-browser.ts</c>.</summary>
 public static class OpenBrowser
 {
+    private static Action<string>? _openOverride;
+
+    /// <summary>
+    /// Replace the platform launcher. The TS tests stub <c>utils/open-browser.ts</c> wholesale; the port
+    /// exposes the same seam so a test can drive the login dialog without spawning a real browser.
+    /// </summary>
+    internal static Action<string>? OpenOverride
+    {
+        get => _openOverride;
+        set => _openOverride = value;
+    }
+
     /// <summary>
     /// Open a URL or file in the platform browser/default handler.
     /// </summary>
@@ -16,6 +28,12 @@ public static class OpenBrowser
     /// </remarks>
     public static void Open(string target)
     {
+        if (_openOverride is { } overrideOpen)
+        {
+            overrideOpen(target);
+            return;
+        }
+
         var (command, args) = ResolveLauncher(target);
         try
         {

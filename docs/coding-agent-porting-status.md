@@ -3719,6 +3719,86 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
 
 ---
 
+## 4f-3d 进度（2026-10-16）：选择器 Batch E-2（login-dialog）
+
+4f-3d 的**第三子批第二件**：OAuth 登录期间顶替编辑器的面板。它是 `oauth-selector` 与
+`settings-submenu` 之外唯一「有异步交互」的小件（其余都是纯展示或纯列表），也是 4f-4 装配层里
+`interactive-mode.ts` 直接 `new` 出来的组件之一。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/login-dialog.ts` | 238 | `Components/LoginDialog.cs`（310） | `LoginDialogComponent : Container, IFocusable`；上/下 `DynamicBorder` + 标题 + 动态内容区 + 常驻 `Input`；`showAuth` / `showDeviceCode` / `showManualInput` / `showPrompt` / `showDetails` / `showInfo` / `showWaiting` / `showProgress` 八个步骤方法；`handleInput` 里 `tui.select.cancel` → 取消、`app.message.copy` → 复制已显示的 URL、其余转给 `Input` |
+
+覆盖的 TS 语义细节：
+
+- **`showPrompt` 不清空内容**（`showAuth` / `showDeviceCode` / `showDetails` 会清）。这是
+  上游 `5433` 回归修的行为：连发两次 prompt 时，前一次的 URL、说明、详情都必须留在屏幕上。
+- **提交后把 `Input` 从内容区里换掉**：`replaceInputWithSubmittedText` 把那个子节点替换成
+  `> {value}` 的 `Text`。所以「同一个 `Input` 实例被反复 `addChild`」不会让前一次的值跟着
+  后续输入一起变——这正是回归用例断言的 `countRenderedValue(...) === 1`。
+- **取消**：`abortController.abort()` + 若有挂起的 prompt 就 reject `Error("Login cancelled")`
+  + 一律 `onComplete(false, "Login cancelled")`。
+- **`showDeviceCode` 清掉 `authUrl`**（于是复制键失效），用 OSC-8 超链接渲染验证地址与
+  `Cmd+click / Ctrl+click` 提示，再显示 `Enter code: {userCode}`。
+- **`showInfo` 不碰 `authUrl`**（与 `showDetails` / `showDeviceCode` 相反），链接带 label 时
+  渲染成 `{label}: {url}`，`showCloseHint` 才追加 `to close` 提示。
+- **`handleInput` 的三路优先级**：取消键 → 复制键（仅当 `authUrl` 存在）→ 交给 `Input`。
+  取消键被面板自己吃掉，因此 `input.onEscape` 那条路径**在 TS 里也是不可达的**，端口照抄保留。
+
+### 4f-3d Batch E-2 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C231 | `AbortController` → `CancellationTokenSource`（`get signal()` → `CancellationToken Signal`，沿用 C2 / C44）；TS 的 `inputResolver` + `inputRejecter` 两个字段折成一个 `TaskCompletionSource<string>`；`reject(new Error("Login cancelled"))` → `TrySetException(new OperationCanceledException("Login cancelled", token))` | 全仓既定映射。两个字段合并是必然的：C# 的 `TaskCompletionSource` 自带 resolve/reject 两面，且 TS 里它们总是同时被赋值/同时被清空（`inputResolver = undefined; inputRejecter = undefined;`），拆开只会多一处可能不同步的状态 |
+| C232 | `Utils/OpenBrowser.cs` 新增 `internal static Action<string>? OpenOverride` 测试缝（18 行，未改任何既有行为） | TS 测试用 `vi.mock("../../../src/utils/open-browser.ts")` 把整个模块替换掉；C# 没有模块级替换，只能开缝。与 `Clipboard` 的五个 `*Override` 同风格。**这是对已收口文件的增补**，故单独编号 |
+
+**同批记录（不单独编号）**：
+
+- **TS 里 OSC-8 有四种终止符写法**，本批踩到其中两种：`packages/tui/src/terminal-image.ts:727`
+  的 `hyperlink()` 用 **ST**（`\x1b\\`，端口即 `TerminalImage.Hyperlink`），而 `login-dialog.ts`
+  三处内联用 **BEL**（`\x07`）。端口把 BEL 形式抽成私有 `BelHyperlink(text, url)`，并在测试里
+  用**未 strip ANSI** 的原始渲染钉住 `\x1b]8;;{url}\x07` 与 `\x1b]8;;\x07`，防止有人「顺手」
+  改成 `TerminalImage.Hyperlink` 而静默改变字节。
+- `providerNameOverride || providerId` → `string.IsNullOrEmpty(...) ? providerId : ...`：
+  TS 的 `||` 是 falsy 判定，**空串也回落**；而 `titleOverride ?? ...` 是 `??`，**空串要保留**。
+  两者语义不同，测试各钉一例。
+- `contentContainer.children = children.map(...)` → 在 `Container.Children`（只读 getter，元素类型
+  `List<IComponent>`）上**原地替换**。
+- `process.platform === "darwin"` → `OperatingSystem.IsMacOS()`（与 `AuthUrlComponent` 同一写法）。
+- `void this.authUrl.copy()` → `_ = _authUrl.CopyAsync();`。
+- 构造参数 `onComplete: (success: boolean, message?: string) => void` → `Action<bool, string?>`。
+- 本文件同时需要 `Pi.Tui.Components`（渲染组件）与 `Pi.CodingAgent.Utils`（`OpenBrowser`）两个
+  命名空间，于是 `Text` 必然二义 → 起别名 `using TuiText = Pi.Tui.Components.Text;`。
+
+### 测试与验证（4f-3d Batch E-2）
+
+新建 `tests/Pi.CodingAgent.Tests/LoginDialogTests.cs`（**17** 项；TS 的 5 例全部转写，另补 12 项）：
+
+| 组 | 项数 | 覆盖 |
+| --- | ---: | --- |
+| OAuth prompt 回归（TS 转写） | 5 | 前一次 prompt 的 `> first-value` 与后一次输入各只渲染一次；`showAuth` 的 URL + 说明在 `showPrompt` 后仍在；`showInfo` 的说明与带 label 链接在 `showPrompt` 后仍在；`showDetails` 的两行在 `showPrompt` 后仍在；`showManualInput` 的 `> callback-value` 与后一次输入各只渲染一次 |
+| 设备码（补） | 2 | `showDeviceCode` 渲染验证地址 + 平台对应的 click 提示 + `Enter code: ABCD-1234`，且**原始渲染**含 BEL 终止的 OSC-8 开启/关闭序列；`showDeviceCode` 会替换掉 `showAuth` 的内容 |
+| 链接 / 提示（补） | 2 | 无 label 的链接只渲染 URL，`showCloseHint: false` 时不出现 `to close`；`showWaiting` 同时给出消息与 `to cancel` 提示 |
+| 累积 / 替换（补） | 2 | `showProgress` 连发两行都保留（不清空）；`showDetails` 清空内容并丢掉复制目标（`showAuth` 的 URL 与说明消失） |
+| 标题（补） | 1 | `providerId` 回落、**空串 override 也回落**、`providerNameOverride` 生效、`titleOverride` 生效且**空串标题保留**（`Login to` 不出现） |
+| 焦点（补） | 1 | `Focused` 转发到 `Input`（设置前后原始渲染不同） |
+| 取消（补） | 2 | `\x1b` 取消：挂起的 prompt 抛 `OperationCanceledException`、`onComplete(false, "Login cancelled")`、`Signal` 已取消；无挂起 prompt 时按 `\x03`（ctrl+c）同样只报一次失败 |
+| 复制键（补） | 2 | 把 `app.message.copy` 改绑到可打印键 `z`：显示 URL 时该键被面板吃掉（URL 进剪贴板、`> z` 不出现在输入里、`AuthUrlComponent` 提示变为 `Copied URL to clipboard`）；未显示 URL 时该键正常落到输入（`> z` 出现、剪贴板未写） |
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.CodingAgent.Tests` 全量 **2410 / 0 失败**（44s；2393 + 17）
+- 新类单跑 **17 / 0**（703ms），**连跑三轮**全绿（含 `await Task.Delay(200)` 等 `AuthUrlComponent` 提示的用例）
+- 踩坑记录：首次实现把 OSC-8 的**开启**终止符也写成了 `\x1b]8;;\x07`（那是关闭形式），
+  开启处漏了 BEL —— 只有「原始渲染逐字节断言」能抓到，`StripAnsi` 之后的可见文本完全正常。
+  这正是保留该断言的理由。
+
+> **4f-3d 余 10 个 / 6,017 行**：`extension-editor`（141，依赖未移植的 `external-editor.ts`）/
+> `custom-editor`（148）/ `oauth-selector`（224）/ `settings-submenu`（258）/
+> `scoped-models-selector`（401）/ `model-selector`（421）/ `config-selector`（951）/
+> `settings-selector`（993）/ `session-selector`（1045）/ `tree-selector`（1435）。
+
+---
+
 ## R2 漂移对账（2026-10-16）
 
 参照检出已从 `428a12bc7` 漂移到 `eb326d26`（25 提交 / 8 触及 `packages/coding-agent` / 3 触及
