@@ -3790,26 +3790,61 @@ toolCall JSON 计长 / 图片占位 / system 的 `tool-:` 增量 / 空提示）�
 | # | 差异 | 理由 |
 |---|---|---|
 | C214 | `Faux.Response` 不提供 `Usage` 形参；TS 的脚本条目（`fauxAssistantMessage`）带 `usage` | TS 侧该字段恒被 `withUsageEstimate` **无条件覆盖**（`return { ...message, usage: {...} }`），脚本写什么都会被丢弃。端口直接不暴露这个无效入参，避免调用方误以为它能生效 |
-| C215 | `Faux.FauxCore` 的构造形参是位置参数 `(string? api, string? provider)`；TS 是 `createFauxCore(options: RegisterFauxProviderOptions)` | 端口尚未移植该 options 对象的其余字段（见下方缺口），保留位置参数比先造一个半空的 options record 更诚实；待 S3c 补齐时再一并提升为 record |
+| C215 | ~~`Faux.FauxCore` 的构造形参是位置参数 `(string? api, string? provider)`~~ | **S3c 已消解**：新增 `FauxProviderOptions`（`Api` / `Provider` / `Models` / `Deferred` / `TokensPerSecond` / `TokenSize`），主构造改为 `FauxCore(FauxProviderOptions?)`；位置参数构造保留为**端口专有的兼容重载**（既有夹具仍在用），新代码走 options |
 
-### 已知缺口（转入 S3c）
+### S3c：faux provider 补全（`packages/ai/src/providers/faux.ts` 710 行）
 
-`packages/ai/src/providers/faux.ts` 728 行，端口目前覆盖的是「测试替身」需要的子集。**本批未移植**（逐项列出以免被误认为已完成）：
+S3b 只移植了 faux 的「用量估算 + 静态脚本」半边。本批把剩下的全部补上，`faux.ts` 已**逐行覆盖**。
 
-| TS 面 | 行数 | 说明 |
+#### 本批改动（`src/Pi.Ai/Providers/Faux.cs` 471 → 1,209 行）
+
+| TS 面 | 端口落点 | 语义要点 |
 | --- | --- | --- |
-| `tokensPerSecond` + `scheduleChunk` | ~10 | 按 token 速率给流式增量加真实延迟 |
-| `tokenSize: { min, max }` + `splitStringByTokenSize` | ~12 | 随机切块（端口固定 5 字符切文本块） |
-| `deferred` 全链（`createDeferredMessage` / `fetchDeferred` / `cancelDeferred` / `deferredResponses` / `state.cancelledDeferred`） | ~150 | 延后响应句柄；端口 `Pi.Ai` 的 deferred 基础层（P33）已具备，缺的是 faux 侧实现 |
-| `FauxResponseFactory`（函数式脚本条目）+ `state.callCount` | ~15 | 端口只支持静态 `Response` |
-| `fauxProvider()`（经 `createProvider` 的真实 provider 句柄 + `auth.apiKey.resolve`） | ~25 | 端口只有 `CompatApi.RegisterFauxProvider` 的 api-registry 路径 |
-| `aborted` 中断（`signal` 检查 + `createAbortedMessage`） | ~20 | 端口只按脚本给出的 `StopReason.Aborted` 走终态，不检查取消令牌 |
-| `thinking_start` / `thinking_end` / `toolcall_start` / `toolcall_end` 四个事件 | ~30 | 端口只发 `ThinkingDelta` / `ToolCallDelta`（真实 provider 均已发全） |
-| `models` 自定义目录（`FauxModelDefinition`）+ `getModel(id)` 重载 | ~25 | 端口固定单模型 |
-| `normalizeFauxAssistantContent` / `fauxAssistantMessage` / `DEFAULT_USAGE` | ~30 | 端口以 `Faux.Response` 记录承载 |
+| `RegisterFauxProviderOptions` | `FauxProviderOptions`（`Api`/`Provider`/`Models`/`Deferred`/`TokensPerSecond`/`TokenSize`）+ `FauxModelDefinition` / `FauxDeferredOptions` / `FauxTokenSize` | 消解 C215 |
+| `FauxResponseFactory` + `state.callCount` | `delegate FauxResponseFactory(context, options, state, model)` + `FactoryStep`；`FauxProviderState.CallCount` | 工厂在 `callCount` 自增**之后**被调用（TS 先自增再进 microtask） |
+| `FauxResponseStep` 联合 | `abstract record FauxResponseStep` + `Response : FauxResponseStep` + `FactoryStep` | 见 C216 |
+| `tokensPerSecond` + `scheduleChunk` | `StreamShape.DelayForChunkAsync` | `delayMs = ceil(len/4) / tps * 1000`；`tps` 为 null 或 ≤ 0 时不延迟 |
+| `tokenSize {min,max}` + `splitStringByTokenSize` | `SplitStringByTokenSize` | `min = max(1, min(min ?? 3, max ?? 5))`、`max = max(min, max ?? 5)`、`charSize = max(1, tokenSize*4)`、空串仍产出 `[""]` |
+| `deferred` 全链 | `FauxCore.FetchDeferred` / `CancelDeferredAsync` + `_deferredResponses` + `FauxProviderState.CancelledDeferred` | 句柄身份三元组（provider/modelId/api）不符 → `Unknown faux deferred response: <id>`；已取消 → `Faux deferred response was cancelled: <id>`；`pendingFetches` 逐次递减并回放占位消息；取消时登记句柄**快照** |
+| `fauxProvider()` | `Faux.CreateProvider(options)` → `FauxProviderHandle` | 经 `ProviderFactory.Create` 装配真实 `IProvider`；`auth.apiKey.resolve` 恒成功（返回空 `ModelAuth`），故 faux 模型永远"已配置" |
+| `aborted` 中断 | `IsAborted` + `CreateAbortedMessage` | 入口处预中止 → **只**发 error 终态（无 `start`）；每块与每 chunk 的延迟后各查一次；中止消息保留已累计的部分内容与 `errorMessage = "Request was aborted"` |
+| 四个块边界事件 | `ThinkingStart`/`ThinkingEnd`/`ToolCallStart`/`ToolCallEnd` | `thinking_end` / `text_end` 带的是**整块原文**（非累计值）；`toolcall_delta` 期间占位块 `arguments` 为 `{}`，`toolcall_end` 才落定真实对象 |
+| `models` 自定义目录 + `getModel` 重载 | `FauxCore.Models` / `GetModel(string?)` | 未给 `name` 回落 `id`；`contextWindow`/`maxTokens` 缺省 128000/16384；`getModel()` 无参取 `models[0]` |
+| `normalizeFauxAssistantContent` / `fauxAssistantMessage` / `DEFAULT_USAGE` | `NormalizeFauxAssistantContent`（三态重载）/ `ScriptedMessage` / `DefaultUsage` | `usage` 一律写 `DefaultUsage`（回放时被 `WithUsageEstimate` 无条件覆盖） |
 
-> 影响面：这些都是**测试替身**的能力，不影响真实 provider 路径；未移植面已在 `Faux.cs` 的 XML 注释里逐处标注。
-> 若后续 coding-agent 的测试需要「延后响应 / 限速流 / 中断」场景，须先落地 S3c。
+`src/Pi.Ai/Compat.cs` 同步更新：`FauxProviderRegistration.State` 由 `FauxCore` 改为 `FauxProviderState`（对齐 TS 的 `state`），`SetResponses` / `AppendResponses` 形参改为 `IEnumerable<FauxResponseStep>`，`RegisterFauxProvider()` 改用 `core.Models` / `core.GetModel`。
+
+#### 顺带修掉的既有缺陷（非 R2 引入）
+
+| 缺陷 | 事实 | 处置 |
+| --- | --- | --- |
+| 脚本耗尽的文案是端口**自造**的 | TS 是 `new Error("No more faux responses queued")`（`createFauxCore` 的 `stream` 内），端口写的是 `"Faux script exhausted"`，并被 `FauxUsageEstimateTests` 写死 | 改为 TS 原文案，测试断言同步改正 |
+| 取消令牌被交给 `Task.Run` | 旧实现 `Task.Run(() => Replay(...), cancellationToken)`：令牌已取消时任务**根本不会启动**，流永不收尾（`WaitForDoneAsync` 挂死）；循环里的 `ct.ThrowIfCancellationRequested()` 则会让异常逃出未观察任务 | 不再把令牌交给 `Task.Run`；改为把令牌当作 TS 的 `signal`——预中止发 `aborted` 终态，流内各检查点发 `aborted` 终态（与 TS 逐条等价） |
+| `ToolCallDelta` 的 `Index` 填的是工具调用序号 | 端口旧代码传 `partial.Content.OfType<ToolCallContent>().IndexOf(toolCall)`，而真实 provider（Google 系）传的是**内容块下标**；TS 的 `toolcall_delta` 根本没有该字段 | 两处都填内容块下标 `index`（与 `ContentIndex` 一致） |
+| 工具调用默认 id 形如 `tool_<guid>` | TS 是 `randomId("tool")` = `` `tool:${Date.now()}:${rand36}` `` | 新增 `RandomId`（含 base36 小数位生成）统一走 TS 形状；`deferred` 句柄 id 同源 |
+| 默认 `BaseUrl` 是 `https://faux.invalid` | TS `DEFAULT_BASE_URL` 是 `http://localhost:0` | 改为 `http://localhost:0` |
+
+#### 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C216 | `FauxResponseStep` 用**继承**表达 TS 的联合（`Response : FauxResponseStep`、`FactoryStep : FauxResponseStep`） | TS 的 `AssistantMessage \| FauxResponseFactory` 在 C# 没有零成本对应物。用继承后 `IEnumerable<Response>` 能靠 `IEnumerable<out T>` 的协变直接喂给 `IEnumerable<FauxResponseStep>` 形参，既有夹具的 `SetResponses([Faux.Response.Text("hi")])` 一行不改 |
+| C217 | `FauxCore.Stream` / `FetchDeferred` 额外收一个 `CancellationToken`；`IsAborted` 同时看它与 `options.Signal` | TS 只有 `streamOptions.signal` 一个中止源。端口的 `StreamFn` 边界把 run 的取消令牌**单独传参**（`AgentLoopRunner` 就是这么调的），所以两个都要当中止源，否则 `Pi.Agent` 侧的中断对 faux 不可见 |
+| C218 | `ToolCallDelta.Index` 填 `ContentIndex`（TS 的 `toolcall_delta` 无此字段） | 端口该字段是既有形状（真实 provider 已在用）；按 Google 系约定填内容块下标，不引入第三种解释 |
+| C219 | `FauxCore.SampleTokenSizeOverride` / `DelayAsyncOverride` 是 `internal` 测试缝 | TS 直接调 `Math.random()` / `setTimeout`，随机切块与真实延迟都不可断言。两个缝只影响**测试替身**，缺省行为与 TS 完全一致（`Random.Shared` / `Task.Delay`） |
+| C220 | `CompatApi.RegisterFauxProvider()` 的 api-registry 路径**不暴露**延后能力 | 端口的 `ApiProvider`（api-registry 条目）没有 `fetchDeferred` / `cancelDeferred` 成员（这是 registry 的既有形状，不是本批引入）。延后响应只在 `Faux.CreateProvider()` 的 `ProviderStreams` 路径可用——TS 侧 `compat.registerFauxProvider` 同样只登记 `stream`/`streamSimple` |
+
+#### 测试与验证（S3c）
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- 新增 `FauxProviderTests` **33 / 0**：默认与自定义模型目录、`getModel` 重载、工厂收到 context/options/state/model 且 `callCount` 时序正确、`tokenSize` 三种边界（`1/1` 定长、`10/2` 夹到 2、缺省 12–20 字符）、空串仍产出一个空块、`tokensPerSecond` 延迟值（2ms/块）与三种「不延迟」、文本/思维/工具调用三路块边界事件、工具参数以 JSON 增量流出且 `toolcall_end` 落定真实对象、`ToolCallDelta` 两槽都是内容块下标、预中止（无 `start`）/ 流中中止（保留已累计内容）/ `options.signal` 中止、`pending` 停止原因抛错、延后全链（句柄身份 + `pollAfterMs` + `pendingFetches` 递减 + 未知句柄 + 身份不符 + 取消登记 + 提交选项剥离 `deferred`/`signal`/`onResponse`）、`fauxProvider()` 句柄（`Auth.ApiKey.Name`、能力开关、经 `Models` 门面的补全与延后往返）、`ScriptedMessage` 三态归一化与身份字段透传、`DefaultUsage` 全零
+- `Pi.Ai.Tests` **359 / 0**（326 + 33）
+- `Pi.Agent.Tests` **33 / 0**
+- `Pi.CodingAgent.Tests` 全量 **2285 / 0 失败**
+- 改动既有断言 1 处：`FauxUsageEstimateTests.ExhaustedScriptFailsWithAnErrorTerminalCarryingTheModelIdentity` 的文案由自造的 `"Faux script exhausted"` 改为 TS 原文案
+
+> **S3c 收口后，`packages/ai` 已无已知缺口。** 剩余工作回到 S5
+> （4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
 
 ### 测试与验证（S3a + S3b）
 

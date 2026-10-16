@@ -1,8 +1,8 @@
 # coding-agent 剩余迁移：现状分析、迁移清单与分阶段计划
 
-> 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段）
+> 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d26`（= 当前检出）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`3cd141d`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d`）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`413718a`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a`）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
 > 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C215`）。
 
@@ -75,7 +75,7 @@
 | **S1** | `durationMs` 贯穿：`agent-loop` 计时 → `ToolExecutionEnd` 事件 → `ToolResultMessage`；`AssistantMessageEventStream` 自计时；`lazy` 用流创建时刻；coding-agent 侧 `ToolRenderContext.DurationMs` / `ToolExecutionEndEvent.DurationMs` / `BashRenderers` 优先分支 / `ToolHtmlRenderer` | ✅ `4ebf6fa` |
 | **S2** | `--tools` 修饰符：`GetToolListError` 回填 + `Sdk` tools 语义 + `AgentSessionConfig.DefaultToolModifiers` + 决策叶子修饰符 + `AgentSession.ReloadAsync` 编排本体 | ✅ `3b1346a`（S2a）；✅ `e657dac`（S2b） |
 | **S3** | ai provider 层：`retry` `server_busy`（`8b5708dbb`）、`radius` 网关目录替换（`43d376399`）、`bedrock` OpenAI reasoning（`2989eb581`）、`faux` 逐消息 prompt cache + 用量估算子系统（`fe11328b0`） | ✅ `2c74e2c`（S3a）；✅ `a633cb2` + `97eae94`（S3b） |
-| **S3c** | faux 补全（**新增**）：`tokensPerSecond` 限速 / `tokenSize` 随机切块 / `deferred` 全链 / `FauxResponseFactory` / `fauxProvider()` / `aborted` 中断 / 四个 `*_start`·`*_end` 事件 / 自定义模型目录 | 待办（见 [coding-agent-porting-status.md](coding-agent-porting-status.md) 的「已知缺口（转入 S3c）」） |
+| **S3c** | faux 补全（**新增**）：`tokensPerSecond` 限速 / `tokenSize` 随机切块 / `deferred` 全链 / `FauxResponseFactory` / `fauxProvider()` / `aborted` 中断 / 四个 `*_start`·`*_end` 事件 / 自定义模型目录 | ✅ 本批（见 [coding-agent-porting-status.md](coding-agent-porting-status.md) 的「S3c」节） |
 | **S4** | codemode 输出条目分离（`eb326d265`）：`==> text N/M <==` 编号 + `<console_output>` 分组 + console 标记 | ✅ `3cd141d` |
 | **S5** | 回到原计划：4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals | 待办 |
 
@@ -117,6 +117,9 @@
 | `Pi.CodingAgent.Tests`（P4b-6 后） | ✅ **1708 项 / 0 失败**（3m01s；1662 + `McpExtensionTests` 46） |
 | `Pi.CodingAgent.Tests`（4f-2a 后） | ✅ **1889 项 / 0 失败**（3m50s；1708 + 181） |
 | `Pi.Tui.Tests`（4f-2a 后） | ✅ **23854 项 / 0 失败**（9s；23812 + `TerminalColorsTests` 42；另修掉 `LoaderTests` 的一处时序竞态） |
+| `Pi.CodingAgent.Tests`（S3c 后，= 当前 HEAD） | ✅ **2285 项 / 0 失败**（S0–S4 期间由 2256 逐步到 2285） |
+| `Pi.Ai.Tests`（S3c 后） | ✅ **359 项 / 0 失败**（S3a 后 310 → S3b 326 → S3c 359） |
+| `Pi.Agent.Tests`（S3c 后） | ✅ **33 项 / 0 失败**（S1 后 33） |
 | 其余 9 个测试工程 | 见 [porting-status.md](porting-status.md) 的环境限制说明 |
 
 ### 1.3 起始状态的一个真实缺陷（本批已修）
@@ -464,7 +467,9 @@
 
 | 2026-10-16 | **S4（R2-6 收口）** | codemode 输出条目分离（`eb326d265`）。**关键发现：该提交横跨 `packages/codemode` 与 `packages/coding-agent` 两个包，端口此前只移植了 coding-agent 半边**——4d-5 已带 `execute.ts` 的 `formatOutput` / `joinAdjacentText`、`types.ts` 的 `console?: true` 与 `tool.ts` 的 describeGlobals 文案，但 `prelude-source.ts` 的 `console.*` 仍以 `output("text", …)` 上报。而 kind→条目的映射是**注入引擎的职责**（对应 TS `worker.ts`，端口不内置 JS 引擎），引擎按 `"text"` 构造出的条目 `Console` 恒为 `null`，于是 `FormatOutput` 的 `<console_output>` 分组**永远不会触发**、console 行混进正文。本批：`PreludeSource` 的 `output("text", …)` → `output("console", …)` + 类文档与 bridge kind 列表同步；`Engine.cs` 的「实现方职责」补 kind→条目映射规则；`Host`/`Protocol` 无需改（`Output` 直接承载结构化条目）。**另补一大块缺失覆盖**：`executeCodemode` 的编排在 C# 侧此前**完全没有测试**（`CodemodeCorpusTests` 注释所称的「脚本化引擎集成测试」并不存在），新增 `CodemodeOutputLayoutTests` 5 例锁死版式；`SandboxTests` 加正/反向断言（prelude 里必须是 `output("console", …)`，旧的 `output("text", …)` 必须不存在） | `3cd141d`（已推送） | `CodemodeOutputLayoutTests` **5 / 0**（新建）；`Pi.Codemode.Tests` **40 / 0**（39 + 1）；`Pi.CodingAgent.Tests` 全量 **2285 / 0 失败**（12m49s）；构建 0 警告 0 错误。无新增差异编号 |
 
-> **R2 漂移对账（S0–S4）到此全部完成。** 剩余工作回到原计划：**S3c**（faux 补全，新增阶段）
-> 与 **S5**（4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
+| 2026-10-16 | **S3c（faux 补全）** | `packages/ai/src/providers/faux.ts`（710 行）剩余面**逐行覆盖**：`FauxProviderOptions`（消解 C215：`Api`/`Provider`/`Models`/`Deferred`/`TokensPerSecond`/`TokenSize`，位置参数构造保留为端口兼容重载）；`FauxResponseFactory` + `FactoryStep` + `FauxProviderState.CallCount`；`tokensPerSecond`/`scheduleChunk`（`ceil(len/4)/tps*1000`）；`tokenSize`/`splitStringByTokenSize`（含 `min` 夹到 1 与 max、空串仍产出一块）；`deferred` 全链（句柄身份三元组校验、`pendingFetches` 递减、取消登记句柄快照、提交时剥离 `deferred`/`signal`/`onResponse`）；`Faux.CreateProvider()`（= `fauxProvider()`，经 `ProviderFactory` + 恒成功的 `apiKey.resolve`）；`aborted` 中断（预中止无 `start`、流中中止保留已累计内容）；`thinking_start`/`thinking_end`/`toolcall_start`/`toolcall_end` 四个事件（`*_end` 带整块原文、`toolcall` 参数以 JSON 增量流出后落定真实对象）；自定义模型目录 + `getModel(id)` 重载；`ScriptedMessage`/`NormalizeFauxAssistantContent`/`DefaultUsage`。**顺带修掉 5 处既有缺陷**：脚本耗尽文案（自造 → TS 原文案）、取消令牌被交给 `Task.Run` 导致流永不收尾、`ToolCallDelta.Index` 填工具调用序号（应填内容块下标）、工具调用默认 id 格式、默认 `BaseUrl`。新登记 **C216–C220** | `413718a` | 新增 `FauxProviderTests` **33 / 0**；`Pi.Ai.Tests` **359 / 0**（326 + 33）；`Pi.Agent.Tests` **33 / 0**；`Pi.CodingAgent.Tests` 全量 **2285 / 0 失败**；构建 0 警告 0 错误 |
+
+> **R2 漂移对账（S0–S4）与 S3c 到此全部完成。** `packages/ai` 已无已知缺口；
+> 剩余工作回到原计划 **S5**（4f-3d 选择器 → 4f-3e → 4f-4 → 4f-5 → 4g → evals）。
 
 （后续阶段完成后逐行追加。）
