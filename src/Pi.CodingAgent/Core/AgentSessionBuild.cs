@@ -68,6 +68,16 @@ public sealed record RefreshToolRegistryOptions
     public bool IncludeAllExtensionTools { get; init; }
 }
 
+/// <summary>对应 TS <c>reload(options?)</c> 的匿名形参（agent-session.ts:3659）。</summary>
+public sealed record ReloadOptions
+{
+    /// <summary>
+    /// 重发 <c>session_start</c> 之前的回调（TS <c>beforeSessionStart</c>）。仅在会话已绑定扩展
+    /// （四个绑定任一存在）时才会被调用——未绑定扩展时 reload 不重发 session_start，也就不会触发它。
+    /// </summary>
+    public Func<Task>? BeforeSessionStart { get; init; }
+}
+
 /// <summary>
 /// AgentSession 的实例状态与运行时装配（4e-3e-9h-2c）。
 /// </summary>
@@ -813,6 +823,85 @@ public partial class AgentSession
             _toolDefinitions);
 
         SetActiveTools(nextActiveToolNames);
+    }
+
+    // =========================================================================
+    // 就地重载（TS 3659-3698）
+    // =========================================================================
+
+    /// <summary>
+    /// 就地重载设置、扩展、技能、提示词与主题，并用同一批活跃工具重建运行时。
+    /// 对应 TS <c>reload(options?)</c>（agent-session.ts:3659-3698）。
+    /// </summary>
+    /// <remarks>
+    /// 逐条对应 TS 的语义要点：
+    /// <list type="bullet">
+    /// <item>先抄出旧 runner 的 <c>flagValues</c>，再对它发 <c>session_shutdown(reason="reload")</c>
+    /// 并 <c>invalidate()</c>，使旧上下文立刻失效（之后再用旧 ctx 会抛错）。这一步不受
+    /// <c>hasBindings</c> 影响——只要旧 runner 有 shutdown 处理器就发。</item>
+    /// <item><c>previousDefaultTools</c> 必须在 <c>settingsManager.reload()</c> <b>之前</b>取值：
+    /// 它代表刷新前的默认工具集，用来算本轮新加入的 <c>addedDefaultTools</c>。</item>
+    /// <item>被移出默认集的工具保持活跃，会话中手动关掉的也不会因「仍在默认集里」而被重新激活——
+    /// 只有本轮新出现的名字才会被追加进活跃集。</item>
+    /// <item>重建运行时前把当前活跃工具全部塞进 <c>_pendingToolNames</c>：新扩展稍后注册的工具
+    /// （如仍在连接的 MCP 工具）在注册时再激活。</item>
+    /// <item>仅当四个扩展绑定任一存在时才重发 <c>session_start</c>、上报未处理的 MCP 服务器并
+    /// 重新发现扩展资源；未绑定扩展时到此为止。</item>
+    /// </list>
+    /// </remarks>
+    public async Task ReloadAsync(ReloadOptions? options = null)
+    {
+        var oldRunner = _extensionRunner;
+        var previousFlagValues = oldRunner.GetFlagValues();
+        await ExtensionRunner.EmitSessionShutdownEventAsync(
+            oldRunner,
+            new ExtensionEvent.SessionShutdown(SessionEventReason.Reload)).ConfigureAwait(false);
+        oldRunner.Invalidate();
+
+        // 刷新前的默认工具集快照（未使用默认工具集时为空集）。
+        var previousDefaultTools = ResolvePreviousDefaultTools(
+            _usesDefaultTools, SettingsManager.GetDefaultTools(), _defaultToolModifiers);
+
+        await SettingsManager.ReloadAsync().ConfigureAwait(false);
+        SyncQueueModesFromSettings();
+        Pi.Ai.Api.ApiRegistry.ResetApiProviders();
+        await _resourceLoader.ReloadAsync().ConfigureAwait(false);
+
+        // 刷新后新出现在默认集里的名字；被移除的保持活跃。
+        var addedDefaultTools = ResolveAddedDefaultTools(
+            _usesDefaultTools, previousDefaultTools, SettingsManager.GetDefaultTools(), _defaultToolModifiers);
+
+        var activeToolNames = GetActiveToolNames();
+        foreach (var name in activeToolNames)
+        {
+            _pendingToolNames.Add(name);
+        }
+
+        BuildRuntime(new BuildRuntimeOptions
+        {
+            ActiveToolNames = [.. activeToolNames, .. addedDefaultTools],
+            FlagValues = previousFlagValues,
+            IncludeAllExtensionTools = true,
+        });
+
+        if (!HasExtensionBindings(
+                _extensionUIContext is not null,
+                _extensionCommandContextActions is not null,
+                _extensionShutdownHandler is not null,
+                _extensionErrorListener is not null))
+        {
+            return;
+        }
+
+        if (options?.BeforeSessionStart is not null)
+        {
+            await options.BeforeSessionStart().ConfigureAwait(false);
+        }
+
+        await _extensionRunner.EmitAsync(new ExtensionEvent.SessionStart(SessionEventReason.Reload))
+            .ConfigureAwait(false);
+        _extensionRunner.ReportUnhandledMcpServers();
+        await ExtendResourcesFromExtensions(SessionEventReason.Reload).ConfigureAwait(false);
     }
 
     /// <summary>TS <c>_applyExtensionBindings(runner)</c>。</summary>

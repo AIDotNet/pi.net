@@ -3588,16 +3588,91 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
 |---|---|---|
 | C210 | `Sdk.ResolveSessionTools` 用 `ArgumentException` 抛 `Invalid tools option: …`；TS 是 `throw new Error(...)` | C# 里参数非法用 `ArgumentException` 更符合惯例；`Message` 与 TS 逐字一致，便于调用方按文本匹配 |
 
-### 已核实的既有缺口（非本批引入）
-
-`AgentSession.reload`（TS `agent-session.ts:3659-3698`，约 40 行）**从未移植**。本批顺带核实其全部依赖
-均已就位：`BuildRuntime`（`BuildRuntimeOptions` 已含 `FlagValues` / `IncludeAllExtensionTools`）、
-`SyncQueueModesFromSettings`、`ApiRegistry.ResetApiProviders`、`ExtendResourcesFromExtensions`、
-`ReportUnhandledMcpServers`、`EmitSessionShutdownEventAsync`、`_pendingToolNames`。
-仅缺 `ExtensionRunner.GetFlagValues()` / `Invalidate()` 的接线与编排本体，登记为 **S2b**。
-
 ### 测试与验证（S2a）
 
 - `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
 - `SdkTests` + `AgentSessionExtensionTests` **64 / 0**（含 6 条改写用例 + 3 条新决策叶子用例）
 - `Pi.CodingAgent.Tests` 全量 **2270 / 0 失败**（4m00s）
+
+### S2b：`AgentSession.reload` 编排本体（**既有缺口**，非 R2 引入）
+
+`AgentSession.reload(options?)`（TS `agent-session.ts:3659-3698`）此前**从未移植**：S2a 已把它的纯决策叶子
+（`ResolveCurrentDefaultTools` / `ResolvePreviousDefaultTools` / `ResolveAddedDefaultTools` / `HasExtensionBindings`）
+备好，但编排本体缺席。本批补齐。
+
+TS 原文（逐条对应）：
+
+```ts
+async reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void> {
+    const oldRunner = this._extensionRunner;
+    const previousFlagValues = oldRunner.getFlagValues();
+    await emitSessionShutdownEvent(oldRunner, { type: "session_shutdown", reason: "reload" });
+    oldRunner.invalidate();
+    const getDefaultTools = () => this._usesDefaultTools ? applyToolModifiers(…) : [];
+    const previousDefaultTools = new Set(getDefaultTools());
+    await this.settingsManager.reload();
+    this.syncQueueModesFromSettings();
+    resetApiProviders();
+    await this._resourceLoader.reload();
+    const addedDefaultTools = getDefaultTools().filter((name) => !previousDefaultTools.has(name));
+    for (const name of this.getActiveToolNames()) this._pendingToolNames.add(name);
+    this._buildRuntime({ activeToolNames: […], flagValues: previousFlagValues, includeAllExtensionTools: true });
+    const hasBindings = this._extensionUIContext || this._extensionCommandContextActions ||
+        this._extensionShutdownHandler || this._extensionErrorListener;
+    if (hasBindings) {
+        await options?.beforeSessionStart?.();
+        await this._extensionRunner.emit({ type: "session_start", reason: "reload" });
+        this._extensionRunner.reportUnhandledMcpServers();
+        await this.extendResourcesFromExtensions("reload");
+    }
+}
+```
+
+| 落点 | 改动 |
+| --- | --- |
+| `Core/AgentSessionBuild.cs` | 新增 `ReloadOptions`（`BeforeSessionStart` 回调）；新增 `AgentSession.ReloadAsync(ReloadOptions?, CancellationToken)`，紧随 `BuildRuntime` 之后（镜像 TS 的方法相邻关系） |
+
+**六条对齐要点**（每条都在测试里有对应断言）：
+
+1. `session_shutdown(reason="reload")` 在 `hasBindings` 判断**之前**发出，即**无条件**发（只要旧 runner 有
+   shutdown 处理器）；只有 `session_start` 一侧受 `hasBindings` 门控。首轮测试曾误判为「无绑定则两者都不发」，
+   按 TS 原文修正。
+2. `previousDefaultTools` 必须在 `SettingsManager.ReloadAsync()` **之前**取快照；刷新后再算
+   `addedDefaultTools`，因此「只加新名」——被移出默认集的保持活跃，会话中手动关掉的也不会被重新激活。
+3. 旧 runner 的 `flagValues` 先抄出、再随 `BuildRuntimeOptions.FlagValues` 灌进新 runner 的
+   `extensionsResult.Runtime.FlagValues`。
+4. `_pendingToolNames` 收下**当前全部活跃工具**：新扩展稍后注册的工具（如仍在连接的 MCP 工具）在注册时再激活。
+5. `BuildRuntime` 的 `ActiveToolNames = [.. getActiveToolNames(), .. addedDefaultTools]`、
+   `IncludeAllExtensionTools = true`。
+6. `hasBindings` 为真时顺序为 `beforeSessionStart` → `session_start(reload)` → `ReportUnhandledMcpServers()`
+   → `ExtendResourcesFromExtensions("reload")`。
+
+### 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C211 | `ReloadAsync` 的 `beforeSessionStart` 用 `ReloadOptions.BeforeSessionStart`（`Func<Task>?`）；TS 是内联匿名对象 `{ beforeSessionStart?: () => void \| Promise<void> }` | C# 不能内联匿名类型作公开签名；端口惯例是把 TS 的内联形参提升为具名 record（同 `BuildRuntimeOptions` / `RefreshToolRegistryOptions`）。TS 允许同步返回，`Func<Task>` 由调用方返回 `Task.CompletedTask` 表达 |
+| C212 | `reload` 发 `session_shutdown` 用的是 `new ExtensionEvent.SessionShutdown(SessionEventReason.Reload)`（等价于 `AgentSessionRuntime.BuildSessionShutdownEvent`）；TS 直接写字面量对象 | 与 TS 的「构造字面量事件」一致；不复用 runtime 的工厂以免 `Build` 半边反向依赖 `Runtime` 半边 |
+| C213 | `ReloadAsync` 末尾的 `ExtendResourcesFromExtensions(SessionEventReason.Reload)` 传的是常量；TS 传字面量 `"reload"` | 二者取值相同（`SessionEventReason.Reload == "reload"`），端口统一走常量，避免散落魔法字符串 |
+
+> **剩余接线（延后至 4f-4）**：TS 里 `ctx.reload()` 由宿主（`interactive-mode.ts`）把
+> `ExtensionCommandContextActions.Reload` 指向 `session.reload()`。端口目前**只在测试里**构造过
+> `ExtensionCommandContextActions`，宿主侧 `Reload` 的赋值随 `interactive-mode.ts` 一并落地。
+> 本批交付的是被调用方 `AgentSession.ReloadAsync` 本体。
+
+### 测试与验证（S2b）
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `AgentSessionReloadTests` **10 / 0**（新建）：
+  - `Reload_WithoutBindings_EmitsShutdownButNotStart`（重建 runner + 只发 shutdown）
+  - `Reload_WithoutBindings_DoesNotInvokeBeforeSessionStart`
+  - `Reload_WithBindings_EmitsShutdownThenBeforeThenStart`（`shutdown → before → start` 严格时序）
+  - `Reload_WithBindings_ShutdownComesFromTheOldRunner`（新 runner 不是旧 runner）
+  - `Reload_InvalidatesThePreviousRunner`（旧 `pi` 上下文用 `GetSettings()` 触发 stale 异常）
+  - `Reload_CarriesFlagValuesIntoTheNewRunner`（`bool` 与 `string` 两种 flag）
+  - `Reload_ActivatesOnlyNewlyAddedDefaultToolsAndKeepsTheRestAsTheyWere`（三段式：新增激活 / 移除不回收）
+  - `Reload_WithoutUsesDefaultTools_NeverAddsDefaultTools`
+  - `Reload_ReappliesDefaultToolModifiersToTheRefreshedDefaultTools`（`-bash`/`+write` 在刷新后重放）
+  - `Reload_KeepsBindingsForTheNextReload`（第二次 reload 仍重发一对事件）
+- `Pi.CodingAgent.Tests` 全量 **2280 / 0 失败**
+
