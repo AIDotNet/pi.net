@@ -3995,6 +3995,93 @@ containerSubclassDeclaresHandleInput=SelectSubmenu
 
 ---
 
+## 4f-3d 进度（2026-10-16）：选择器 Batch E-5（custom-editor）
+
+4f-3d 的**第三子批第五件**：给输入框装上编码智能体的应用级快捷键，并把工作状态塞进上边框。
+它不是选择器，而是所有面板/输入流共用的宿主组件——4f-4 的 `interactive-mode.ts` 直接 `new` 它。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/custom-editor.ts` | 148 | `Modes/Interactive/Components/CustomEditor.cs`（220） | `CustomEditor : Editor`（不是 `Container`）；`CustomEditorOptions : EditorOptions`；重写 `renderTopBorder`；`handleInput` 前置一层应用级按键分发 |
+| `test/custom-editor-history-keybindings.test.ts` | 34 | `tests/Pi.CodingAgent.Tests/CustomEditorTests.cs`（428） | 上游 1 例逐字转写 |
+| `test/status-indicator.test.ts` | 111 | 同上 | 上游 5 例中 **4 例转写**；第 5 例（`vi.useFakeTimers` 的 countdown 提前推进）用真 `Thread.Sleep` 等价实现，余下 17 项为按键优先级与边框布局的补测 |
+
+覆盖的 TS 语义细节：
+
+- **`handleInput` 的分层优先级**（顺序即语义）：① `onExtensionShortcut?.(data)` 返回 truthy 才拦下
+  （返回 `false` 必须继续往下走）；② `app.clipboard.pasteImage`；③ `app.interrupt`——**仅当
+  `isShowingAutocomplete()` 为假**才跑 `onEscape ?? actionHandlers.get(...)`，为真则交还基类
+  （供自动完成菜单取消）；④ `app.exit`——**仅当文本为空**，且 `onCtrlD ?? actionHandlers.get(...)`
+  是 `??`（**只跑一个**，不是两个都跑）；⑤ `tui.editor.historyPrevious` / `historyNext` 交还基类
+  （所以用户可以把 Ctrl+P 绑成历史上一条而不被 model cycling 抢走）；⑥ 其余 `actionHandlers`
+  按 `Map` 插入序逐个 `matches`，跳过 interrupt/exit 两项；⑦ 兜底 `super.handleInput`。
+- **`renderTopBorder` 的三段回退**：`embedWorkingStatus` 关 / 无指示器 / `width <= 0` → 原样边框；
+  `statusWidth === 0` → 原样边框；溢出标签放不下（`overflowStart - (3 + statusWidth + 1) < 1`）
+  → 换成 `renderSpinnerInBorder` 的纯转轮再**重算一次** `canFitOverflow`（闭包读的是被重新赋值的
+  `statusWidth`，所以窄状态下往往又放得下）；仍放不下但 `width >= statusWidth + 5` → 状态 + 尾随
+  横线；最后 `prefixWidth = min(3, max(0, width - statusWidth))` 的截断形态。
+- **`canFitOverflow` 是闭包而非快照**：`status` / `statusWidth` 在分支里被重新赋值后，同一个闭包
+  再算一次用的是新值——这是「先塌成转轮、再重试」能成立的唯一原因。
+
+### 4f-3d Batch E-5 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C238 | `EditorOptions` 由 `sealed` 改为普通类，TS 的 `CustomEditorOptions = EditorOptions & { embedWorkingStatus?: boolean }` 用**派生选项类型** `CustomEditorOptions : EditorOptions` 承载 | C# 没有交叉类型，交集最近的等价物就是继承。注意这与 C233 是同一条链：`CustomEditor` 既要能传自己的 options 给基类构造，又要让 `HandleInput` 走 `override` 才能进接口映射——两者都要求基类可继承/可重写 |
+
+**同批记录（不单独编号）**：
+
+- **`actionHandlers` 用 `Dictionary<string, Action>(StringComparer.Ordinal)` 而非 `Map`**：TS `Map`
+  的枚举序是插入序，`set` 同键覆盖不换位；.NET `Dictionary` 在**无删除**时同样按 entries 数组的
+  插入序枚举（本类只有 `OnAction` 的赋值，无 `Remove`），所以 `for (const [action, handler] of …)`
+  的顺序可观测语义（同键两个应用动作 → 先注册者胜）被保住。若将来加了删除，这条等价即失效。
+- **`onExtensionShortcut?.(data)` 是 truthy 判定**，不是 `!= null`：端口写
+  `OnExtensionShortcut?.Invoke(data) == true`，并用「返回 `false` 的处理器不吞键」一例钉住。
+
+### 测试与验证（4f-3d Batch E-5）
+
+新建 `tests/Pi.CodingAgent.Tests/CustomEditorTests.cs`（**22** 项）：
+
+| 组 | 项数 | 覆盖 |
+| --- | ---: | --- |
+| 上游转写 | 5 | 历史上一条优先于 model cycling；opt-in 前边框不变；opt-in 后 `── ⠋ Working ───────` 且宽度 20；五种指示器（compaction×3 / branch summary / retry）在 1..120 六档宽度下都等于请求宽度、countdown 走后标签跟进、置空指示器回到纯边框；idle 两行空白；retry dispose 后不再触发渲染 |
+| 输入优先级（补） | 9 | 扩展快捷键最先且 `false` 不吞键；pasteImage 键；`onEscape` 优先于注册处理器、无动态处理器时回落、无任何处理器时不吞键、自动完成激活时交给基类；Ctrl+D 空编辑器才退出（且 `??` 只跑一个）、非空时是 delete-char-forward；注册的应用动作被派发；未处理的键落到编辑器 |
+| 边框布局（补） | 8 | 溢出标签放不下时塌成纯转轮且宽文本消失；`[Theory]` 1/4/8 三档窄边框不超宽；零宽状态（`Frames = [""]` 逐字渲染）回落纯边框 |
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.CodingAgent.Tests` 全量 **2502 / 0 失败**（40s；2480 + 22）
+- `Pi.Tui.Tests` 全量 **23854 / 0 失败**（9s），**连跑两轮**全绿（C233/C238 都动了共享基类 `Editor`，必须验）
+- 新类单跑 **22 / 0**
+- 踩坑记录（**五处测试自身写错**，都比实现难缠）：
+  1. `ExitOnlyFiresWhenTheEditorIsEmpty` 原以为「SetText 后 Ctrl+D 删掉末字符」——错，
+     `SetText` 把光标放在**行尾**，delete-char-forward 在行尾是 no-op。先发 Ctrl+A（行首）
+     才可观测。更隐蔽的是后半段：`onCtrlD ?? actionHandlers.get(...)` 是 `??`，
+     **动态处理器在时注册的那个永远不跑**，期望值应是 1 而不是 11。
+  2. `InterruptWithAutocompleteActiveFallsThroughToTheBaseEditor` 用 `SetText("he") + " "`
+     想让 `isShowingAutocomplete()` 为真——错。空格既不是 trigger 字符也不在 slash 上下文，
+     **任何实现都不会触发**。行内唯一的自动触发字符是**行首的 `/`**。而且菜单按偏差 T25
+     **晚一个微任务**才出现，必须 `await`（测试改 `async Task` + 轮询），不能同步断言。
+  3. `ExtensionShortcutThatReturnsFalseDoesNotSwallowTheKey` 断言渲染里有 `"> z"`——错。
+     **`Editor` 自己不画提示符**（`> ` 是生产里外层组件加的），`render` 的行就是
+     `padding + text + padding`。上游 `editor.ts` 也没有任何 prompt 字样。改为断言 `GetText()`。
+  4. `ZeroWidthRendersThePlainBorder` 原断言 `render(0)` 返回 `[]`——错。上游 `render` 同样
+     **没有 `width <= 0` 守卫**，端口在宽度 0 时渲染三条线（含空边框）是**忠于 TS** 的行为。
+     要覆盖 `statusWidth === 0` 分支，得让指示器本身零宽：`WorkingIndicatorOptions { Frames = [""] }`
+     逐字渲染空帧（顺带 `_frames.Length <= 1` 不起动画，不会留 timer）。
+  5. `BorderHidesTheStatusAndShowsTheOverflowLabelWhenLinesAreHidden` 在宽度 40 上断言
+     「状态被隐藏」——算错了：`overflowStart(14) - (3 + 9 + 1) = 1 >= 1`，**放得下**。
+     把标签换成 `"Compacting the conversation"`（28 宽）才真正触发回退。
+- 另一条操作性教训：带动画的指示器若在断言失败前没 `Dispose()`，`Loader` 的 80ms timer 会在
+  夹具 `ThemeRuntime.ResetCachesForTests()` 之后继续打 `ThemeRuntime.Current`，抛
+  `Theme not initialized` 的**未处理异常**并可能带崩测试宿主。所有用指示器的用例一律
+  `try/finally` 包住 dispose。
+
+> **4f-3d 余 7 个 / 5,387 行**：`extension-editor`（141，依赖未移植的 `external-editor.ts`）/
+> `scoped-models-selector`（401）/ `model-selector`（421）/ `config-selector`（951）/
+> `settings-selector`（993）/ `session-selector`（1045）/ `tree-selector`（1435）。
+
+---
+
 ## R2 漂移对账（2026-10-16）
 
 参照检出已从 `428a12bc7` 漂移到 `eb326d26`（25 提交 / 8 触及 `packages/coding-agent` / 3 触及
