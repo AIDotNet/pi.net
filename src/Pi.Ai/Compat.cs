@@ -155,8 +155,19 @@ public static class CompatApi
         ApiRegistry.RegisterApiProvider(new ApiProvider
         {
             Api = core.Api,
-            Stream = (model, _, _, _, cancellationToken) => core.Stream(model, cancellationToken),
-            StreamSimple = (model, _, _, _, cancellationToken) => core.Stream(model, cancellationToken),
+            // 完整选项入口的选项是 JsonObject；faux 只读 sessionId / cacheRetention 两个键。
+            Stream = (model, context, options, _, cancellationToken) => core.Stream(
+                model,
+                context,
+                options is null
+                    ? null
+                    : new SimpleStreamOptions(SessionId: options.Str("sessionId"))
+                    {
+                        CacheRetention = options.Str("cacheRetention"),
+                    },
+                cancellationToken),
+            StreamSimple = (model, context, options, _, cancellationToken) => core.Stream(
+                model, context, options, cancellationToken),
         }, sourceId);
 
         var models = new List<ModelSpec> { core.CreateModel() };
