@@ -107,6 +107,12 @@ public sealed record ResolvedSessionTools
     public IReadOnlyList<string>? ExcludedToolNames { get; init; }
 
     public required bool UsesDefaultTools { get; init; }
+
+    /// <summary>
+    /// <c>defaultToolModifiers</c>：<c>options.tools</c> 全为 <c>+name</c>/<c>-name</c> 时的那份列表，
+    /// 否则 <c>null</c>。会话 reload 时用它重新作用到刷新后的 <c>defaultTools</c> 上。
+    /// </summary>
+    public IReadOnlyList<string>? DefaultToolModifiers { get; init; }
 }
 
 /// <summary>
@@ -117,12 +123,12 @@ public sealed record ResolvedSessionTools
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>2026-10-12 基线对齐</b>：本类此前混用了两个 TS 修订版，已按 <c>origin/main</c>（<c>428a12bc7</c>）重写。
+/// <b>2026-10-12 基线对齐</b>：本类此前混用了两个 TS 修订版，已按当时的 <c>origin/main</c>（<c>428a12bc7</c>）重写。
 /// 三处修正：
 /// </para>
 /// <list type="number">
 /// <item>
-/// <c>GetToolListError</c> 被**移除**——TS 没有这个校验，<c>resolveDefaultTools</c> 对畸形输入只是静默过滤。
+/// <c>GetToolListError</c> 被**移除**——当时 TS 没有这个校验，<c>resolveDefaultTools</c> 对畸形输入只是静默过滤。
 /// </item>
 /// <item>
 /// <c>options.tools</c> 不再被当作 <c>+name</c>/<c>-name</c> 修饰符。TS 里 <c>+</c>/<c>-</c> 只属于
@@ -136,27 +142,54 @@ public sealed record ResolvedSessionTools
 /// </item>
 /// </list>
 /// <para>
+/// <b>2026-10-16（R2 漂移 <c>ddaa0a034</c>）撤销前两条中的两条</b>：上游把
+/// <c>getToolListError</c> 与 <c>+name</c>/<c>-name</c> 修饰符加到了 <c>options.tools</c> 上。
+/// 现在 <c>tools</c> 全为修饰符时不再是 allowlist，而是叠加在 <c>defaultTools</c> 之上的选择变更；
+/// 混用两者会抛 <c>Invalid tools option: …</c>。第三条（<c>NoToolsMode</c>）不变。
+/// </para>
+/// <para>
 /// <c>CreateToolNameMatcher</c> 已下沉到 <see cref="McpServers"/>（TS 里它定义在 <c>mcp-servers.ts</c>）。
 /// </para>
 /// </remarks>
 public static class Sdk
 {
     /// <summary>对应 TS <c>createAgentSession</c> 的 tools 解析。</summary>
+    /// <remarks>
+    /// <b>2026-10-16（R2 漂移 <c>ddaa0a034</c>）</b>：恢复「<c>tools</c> 全为 <c>+name</c>/<c>-name</c>
+    /// 时不是 allowlist，而是叠加在 <c>defaultTools</c> 之上的修饰符」这一语义，并加回
+    /// <see cref="SettingsManager.GetToolListError"/> 的前置校验。
+    /// </remarks>
     public static ResolvedSessionTools ResolveSessionTools(
         CreateAgentSessionOptions options,
         IReadOnlyList<string>? settingsDefaultTools = null)
     {
-        var allowedToolNames = options.Tools
-            ?? (options.NoTools == NoToolsMode.All ? [] : null);
+        var toolListError = options.Tools is not null
+            ? SettingsManager.GetToolListError(options.Tools)
+            : null;
+        if (toolListError is not null)
+        {
+            throw new ArgumentException($"Invalid tools option: {toolListError}", nameof(options));
+        }
+
+        var defaultToolNames = options.NoTools is not null
+            ? []
+            : settingsDefaultTools ?? SettingsManager.DefaultToolNames;
+
+        // 全为 +name/-name 的 tools 列表改变默认选择，而不是替换它（与 defaultTools 设置项同语义）。
+        var toolModifiers = options.Tools?.Any(SettingsManager.IsToolModifier) == true ? options.Tools : null;
+        var selectedToolNames = toolModifiers is not null
+            ? SettingsManager.ApplyToolModifiers(defaultToolNames, toolModifiers)
+            : options.Tools;
+
+        var allowedToolNames = toolModifiers is not null
+            ? (options.NoTools == NoToolsMode.All ? selectedToolNames : null)
+            : (options.Tools ?? (options.NoTools == NoToolsMode.All ? [] : null));
+
         var excludedToolNames = options.ExcludeTools;
         var isExcludedTool = excludedToolNames is not null
             ? McpServers.CreateToolNameMatcher(excludedToolNames)
             : null;
-        var initialActiveToolNames = (
-            options.Tools
-            ?? (options.NoTools is not null
-                ? []
-                : settingsDefaultTools ?? SettingsManager.DefaultToolNames))
+        var initialActiveToolNames = (selectedToolNames ?? defaultToolNames)
             .Where(name => isExcludedTool is null || !isExcludedTool(name))
             .ToArray();
 
@@ -166,6 +199,7 @@ public static class Sdk
             AllowedToolNames = allowedToolNames,
             ExcludedToolNames = excludedToolNames,
             UsesDefaultTools = options.Tools is null && options.NoTools is null,
+            DefaultToolModifiers = toolModifiers,
         };
     }
 
@@ -778,6 +812,7 @@ public static class Sdk
             CacheWarmer = cacheWarmer,
             InitialActiveToolNames = resolvedTools.InitialActiveToolNames,
             UsesDefaultTools = resolvedTools.UsesDefaultTools,
+            DefaultToolModifiers = resolvedTools.DefaultToolModifiers,
             AllowedToolNames = resolvedTools.AllowedToolNames,
             ExcludedToolNames = resolvedTools.ExcludedToolNames,
             ExtensionRunnerRef = extensionRunnerRef,

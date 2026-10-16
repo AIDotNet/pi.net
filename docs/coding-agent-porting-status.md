@@ -3567,3 +3567,37 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
 - `BashRenderersDurationTests` **4 / 0**（记录值优先 / 时钟回退 / partial 忽略记录值 / 两者皆无则无时长行）
 - `ToolRenderersCorpusTests` **110 / 0**（夹具修正后仍全绿——反证「时钟推演值 == 记录值」这一反推规则成立）
 - `Pi.CodingAgent.Tests` 全量 **2262 / 0 失败**（4m54s）
+
+### S2a：`--tools` 修饰符（`ddaa0a034`）
+
+上游把 `getToolListError` 与 `+name`/`-name` 修饰符加到了 SDK 的 `tools` 选项上——这正是 4f-3 前
+端口按旧基线**删除**过的那条校验（`Sdk.cs` 的 remarks 里写着「TS 没有这个校验」）。本次加回。
+
+| 落点 | 改动 |
+| --- | --- |
+| `Core/SettingsManager.cs` | 加回 `GetToolListError`（内部静态）：修饰符数为 0 → 合法；少于总条数 → 「不能与纯名称混用」；修饰符含 `*` → 「只接受精确工具名」 |
+| `Core/SettingsManager.cs` | `ApplyToolModifiers` 的文档改为「对应 TS `applyToolModifiers`」（TS 现在真的导出了同名函数，不再是「端口为复用而抽出」） |
+| `Core/Sdk.cs` | `ResolveSessionTools` 重写：`tools` 全为修饰符 → `selectedToolNames = applyToolModifiers(defaultToolNames, tools)` 且 `allowedToolNames` 只在 `noTools === "all"` 时取 `selectedToolNames`，否则为 `null`；混用 → 抛 `ArgumentException("Invalid tools option: …")`；`ResolvedSessionTools` 新增 `DefaultToolModifiers` |
+| `Core/AgentSession.cs` / `AgentSessionBuild.cs` | `AgentSessionConfig.DefaultToolModifiers` + `_defaultToolModifiers` |
+| `Core/AgentSessionExtension.cs` | 抽出 `ResolveCurrentDefaultTools`（对应 TS reload 的 `getDefaultTools()` 闭包），`ResolvePreviousDefaultTools` / `ResolveAddedDefaultTools` 增可选修饰符形参（默认 `null`，旧调用点与旧测试不受影响） |
+| `tests/…/SdkTests.cs` | 旧断言 `ResolveSessionTools_AllowlistIsNotTreatedAsModifiers`（「tools 是纯 allowlist」）**随漂移作废**，改写为 6 条上游语义用例（修饰符叠加 / 叠加到配置的 defaultTools / 混用抛错 / 模式被拒 / `noTools:"all"` 下仍为 allowlist / 纯列表仍是 allowlist） |
+
+### 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C210 | `Sdk.ResolveSessionTools` 用 `ArgumentException` 抛 `Invalid tools option: …`；TS 是 `throw new Error(...)` | C# 里参数非法用 `ArgumentException` 更符合惯例；`Message` 与 TS 逐字一致，便于调用方按文本匹配 |
+
+### 已核实的既有缺口（非本批引入）
+
+`AgentSession.reload`（TS `agent-session.ts:3659-3698`，约 40 行）**从未移植**。本批顺带核实其全部依赖
+均已就位：`BuildRuntime`（`BuildRuntimeOptions` 已含 `FlagValues` / `IncludeAllExtensionTools`）、
+`SyncQueueModesFromSettings`、`ApiRegistry.ResetApiProviders`、`ExtendResourcesFromExtensions`、
+`ReportUnhandledMcpServers`、`EmitSessionShutdownEventAsync`、`_pendingToolNames`。
+仅缺 `ExtensionRunner.GetFlagValues()` / `Invalidate()` 的接线与编排本体，登记为 **S2b**。
+
+### 测试与验证（S2a）
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `SdkTests` + `AgentSessionExtensionTests` **64 / 0**（含 6 条改写用例 + 3 条新决策叶子用例）
+- `Pi.CodingAgent.Tests` 全量 **2270 / 0 失败**（4m00s）

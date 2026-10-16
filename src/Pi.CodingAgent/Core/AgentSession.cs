@@ -138,6 +138,12 @@ public sealed record AgentSessionConfig
     /// <summary>初始工具是否来自 <c>defaultTools</code> 设置（TS <c>usesDefaultTools</c>）。</summary>
     public bool UsesDefaultTools { get; init; }
 
+    /// <summary>
+    /// 叠加在 <c>defaultTools</c> 设置之上的 <c>+name</c>/<c>-name</c> 条目（来自 <c>--tools</c>）。
+    /// reload 会把它们作用到刷新后的设置上，使「被移除的工具保持移除」。TS <c>defaultToolModifiers</c>。
+    /// </summary>
+    public IReadOnlyList<string>? DefaultToolModifiers { get; init; }
+
     /// <summary><c>--tools</c> allowlist：工具名或 <c>*</c> 模式（TS <c>allowedToolNames</c>）。</summary>
     public IReadOnlyList<string>? AllowedToolNames { get; init; }
 

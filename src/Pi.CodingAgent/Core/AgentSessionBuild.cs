@@ -173,6 +173,12 @@ public partial class AgentSession
 
     private readonly bool _usesDefaultTools;
 
+    /// <summary>
+    /// <c>--tools</c> 里的 <c>+name</c>/<c>-name</c> 条目；reload 时重新作用到刷新后的
+    /// <c>defaultTools</c> 上。对应 TS <c>_defaultToolModifiers</c>。
+    /// </summary>
+    private readonly IReadOnlyList<string> _defaultToolModifiers;
+
     /// <summary>Matches the <c>--tools</c> entries: tool names or patterns.</summary>
     private readonly Func<string, bool>? _allowedTools;
 
@@ -263,6 +269,7 @@ public partial class AgentSession
         _extensionRunnerRef = config.ExtensionRunnerRef;
         _initialActiveToolNames = config.InitialActiveToolNames;
         _usesDefaultTools = config.UsesDefaultTools;
+        _defaultToolModifiers = config.DefaultToolModifiers ?? [];
 
         var filter = ToolFilter.From(config.AllowedToolNames, config.ExcludedToolNames);
         _allowedTools = filter.Allowed;

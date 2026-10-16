@@ -355,14 +355,30 @@ public partial class AgentSession
             ?? SettingsManager.DefaultToolNames;
 
     /// <summary>
+    /// 对应 TS <c>reload</c> 里的 <c>getDefaultTools()</c> 闭包：未使用默认工具集时为空列表，
+    /// 否则把 <c>defaultTools</c> 设置（缺省回落 <see cref="SettingsManager.DefaultToolNames"/>）
+    /// 经 <c>+name</c>/<c>-name</c> 修饰符作用一遍。
+    /// </summary>
+    public static IReadOnlyList<string> ResolveCurrentDefaultTools(
+        bool usesDefaultTools,
+        IReadOnlyList<string>? settingsDefaultTools,
+        IReadOnlyList<string>? defaultToolModifiers = null)
+        => usesDefaultTools
+            ? SettingsManager.ApplyToolModifiers(
+                settingsDefaultTools ?? SettingsManager.DefaultToolNames,
+                defaultToolModifiers ?? [])
+            : [];
+
+    /// <summary>
     /// 对应 TS <c>reload</c> 的 <c>previousDefaultTools</c>：未使用默认工具集时为空集。
     /// </summary>
     public static IReadOnlySet<string> ResolvePreviousDefaultTools(
         bool usesDefaultTools,
-        IReadOnlyList<string>? settingsDefaultTools)
-        => usesDefaultTools
-            ? new HashSet<string>(settingsDefaultTools ?? SettingsManager.DefaultToolNames, StringComparer.Ordinal)
-            : new HashSet<string>(StringComparer.Ordinal);
+        IReadOnlyList<string>? settingsDefaultTools,
+        IReadOnlyList<string>? defaultToolModifiers = null)
+        => new HashSet<string>(
+            ResolveCurrentDefaultTools(usesDefaultTools, settingsDefaultTools, defaultToolModifiers),
+            StringComparer.Ordinal);
 
     /// <summary>
     /// 对应 TS <c>reload</c> 的 <c>addedDefaultTools</c>：本轮新出现在默认工具集里的名字。
@@ -371,14 +387,10 @@ public partial class AgentSession
     public static IReadOnlyList<string> ResolveAddedDefaultTools(
         bool usesDefaultTools,
         IReadOnlySet<string> previousDefaultTools,
-        IReadOnlyList<string>? settingsDefaultTools)
+        IReadOnlyList<string>? settingsDefaultTools,
+        IReadOnlyList<string>? defaultToolModifiers = null)
     {
-        if (!usesDefaultTools)
-        {
-            return [];
-        }
-
-        var current = settingsDefaultTools ?? SettingsManager.DefaultToolNames;
+        var current = ResolveCurrentDefaultTools(usesDefaultTools, settingsDefaultTools, defaultToolModifiers);
         return [.. current.Where(name => !previousDefaultTools.Contains(name))];
     }
 

@@ -10,7 +10,9 @@ namespace Pi.CodingAgent.Tests;
 /// <summary>
 /// <c>core/sdk.ts</c> 的工具选择、装配叶子与 <c>core/mcp-servers.ts</c> 的工具名匹配。
 /// 2026-10-12 基线对齐后重写（原版混用了两个 TS 修订版，见 <see cref="Sdk"/> 的 remarks）；
-/// 4e-3e-9f 追加 <c>createAgentSession</c> 的装配叶子用例。
+/// 4e-3e-9f 追加 <c>createAgentSession</c> 的装配叶子用例；
+/// 2026-10-16（R2 漂移 <c>ddaa0a034</c>）把「<c>tools</c> 支持 <c>+name</c>/<c>-name</c> 修饰符」
+/// 的用例改回上游语义（旧断言「tools 是纯 allowlist」已随漂移作废）。
 /// </summary>
 public sealed class SdkTests
 {
@@ -98,15 +100,72 @@ public sealed class SdkTests
     }
 
     [Fact]
-    public void ResolveSessionTools_AllowlistIsNotTreatedAsModifiers()
+    public void ResolveSessionTools_ModifierListAppliesToDefaultTools()
     {
-        // 基线对齐修正：`options.tools` 是纯 allowlist，**不**支持 +name / -name。
-        // 旧端口会把 ["-bash","+grep"] 当成对默认集的增删，那是 TS 没有的行为。
+        // 2026-10-16（R2 漂移 ddaa0a034）：`tools` 全为 +name/-name 时**不是** allowlist，
+        // 而是叠加在 defaultTools 之上的选择变更。
         var resolved = Sdk.ResolveSessionTools(new CreateAgentSessionOptions { Tools = ["-bash", "+grep"] });
 
-        Assert.Equal(["-bash", "+grep"], resolved.InitialActiveToolNames);
-        Assert.Equal(["-bash", "+grep"], resolved.AllowedToolNames);
+        Assert.Equal(["read", "edit", "write", "grep"], resolved.InitialActiveToolNames);
+        // 不是 allowlist：没有 allowlist 约束（noTools 不是 "all"）。
+        Assert.Null(resolved.AllowedToolNames);
         Assert.False(resolved.UsesDefaultTools);
+        Assert.Equal(["-bash", "+grep"], resolved.DefaultToolModifiers);
+    }
+
+    [Fact]
+    public void ResolveSessionTools_ModifierListStacksOnConfiguredDefaultTools()
+    {
+        var resolved = Sdk.ResolveSessionTools(
+            new CreateAgentSessionOptions { Tools = ["+grep"] },
+            settingsDefaultTools: ["read", "bash"]);
+
+        Assert.Equal(["read", "bash", "grep"], resolved.InitialActiveToolNames);
+        Assert.Null(resolved.AllowedToolNames);
+    }
+
+    [Fact]
+    public void ResolveSessionTools_MixingNamesAndModifiersThrows()
+    {
+        var error = Assert.Throws<ArgumentException>(() =>
+            Sdk.ResolveSessionTools(new CreateAgentSessionOptions { Tools = ["read", "+grep"] }));
+
+        Assert.Contains(
+            "Invalid tools option: tool names cannot be mixed with +name or -name entries",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSessionTools_ModifierPatternIsRejected()
+    {
+        var error = Assert.Throws<ArgumentException>(() =>
+            Sdk.ResolveSessionTools(new CreateAgentSessionOptions { Tools = ["+mc*"] }));
+
+        Assert.Contains(
+            "Invalid tools option: +name and -name entries take exact tool names, not patterns: +mc*",
+            error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSessionTools_ModifiersWithNoToolsAllKeepSelectedSetAsAllowlist()
+    {
+        var resolved = Sdk.ResolveSessionTools(
+            new CreateAgentSessionOptions { Tools = ["+grep"], NoTools = NoToolsMode.All });
+
+        Assert.Equal(["grep"], resolved.InitialActiveToolNames);
+        Assert.Equal(["grep"], resolved.AllowedToolNames);
+    }
+
+    [Fact]
+    public void ResolveSessionTools_PlainListStaysAnAllowlist()
+    {
+        var resolved = Sdk.ResolveSessionTools(new CreateAgentSessionOptions { Tools = ["read", "mcp__*"] });
+
+        Assert.Equal(["read", "mcp__*"], resolved.InitialActiveToolNames);
+        Assert.Equal(["read", "mcp__*"], resolved.AllowedToolNames);
+        Assert.Null(resolved.DefaultToolModifiers);
     }
 
     [Fact]

@@ -475,6 +475,48 @@ public sealed class AgentSessionExtensionTests
     }
 
     [Fact]
+    public void ResolveCurrentDefaultTools_AppliesToolModifiers()
+    {
+        // 上游 ddaa0a034：reload 的 getDefaultTools() 把 --tools 的 +name/-name 作用到刷新后的
+        // defaultTools 上，使「被移除的工具保持移除」。
+        var settings = new List<string> { "read", "bash", "edit" };
+
+        Assert.Equal(
+            ["read", "edit", "grep"],
+            AgentSession.ResolveCurrentDefaultTools(true, settings, ["-bash", "+grep"]));
+
+        // 未使用默认工具集 → 空列表（修饰符不生效）。
+        Assert.Empty(AgentSession.ResolveCurrentDefaultTools(false, settings, ["-bash"]));
+
+        // 无修饰符 → 原样（缺省回落内置默认四件套）。
+        Assert.Equal(["read", "bash", "edit"], AgentSession.ResolveCurrentDefaultTools(true, settings));
+        Assert.Equal(
+            SettingsManager.DefaultToolNames,
+            AgentSession.ResolveCurrentDefaultTools(true, null));
+    }
+
+    [Fact]
+    public void ResolvePreviousDefaultTools_SeesModifiers()
+    {
+        var settings = new List<string> { "read", "bash", "edit" };
+
+        var previous = AgentSession.ResolvePreviousDefaultTools(true, settings, ["-bash"]);
+
+        Assert.Equal(["read", "edit"], previous);
+    }
+
+    [Fact]
+    public void ResolveAddedDefaultTools_SeesModifiers()
+    {
+        var previous = new HashSet<string>(["read"], StringComparer.Ordinal);
+
+        // 设置里新增 bash/edit，但 -edit 把它摘掉 → 只报 bash。
+        Assert.Equal(
+            ["bash"],
+            AgentSession.ResolveAddedDefaultTools(true, previous, ["read", "bash", "edit"], ["-edit"]));
+    }
+
+    [Fact]
     public void HasExtensionBindings_OrOfFour()
     {
         Assert.True(AgentSession.HasExtensionBindings(true, false, false, false));
