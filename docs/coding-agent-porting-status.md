@@ -3528,6 +3528,7 @@ rejection 行为一致）→ `PreviewPending` 卡死。两层修复：套件移�
 | `packages/tui` `box.ts` / `text.ts` 新增 `setPaddingX` | `Box.SetPaddingX` / `Text.SetPaddingX` 已具备 |
 | `packages/tui` `tui-alt-screen.ts` 新增 `resetTextSelection` | `TuiAltScreen.ResetTextSelection` 已具备 |
 | `packages/ai` `estimate.ts` `CHARS_PER_TOKEN` 4 → 3.5 | `Estimate.CharsPerToken = 3.5` 已对齐 |
+| `packages/ai` `event-stream.ts`（`3ba22ce17`）把 `AssistantMessageEventStream` 的起始时刻挪进 `WeakMap`，以免计时用的私有字段让它**结构上**不再可赋值给 `StreamFn` | 该问题源于 TS 的**继承**（`AssistantMessageEventStream extends EventStream`）；C# 端口用**组合**（持有 `EventStream<…>` 内部实例 + 实现 `IAssistantMessageEventStream` 接口），结构性可赋值性由接口保证，问题不存在（见 C209）。`lazy.ts` 改「先取 `startedAt` 再建 outer 流」的语义已随 S1 落地 |
 | `packages/coding-agent` `renderers/edit.ts` 用 `context.outputPad` | `EditRenderers` 已在用（`ToolRenderContext.OutputPad` 属基线字段） |
 
 ### S1：`durationMs` 全链路（`Pi.Agent` / `Pi.Ai` / `Pi.CodingAgent`）
@@ -3674,5 +3675,158 @@ async reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Pro
   - `Reload_WithoutUsesDefaultTools_NeverAddsDefaultTools`
   - `Reload_ReappliesDefaultToolModifiersToTheRefreshedDefaultTools`（`-bash`/`+write` 在刷新后重放）
   - `Reload_KeepsBindingsForTheNextReload`（第二次 reload 仍重发一对事件）
+- `Pi.CodingAgent.Tests` 全量 **2280 / 0 失败**
+
+### S3a：`packages/ai` provider 层漂移（`8b5708dbb` / `43d376399` / `2989eb581`）
+
+漂移窗口内三条 `packages/ai` 提交：
+
+| 上游 | 内容 | 落点 |
+| --- | --- | --- |
+| `8b5708dbb` | `utils/retry.ts` 增加 4 条瞬时故障文案 | `Pi.Ai/Utils/Retry.cs` |
+| `43d376399` | Radius 网关目录**替换**随包基线目录（原为叠加） | `Pi.Ai/Providers/Radius.cs` |
+| `2989eb581` | Bedrock Converse 给 OpenAI 系模型发 reasoning effort（issue #10142） | `Pi.Ai/Api/BedrockConverseStream.cs` |
+
+#### retry：4 条新文案
+
+`overloaded` / `server_busy` / `servers are currently busy` / `currently experiencing high demand`，
+插在「通用 provider 负载、HTTP 状态与服务端瞬时故障」组内 `model is at capacity` 之前，与 TS 逐行同序。
+
+#### radius：叠加 → 替换
+
+TS 把 `dynamicModels` 的类型从 `Model[]` 改成 `Model[] | undefined`，语义随之从「网关目录叠加在随包目录上」
+变成「**替换**」——Radius 组织管理员可以停用模型，一旦取到目录，被停用的模型就不该从随包目录里重新冒出来；
+基线目录只覆盖「还没有任何目录」的那段时间。
+
+C# 侧同步三处：
+
+| 站点 | 改动 |
+| --- | --- |
+| `_dynamic` 字段 | `IReadOnlyList<ModelSpec>`（`= []`）→ **可空**（`= null`）：`null` 表示「尚未取得任何目录」，与「目录存在但为空」（组织停用了全部模型）必须可区分 |
+| `GetModels()` | 改为调用新抽出的纯决策叶子 `ResolveModels(baseline, dynamic) => dynamic ?? baseline` |
+| `RefreshModelsAsync` | 返回类型放宽为 `Task<IReadOnlyList<ModelSpec>?>`（TS 返回 `void`，端口把「动态目录本身」返回出来供调用方观察）；凭据恢复路径保留 `Count > 0` 守卫（对应 TS legacy 分支的 `legacy.length > 0`），**网络路径无条件覆盖**（含空目录） |
+
+#### bedrock：OpenAI GPT / gpt-oss 的 reasoning 字段
+
+TS 在 `buildAdditionalModelRequestFields` 的 Claude 分支之后新增两支：
+
+- 候选名（`getModelMatchCandidates(model.id, model.name)`，id 与 name 各做连字符归一）含 `gpt-oss`
+  → **扁平** `{ reasoning_effort }`，档位表 `OPENAI_GPT_OSS_EFFORT` 把 `xhigh`/`max` 夹到 `high`；
+- 候选名含 `gpt-` → **嵌套** `{ reasoning: { effort } }`，优先取 `model.thinkingLevelMap[level]`，
+  否则查 `OPENAI_GPT_EFFORT`（`minimal` → `low`，其余同名字面量）。
+
+**顺序要紧**：`gpt-oss` 同时命中 `gpt-`，必须先判。C# 把 Claude 分支抽成
+`BuildClaudeAdditionalModelRequestFields`，两支 OpenAI 逻辑按同一顺序落在 `BuildAdditionalModelRequestFields` 尾部，
+并保留 TS「`undefined` 会被 `JSON.stringify` 丢键」的形状（档位不在表内时返回 `{}` / `{"reasoning":{}}` 而不是抛错）。
+
+#### 顺带修掉的真实缺陷（非 R2 引入）
+
+| 缺陷 | 事实 | 处置 |
+| --- | --- | --- |
+| `Retry.cs` 漏抄 `"pending stream has been canceled"` | 该文案由 `5b6c792b4`（HTTP/2 pending stream 取消；Node `ERR_HTTP2_STREAM_CANCEL`，典型场景是 Bedrock SDK 5 分钟会话超时后请求还没发出去，#10379）引入，**早于本次漂移基线**，端口首移植时漏抄。逐条比对 TS / C# 的模式表时发现（TS 49 条 / C# 48 条） | 按 TS 位置补回（`http2 request did not get a response` 之后），并补断言 |
+| `BedrockConverseStream.BuildCommandInput` 把未设字段写成 `null` | TS 的 `JSON.stringify` 会**丢掉** `undefined` 键，C# 的 `JsonObject` 会写成 `"k":null`。用最小 .NET 程序实测确认（`{"a":1,"b":null,"c":null}`）。其余 provider 早已是「非 null 才写键」的写法（如 `OpenAiResponses.cs` 的 `if (options?.Temperature is { } temperature && …)`），属 Bedrock 单点缺陷 | `inferenceConfig` / `system` / `toolConfig` / `additionalModelRequestFields` 四路一律改为「非 null 才写键」 |
+
+### S3b：faux 逐消息 prompt 缓存（`fe11328b0`）
+
+上游把 `withUsageEstimate` 的缓存命中判定从「把整段提示拼成一个大字符串再比公共前缀」改成
+「**逐条消息**先比相等、只从第一条不同的消息开始逐字符比较」，以免消息边界不同却字符相同的两段提示
+被误判成同前缀。C# 的 `Faux` 此前只有半个 provider（缺整个用量估算子系统），本批补齐：
+
+| 落点 | 改动 |
+| --- | --- |
+| `Faux.cs` | 新增 `EstimateTokens`（**固定 `/4.0`**，与 `Utils/Estimate` 漂移后的 3.5 无关——上游改 `estimate.ts` 时没有动 faux）、`ContentToText(MessageContent)` / `ContentToText(IReadOnlyList<ContentBlock>)` / `BlockToText`（图片块渲染为 `[image:mime:len]`）、`AssistantContentToText`（toolCall 取 `name:JSON(arguments)`）、`ToolResultToText`、`MessageToText`、`SystemMessageToText`（复用 `Utils.Text.GetSystemMessageText`，再追加 `tool-:` / `tool+:` 增量）、`JoinedLength`、`CommonPrefixLength`、`CommonPromptPrefixLength`、`WithUsageEstimate`、`RoleOf`、`JsonStringify` |
+| `Faux.Response` | **删除 `Usage` 形参**：TS 的脚本条目虽带 `usage`，但 `withUsageEstimate` **无条件覆盖**它，故端口不再提供该字段（见 C214） |
+| `FauxCore` | 新增 `_promptCache`（按 `sessionId` 键控、每条消息一份提示文本），`Stream` 形参改为 `(model, context, options, ct)` 并把它透传给 `Replay` |
+| `Replay` | 形参新增 `modelId` / `api` / `provider`；先按 `cloneMessage` 语义补身份，再 `WithUsageEstimate` 覆盖 usage；`final` 的 `UsageStats` 改取估算结果（原先写死 `new Usage(10, 5)`） |
+| `Compat.cs` | `RegisterFauxProvider` 的两条流入口把 `context` / `options` 透传进去（完整选项入口把 `JsonObject` 的 `sessionId` / `cacheRetention` 两个键映射为 `SimpleStreamOptions`） |
+
+**用量口径**（每条都在测试里手算过）：
+
+```
+prompt[i]      = "{role}:{messageToText(messages[i])}"     // 逐条一条
+promptLength   = (n-1)*2 + Σ prompt[i].Length              // joinedLength：整段按空行拼接
+promptTokens   = ceil(promptLength / 4)
+outputTokens   = ceil(len(assistantContentToText(content)) / 4)
+
+sessionId 为空 或 cacheRetention == "none"  →  input = promptTokens, cacheRead = cacheWrite = 0，且**不写缓存**
+否则首次  →  input = promptTokens, cacheWrite = promptTokens, cacheRead = 0
+否则命中  →  cachedChars = commonPromptPrefixLength(prev, cur)
+             cacheRead = ceil(cachedChars / 4)
+             cacheWrite = ceil((promptLength - cachedChars) / 4)
+             input = max(0, promptTokens - cacheRead)
+totalTokens    = input + outputTokens + cacheRead + cacheWrite；cost 全零
+```
+
+`commonPromptPrefixLength` 的形态值得单记：先整条比较到第一条不同的消息（`index`），
+`joinedLength(previous, index)` 计已整条相等的部分，余下部分才拼成
+`(index > 0 ? "\n\n" : "") + messages.slice(index).join("\n\n")` 逐字符比较（`index === messages.length` 时余段为空串）。
+
+**差分验证**：把 TS 的 `estimateTokens` / `joinedLength` / `commonPrefixLength` / `commonPromptPrefixLength`
+与 `withUsageEstimate` 的算术部分逐行抄进一个独立 Node 脚本（不改一字），跑 11 组输入
+（无 sessionId / 首次写缓存 / 二次全额命中 / 尾部发散 / `cacheRetention:"none"` 两次 / 跨会话隔离 /
+toolCall JSON 计长 / 图片占位 / system 的 `tool-:` 增量 / 空提示），
+输出与 C# 测试的手算期望值**逐条一致**（`3/1/0/0/4`、`3/1/0/3/7`、`0/1/3/0/4`、`6/1/0/6/13`、
+`0/1/6/1/8`、`3/1/0/0/4`、`3/1/0/3/7`、`2/3/0/0/5`、`7/1`、`7/1`、`0/0/0/0/0`）。
+
+**两处已知的保真度下限**（都在测试替身范围内，不影响真实 provider）：
+
+1. `system` 消息的 `toolsAdded` 增量：TS 是 `JSON.stringify(tool)`（`Tool` 对象），C# 是
+   `JsonSerializer.Serialize(ToolDefinition)`——字段集与命名策略不同，故**该分支贡献的字符数**与 TS 不等。
+   `toolsRemoved`（字符串数组）两边完全一致，测试只断言这一支。
+2. `RoleOf` 对 coding-agent 的 4 个自定义 role（`bashExecution` / `custom` / `branchSummary` /
+   `compactionSummary`）返回 `"unknown"`，TS 会返回其真实 role 串。两侧该分支都**不可达**
+   （provider 只见到 `convertToLlm` 归一化后的标准消息），且 TS 侧走到那里会因
+   `undefined.content.map` 抛 `TypeError`——端口返回空串而非抛错。
+
+#### 顺带修掉的真实缺陷（非 R2 引入）
+
+| 缺陷 | 事实 | 处置 |
+| --- | --- | --- |
+| `Replay` 的身份字段写死为内建值 | TS 走 `cloneMessage(resolved, api, provider, requestModel.id)`，三者都来自**请求上下文**；C# 原先写死 `"faux-1"` / `"faux"` / `"faux"`。而 `FauxCore` 的 api 是 `faux-<随机>`（避免并发测试互相覆盖）、`CreateModel(id)` 允许自定义 id——写死会让回放消息的 `api` / `model` 与请求的模型对不上（会话落盘后尤其明显） | `Replay` 增 `modelId` / `api` / `provider` 形参，由 `FauxCore.Stream`（传 `model.Id` / `Api` / `Provider`）与 `CreateStreamFn`（传 `model.Id` / `model.Api` / `model.Provider`）分别提供；`FauxCore` 同步新增 `Provider`（对应 TS `createFauxCore` 的 `const provider = options.provider ?? DEFAULT_PROVIDER`），`CreateModel` 与脚本耗尽分支一并改用实例字段 |
+| error / aborted 终态多发一个 `done` 事件 | TS `streamWithDeltas` 在 `stopReason` 为 `error` / `aborted` 时**只发 `error` 并 return**，不发 `done`；C# 原先无条件跟一个 `done`。（`AgentLoopRunner` 在 `Error` 分支就 `return`，所以未暴露，但事件序列与 TS 不等价） | 改为 `if (response.StopReason is StopReason.Error or StopReason.Aborted) { Push(Error); End; return; }` |
+
+### 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C214 | `Faux.Response` 不提供 `Usage` 形参；TS 的脚本条目（`fauxAssistantMessage`）带 `usage` | TS 侧该字段恒被 `withUsageEstimate` **无条件覆盖**（`return { ...message, usage: {...} }`），脚本写什么都会被丢弃。端口直接不暴露这个无效入参，避免调用方误以为它能生效 |
+| C215 | `Faux.FauxCore` 的构造形参是位置参数 `(string? api, string? provider)`；TS 是 `createFauxCore(options: RegisterFauxProviderOptions)` | 端口尚未移植该 options 对象的其余字段（见下方缺口），保留位置参数比先造一个半空的 options record 更诚实；待 S3c 补齐时再一并提升为 record |
+
+### 已知缺口（转入 S3c）
+
+`packages/ai/src/providers/faux.ts` 728 行，端口目前覆盖的是「测试替身」需要的子集。**本批未移植**（逐项列出以免被误认为已完成）：
+
+| TS 面 | 行数 | 说明 |
+| --- | --- | --- |
+| `tokensPerSecond` + `scheduleChunk` | ~10 | 按 token 速率给流式增量加真实延迟 |
+| `tokenSize: { min, max }` + `splitStringByTokenSize` | ~12 | 随机切块（端口固定 5 字符切文本块） |
+| `deferred` 全链（`createDeferredMessage` / `fetchDeferred` / `cancelDeferred` / `deferredResponses` / `state.cancelledDeferred`） | ~150 | 延后响应句柄；端口 `Pi.Ai` 的 deferred 基础层（P33）已具备，缺的是 faux 侧实现 |
+| `FauxResponseFactory`（函数式脚本条目）+ `state.callCount` | ~15 | 端口只支持静态 `Response` |
+| `fauxProvider()`（经 `createProvider` 的真实 provider 句柄 + `auth.apiKey.resolve`） | ~25 | 端口只有 `CompatApi.RegisterFauxProvider` 的 api-registry 路径 |
+| `aborted` 中断（`signal` 检查 + `createAbortedMessage`） | ~20 | 端口只按脚本给出的 `StopReason.Aborted` 走终态，不检查取消令牌 |
+| `thinking_start` / `thinking_end` / `toolcall_start` / `toolcall_end` 四个事件 | ~30 | 端口只发 `ThinkingDelta` / `ToolCallDelta`（真实 provider 均已发全） |
+| `models` 自定义目录（`FauxModelDefinition`）+ `getModel(id)` 重载 | ~25 | 端口固定单模型 |
+| `normalizeFauxAssistantContent` / `fauxAssistantMessage` / `DEFAULT_USAGE` | ~30 | 端口以 `Faux.Response` 记录承载 |
+
+> 影响面：这些都是**测试替身**的能力，不影响真实 provider 路径；未移植面已在 `Faux.cs` 的 XML 注释里逐处标注。
+> 若后续 coding-agent 的测试需要「延后响应 / 限速流 / 中断」场景，须先落地 S3c。
+
+### 测试与验证（S3a + S3b）
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.Ai.Tests` **326 / 0**（S3a 后 310，S3b 新增 `FauxUsageEstimateTests` 16 例 → 326）
+  - S3a 新增/改写：`BedrockTests.BuildAdditionalModelRequestFieldsOpenAiReasoning`、
+    `BedrockTests.BuildCommandInputOmitsUnsetFieldsInsteadOfEmittingNull`、
+    `BuiltinProvidersTests.RadiusResolveModelsReplacesInsteadOfOverlaying`（并把
+    `RadiusProviderMergesBaselineAndDynamicCatalog` 更名为 `…ReplacesBaselineWithDynamicCatalog`）；
+    `BedrockTests` 里「非 Claude → null」的样例模型由 `openai.gpt-5.6` 换成
+    `meta.llama3-70b-instruct-v1:0`（前者现在**有** OpenAI 分支了，不再返回 null）；
+    `RetryOverflowValidationTests.RetryableClassification` 补 3 条断言
+  - S3b 新增 `FauxUsageEstimateTests` **16 / 0**：提示/输出 token 手算（含空提示、toolCall 的 JSON 计长、
+    用户消息里的图片占位 `[image:image/png:4]`、system 消息的 `tool-:"old"` 增量）、无 sessionId 不缓存、
+    首次全额写缓存、二次相同提示全额命中、**尾部发散只算公共前缀**（手算 `cacheRead=6 / cacheWrite=1`）、
+    `cacheRetention:"none"` 读写双禁且不落缓存、缓存按 sessionId 隔离、身份字段取自请求上下文、
+    `error` / `aborted` 只发错误终态、脚本耗尽的错误终态带模型身份
+- `Pi.Agent.Tests` **33 / 0**
 - `Pi.CodingAgent.Tests` 全量 **2280 / 0 失败**
 
