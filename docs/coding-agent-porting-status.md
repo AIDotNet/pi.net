@@ -4640,3 +4640,63 @@ console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失�
 > `session-selector`（1045）/ `tree-selector`（1435）；`extension-editor`（141）与
 > `external-editor`（46）本批已收口。
 
+## 4f-3d Batch F-2：settings-selector（2026-10-16）
+
+**范围**：`settings-selector.ts`（993 行，漂移窗口内仅 1 行文案改动——`output-padding` 描述按
+当前检出 `eb326d26` 移植）→ `Modes/Interactive/Components/SettingsSelector.cs`（约 1,180 行）
++ `SettingsSelectorTests.cs`（16 例）。
+
+**落地内容**：
+- `SettingsConfig`（30 字段）/ `SettingsCallbacks`（32 回调）具名化；`SettingsSelectorComponent`
+  主列表 23 个基础 `SettingItem` + 11 个条件/尾随插入（`supportsImages` 三段 splice、
+  `auto-resize → block → skill-commands → show-hardware-cursor → editor-padding → output-padding →
+  autocomplete-max-visible → clear-on-shrink → terminal-progress` 按 `findIndex` 链逐条复刻 TS 的
+  `splice` 序列）；`SettingsList(items, 10, enableSearch: true)` 前后各一条 `DynamicBorder`；
+  `onChange` 26 路 switch 逐条对齐（`parseInt` → `int.Parse`、idle-timeout label→ms、
+  quiet-startup 三态、default-project-trust 标签反查、wheel lines auto/数值、output-pad 0/1）。
+- `WarningSettingsSubmenu`（warnings 项子菜单）与 `ThemeSubmenu`（single/automatic 双模式状态机：
+  `singleModeThemeItems` system 提前 + automatic 占位、automatic 菜单的 light/dark 子选择 +
+  apply/single-mode 两驱动项、cancel 恢复 `originalThemeSetting` 预览）落为 internal 类；
+  `handleInput` 均 `override`（C233 约定）。
+- `model-thinking` 步骤：`SteppedSubmenu` 两步向导（step1 可搜索模型选择器，排序 = current →
+  default → provider 序；step2 档位选择，`ThinkingLevels.GetSupported` + clear override 尾项 +
+  `Revert to global default (…)` 描述），`Loop = true`，完成回调 change/remove 双路。
+
+**新登记差异**：
+- **C242**（字符串联合承载）：TS 的 `Transport` / `CacheWarmingMode` / `MermaidRenderingMode` /
+  `TuiMode` / `FullscreenExitOutput` / `doubleEscapeAction` / `treeFilterMode` / `steeringMode` /
+  `followUpMode` / `TerminalTheme` / `ThinkingLevel` / `QuietStartup` 在 C# 以 `string` 承载，
+  与 `SettingsManager` 既有 getter 的产出形状一致（`GetQuietStartup()` 产出 "true"/"header"/"false"
+  三态字符串）；本层不做联合校验，值数组按 TS 字面量循环。
+- **C243**（WarningSettings）：TS `interface WarningSettings { anthropicExtraUsage?: boolean }` →
+  `JsonObject`（`SettingsManager.GetWarnings()` 现状）；`{ ...warnings }` 浅拷贝 → `DeepClone`，
+  缺键回退 `true` 与 TS `?? true` 一致。
+- **C244**（Model）：`Model` → `ModelSpec`；`getSupportedThinkingLevels(model)` →
+  `ThinkingLevels.GetSupported(model)`；`model.reasoning` → `model.Reasoning`。
+- 不编号：`localeCompare(provider)` → ordinal 比较（provider 均为小写 ASCII，两者一致）；
+  `new Map(...)` 重复键后者胜 → 字典索引器赋值；`String(boolean | "header")` 恒等（quietStartup
+  已是字符串）；`SettingsConfig` 属性带默认值承载 TS 测试的 `as unknown as SettingsConfig` 部分构造
+  （生产调用方 4f-4 仍全量构造）；`supportsImages` 的 TS truthy 检查 → `Images != ImageProtocol.None`
+  （同 4f-3c ④ 的 truthy 语义）。
+
+**测试与验证（Batch F-2）**：
+- `SettingsSelectorTests` **16 / 0**（新建）：上游 4 例全部转写——
+  ① fullscreen 四项循环（含 #9758 自定义值 7 保持循环：10 → auto → 1）；
+  ② 固定主题标记随浏览保持（`→ ✓ dark` → `  ✓ dark` + `→   light`，system/automatic 行的
+  4 空格前缀与描述同列）；
+  ③ automatic 主题标记随浏览保持（`light/dark` 解析后 lightTheme 预选）；
+  ④ per-model thinking 标记随浏览保持（`→ ✓ medium` + `    (clear override)` → `→   high`）。
+  另加 12 个自定用例：image 项插入顺序（`SetCapabilityOverrides` 缝控制 supportsImages）、
+  尾随 toggle 插入链顺序、warnings 子菜单切换与缺键默认 true、model-thinking 完成回调
+  change→remove 双路 + 空目录 "No models available" 文案、theme apply / automatic apply
+  （light 子选择后 `light/dark`）/ cancel 恢复预览、idle-timeout label→ms、
+  default-project-trust 标签循环、quiet-startup 三态循环。
+- **动工前漂移核对**：`git diff 428a12bc7..eb326d26` 逐文件核对——仅 `settings-selector.ts`
+  1 行描述文案（本批按当前检出移植），其余 3 个选择器未被漂移触及。
+- `Pi.CodingAgent.Tests` 全量 **2560 / 0 失败**（新增 16）；`dotnet build Pi.slnx -m:1`
+  **0 警告 0 错误**。
+
+> **4f-3d 余 3 个 / 3,431 行**：`config-selector`（951）/ `session-selector`（1045）/
+> `tree-selector`（1435）。
+
+
