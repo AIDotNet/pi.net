@@ -3908,6 +3908,93 @@ containerSubclassDeclaresHandleInput=SelectSubmenu
 
 ---
 
+## 4f-3d 进度（2026-10-16）：选择器 Batch E-4（oauth-selector）
+
+4f-3d 的**第三子批第四件**：登录/登出时选择认证 provider 的面板。它与 Batch E-2 的 `login-dialog`
+同属 OAuth 流（这个负责「选谁」，那个负责「怎么登」），也是 `interactive-mode.ts` 直接 `new` 的组件之一。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/oauth-selector.ts` | 224 | `Components/OAuthSelector.cs`（360） | `OAuthSelectorComponent : Container, IFocusable`（上/下 `DynamicBorder` + 标题 + `Input` 搜索框 + 8 行可视窗口的 provider 列表 + 滚动信息）；两个纯函数 `formatAuthSelectorProviderType` / `formatAuthSelectorProviderStatus`；`AuthSelectorMode` 枚举与 `AuthSelectorProvider` / `AuthSelectorMethod` 两个记录 |
+| `test/oauth-selector.test.ts` | 147 | `tests/Pi.CodingAgent.Tests/OAuthSelectorTests.cs`（639） | 上游 6 例中 **5 例转写**；第 1 例测的是 `InteractiveMode.prototype.getLoginProviderOptions`，属 `interactive-mode.ts` → **留给 4f-4** |
+
+覆盖的 TS 语义细节：
+
+- **状态后缀的三条分支**：`status` 缺失 → ` • not configured`（muted）；`status.type !== authType`
+  → ` • ` + **warning** 色的 `{对方类型} configured`（例：API key 选项上出现
+  `subscription configured`）；类型一致且 `source` 是 `OAuth` / `stored credential` / 空
+  → ` ✓ configured`（success）。
+- **env-var 名单才加 `env: ` 前缀**：`/^[A-Z][A-Z0-9_]*(?:, [A-Z][A-Z0-9_]*)*$/` 匹配
+  `OPENAI_API_KEY`、`A1_B2`、`ANTHROPIC_API_KEY, OPENAI_API_KEY`；`key in models.json`、
+  `lowercase`、`MIXED_Case`、`_LEADING` 都原样渲染。
+- **`authType` 标签只在 provider 集合混了类型时出现**（`new Set(providers.map(p => p.authType)).size > 1`），
+  单个类型时不显示 `[API key]` / `[subscription]`。
+- **`subscription === false` 才是 `account`**（严格比较）：未设 → `subscription`，设 `true` → `subscription`，
+  设 `false` → `account`。API key 分支恒为 `API key`。
+- **模糊搜索的 haystack 是 `name id authType method?.name`**，且 `authType` 用的是**线上拼写**
+  （`oauth` / `api_key`）——所以搜 `api_key` 能命中 API key 的 provider。`method` 缺失时是空串。
+- **列表窗口 8 行**：`startIndex = max(0, min(selectedIndex - 4, length - 8))`，
+  `endIndex = min(startIndex + 8, length)`；只有 `startIndex > 0 || endIndex < length` 才显示
+  `  ({selectedIndex+1}/{length})`。
+- **过滤后把 `selectedIndex` 钳回范围**：`max(0, min(selectedIndex, max(0, length - 1)))`。
+- **空列表的三种文案**：无 provider 且 `login` → `No providers available`；无 provider 且 `logout`
+  → `No providers logged in. Use /login first.`；有 provider 但过滤为空 → `No matching providers`。
+- **上下键在空列表上直接 return**（不钳制、也不刷新列表）；导航键**不落到搜索框**
+  （所以搜索框的值保持为空）。
+- **`initialSearchInput` 是 truthy 判定**：空串既不填进 `Input` 也不参与过滤。
+
+### 4f-3d Batch E-4 设计差异
+
+| # | 差异 | 理由 |
+|---|---|---|
+| C236 | `authType: "oauth" \| "api_key"` → 复用既有的 `enum CredentialKind`（`OAuth` / `ApiKey`），不再造平行枚举；`method?: ApiKeyAuth \| OAuthAuth` → 具名联合 `AuthSelectorMethod`（`FromApiKey` / `FromOAuth` 两个工厂 + `Name` / `ApiKey` / `OAuth` 三个只读成员），**没有隐式转换** | `authType` 与 `AuthCheck.type`（TS 里都是 `"oauth" \| "api_key"`）在端口本就是同一个枚举，`status.type !== authType` 因此是直接比较。联合类型是 C194 / C234 的同一约定；但这里**不能用隐式转换**——C# 禁止以接口作为用户定义转换的源（CS0552），所以只能显式 `FromApiKey` / `FromOAuth`。两个分支都保留，是为了让 4f-4 能像 TS 那样用 `"loginLabel" in method`（仅 OAuth）与 `method?.login`（仅 API key）区分 |
+| C237 | `mode: "login" \| "logout"` → `enum AuthSelectorMode { Login, Logout }` | 与 C230（`SortMode` / `NameFilter` / `SearchQueryMode`）同一约定：TS 的字符串联合在端口一律枚举化 |
+
+**同批记录（不单独编号）**：
+
+- **`${provider.authType}` 被直接插进模糊搜索 haystack**，所以 `"oauth"` / `"api_key"` 这两个
+  **线上拼写**是可观测行为的一部分。端口加私有 `AuthTypeText(CredentialKind)` 复原它，并用
+  「搜 `api_key` 只命中 API key 的 provider」钉住。
+- **正则的 `$` 在 JS 与 .NET 里语义不同**：JS 不带 `m` 时 `$` 只匹配输入末尾，.NET 的 `$` 还匹配
+  **结尾换行之前**的位置。端口写 `\A…\z`，并用 `source = "OPENAI_API_KEY\n"` 一例守住
+  （必须渲染成 `✓ OPENAI_API_KEY` 而不是 `✓ env: …`）。
+- TS 的 `if (!provider) continue;`（`noUncheckedIndexedAccess` 风格的守卫）在 C# 里不可能为空
+  —— 循环上界 `endIndex ≤ Count`，`IReadOnlyList<T>` 的元素是非空记录类型，故省略。
+- `new Set(...).size > 1` → `providers.Select(p => p.AuthType).Distinct().Count() > 1`。
+- 三个只读测试缝：`GetSearchInput()` / `GetFilteredProviders()` / `SelectedIndex`（TS 的 `private`
+  在运行时可读，C# 不行；与 C219 / C224 / C229 同一约定）。
+- 测试替身 `FakeApiKeyAuth` / `FakeOAuthAuth` 只需实现 `Name`（`HasLogin` / `LoginLabel` 有默认值，
+  其余方法 `throw new NotSupportedException()`）——选择器只读 `name`。
+
+### 测试与验证（4f-3d Batch E-4）
+
+新建 `tests/Pi.CodingAgent.Tests/OAuthSelectorTests.cs`（**44** 项 = 30 个 `[Fact]` + 14 个 `[Theory]` 用例）：
+
+| 组 | 项数 | 覆盖 |
+| --- | ---: | --- |
+| 上游转写 | 5 | 无 `status` → `not configured` 且不出现 `✓ configured`；API key 选项上带 OAuth 状态 → `subscription configured`；`OPENAI_API_KEY` → `✓ env: OPENAI_API_KEY`；`key in models.json` / `command in models.json` → 原样带 `✓` |
+| 状态后缀（补） | 14 | `OAuth` 与 `stored credential` 两种 source 渲染**逐字相同**且为 `✓ configured`；空 `source` 也走 `✓ configured`（falsy 判定）；`[Theory]` 3 例 env-var 名单（含逗号列表与 `A1_B2`）；`[Theory]` 6 例非 env-var 原样渲染且不出现 `env: `；结尾换行不算 env-var；`[Theory]` 5 例 `FormatAuthSelectorProviderType`；类型不匹配渲染成 `API key configured`；`subscription: false` 的不匹配渲染成 `account configured` |
+| 标题与标签（补） | 3 | 两种 `mode` 的标题；混类型才出 `[subscription]` / `[API key]`，同类型不出；选中行带 `→ ` 前缀、非选中行不带 |
+| 空列表（补） | 2 | `login` / `logout` 两种「没有 provider」文案；过滤到空是 `No matching providers`（且不误报 `No providers available`） |
+| 过滤（补） | 5 | haystack 四段各自可命中（name / id / `api_key` 拼写 / method 名）；无 `method` 的 provider 仍能按其它字段命中；退格清空恢复全部；`initialSearchInput` 既填进搜索框又参与过滤；过滤缩小列表后 `selectedIndex` 被钳回 |
+| 键盘（补） | 7 | 上下键两端钳制；空列表上上下键是 no-op；导航键不落搜索框；Enter 回报 `(id, authType)`；空列表上 Enter 不回报；Esc 走 `onCancel`；`Input.OnSubmit` 也接到选中 |
+| 滚动信息（补） | 2 | 只有溢出（>8）才出现 `(1/N)`；`(9/12)` 时窗口滑到 4..11（`Provider 03` 消失、`04`/`11` 在场） |
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.CodingAgent.Tests` 全量 **2480 / 0 失败**（42s；2436 + 44）
+- 新类单跑 **44 / 0**（546ms）
+- 踩坑记录：`SearchHaystackCoversNameIdAuthTypeAndMethodName` 最初用 `"Pro"` 想只命中
+  method 名 `"Claude Pro"` —— 但 `Fuzzy.Match` 是**子序列**匹配，`"Pro"` 也命中了另一个 provider 的
+  **id** `provider-id`（`pro` 是它的子序列）。改用 `"Claude"`（另一个 provider 的 haystack 里
+  `c` 之后没有 `l`）。**凡是给 `Fuzzy` 写测试，先手算子序列关系，别靠「看起来像」。**
+
+> **4f-3d 余 8 个 / 5,535 行**：`extension-editor`（141，依赖未移植的 `external-editor.ts`）/
+> `custom-editor`（148）/ `scoped-models-selector`（401）/ `model-selector`（421）/
+> `config-selector`（951）/ `settings-selector`（993）/ `session-selector`（1045）/
+> `tree-selector`（1435）。
+
+---
+
 ## R2 漂移对账（2026-10-16）
 
 参照检出已从 `428a12bc7` 漂移到 `eb326d26`（25 提交 / 8 触及 `packages/coding-agent` / 3 触及
