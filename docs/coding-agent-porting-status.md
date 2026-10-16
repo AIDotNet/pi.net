@@ -4076,9 +4076,76 @@ containerSubclassDeclaresHandleInput=SelectSubmenu
   `Theme not initialized` 的**未处理异常**并可能带崩测试宿主。所有用指示器的用例一律
   `try/finally` 包住 dispose。
 
-> **4f-3d 余 7 个 / 5,387 行**：`extension-editor`（141，依赖未移植的 `external-editor.ts`）/
-> `scoped-models-selector`（401）/ `model-selector`（421）/ `config-selector`（951）/
-> `settings-selector`（993）/ `session-selector`（1045）/ `tree-selector`（1435）。
+> **4f-3d 余 6 个 / 4,984 行**：`extension-editor`（141，依赖未移植的 `external-editor.ts`）/
+> `model-selector`（421）/ `config-selector`（951）/ `settings-selector`（993）/
+> `session-selector`（1045）/ `tree-selector`（1435）。
+
+---
+
+## 4f-3d 进度（2026-10-16）：选择器 Batch E-6（scoped-models-selector）
+
+4f-3d 的**第三子批第六件**：模型配置面板——Ctrl+P 循环用哪些模型，会话内改动、Ctrl+S 才落盘。
+它同时收口了 `model-search.ts`（两个 haystack 构造函数，`model-selector` 也要用）。
+
+| TS 源 | 行数 | C# 落点 | 说明 |
+| --- | ---: | --- | --- |
+| `components/scoped-models-selector.ts` | 401 | `Modes/Interactive/Components/ScopedModelsSelector.cs`（520） | `ModelsConfig` / `ModelsCallbacks` 两个记录、`EnabledIds` 代数七个纯函数、`ScopedModelsSelectorComponent : Container, IFocusable` |
+| `model-search.ts` | 31 | `Modes/Interactive/ModelSearch.cs`（42） | `getModelSearchText` / `getModelSelectorSearchText` 两个纯函数 + `ModelSearchItem` 记录（按 TS 源文件归位，不塞进组件文件） |
+| `test/scoped-models-selector.test.ts` | 126 | `tests/Pi.CodingAgent.Tests/ScopedModelsSelectorTests.cs`（469） | 上游 4 例**全部转写**（上游用一个真模型 harness，端口直接造 `ModelSpec`） |
+
+覆盖的 TS 语义细节：
+
+- **`EnabledIds` 是双态而非列表**：`null` = 全开（页脚读 `all enabled`），显式列表 = 有序名单。
+  `normalizeEnabled` 在显式列表**覆盖全目录**时塌回 `null`——所以「重新启用最后一个被禁用的模型」会让
+  页脚从 `2/3 enabled` 变回 `all enabled`（上游第 4 例钉的正是这个往返）。
+- **列表序 = 启用序在前**（`getSortedIds`）：`[...enabledIds, ...allIds.filter(不在启用集)]`。
+  已不在目录里的 id 也照样占一行（渲染成删除线 + `[unavailable]`），所以「目录缩水」不会让选中行错位。
+- **页脚分母是目录规模**：`{enabledCount}/{allIds.length} enabled`，`enabledCount` 只数还在目录里的，
+  `· N unavailable` 只在 `N > 0` 时出现（truthy 判定，`0` 不显示）。
+- **搜索把「全量操作」收窄成「过滤集操作」**：`enableAll` / `clearAll` 的 `targetIds` 在有查询时是
+  `filteredItems.map(fullId)`，无查询时是 `undefined`（= 全目录）。
+- **`toggleProvider` 是翻转而非置位**：provider 已全开 → `clearAll(providerIds)`，否则 → `enableAll(providerIds)`。
+- **reorder 的四道闸**：`enabledIds === null` 直接 return；选中项未启用直接 return；越界
+  （`newIndex < 0 || >= length`）不改也不通知；只有真移动了才 `isDirty` + `selectedIndex += delta` + 通知。
+- **Ctrl+C 两级**：搜索框非空 → 清空并刷新；已空 → `onCancel`。Escape 无条件取消。
+- **`updateModels` 按 `fullId` 找回选中行**（先记 `selectedId`，重建目录后再 `findIndex`），
+  所以目录顺序变化不会让选中项漂走。
+
+### 4f-3d Batch E-6 设计差异（均不编号，纯形状差异）
+
+| # | 差异 | 理由 |
+|---|---|---|
+| — | TS 的 `onChange` / `onPersist: () => void \| Promise<void>` → `Action<IReadOnlyList<string>?>` | 组件**从不 await** 回调（TS 侧 `notifyChange()` 同样是 fire-and-forget），所以返回值不可观测，不必引入 `Func<…, Task>` |
+| — | `updateModels(models, enabledModelIds?)` 的三态用**两个重载**承载：单参 = 「没传」（保留当前选择），双参 = 「设了」（`null` 即重置为全开） | C# 分不出「省略实参」与「显式传 `null`」，而两者语义不同。若折成单参 `IReadOnlyList<string>? = null`，「重置为全开」这条路就没了 |
+| — | `setRefreshStatus` 的 `"muted" \| "success" \| "warning"` → `enum StatusKind` + 显式 `TokenName` 映射 | 按 C230/C237 的字符串联合一律枚举化；但**不用** `ToString().ToLowerInvariant()`——新增成员会静默产出错误 token 而不是报错 |
+
+### 测试与验证（4f-3d Batch E-6）
+
+新建 `tests/Pi.CodingAgent.Tests/ScopedModelsSelectorTests.cs`（**24** 项）：
+
+| 组 | 项数 | 覆盖 |
+| --- | ---: | --- |
+| 上游转写 | 4 | 全开后每行都带 ✓；全开后 Enter 只关选中行；全清后 Enter 只开选中行；重新启用最后一个被禁用的模型回到 `all enabled` |
+| 启用代数（补） | 7 | 启用序在前（含禁用行四空格前缀）；reorder 越界 / 未启用 / 无显式列表三种 no-op 都不通知；reorder 真移动时选中行跟着走；切换后 `(unsaved)` 出现、Ctrl+S 落盘后消失且可重复保存；保存全开态回报 `null`；provider 翻转两轮 |
+| 目录（补） | 2 | 页脚分母是目录规模 + `· 1 unavailable`；`updateModels(双参 null)` 重置为全开 |
+| 搜索/导航/取消（补） | 9 | 无匹配文案 + 空列表上下键 no-op；搜索中全开/全清只作用于过滤集；Ctrl+C 先清搜索再取消；Escape 取消；打字只进搜索框不触发切换 |
+| 渲染（补） | 2 | 选中行下方显示 `Model Name: …`；只有溢出（12 行 / 窗口 8）才出 `(n/12)` 且首行滚出 |
+
+- `dotnet build Pi.slnx -m:1` → **0 警告 0 错误**
+- `Pi.CodingAgent.Tests` 全量 **2526 / 0 失败**（42s；2502 + 24）
+- 新类单跑 **24 / 0**（461ms）
+- 踩坑记录（**测试自身写错 5 处**）：
+  1. `Create` 把 `int cancels` **按值**塞进返回元组——闭包 `() => cancels++` 改的是 `Create` 栈帧里的
+     那个，测试拿到的永远是 0。改成可变计数器对象。（`changes` / `persists` 是引用类型所以没暴露。）
+  2. `alt+up` 的线形是 **`\x1bp`**（ESC + p），不是 `\x1b[A` 前面再加 ESC；`alt+down` 是 `\x1bn`。
+     端口 `Keys` 的转义表只有这一种形态。
+  3. `app.models.toggleProvider` 默认键是 **Ctrl+P**（`\x10`），不是 Ctrl+T。
+  4. `toggleProvider` 的方向搞反了：TS 是「全开则清、否则补」，初始只开一个时**第一按是全开**（塌回
+     `null`），第二按才清空。期望值写成「先清后补」是错的。
+  5. 页脚提示在宽度 120 下会**换行**，`1/1 enabled · 1 unavailable` 被拆到两行 → `Contains` 失败。
+     渲染宽度加到 200 即可；另注意分母是目录规模，目录缩水后读 `1/1` 而不是 `1/2`。
+  6. `ReorderingWithoutAnExplicitListIsIgnored` 原本断言 `changes` 为空——但**前一步的 enableAll
+     本身就会发一次通知**（显式列表覆盖全目录 → 塌回 `null`）。改成比对 reorder 前后的计数。
 
 ---
 
