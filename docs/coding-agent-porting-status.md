@@ -5100,3 +5100,60 @@ C# 的 `Math.Round` 默认是银行家舍入，而这里大量用它做**量化�
 > （7,072 行）、**4f-5** rpc/print/json（~2,300 行）、**4g** 核心入口与实验层（~12,000 行）、
 > **evals**（~1,300 行）。
 
+## 4f-4a：interactive-mode 展示层（2026-10-17）
+
+**范围**：`interactive-mode.ts` L1381-1762（约 380 行的私有方法）→
+`Modes/Interactive/InteractiveModeFormatting.cs` + `InteractiveModeFormattingTests.cs`（59 例）。
+
+4f-4 是全项目最大的单块（7,082 行 / 311 个成员，其中 `handleEvent` 388 行、
+`showSettingsSelector` 236 行、`setupEditorSubmitHandler` 201 行、
+`showLoadedResources` 199 行）。整体按依赖顺序切成 10 个子批次，本批是第一个：
+**不依赖任何 TUI 组件或会话状态**的展示层纯函数，因此可以独立验证。
+
+**落地内容**：
+- **路径**：`FormatDisplayPath`（home 前缀缩成 `~`）、`FormatExtensionDisplayPath`
+  （再去 `/index.ts` / `/index.js`）、`FormatContextPath`（cwd 相对优先，否则回落
+  home 缩写）、`GetShortPath`（五条分支，见下）、`GetCompactPathLabel`、
+  `GetCompactPackageSourceLabel`、`GetCompactExtensionLabel`（`index` 特例三路）、
+  `GetCompactDisplayPathSegments`、`GetCompactNonPackageExtensionLabel`（尾段唯一性
+  加宽）、`GetCompactExtensionLabels`。
+- **来源标签**：`GetDisplaySourceInfo`（`source × scope` 八组映射，返回
+  `label`/`scopeLabel`/`color`）、`GetScopeGroup`、`IsPackageSource`。
+- **启动门控**：`GetStartupExpansionState`、`ShouldShowStartupHeader`
+  （**仅**被 `quietStartup: true` 隐藏）、`ShouldShowStartupDetails`
+  （**仅** `quietStartup: false` 显示）。
+- **分组与诊断**：`BuildScopeGroups`（project → user → path，空组丢弃，包按 source
+  标签分桶）、`FormatScopeGroups`（accent 组名 / dim 缩进路径 / mdLink 包名，路径与
+  包名均按 `CurrentCulture` 排序）、`FindSourceInfoForPath`（精确命中否则就近祖先）、
+  `FormatPathWithSource`、`FormatDiagnostics`（collision 按资源名分组、组内 ✓ 胜者
+  + ✗ 败者 `(skipped)`、非 collision 走 `error`/`warning` 双色且带路径时占两行）。
+
+**关键移植差异**：
+- **C260（隐式依赖显式化）**：TS 这三个方法族分别读 `this.sessionManager.getCwd()`、
+  `os.homedir()` 与模块级 `theme` 单例。端口改为显式参数 `home` / `cwd`，主题按
+  `IRenderDiffTheme` / `IMermaidTheme` 的既有做法留内部接口
+  `IInteractiveModeFormatTheme` + 内部重载，公开入口用 `ThemeRuntime.Current`。
+  好处是这批函数不依赖 `InteractiveMode` 实例即可单测，后续 4f-4b 起的类方法直接
+  委托过来即可。
+
+**钉住的上游怪癖（三处，均由 node 对拍确认，非实现缺陷）**：
+1. `formatDisplayPath` 用纯字符串 `startsWith`，不是路径分量比较：
+   home `/home/u` + path `/home/user2/.pi` → `~ser2/.pi`。
+2. `formatDiagnostics` 的 `  "${name}" collision:` 两空格缩进在 `warning` token
+   **内部**（`theme.fg("warning", \`  "${name}" collision:\`)`）。
+3. `getShortPath` 的 `node_modules/(@?[^/]+(?:\/[^/]+)?)\/(.*)` 中可选子目录是贪婪的：
+   未加 scope 的包会把第一层目录一起吃掉（`/q/node_modules/pkg/dist/a.js` → `a.js`），
+   而 scoped 包因两段都进了包名而保留（`/@s/pkg/dist/a.js` → `dist/a.js`）。
+
+**测试（59 例）**：22 个 `[Fact]` + 37 个 `[Theory]` 用例。主题用标记接口注入
+（`<accent>…</accent>`），因此断言能钉到每个片段被涂成哪个 token。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2813 / 0 失败**（51s）。
+
+> **4f-4 余 9 批**（4f-4b 类骨架 → 4f-4j 对话框与生命周期），详见
+> `docs/migration-remaining-plan.md` 的 4f-4 行。`4f-4b` 的前置是三个辅助类型：
+> `ActiveEditor`、`CompactionQueuedMessage`（TS 同文件内的局部类型）与
+> `InteractiveThemeController`（来自 `theme-controller.ts`，即 4f-2b）。
+
+
