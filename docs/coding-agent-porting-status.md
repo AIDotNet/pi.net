@@ -5152,8 +5152,62 @@ C# 的 `Math.Round` 默认是银行家舍入，而这里大量用它做**量化�
 **2813 / 0 失败**（51s）。
 
 > **4f-4 余 9 批**（4f-4b 类骨架 → 4f-4j 对话框与生命周期），详见
-> `docs/migration-remaining-plan.md` 的 4f-4 行。`4f-4b` 的前置是三个辅助类型：
-> `ActiveEditor`、`CompactionQueuedMessage`（TS 同文件内的局部类型）与
-> `InteractiveThemeController`（来自 `theme-controller.ts`，即 4f-2b）。
+> `docs/migration-remaining-plan.md` 的 4f-4 行。`4f-4b` 的前置 `InteractiveThemeController`
+> 已随 4f-2b 收口；`ActiveEditor`、`CompactionQueuedMessage` 是 TS 同文件内的局部类型，
+> 随 4f-4b 一并定义。
+
+## 4f-2b：theme-controller（2026-10-17）
+
+**范围**：`modes/interactive/theme/theme-controller.ts`（253 行）→
+`Modes/Interactive/Theme/ThemeController.cs`（约 420 行）+ `ThemeControllerTests.cs`（27 例）。
+4f-2 至此全部收口（`theme.ts` 1,160 / `system-theme.ts` 655 / `theme-json.ts` 148 随 4f-2a）。
+
+**落地内容**：
+- `RequestTerminalColorsAsync(ui, apply)`：查询终端颜色，**完成或超时**后 apply；
+  `onLateReply` 接迟到回复；查询同步抛错或 Promise 被拒时 apply 空快照
+  （逐字对齐 TS `query.then(apply, () => apply({}))`）；超时 **100ms**。
+- `InteractiveThemeController`：
+  - 构造：`markTerminalColorsPending()` → `initTheme(解析名, 开 watcher)` → 绑颜色方案监听。
+    系统主题先以灰度渲染，颜色到位后再着色。
+  - `applyFromSettings()`：auto-sync = `parseAutoThemeSetting(设置) !== undefined ||
+    名 === SYSTEM_THEME_NAME`；应用主题（`showError` 仅在设置非空时开）后发起颜色查询。
+  - `setThemeName(name, showError)`：成功才记入 `currentThemeSetting`；失败回落
+    `system` 主题，`showError` 为真时输出
+    `Failed to load theme "X": <err>\nFell back to the system theme.`。
+  - `setThemeSetting(setting)`：记设置后走 `applyFromSettings`。
+  - `setThemeInstance(theme)`：关 auto-sync、装实例、标记 `"<in-memory>"`。
+  - `preview(settingOrName)`：只 `setTheme(name, true)` + invalidate/requestRender，
+    **不**改设置；解析不到时回落到 `activeThemeName`。
+  - `applyTerminalColors(reported)`：`reported ?? previous` **字段级合并**（超时保留旧值），
+    颜色未变则**不重渲染**（重渲染会重建所有组件）。
+  - `applyTerminalColorSchemeChange(scheme)`：仅 auto-sync 下处理；记录 scheme，
+    `getTerminalTheme()` 真的翻转时重新应用；然后重查颜色。
+  - `rebindTui()`：换 TUI 后重绑监听并回灌通知开关；`dispose()` 退订。
+
+**关键移植差异**：
+- **C261（主题运行时注入缝）**：TS 直接调用 `theme.ts` 的模块函数（`initTheme` /
+  `setTheme` / `setThemeInstance` / `setTerminalColors` / `setTerminalColorScheme` /
+  `markTerminalColorsPending` / `parseAutoThemeSetting` / `resolveThemeSetting` /
+  `getTerminalTheme`）。端口抽 `internal interface IThemeControllerRuntime`，
+  默认实现 `ThemeControllerRuntime` 转调 `ThemeRuntime`；内部构造器接受替身。
+  理由与既有 `ThemeSeams` 一致：测试不该碰真实主题文件，更不该启动文件监听。
+- 顺带增补测试替身 `FakeTui`：`Invalidations`、`ColorSchemeListener`、
+  `QueryTerminalColorsHandler`、`LastColorQuery`、`ClearColorSchemeListener`。
+  纯增量改动，既有 60+ 用例不受影响（全量回归确认）。
+
+**两处测试期望按 TS 语义修正（实现无误）**：
+1. `preview` 解析不到名称时回落 `_activeThemeName`——构造时已解析成 `dark`，
+   所以是 `dark` 而不是 `system`。
+2. `getThemeSelection()` 的优先级是 `显式设置 ?? settings.theme ?? active`，
+   因此设置里有 `theme` 时 `"<in-memory>"` 不会浮出来。
+
+**测试（27 例）**：上游无测试文件，向量全部由源码推导。覆盖构造回落、设置应用、
+auto-sync 三态、主题加载失败与错误文案、实例注入、preview、颜色查询的
+超时/抛错/被拒/迟到、字段级合并、内容相同不重渲染、调色板逐项比较、外观翻转重应用、
+生命周期（disable/rebind/dispose）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2840 / 0 失败**（2m15s）。
+
 
 
