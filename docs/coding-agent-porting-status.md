@@ -5305,7 +5305,57 @@ auto-sync 三态、主题加载失败与错误文案、实例注入、preview、
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **2870 / 0 失败**（2m38s）。
 
+## 4f-4d：诊断与文案叶子层（2026-10-17）
 
+**范围**：`interactive-mode.ts` 的终端标题 / 聊天提示 / 崩溃报告 / 安装变更告警 /
+编辑器边框色五段（L1124-1134、L2154-2200、L3795-3830、L4495-4505、L4602-4615）→
+`Modes/Interactive/InteractiveModeDiagnostics.cs` + `InteractiveModeDiagnosticsTests.cs`（39 例）。
 
+**批次调整（重要）**：原计划本批 = 类骨架 + 构造器。实测构造器**传递依赖整个类**：
+`resetExtensionUI` 要 10 个扩展 UI 方法（`hideExtensionSelector` / `hideExtensionInput` /
+`hideExtensionEditor` / `clearExtensionTerminalInputListeners` / `setExtensionFooter` /
+`setExtensionHeader` / `clearExtensionWidgets` / `setupAutocompleteProvider` /
+`setCustomEditorComponent` / `setWorkingIndicator`），`rebindCurrentSession` 要 7 个会话
+生命周期方法（`applyRuntimeSettings` / `renderCurrentSessionState` / `subscribeToAgent` /
+`bindCurrentSessionExtensions` / `updateAvailableProviderCount` / `updateEditorBorderColor` /
+`updateTerminalTitle`），均属 4f-4h / 4f-4j 范围。**不留抛异常的空桩**，故本批改为
+叶子层，类骨架顺延为收尾批 **4f-4m**（子批数 12 → 13）。
 
+**落地内容**：
+- **终端标题**：`BuildTerminalTitle(cwd, sessionName)` →
+  `{APP_TITLE} - [{sessionName} - ]{basename(cwd)}`。TS 的 `if (sessionName)` 是真值判定，
+  空串走无会话名分支（C# 用 `IsNullOrEmpty`）。
+- **聊天提示**：`ChatNotice(Text, ColorToken, Pad)` 三个构造 + 一个判定。
+  - `ErrorNotice`：前缀 `Error: `、token `error`、**padding = `outputPad`**。
+  - `WarningNotice` / `StatusNotice`：`Warning: ` 前缀 / 无前缀、token `warning` / `dim`、
+    **padding 硬编码 `1`**。三者的 padding **不对称是上游原样**，已逐条钉住。
+  - `ShouldCoalesceStatus`：`childCount > 1` 且末项是受跟踪 text 且次末项是受跟踪 spacer
+    时才原地更新（`showStatus` 的防刷屏逻辑）。
+- **编辑器边框**：`ResolveEditorBorderColor(theme, isBashMode, level)` —— bash 模式**优先**
+  于思考等级，否则按等级取边框色。TS 的 `thinkingLevel || "off"` 在 C# 非空枚举下没有
+  兜底需求（`Off` 即默认值）。
+- **崩溃与告警**：
+  - `BugReportHint`、`CrashReportInstructions(hasSessionFile)` —— 无会话文件时
+    **硬编码 `start pi and`**，不用 `APP_NAME`（上游原样）。
+  - `ShouldSuggestBugReport`：`stopReason == "error"` 且非 retryable 且非 abort；
+    `IsAbortOrCancelMessage`：`\b(?:abort(?:ed)?|cancel(?:l?ed)?)\b` 忽略大小写，
+    `null` 视作空串 → `false`。
+  - `BuildInstallChangeWarning`：`updated` 分支带新旧版本，否则「removed or replaced」；
+    有 `resumeCommand` 走 `Restart with ...` 反引号形式，否则 `Restart {APP_NAME}.`。
 
+**关键移植差异**：
+- **C265（`ChatNotice` 纯值化）**：TS 的 `showError` / `showWarning` / `showStatus` 直接
+  构造 `Spacer` / `ThemedText` 并读模块级 `theme`。C# 抽成纯值 `ChatNotice`，主题应用与
+  组件构造留给 4f-4m 类本体。**无行为差异**，只为可测（沿用「纯决策叶子抽成 static」的
+  既有约定）。
+
+**顺延**：`formatResumeCommand` 仍在 4f-4l；本批 `BuildInstallChangeWarning` 只接收它的
+结果参数，不自己算。
+
+**测试（39 例）**：标题三分支（含空串）、`ErrorNotice` 的 `outputPad` 传递、
+`WarningNotice` / `StatusNotice` 的硬编码 `1`、coalescing 六种边界、七档思考等级逐一
+与 `GetThinkingBorderColor` 比对、bash 模式压过 `Max` 等级、abort/cancel 十例（含
+`abortive` 因 `\b` 不匹配）、bug report 判定五例、安装变更两条分支。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2909 / 0 失败**（1m05s）。
