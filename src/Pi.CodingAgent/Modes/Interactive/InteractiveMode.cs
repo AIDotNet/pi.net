@@ -268,6 +268,7 @@ public partial class InteractiveMode
     internal StatusIndicator? ActiveStatusIndicatorForTests => _activeStatusIndicator;
     internal bool ActiveWorkingIndicatorEmbeddedForTests => _activeWorkingIndicatorEmbedded;
     internal IReadOnlyList<IComponent> ChatChildrenForTests => _chatContainer.Children;
+    internal IReadOnlyList<IComponent> PendingMessagesContainerChildrenForTests => _pendingMessagesContainer.Children;
     internal IReadOnlyList<IComponent> EditorContainerChildrenForTests => _editorContainer.Children;
     internal IReadOnlyList<IComponent> FooterContainerChildrenForTests => _footerContainer.Children;
     internal IReadOnlyList<IComponent> HeaderContainerChildrenForTests => _headerContainer.Children;
@@ -597,10 +598,6 @@ public partial class InteractiveMode
         _unsubscribe = Session.Subscribe(@event => _ = HandleEventAsync(@event));
     }
 
-    /// <summary>Seam: the session-event dispatcher lands with the 4f-4m event/rendering slice.</summary>
-    private Task HandleEventAsync(AgentSessionEvent @event) =>
-        throw new NotImplementedException("4f-4m event slice: handleEvent (TS L3386-3773)");
-
     // ---------------------------------------------------------------- provider count (L5231-5238)
 
     private void UpdateAvailableProviderCount()
@@ -644,10 +641,6 @@ public partial class InteractiveMode
         UpdateEditorBorderColor();
         UpdateTerminalTitle();
     }
-
-    /// <summary>Seam: renderCurrentSessionState lands with the 4f-4m event/rendering slice (TS L2201-2218).</summary>
-    private void RenderCurrentSessionState() =>
-        throw new NotImplementedException("4f-4m event slice: renderCurrentSessionState (TS L2201-2218)");
 
     /// <summary>Seam: the extension binding body lands with the 4f-4m extension slice (TS L1963-2052).</summary>
     private Task BindCurrentSessionExtensionsAsync() =>

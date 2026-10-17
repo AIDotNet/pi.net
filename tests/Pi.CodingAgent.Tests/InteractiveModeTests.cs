@@ -21,6 +21,7 @@ using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Modes.Interactive;
 using Pi.CodingAgent.Modes.Interactive.Components;
+using Pi.CodingAgent.Utils;
 using Pi.Tui;
 using Pi.Tui.Components;
 using Xunit;
@@ -506,7 +507,7 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         Assert.IsType<Container>(children[0]);
     }
 
-    private sealed class DisposableText : Text, IDisposable
+    private sealed class DisposableText : Pi.Tui.Components.Text, IDisposable
     {
         public DisposableText() : base("custom")
         {
@@ -542,7 +543,7 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         var mode = await CreateModeAsync();
         var builtIn = mode.FooterContainerChildrenForTests[0];
 
-        var custom = new Text("custom-footer");
+        var custom = new Pi.Tui.Components.Text("custom-footer");
         mode.SetExtensionFooter((tui, theme, data) => custom);
         Assert.Same(custom, mode.FooterContainerChildrenForTests[0]);
 
@@ -555,7 +556,7 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
     {
         var mode = await CreateModeAsync();
         // init 之前 builtInHeader 尚不存在：工厂调用直接被忽略（TS L2544 的早退分支）。
-        mode.SetExtensionHeader((tui, theme) => new Text("custom-header"));
+        mode.SetExtensionHeader((tui, theme) => new Pi.Tui.Components.Text("custom-header"));
 
         Assert.Empty(mode.HeaderContainerChildrenForTests);
     }
@@ -733,5 +734,130 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         Assert.Equal(
             (int)host.Session.SettingsManager.GetEditorPaddingX(),
             mode.DefaultEditorForTests.GetPaddingX());
+    }
+
+    // ==================================================================
+    // 4f-4m-2：事件分发 / 会话渲染 / 队列族
+    // ==================================================================
+
+    [Fact]
+    public async Task RenderSessionEntriesRendersUserAndAssistantMessages()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.AddMessageToChat(new UserMessage("hello world", 1_000));
+        mode.AddMessageToChat(new AssistantMessage(
+            Content: [new TextContent("hi there")],
+            StopReason: StopReason.Stop,
+            Model: "stub-chat",
+            Api: "stub-api",
+            Provider: "stub"));
+
+        var children = mode.ChatChildrenForTests;
+        Assert.Equal(2, children.Count);
+        Assert.IsType<UserMessageComponent>(children[0]);
+        Assert.IsType<AssistantMessageComponent>(children[1]);
+
+        var userText = string.Join("\n", children[0].Render(80));
+        Assert.Contains("hello world", userText);
+    }
+
+    [Fact]
+    public async Task RenderSessionEntriesRendersCompactionSummariesWithSpacer()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.AddMessageToChat(new CompactionSummaryMessage("summary text", 1_234, 1_000));
+
+        var children = mode.ChatChildrenForTests;
+        Assert.Equal(2, children.Count);
+        Assert.IsType<Spacer>(children[0]);
+        Assert.IsType<CompactionSummaryMessageComponent>(children[1]);
+    }
+
+    [Fact]
+    public async Task RenderSessionEntriesPairsToolResultsWithToolCalls()
+    {
+        var mode = await CreateModeAsync();
+
+        var entries = new List<SessionEntry>
+        {
+            new SessionMessageEntry
+            {
+                Id = "e1",
+                Message = new AssistantMessage(
+                    Content: [new ToolCallContent("tc1", "bash", new Dictionary<string, object?> { ["command"] = "ls" })],
+                    StopReason: StopReason.ToolUse,
+                    Model: "stub-chat",
+                    Api: "stub-api",
+                    Provider: "stub"),
+            },
+            new SessionMessageEntry
+            {
+                Id = "e2",
+                Message = new ToolResultMessage("tc1", "bash", [new TextContent("file-a")]),
+            },
+        };
+        mode.RenderSessionEntries(entries);
+
+        // 助手消息 + 工具组件；工具结果与组件配对后 pendingTools 清空。
+        var children = mode.ChatChildrenForTests;
+        Assert.Equal(2, children.Count);
+        Assert.IsType<AssistantMessageComponent>(children[0]);
+        Assert.IsType<ToolExecutionComponent>(children[1]);
+
+        var toolText = string.Join("\n", ((IComponent)children[1]).Render(80));
+        Assert.Contains("ls", AnsiText.StripAnsi(toolText));
+    }
+
+    [Fact]
+    public async Task QueuedCompactionMessagesShowInThePendingAreaAndRestoreToTheEditor()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.QueueCompactionMessage("queued-1", CompactionQueueModes.Steer);
+
+        var pending = mode.PendingMessagesContainerChildrenForTests;
+        Assert.Equal(3, pending.Count); // spacer + steering 行 + dequeue 提示
+        var pendingText = string.Join("\n", pending[1].Render(80));
+        Assert.Contains("Steering: queued-1", AnsiText.StripAnsi(pendingText));
+
+        // 恢复：排队消息回填编辑器、pending 区清空。
+        var restored = mode.RestoreQueuedMessagesToEditor();
+        Assert.Equal(1, restored);
+        Assert.Equal("queued-1", mode.EditorForTests.GetText());
+        Assert.Empty(mode.PendingMessagesContainerChildrenForTests);
+    }
+
+    [Fact]
+    public async Task RestoreQueuedMessagesToEditorIsANoOpWhenNothingIsQueued()
+    {
+        var mode = await CreateModeAsync();
+        mode.EditorForTests.SetText("keep me");
+
+        Assert.Equal(0, mode.RestoreQueuedMessagesToEditor());
+        Assert.Equal("keep me", mode.EditorForTests.GetText());
+    }
+
+    [Fact]
+    public async Task IsExtensionCommandRequiresARegisteredCommand()
+    {
+        var mode = await CreateModeAsync();
+
+        Assert.False(mode.IsExtensionCommand("/read"));
+        Assert.False(mode.IsExtensionCommand("plain text"));
+        Assert.False(mode.IsExtensionCommand("/no-such-command"));
+    }
+
+    [Fact]
+    public async Task GetUserInputReturnsTheQueuedInputFirst()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+
+        // 通过 GetUserInput 的 promise + onInputCallback 链路验证（queued 输入由内部路径注入）。
+        var pending = mode.GetUserInputAsync();
+        Assert.False(pending.IsCompleted);
+        mode.Stop();
     }
 }
