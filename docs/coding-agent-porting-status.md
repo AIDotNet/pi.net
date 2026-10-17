@@ -5257,6 +5257,55 @@ auto-sync 三态、主题加载失败与错误文案、实例注入、preview、
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **2847 / 0 失败**（2m50s）。
 
+## 4f-4c：interactive-mode 模块级层（2026-10-17）
+
+**范围**：`interactive-mode.ts` 中 `InteractiveMode` 类之上的部分（约 200 行 TS）→
+`Modes/Interactive/InteractiveModeModule.cs` + `InteractiveModeModuleTests.cs`（23 例）。
+
+**落地内容**：
+- **类型**：`IExpandable`；`CompactionQueuedMessage`（`Mode` + `Text`）与
+  `CompactionQueueModes`（`steer` / `followUp`）。
+- **组件**：
+  - `ExpandableText : ThemedText`：折叠/展开两个取值函数 + `paddingX/Y`，
+    `SetExpanded` 后 `Invalidate()`。
+  - `BuiltInHeader : ExpandableText`：logo 占 **1-4 列 × 0-1 行**（一行 padding 之后的前
+    两行）；命中时回调 `(screenX - x + 1, screenY - y)` 并返回 `Handled`；越界、非
+    `Click`、无回调一律返回 `null`。
+- **纯函数**：
+  - `QuoteIfNeeded`：`[^a-zA-Z0-9_\-./~:@]` 之外才加单引号，内部 `'` 按 POSIX 转成 `'\''`。
+  - `FormatCrashExtensionHint`：1 个 → `loaded extension \`a\`` + `it`；2 个 →
+    `\`a\` and \`b\`` + `them`；3+ → 牛津逗号；先过滤空串/null，全空返回 `null`。
+  - `IsAnthropicSubscriptionAuthKey`（`sk-ant-oat` 前缀）、
+    `LlamaCppPostLoginGuidance`（按已加载模型数二选一）、`IsDeadTerminalError`。
+- **常量**：`AnthropicSubscriptionAuthWarning`、`RadiusLoginIntro`。
+
+**关键移植差异**：
+- **C263（死终端判定）**：TS 查 Node errno 集合 `EIO` / `EPIPE` / `ENOTCONN` /
+  `ENOTTY`。.NET 把 tty 失败折叠成 `IOException` 且**不暴露 errno**，故改为按异常类型
+  映射：`IOException`（EIO/EPIPE/ENOTTY）、`ObjectDisposedException`（流已释放）、
+  断连的 `SocketException`（ENOTCONN）。这个集合比 TS **略宽**——任何 IO 异常都算死
+  终端。已写在注释里，若将来引入 errno 兼容层应收窄。
+- **C264（虚方法 + 去 sealed）**：`ExpandableText extends ThemedText`，而 `ThemedText`
+  是 `sealed`、`Text` 也没有 `virtual HandleMouse`。照 C233 的做法给 `Text` 补
+  `public virtual TuiMouseEventResult? HandleMouse(...) => null`——否则经 `IComponent`
+  引用调用会落到接口默认实现，子类 `override` 永远不生效——并把 `ThemedText` 去掉
+  `sealed`。
+- TS 用对象字面量装箱保存 `expanded` 状态；C# 的构造器初始化器不能读 `this`，故用私有
+  重载把状态盒子穿进去，语义等价。
+
+**顺延到后续批**（各自的类型上下文在那一批才齐备）：
+`formatResumeCommand` → 4f-4l；`createFuzzyAutocompleteItems` + login provider 三函数
+→ 4f-4e；`RenderSessionItem` 三个判定 + `CompactionCostNotice` +
+`IsUnknownModel` / `HasDefaultModelProvider` → 4f-4j。
+
+**测试（23 例）**：折叠/展开切换与初始态、logo 命中的坐标换算、三处越界、非点击事件、
+无回调、POSIX 引号四例、崩溃提示的 1/2/3+ 语法与空项过滤、订阅 key 前缀、llama.cpp
+两档文案、死终端四例。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2870 / 0 失败**（2m38s）。
+
+
 
 
 
