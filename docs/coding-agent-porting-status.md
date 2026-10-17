@@ -5440,3 +5440,40 @@ L374-423 + 来源标签与冲突诊断 L669-715）→ `Modes/Interactive/Interac
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **2953 / 0 失败**（56s）。
+
+## 4f-4g：状态指示器决策层（2026-10-17）
+
+**范围**：`showWorkingStatusIndicator` / `setWorkingIndicator` / `setWorkingVisible` /
+`setHiddenThinkingLabel` / `clearStatusIndicator`（L221-228、L2290-2375）中可独立判定的部分
+→ `Modes/Interactive/InteractiveModeStatus.cs` + `InteractiveModeStatusTests.cs`（16 例）。
+
+**落地内容**：
+- **类型守卫**：`IsWorkingStatusEditor(editor)`。TS 是鸭子类型
+  （`"embedWorkingStatus" in editor && … === true && typeof setWorkingStatusIndicator ===
+  "function"`）；C# 里只有 `CustomEditor` 带这两个成员，故类型判定等价。
+- **工作色**：`ResolveWorkingStatusColor(editor, theme, level)`。非工作状态编辑器返回
+  `null`（`WorkingStatusIndicator` 随后沿用 accent/muted 默认），否则跟随编辑器边框色、
+  无边框色回落思考等级边框色。
+- **文案**：`ResolveWorkingMessage` / `ResolveHiddenThinkingLabel` 都是 `??`，**仅 null
+  回落**——空串会保留。
+- **Idle 占位**：`ShouldRestoreIdleStatus` 的四条件：真的清掉了 / 未嵌在编辑器里 /
+  `regular` 模式 / `clearOnShrink` 开。缺一不补，否则全屏或未清屏时留一条永久空行。
+- **重置文案**：`DefaultWorkingMessageWithInterrupt` =
+  `{msg} ({keyText("app.interrupt")} to interrupt)`，供 `resetExtensionUI` 用。
+
+**关键移植差异**：
+- **C266（`BorderColor` 的可空性）**：TS 的 `borderColor?: (str: string) => string` 初始为
+  `undefined`，所以 `this.editor.borderColor ?? theme.getThinkingBorderColor(...)` 里
+  **回落是常态路径**。C# 的 `Editor.BorderColor` 是**非空属性**，构造时就被赋成
+  `theme.BorderColor`，回落分支只有调用方显式置 `null` 才可达。分支保留以对齐读法，
+  注释与测试（显式 `null!`）都写明；另一条用例钉住「正常路径下编辑器边框色直接生效」。
+
+**顺延**：`statusContainer` 的 `clear` / `addChild`、编辑器
+`SetWorkingStatusIndicator` 重绑、`chatContainer` 遍历改 hidden-thinking label 都写容器，
+随 4f-4m。
+
+**测试（16 例）**：守卫三例、工作色四例（含 C266 回落与正常路径）、文案四例（含空串不
+回落）、中断提示一例、Idle 占位五组条件。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2969 / 0 失败**（55s）。
