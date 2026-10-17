@@ -5407,3 +5407,36 @@ L374-423 + 来源标签与冲突诊断 L669-715）→ `Modes/Interactive/Interac
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **2933 / 0 失败**（1m16s）。
+
+## 4f-4f：启动横幅与资源展示叶子层（2026-10-17）
+
+**范围**：`showStartupNoticesIfNeeded`（L836-865）与 `showLoadedResources`（L1764-1962，
+199 行）中不碰容器、不读 `this.session` 的部分 →
+`Modes/Interactive/InteractiveModeStartup.cs` + `InteractiveModeStartupTests.cs`（20 例）。
+
+**落地内容**：
+- **段落头**：`FormatSectionHeader(name, theme, color = mdHeading)` → `[name]`。
+- **紧凑列表**：`FormatCompactList(items, theme, sort = true)`：逐项 `Trim` → 丢空串 →
+  可选按 `localeCompare` 排序（C# 用 `CurrentCulture`，与 4f-4a 一致）→ `, ` 连接 →
+  整体前缀两空格并套 `dim` token。**空列表仍保留两空格缩进**：TS 对空数组 `join` 得
+  `""`，缩进照留，不是返回空串。
+- **变更日志**：
+  - `ExtractLatestChangelogVersion`：`/##\s+\[?(\d+\.\d+\.\d+)\]?/`，**无 flags**，取首个
+    三段版本号。`## v1.2.3` 因 `\[?` 吞不掉 `v` 而不匹配；`## 1.2` 缺一段也不匹配；
+    两者都回落 `null`。`## [1.2.3-beta.1]` 仍取 `1.2.3`（`\]?` 是可选的，`-beta.1` 只是
+    不被消费）。
+  - `BuildCondensedChangelogNotice`：`Updated to v{ver}. Use /changelog to view full
+    changelog.`，版本缺失回落当前版本，`/changelog` 加粗。
+- **诊断折叠**：`CollectExtensionDiagnostics(errors, warnings)`：加载 `error` → `error`
+  诊断、`warning` → `warning` 诊断。顺序是**先全部 error 再全部 warning**，因为 TS 用的是
+  两个独立 `for` 循环而不是一次遍历；`warnings` 为 `null` 视作空（TS 的 `?? []`）。
+
+**顺延**：`showLoadedResources` 的容器组装（`ExpandableText` 四段 + `contextFiles` +
+四类诊断块）与 `showStartupNoticesIfNeeded` 的 `DynamicBorder` / `Markdown` 插入都写
+`loadedResourcesContainer` / `chatContainer` 并读 `this.session.resourceLoader`，随 4f-4m。
+
+**测试（20 例）**：段落头两例、紧凑列表三例（排序 / 保持顺序 / 空列表缩进）、变更日志
+正则十组用例 + 两例文案、诊断折叠三例（error / warning 顺序 / null warnings）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2953 / 0 失败**（56s）。
