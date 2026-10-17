@@ -24,7 +24,10 @@
 
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Modes.Interactive.Components;
@@ -958,17 +961,157 @@ public partial class InteractiveMode
         _defaultEditor.OnAction("app.message.followUp", () => _ = HandleFollowUpAsync());
         _defaultEditor.OnAction("app.message.dequeue", HandleDequeue);
 
-        _ui.OnDebug = HandleDebugCommandForUi;
-        SetupSelectorKeyHandlers();
+        _defaultEditor.OnAction("app.session.new", () => _ = HandleClearCommandAsync());
+        _defaultEditor.OnAction("app.model.select", () => ShowModelSelector());
+        _ui.OnDebug = HandleDebugCommand;
+        SetupTreeForkResumeKeyHandlers();
     }
 
-    /// <summary>Seam: the four selector actions land with the 4f-4m-4 tail slice (TS L3088, L3099-3101).</summary>
-    private void SetupSelectorKeyHandlers() =>
-        throw new NotImplementedException("4f-4m-4 tail: selector actions (app.model.select / app.session.tree / fork / resume)");
+    /// <summary>
+    /// Seam: the tree / fork / resume selector actions (TS L3099-3101) need the session
+    /// fork / navigateTree / getUserMessagesForForking / switchSession APIs and their selector
+    /// methods (showTreeSelector L5538 / showUserMessageSelector L5479 / showSessionSelector L5687)
+    /// — lands with the 4f-4m-4 尾批.
+    /// </summary>
+    private void SetupTreeForkResumeKeyHandlers() =>
+        throw new NotImplementedException("4f-4m-4 tail: tree/fork/resume selectors (TS L3099-3101)");
 
-    /// <summary>Seam: TS <c>handleDebugCommand</c> (L6914-6950) lands with the 4f-4m-4 tail slice.</summary>
-    private void HandleDebugCommandForUi() =>
-        throw new NotImplementedException("4f-4m-4 tail: handleDebugCommand (TS L6914-6950)");
+    // ---------------------------------------------------------------- selectors / clear / debug
+
+    /// <summary>TS <c>showModelSelector</c> (L5321-5355).</summary>
+    internal void ShowModelSelector(string? initialSearchInput = null)
+    {
+        ShowSelector(done =>
+        {
+            async Task SelectModelAsync(ModelSpec model, bool persist)
+            {
+                try
+                {
+                    await Session.SetModelAsync(model, new ModelMutationOptions { Persist = persist }).ConfigureAwait(true);
+                    UpdateAvailableProviderCount();
+                    _footer.Invalidate();
+                    UpdateEditorBorderColor();
+                    done();
+                    ShowStatus(persist ? $"Default model: {model.Provider}/{model.Id}" : $"Model: {model.Id}");
+                    _ = MaybeWarnAboutAnthropicSubscriptionAuthAsync(model);
+                }
+                catch (Exception error)
+                {
+                    done();
+                    ShowError(error.Message);
+                }
+            }
+
+            var defaultProvider = SettingsManager.GetDefaultProvider();
+            var defaultModel = SettingsManager.GetDefaultModel();
+            var selector = new ModelSelectorComponent(
+                _ui,
+                Session.Model,
+                Session.ModelRuntime,
+                [.. Session.ScopedModels.Select(sm => new ModelSelectorComponent.ScopedModelItem
+                {
+                    Model = sm.Model,
+                    ThinkingLevel = sm.ThinkingLevel is { } scopedLevel
+                        ? Pi.Ai.Types.ThinkingLevelText.ToText(scopedLevel)
+                        : null,
+                })],
+                model => _ = SelectModelAsync(model, persist: false),
+                () =>
+                {
+                    done();
+                    _ui.RequestRender();
+                },
+                initialSearchInput,
+                model => _ = SelectModelAsync(model, persist: true),
+                defaultProvider is not null && defaultModel is not null
+                    ? new ModelSelectorComponent.DefaultModelReference { Provider = defaultProvider, Id = defaultModel }
+                    : null);
+            return (selector, selector, () => selector.Dispose());
+        });
+    }
+
+    /// <summary>TS <c>handleClearCommand</c> (L6899-6912).</summary>
+    internal async Task HandleClearCommandAsync()
+    {
+        ClearStatusIndicator();
+        try
+        {
+            var result = await _runtimeHost.NewSessionAsync().ConfigureAwait(true);
+            if (result.Cancelled)
+            {
+                return;
+            }
+
+            _chatContainer.AddChild(new Spacer(1));
+            _chatContainer.AddChild(new ThemedText(() => ThemeRuntime.Current.Fg("accent", "✓ New session started"), 1, 1));
+            _ui.RequestRender();
+        }
+        catch (Exception error)
+        {
+            await HandleFatalRuntimeErrorAsync("Failed to create session", error).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>TS <c>handleFatalRuntimeError</c> (L2109-2123): report, record, restore terminal, exit.</summary>
+    private async Task HandleFatalRuntimeErrorAsync(string prefix, Exception error)
+    {
+        ShowError($"{prefix}: {error.Message}");
+        var extensionHint = GetCrashExtensionHintForUi(error);
+        if (extensionHint is not null)
+        {
+            _chatContainer.AddChild(new ThemedText(
+                () => ThemeRuntime.Current.Fg("warning", extensionHint), _outputPad, 0));
+        }
+
+        if (RecordCrashForUi(CrashKind.FatalError, error))
+        {
+            var instructions = InteractiveModeDiagnostics.CrashReportInstructions(SessionManager.GetSessionFile() is not null);
+            _chatContainer.AddChild(new ThemedText(
+                () => ThemeRuntime.Current.Fg("muted", instructions), _outputPad, 0));
+        }
+
+        // TS stopThemeWatcher(): the theme watcher dies with the process here; the port's watcher
+        // lifecycle is owned by the ThemeRuntime seams and needs no explicit stop on the fatal path.
+        Stop("transcript");
+        Environment.Exit(1);
+    }
+
+    /// <summary>TS <c>handleDebugCommand</c> (L6914-6945).</summary>
+    internal void HandleDebugCommand()
+    {
+        var width = _ui.Terminal.Columns;
+        var height = _ui.Terminal.Rows;
+        var allLines = _ui.Render(width);
+
+        var debugLogPath = Config.GetDebugLogPath();
+        var debugParts = new List<string>
+        {
+            $"Debug output at {NowIso()}",
+            $"Terminal: {width}x{height}",
+            $"Total lines: {allLines.Length}",
+            "",
+            "=== All rendered lines with visible widths ===",
+        };
+        debugParts.AddRange(allLines.Select((line, index) =>
+            $"[{index}] (w={UnicodeWidth.VisibleWidth(line)}) {JsonSerializer.Serialize(line)}"));
+        debugParts.Add("");
+        debugParts.Add("=== Agent messages (JSONL) ===");
+        debugParts.AddRange(Session.Messages.Select(message => JsonSerializer.Serialize(
+            message,
+            new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping })));
+        debugParts.Add("");
+        var debugData = string.Join("\n", debugParts);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(debugLogPath)!);
+        File.WriteAllText(debugLogPath, debugData);
+
+        _chatContainer.AddChild(new Spacer(1));
+        _chatContainer.AddChild(new ThemedText(
+            () => $"{ThemeRuntime.Current.Fg("accent", "✓ Debug log written")}\n{ThemeRuntime.Current.Fg("muted", debugLogPath)}",
+            1,
+            1));
+        _ui.RequestRender();
+    }
 
     // ---------------------------------------------------------------- command methods (L4454-4591, L6610-6639)
 

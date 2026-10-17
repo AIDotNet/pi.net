@@ -1133,4 +1133,54 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         var last = mode.ChatChildrenForTests[^1];
         Assert.Contains("No agent messages to copy yet.", string.Join("\n", last.Render(80)));
     }
+
+    // ==================================================================
+    // 4f-4m-4 尾批（前半）：模型选择器 / 新会话 / 调试日志
+    // ==================================================================
+
+    [Fact]
+    public async Task ShowModelSelectorMountsTheSelectorInPlaceOfTheEditor()
+    {
+        var mode = await CreateModeAsync();
+        try
+        {
+            mode.ShowModelSelector();
+
+            var mounted = Assert.IsType<ModelSelectorComponent>(mode.EditorContainerChildrenForTests[0]);
+            Assert.NotSame(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+            _ = mounted;
+        }
+        finally
+        {
+            mode.DisposeActiveSelector();
+        }
+    }
+
+    [Fact]
+    public async Task NewSessionAsyncCreatesAReplacementSession()
+    {
+        var host = await CreateHostAsync();
+        var oldSession = host.Session;
+
+        var result = await host.NewSessionAsync();
+
+        Assert.False(result.Cancelled);
+        Assert.NotSame(oldSession, host.Session);
+    }
+
+    // HandleClearCommand 本体不测：其错误分支进入 handleFatalRuntimeError → Environment.Exit(1)
+    // （与 shutdown 同类的退出路径）；扩展 rebind 缝（BindCurrentSessionExtensionsAsync）清零后
+    // 该命令的全链路再补。
+
+    [Fact]
+    public async Task HandleDebugCommandWritesTheDebugLogAndShowsConfirmation()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleDebugCommand();
+
+        var last = mode.ChatChildrenForTests[^1];
+        var rendered = AnsiText.StripAnsi(string.Join("\n", last.Render(80)));
+        Assert.Contains("✓ Debug log written", rendered);
+    }
 }
