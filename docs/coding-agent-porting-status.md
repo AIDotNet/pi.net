@@ -5790,3 +5790,26 @@ spread）；`TruncationResult` 的 TS `{ truncated: true } as` 残缺对象以�
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3144 / 0 失败**。
+
+## 4f-4m-3-前置：chat-viewport 模块（2026-10-17）
+
+**范围**：`modes/interactive/chat-viewport.ts`（47 行）→
+`Modes/Interactive/ChatViewport.cs` + 5 例测试。该模块是 `init`（4f-4m-3 主体）的**前置依赖**——
+`createChatViewport` 构建全屏 transcript + 固定输入坞布局，此前批次只移植了
+`IViewportTui.SetLayoutRoot` 的挂载半边，工厂本体遗漏，本批补上。
+
+**落地内容**：`ChatViewportOptions`（document/pendingMessages/status/editor/footer 五必需 +
+widgetsAbove/widgetsBelow/scrollbar/track·thumb 样式四可选）/ `ChatViewport` 记录
+（root + transcript）/ `ChatViewportFactory.CreateChatViewport`——ScrollView
+（follow=end、primary、overscroll=chain、scrollbar 默认 auto、样式透传）+ 输入坞 VStack
+（pending/status shrink=1 minSize=0、编辑器行 shrink=1 **minSize=3**、footer，可选 widget 行插在
+status 之后与编辑器之后）+ 根 VStack（transcript 行 basis=0 grow=1 shrink=1 minSize=1、坞行
+basis=auto grow=0 shrink=1 minSize=1）。TS 的 `{ basis: "auto" }` 对应 `Basis = null`（尺寸选项
+全可空）。
+
+**测试（5 例）**：transcript 配置、显式 scrollbar 覆盖默认、根结构 transcript-over-dock、坞行顺序
+（含可选 widget 行的插入位置）、无可选行时坞行数。`Stack.Entries` 是 protected——minSize/basis
+阶梯的行为面由 Pi.Tui.Tests 的布局测试覆盖，此处只验证可观察结构。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3149 / 0 失败**。
