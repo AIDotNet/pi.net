@@ -5359,3 +5359,51 @@ auto-sync 三态、主题加载失败与错误文案、实例注入、preview、
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **2909 / 0 失败**（1m05s）。
+
+## 4f-4e：自动补全辅助层（2026-10-17）
+
+**范围**：`createBaseAutocompleteProvider` 中不依赖类自身状态的部分（模块级四辅助
+L374-423 + 来源标签与冲突诊断 L669-715）→ `Modes/Interactive/InteractiveModeAutocomplete.cs`
++ `InteractiveModeAutocompleteTests.cs`（24 例）。
+
+**落地内容**：
+- **模糊项**：`CreateFuzzyItems<T>` 是 `Fuzzy.Filter` 之上的薄封装。关键语义是
+  **无匹配返回 `null` 而不是空列表**——编辑器的 `AutocompleteProvider` 契约把 `null`
+  读作「无建议」，空数组读作「建议列表为空」。
+- **登录 provider**：
+  - `LoginProviderCompletionOption`（`Id` / `Name` / `AuthTypes` / `Subscription`）。
+  - `BuildLoginProviderCompletionOptions`：按 id 合并多行；`authTypes` 去重后按
+    `AUTH_TYPE_ORDER`（oauth = 0，api_key = 1）排序；最终按 `name` 用
+    `CurrentCulture` 排序。用 `OrderBy` 而非 `List.Sort`，因为 TS 的
+    `Array.prototype.sort` **稳定**而同名 .NET API 不稳定。
+  - `GetLoginProviderSearchText`：`{id} {name}` 后跟每个 authType 的**线上拼写 +
+    标签**两串，例如 `anthropic Anthropic oauth account api_key API key`。搜 `api_key`
+    必须命中 API key 类 provider，这是上游把 `authType` 直接插进 haystack 的可观测后果。
+  - `FormatLoginProviderCompletionDescription`：标签以 `/` 连接；`name != id` 时前缀
+    `{name} · `。
+- **来源标签**：`GetSourceTag` / `PrefixDescription`。
+  - `builtin` 与缺省 `SourceInfo` 一律不加标签（内置命令和内置扩展命令同等对待）。
+  - scope 映射 `user → u` / `project → p` / 其余（含 `temporary`）→ `t`。
+  - `auto` / `local` / `cli` 只留 scope 字母；`npm:` 原样拼在冒号后；其余交给
+    `Git.ParseGitUrl`，命中则重写为 `{prefix}:git:{host}/{path}[@ref]`；未识别回落
+    scope 字母。`source` **先 `Trim` 再判定**（上游如此）。
+  - `PrefixDescription`：无标签原样返回描述；空描述（`""` 或 `null`）退化为 `[tag]`。
+- **内置命令冲突**：`GetBuiltInCommandConflictDiagnostics` 给每个与内置交互命令同名的
+  扩展命令发一条 `warning`。`invocationName == name` 时提示「Skipping in autocomplete」，
+  否则提示「Available as '/{invocationName}'」；`path` 取 `SourceInfo.Path`。
+
+**配套改动（非新增差异，属复用）**：`OAuthSelectorComponent.AuthTypeText` 由 `private`
+提升为 `public`。它是 `oauth` / `api_key` 线上拼写的**唯一来源**，登录补全的 haystack
+复用同一处，避免在两处各写一份三元表达式而漂移。
+
+**顺延**：`createBaseAutocompleteProvider` 的命令列表组装（内置命令 / 模型 / 思考等级 /
+登录 / 模板 / 扩展 / 技能七路合流，再构造 `CombinedAutocompleteProvider`）与
+`setupAutocompleteProvider`（wrapper 链 + `triggerCharacters` 去重）都读 `this.session`
+与类字段，随 4f-4m 落地。
+
+**测试（24 例）**：模糊项三例（null / 映射 / 空前缀保留全部）、登录 provider 七例
+（合并、去重、排序、haystack、两种文案）、来源标签九例（含 `git:` 无 ref 与带 ref 两种
+形态、`Trim`、三种 scope）、冲突诊断三例。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2933 / 0 失败**（1m16s）。
