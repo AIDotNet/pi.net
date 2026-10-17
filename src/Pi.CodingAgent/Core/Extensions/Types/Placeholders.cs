@@ -32,10 +32,21 @@ namespace Pi.CodingAgent.Core.Extensions.Types;
 // ---------------------------------------------------------------------------
 
 /// <summary>
-/// 自定义 footer 的数据来源（TS <c>ReadonlyFooterDataProvider</c>）占位。// 4e/4f 接入后替换
+/// 自定义 footer 的数据来源。TS <c>ReadonlyFooterDataProvider</c>
+/// （<c>Pick&lt;FooterDataProvider, "getGitBranch" | "getExtensionStatuses" |
+/// "getAvailableProviderCount" | "onBranchChange"&gt;</c>）；实现见
+/// <see cref="Pi.CodingAgent.Core.FooterDataProvider"/>。
 /// </summary>
 public interface IReadonlyFooterDataProvider
 {
+    string? GetGitBranch();
+
+    IReadOnlyDictionary<string, string> GetExtensionStatuses();
+
+    int GetAvailableProviderCount();
+
+    /// <summary>订阅分支变化；返回退订动作。对应 TS <c>onBranchChange</c> 的返回值。</summary>
+    Action OnBranchChange(Action callback);
 }
 
 // ---------------------------------------------------------------------------

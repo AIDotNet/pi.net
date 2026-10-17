@@ -1,3 +1,4 @@
+using Pi.CodingAgent.Core.Extensions.Types;
 using Pi.CodingAgent.Utils;
 
 namespace Pi.CodingAgent.Core;
@@ -16,7 +17,7 @@ public sealed record GitPaths
 /// Git 分支与扩展状态。对应 TS <c>core/footer-data-provider.ts</c>。
 /// 4e-3d-1：FindGitPaths、同步读分支、扩展 status、cwd 切换；HEAD 监视用 FileSystemWatcher。
 /// </summary>
-public sealed class FooterDataProvider : IDisposable
+public sealed class FooterDataProvider : IReadonlyFooterDataProvider, IDisposable
 {
     private const int WatchDebounceMs = 500;
     private readonly Dictionary<string, string> _extensionStatuses = new(StringComparer.Ordinal);
