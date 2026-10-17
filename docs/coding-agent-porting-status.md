@@ -5729,3 +5729,64 @@ tmux 六组（沉默 / on+csi-u / always+xterm / off+xterm / auto+null）、chan
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3137 / 0 失败**；`Pi.Tui.Tests` 全量 **23854 / 0 失败**（Loader 改动回归）。
+
+## 4f-4m-2：事件分发与会话渲染（2026-10-17）
+
+**范围**：`handleEvent`（L3386-3771 全部 16 类事件）+ 它驱动的渲染管线与队列族 →
+`Modes/Interactive/InteractiveMode.Events.cs`（partial，约 1,400 行）+ 测试 7 例。
+**退役 2 缝**（HandleEventAsync / RenderCurrentSessionState），**新登记 2 缝**
+（`InitAsync`、`CheckShutdownRequested` → 生命周期批，handleEvent 的懒初始化与 agent_settled
+落点按 TS 原样引用）。余缝 3 个：SetupAutocompleteProvider / BindCurrentSessionExtensionsAsync /
+HandleRightClickPaste。
+
+**落地内容**：
+- **事件分发**：agent_start（清 pendingTools、retry escape 归还）/ turn_start（进度条 + 工作指示器
+  门控）/ queue_update / entry_appended（custom / cache_warm usage / custom_message 三类直通 +
+  compaction 边界重建：`buildContextEntries` 首条校验、分支切割、先渲前段再渲后段、
+  `entriesRenderedByBoundaryCompaction` 去重登记）/ session_info_changed / thinking_level_changed /
+  message_start（custom·user 直通，assistant 建 `AssistantMessageComponent` 流式组件）/
+  message_update（流式更新 + toolCall 组件登记与 `UpdateArgs`）/ message_end（aborted 文案 =
+  `ResolveToolResultErrorMessage` 叶子 + `with { ErrorMessage }` 替代 TS 的就地改写；aborted·error
+  把 pendingTools 收尾为错误结果并 `MaybeSuggestBugReport`，否则 `SetArgsComplete` +
+  thinking-drop / cache-miss 两条通知）/ tool_execution_*（嵌套调用按 parentToolCallId 跳过；
+  update 传 partial、end 带 durationMs）/ agent_end / agent_settled（→ 缝）/ compaction_start·end
+ （escape handler 换防、`CompactionStatusReason` 映射、结果重建 + `FlushCompactionQueueAsync(willRetry)`）/
+  auto_retry_start·end / summarization_retry 三事件（`RetryStatusIndicator` /
+  `BranchSummaryStatusIndicator`）。
+- **渲染管线**：`AddCustomEntryToChat`（renderer 缺失即弃、`HasContent` 门控、流式组件前插）/
+  `AddMessageToChat` 八 role 分支（bashExecution 组件回放、custom 显示门控、压缩·分支摘要前置
+  Spacer、user 的 skill-block 双组件、assistant、toolResult no-op）/ `RenderSessionEntries`
+  （alt-screen `ResetTextSelection` + TS 条目折叠走 `IsRenderedDirectly` / `ShouldAppendCompactionCost`
+  叶子 + `SessionEntryTypeOf` 类型→判别串映射）/ `RenderSessionItems`（cache-miss 重推导 +
+  `ModelRuntimePriceSource` 适配器桥 `IModelPriceSource`——TS 结构化类型直传 modelRuntime；
+  toolResult 与组件配对；失败收尾走 `AgentToolResult.FromError`）/ `RenderInitialMessages` /
+  `RenderProjectTrustWarningIfNeeded` / `RebuildChatFromMessages` / `GetUserInputAsync` /
+  `RenderCurrentSessionState`（缝退役）。
+- **通知族**：`AddCacheWarmingUsage`（`CacheWarmerMath.FormatCacheWarmingUsage`）/
+  `AddCompactionCostNotice` / `CountDroppedThinkingBlocks`（静态，JsonObject 解析
+  anthropic_input_transformations）/ `MaybeShowThinkingDropNotice` / `MaybeShowCacheMissNotice` /
+  `AddCacheMissNotice`（20k tokens / $0.1 双门 + 模型切换 / TTL 空闲标签）。
+- **队列族**：`GetAllQueuedMessages` / `ClearAllQueues` / `UpdatePendingMessagesDisplay`
+  （`TruncatedText` + dequeue 提示）/ `RestoreQueuedMessagesToEditor` / `QueueCompactionMessage` /
+  `IsExtensionCommand` / `FlushCompactionQueueAsync`（willRetry 全排队；否则「扩展命令前缀 + 首条
+  prompt + 余量 steer/followUp」，首条 prompt 失败回灌队列）/ `FlushPendingBashComponents`。
+- **解析器与杂项**：`GetMarkdownThemeWithSettings`（不可变类重建 + `CodeBlockIndent` 覆写——
+  TS 是展开+覆盖）/ `GetMarkdownTransformers`（mermaid 字段 TS 在字段初始化器创建、C# 延迟到
+  构造器后首次取用——`ThemeRuntime.Current` 在注册主题前会抛）/ `GetRegisteredToolDefinition`
+  （`ResolveToolRenderers` + `ToolExecutionComponent.FromDefinition` 桥接 `ToolDefinition`）/
+  `MaybeSuggestBugReport` / `MaybeShowInstallChangeWarning`（`Config.DetectInstallChange` +
+  `FormatResumeCommand` 八参）/ `Stop`（TS `stop()` 全量：selector 清理、进度条、状态指示器、
+  主题自动同步、终端输入监听、footer/dataProvider 释放、退订、按 isInitialized 停 TUI、
+  信号清理）。
+
+**移植差异（记录）**：`message_end` 对 `errorMessage` 的就地改写改为 `with` 表达式（记录不可变，
+可观察行为等价）；`tool_execution_update/end` 的 result 假定为 `AgentToolResult`（TS 是宽松对象
+spread）；`TruncationResult` 的 TS `{ truncated: true } as` 残缺对象以零值补齐必填成员（渲染路径
+只读 truncated）；`stop` 的 `unsubscribe()` 调用对应 `IDisposable.Dispose()`。
+
+**测试（7 例）**：用户/助手消息渲染、压缩摘要 Spacer、工具结果与组件配对（含工具组件渲染内容）、
+排队消息进 pending 区并恢复到编辑器、空队列恢复 no-op、`IsExtensionCommand` 反例、
+`GetUserInputAsync` 挂起 + `Stop` 清理。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3144 / 0 失败**。
