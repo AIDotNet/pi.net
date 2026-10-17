@@ -4966,3 +4966,76 @@ console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失�
 
 
 
+
+## 4f-3e Batch 3：armin / easter-egg-3d（2026-10-17）
+
+**范围**：`armin.ts`（384 行）、`easter-egg-3d.ts`（1,292 行）+ `easter-egg-3d.lazy.ts`（27 行），
+合计 1,703 行 → `Components/Armin.cs`（659 行）、`Components/EasterEgg3D.cs`（1,977 行）
++ `ArminTests.cs`（306 行）、`EasterEgg3DTests.cs`（443 行）。两个文件均未被漂移窗口触及。
+本批收口后 **4f-3e 仅余 `mermaid`**（依赖不可得，阻塞，见 Batch 1 记录）。
+
+**落地内容（armin）**：
+- `Armin`（静态层）：31x36 XBM 位图，LSB first、0 = 前景，按 `height * ceil(width/8)` = 144 字节
+  打包；`IsArminPixel` / `GetChar`（两像素合成半块 `█▀▄ `）/ `BuildFinalGrid`（31x18）。
+- `ArminComponent`：七种揭示特效。typewriter 3 格/帧、scanline 1 行/帧、rain 每列一滴、
+  fade 15 格/帧、crt 自中心向外交替扩散、glitch 8 帧乱序 + 末帧归位、dissolve 20 格/帧；
+  fps 30（glitch 60）。`render` 按 `(width, gridVersion)` 缓存，行**先裁再上色**，末尾固定追加
+  `ARMIN SAYS HI`。
+
+**落地内容（easter-egg-3d）**：
+- 纯函数层：`Hash` / `Clamp01` / `Smooth`（五次 smoothstep）/ `EaseOut` / `Mix` / `IsLight` /
+  `GlyphInk` / `Rotation` / `Multiply` / `BaseSpinPhase` / `SpinPhase` / `SpinAngle`。
+- `ParseScreen`：把渲染好的屏幕逐行拆成 `ScreenCell`，解析 SGR（38/48 的真彩与索引色、反显、
+  暗淡、0/22/27/39/49 复位），跳过 OSC/APC 串，宽字素拆成 `width=2` + `width=0` 两格。
+- `ShuffleSteps`：滑动拼图代数。每周期 12 步，每步按 `puzzleMoves(random)` 移动若干块，
+  候选须在界内且目标格未被占，**优先选上一步没动过的块**，同周期结果确定。
+- `BlockRaster`：逐面求可见性（背面剔除 + 被相邻块贴住的面剔除），按投影包围盒对每个 braille
+  点做射线-平面求交，深度缓冲去重，命中点按面光照上色后打包进 braille 位；浅色背景额外用
+  分离式 tent 滤波生成 halo。
+- `EasterEgg3dAnimation`：溶解时间线（波前 + 抖动 + 尘埃）、模型飞行/自转/拼图、星空、提示行，
+  `Close()` 反向播放整条时间线（含 `EaseOut` 归正 yaw、pitch/roll 收敛到 0）。
+- `EasterEggPlayer`：`PlayPiLogo3d` / `PlayArmin3d` / `PlayAsync`，保留 lazy 模块的三道守卫。
+
+**关键移植差异**：
+- **C249**：`rain` 特效**永不自行结束**——这是上游缺陷，端口原样保留并在代码注释与测试里写明。
+  判定条件是 `drop.settled >= DISPLAY_HEIGHT`，而 `settled = DISPLAY_HEIGHT - targetRow` 只有
+  最低墨点在第 0 行时才成立；该位图第 0 行全空（首尾两列也全空），所以 `allSettled` 永远为 false。
+- **C250**：TS `export type EasterEgg3d`（可辨识联合）→ `EasterEggKind` + `PiLogoEgg` / `ArminEgg`
+  两个记录；模块级辅助类已占用 `EasterEgg3D` 这个名字（C# 大小写敏感，但同名只差大小写是陷阱）。
+- **C251**：TS `interface Box`（3D 方块）→ `BlockBox`，与 `Pi.Tui.Components.Box` 撞名。
+- **C252**：`EasterEgg3dAnimation` 的时钟与定时器做成注入缝——公开构造器用 `Stopwatch` 并启动
+  `Timer`，内部构造器接受 `Func<double>` 毫秒时钟与 `startTimer: false`，否则测试无法在固定
+  时刻取帧（TS 用 `performance.now()` + 构造器里的 `setInterval`）。
+- **C253**：`Intl.Segmenter`（按字素簇切分）→ `UnicodeWidth.GraphemesWithIndex`，与端口其它
+  文本组件同一套实现。
+- **C254**：`Float32Array` / `Uint8Array` / `Uint16Array` → `float[]` / `byte[]` / `ushort[]`。
+  这不是随手选的：TS 每写一次就把值舍入到 float32，累加顺序与舍入会影响最终颜色，改用 `double[]`
+  会偏离。
+- **C255**：`hash()` 的 `Math.imul` / `>>>` 是 int32 语义，用 `unchecked` 复刻，入参先截低 32 位
+  （`cell.seed * 7919` 这类乘积在 JS 里也是先算成 double 再被 `^` 截断的）。
+- **C256**：`performance.now()` → 注入的毫秒时钟；`timer.unref?.()` 在 C# 无对应物（定时器不阻止
+  进程退出这件事由 .NET 的线程池定时器天然满足），改由 `Dispose` / `Finish` 释放。
+- **C257**：lazy 模块的动态 `import()` 在 C# 没有对应物（程序集一次加载），`EasterEggPlayer` 直接
+  调用 `PlayAsync`；`instanceof TuiAltScreen` / `hasOverlay()` / 先抓 `getScreenLines()` 三道守卫保留。
+- 不编号：`Math.hypot(a, b, c)` → `Math.Sqrt(a²+b²+c²)`（三次方情形 .NET 无内置）。
+
+**一处 JS 语义修正（自查发现）**：文件里所有 `Math.round` 一律改走 `JsRound(v) => Math.Floor(v + 0.5)`。
+C# 的 `Math.Round` 默认是银行家舍入，而这里大量用它做**量化档位**（星空亮度 8 档、闪烁 3 档、
+颜色 5 一档、halo 32 档、尘埃点数），恰好在 0.5 处会整体错开一档。
+
+**测试与验证（4f-3e Batch 3）**：
+- `ArminTests` **21 / 0**：位图尺寸与逐像素采样（第 0 行全空、第 1 行 8..11 有墨、首尾列全空）、
+  半块字符四态（`█` / `▀` / `▄` / 空格）、`BuildFinalGrid` 18x31 与首行内容、渲染补宽/裁剪/
+  消息行不被裁剪（忠于 TS）、按宽度与版本缓存、七种特效的**帧数**（typewriter 187、scanline 19、
+  crt 19、glitch 9、fade 38、dissolve 28）、rain 永不结束且首尾列恒空、`Dispose` 停表。
+- `EasterEgg3DTests` **52 / 0**：`hash` 8 组、`smooth` 7 组、`easeOut` 6 组、旋转矩阵 9 元素的
+  node 参考向量比对；`glyphInk` 六档；`isLight` 阈值两侧；Pi logo 10 块与颜色/透明位；Armin 245 块；
+  拼图移动数的两个公式；`ShuffleSteps` 13 步、首步归位、每步无重叠且在界内、同周期确定跨周期不同；
+  `ParseScreen` 的真彩/索引色/反显/暗淡/宽字素/OSC 跳过/按宽度裁剪；动画的每行满宽与复位后缀、
+  溶解前保留文本、溶解后丢弃文本层、栅格化确实产出 braille、`Invalidate` 重建、`Close` 退出时间线、
+  定时器在 1 秒无渲染后收尾（异步）、点击与取消键关闭、非 alternate screen 拒绝播放。
+- `Pi.CodingAgent.Tests` 全量 **2727 / 0 失败**（重建后重跑）；`dotnet build Pi.slnx -m:1`
+  **0 警告 0 错误**。
+
+> **4f-3e 余 1 个**：`mermaid`（89 行，**阻塞**：`grok-mermaid@0.2.3` + `marked@18` 在参照检出
+> 不可得，上游 `test/mermaid.test.ts` 的向量依赖真实渲染输出）。
