@@ -5039,3 +5039,64 @@ C# 的 `Math.Round` 默认是银行家舍入，而这里大量用它做**量化�
 
 > **4f-3e 余 1 个**：`mermaid`（89 行，**阻塞**：`grok-mermaid@0.2.3` + `marked@18` 在参照检出
 > 不可得，上游 `test/mermaid.test.ts` 的向量依赖真实渲染输出）。
+
+## 4f-3e Batch 4：mermaid（2026-10-17）
+
+**范围**：`mermaid.ts`（89 行）→ `Components/Mermaid.cs`（约 250 行）+ `MermaidTests.cs`（27 例）。
+漂移窗口 `eb326d26..eb326d265` 为空，该文件未被上游改动。
+
+**落地内容（transformer 骨架，逐行对齐）**：
+- `CreateMarkdownTransformer(options)`：`getMode()` **每次调用现读**（设置改动即刻生效），
+  三路短路原样——`mode === "off"`、`context.messageType === "assistant-thinking"`、
+  `context.isStreaming && mode !== "streaming"`。
+- 顶层 token 逐个处理：`MarkedLexer.Lex(markdown)` 后非 mermaid 的 token 追加 `token.Raw`
+  （等价 TS `.map(...).join("")`）；`render` 返回 null 或 `art.Width > context.AvailableWidth`
+  时同样回落 `token.Raw`。
+- 警告摘要：仅**非流式**且 `warnings.Count > 0` 时把原文 + 一条 code span 警告一起输出
+  （`` `${token.raw}\n${codeSpan(styledWarning)}  \n` ``），`warnings[0]` 之外的条目只折成
+  `(+N more)` 计数、**不列出内容**；流式阶段不显示警告（半截语法几乎每帧都告警）。
+- `CodeSpan(line)`：空行换 `U+00A0`（空 code span 没有可见高度）；围栏长度 = 行内最长反引号串
+  **+1**；行首或行尾是反引号时补一个空格 padding（CommonMark 渲染时再去掉）。
+- `StyleSpan` / `ThemedLines`：`border`→`borderMuted`、`text`→`text`、`edge`→`accent`、
+  `edgeLabel`→`muted`、`title`→`accent` 叠 `bold`、`none`→原文。
+- 行间用 `"  \n"`（Markdown 硬换行）拼接、块末补一个 `\n`。
+
+**关键移植差异**：
+- **C258（渲染引擎不移植 + 注入缝）**：`render()` 来自 `grok-mermaid@0.2.3`——pi 仓库之外的
+  第三方包，508 KB / 64 文件 / 零依赖。参照检出 `node_modules` 为空，上游 `test/mermaid.test.ts`
+  的断言全部是**真实 box-drawing 输出**（`┌───────┐`、`│ Start ├───▶│ Done │`、`(+1 more)` 的具体
+  文案来自引擎的 warning 文本），无法在本机复现参考向量。故 `render` 抽象为
+  `IMermaidRenderer`，默认 `null` → 全部回落原文。这与上游「`render` 返回 null」（不支持的
+  图表类型 / 语法错误 / 布局被拒）走**同一条代码路径**，因此骨架行为完全可验证，缺的只是
+  画图能力。`MermaidArt` / `MermaidSpan` / `MermaidSpanClass` 按 `grok-mermaid` 的
+  `dist/types.d.ts` 逐字段重建（`plain`/`styled`/`width`/`warnings`；`Cls` 六值 → 枚举）。
+- **C259（主题测试缝）**：TS 测试用 `{ fg, bold }` 对象字面量冒充 `Theme`（结构化类型），
+  C# 的 `Theme` 是 sealed 具体类，做不到。沿用 `DiffRenderer.IRenderDiffTheme` 的做法：
+  `internal interface IMermaidTheme` + 内部重载 `CreateMarkdownTransformer(options, theme)`，
+  公开入口用 `RuntimeTheme` 包住 `options.Theme`。`options.Theme` 为 null 时走 `art.Plain`
+  （等价 TS `options.theme` 为 undefined）。
+- **注册点留待 4f-4**：上游在 `interactive-mode.ts:516` 构造
+  `createMermaidMarkdownTransformer({ getMode: () => settingsManager.getMermaidRenderingMode(), theme })`
+  并加入 transformer 链。`InteractiveMode` 尚未移植（4f-4），故本批只交付可注入的工厂。
+  端口侧 `SettingsManager.GetMermaidRenderingMode()` 与 `MarkdownTransformer` /
+  `MarkdownTransformContext` 均已存在，4f-4 直接接线即可。
+
+**测试（27 例）**：
+- 骨架语义：块被替换为逐行 code span（硬换行 `"  \n"` + 块末 `\n`）、`render` 收到的是
+  fence 内容 `"flowchart LR\n  A --> B"`、块前后 markdown 保留、非 mermaid 代码块不动、
+  info string 大小写与多余词（`Mermaid title=Demo`）、缩进代码块不动（无 `lang`）。
+- 模式门控：`off` / `thinking` / `final + streaming` 三路短路；`final` 落定后渲染；
+  `streaming` 模式下未闭合的块也渲染；**同一次构造内改 mode 生效**（钉住 `getMode` 的回调语义）。
+- 回落：渲染器返回 null、`width > availableWidth`（11 > 10）、`width == availableWidth` 边界仍渲染、
+  无渲染器时字节级原样。
+- 警告：落定后替换为警告 code span、`(+1 more)` 只计数不列出、流式阶段不显示警告。
+- 编码与配色：`CodeSpan` 四种边界（普通 / 空行 NBSP / 反引号串 / 首尾反引号 padding）、
+  `ThemedLines` 六类映射、无主题时用 `plain`。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2754 / 0 失败**（1m15s）。
+
+> **4f-3e 组件组 11/11 全部收口**（Batch 1～4）。剩余大块：**4f-4** `interactive-mode.ts`
+> （7,072 行）、**4f-5** rpc/print/json（~2,300 行）、**4g** 核心入口与实验层（~12,000 行）、
+> **evals**（~1,300 行）。
+
