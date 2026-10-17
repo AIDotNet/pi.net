@@ -60,7 +60,8 @@ public class StatusIndicator : Loader, IDisposable
 
     // WorkingIndicatorOptions (extensions) and LoaderIndicatorOptions (pi-tui) are structurally
     // identical in TS too - the indicator flows from the extension API into the Loader unchanged.
-    private static LoaderIndicatorOptions? ToLoaderIndicator(WorkingIndicatorOptions? indicator) =>
+    // Public because InteractiveMode.setWorkingIndicator (TS) forwards the same options object.
+    public static LoaderIndicatorOptions? ToLoaderIndicator(WorkingIndicatorOptions? indicator) =>
         indicator is null
             ? null
             : new LoaderIndicatorOptions

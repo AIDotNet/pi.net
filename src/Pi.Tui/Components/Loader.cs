@@ -110,11 +110,15 @@ public class Loader : Text
             _intervalId = new Timer(
                 _ =>
                 {
+                    // The whole tick body — frame advancement *and* UpdateDisplay — must run under
+                    // the gate: Stop() takes the same lock, so a callback that slipped past the
+                    // dispose could otherwise call the color functions after the theme was torn
+                    // down (the tick half outside the lock was a real race).
                     lock (_gate)
                     {
                         _currentFrame = (_currentFrame + 1) % _frames.Length;
+                        UpdateDisplay();
                     }
-                    UpdateDisplay();
                 },
                 null,
                 _intervalMs,

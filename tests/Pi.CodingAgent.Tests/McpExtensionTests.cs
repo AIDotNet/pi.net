@@ -886,15 +886,15 @@ public class McpExtensionTests
         {
         }
 
-        public void SetWidget(string key, Func<TuiBase, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null)
+        public void SetWidget(string key, Func<ITui, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null)
         {
         }
 
-        public void SetFooter(Func<TuiBase, Theme, IReadonlyFooterDataProvider, IComponent>? factory)
+        public void SetFooter(Func<ITui, Theme, IReadonlyFooterDataProvider, IComponent>? factory)
         {
         }
 
-        public void SetHeader(Func<TuiBase, Theme, IComponent>? factory)
+        public void SetHeader(Func<ITui, Theme, IComponent>? factory)
         {
         }
 
@@ -903,11 +903,11 @@ public class McpExtensionTests
         }
 
         public Task<T> Custom<T>(
-            Func<TuiBase, Theme, KeybindingsManager, Action<T>, IComponent> factory,
+            Func<ITui, Theme, KeybindingsManager, Action<T>, IComponent> factory,
             ExtensionCustomOptions? options = null) => Task.FromResult(default(T)!);
 
         public Task<T> CustomAsync<T>(
-            Func<TuiBase, Theme, KeybindingsManager, Action<T>, Task<IComponent>> factory,
+            Func<ITui, Theme, KeybindingsManager, Action<T>, Task<IComponent>> factory,
             ExtensionCustomOptions? options = null) => Task.FromResult(default(T)!);
 
         public void PasteToEditor(string text)

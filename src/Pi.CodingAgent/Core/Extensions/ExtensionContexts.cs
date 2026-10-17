@@ -109,7 +109,7 @@ public sealed record WorkingIndicatorOptions
 public delegate IAutocompleteProvider AutocompleteProviderFactory(IAutocompleteProvider current);
 
 /// <summary>Custom editor component factory. TS <c>EditorFactory</c>.</summary>
-public delegate IEditorComponent EditorFactory(TuiBase tui, EditorTheme theme, KeybindingsManager keybindings);
+public delegate IEditorComponent EditorFactory(ITui tui, EditorTheme theme, KeybindingsManager keybindings);
 
 /// <summary>Overlay options for <c>ui.custom</c>. TS inline options type.</summary>
 public sealed record ExtensionCustomOptions
@@ -163,25 +163,25 @@ public interface IExtensionUIContext
     void SetWidget(string key, IReadOnlyList<string>? content, ExtensionWidgetOptions? options = null);
 
     /// <summary>Set a component-factory widget above or below the editor.</summary>
-    void SetWidget(string key, Func<TuiBase, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null);
+    void SetWidget(string key, Func<ITui, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null);
 
     /// <summary>Set a custom footer component, or null to restore the built-in footer.</summary>
-    void SetFooter(Func<TuiBase, Theme, IReadonlyFooterDataProvider, IComponent>? factory);
+    void SetFooter(Func<ITui, Theme, IReadonlyFooterDataProvider, IComponent>? factory);
 
     /// <summary>Set a custom header component, or null to restore the built-in header.</summary>
-    void SetHeader(Func<TuiBase, Theme, IComponent>? factory);
+    void SetHeader(Func<ITui, Theme, IComponent>? factory);
 
     /// <summary>Set the terminal window/tab title.</summary>
     void SetTitle(string title);
 
     /// <summary>Show a custom component with keyboard focus (synchronous factory).</summary>
     Task<T> Custom<T>(
-        Func<TuiBase, Theme, KeybindingsManager, Action<T>, IComponent> factory,
+        Func<ITui, Theme, KeybindingsManager, Action<T>, IComponent> factory,
         ExtensionCustomOptions? options = null);
 
     /// <summary>Show a custom component with keyboard focus (asynchronous factory).</summary>
     Task<T> CustomAsync<T>(
-        Func<TuiBase, Theme, KeybindingsManager, Action<T>, Task<IComponent>> factory,
+        Func<ITui, Theme, KeybindingsManager, Action<T>, Task<IComponent>> factory,
         ExtensionCustomOptions? options = null);
 
     /// <summary>Paste text into the editor, triggering paste handling.</summary>

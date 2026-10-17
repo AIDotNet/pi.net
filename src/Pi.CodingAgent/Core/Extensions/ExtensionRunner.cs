@@ -1890,23 +1890,23 @@ public sealed class ExtensionRunner
         public void SetWidget(string key, IReadOnlyList<string>? content, ExtensionWidgetOptions? options = null) =>
             inner.SetWidget(key, content, options);
 
-        public void SetWidget(string key, Func<TuiBase, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null) =>
+        public void SetWidget(string key, Func<ITui, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null) =>
             inner.SetWidget(key, factory, options);
 
-        public void SetFooter(Func<TuiBase, Theme, IReadonlyFooterDataProvider, IComponent>? factory) =>
+        public void SetFooter(Func<ITui, Theme, IReadonlyFooterDataProvider, IComponent>? factory) =>
             inner.SetFooter(factory);
 
-        public void SetHeader(Func<TuiBase, Theme, IComponent>? factory) => inner.SetHeader(factory);
+        public void SetHeader(Func<ITui, Theme, IComponent>? factory) => inner.SetHeader(factory);
 
         public void SetTitle(string title) => inner.SetTitle(title);
 
         public Task<T> Custom<T>(
-            Func<TuiBase, Theme, KeybindingsManager, Action<T>, IComponent> factory,
+            Func<ITui, Theme, KeybindingsManager, Action<T>, IComponent> factory,
             ExtensionCustomOptions? options = null) =>
             runner.WithUIPromptAsync(UiPromptKind.Custom, null, () => inner.Custom(factory, options));
 
         public Task<T> CustomAsync<T>(
-            Func<TuiBase, Theme, KeybindingsManager, Action<T>, Task<IComponent>> factory,
+            Func<ITui, Theme, KeybindingsManager, Action<T>, Task<IComponent>> factory,
             ExtensionCustomOptions? options = null) =>
             runner.WithUIPromptAsync(UiPromptKind.Custom, null, () => inner.CustomAsync(factory, options));
 
@@ -1995,15 +1995,15 @@ public sealed class ExtensionRunner
         {
         }
 
-        public void SetWidget(string key, Func<TuiBase, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null)
+        public void SetWidget(string key, Func<ITui, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null)
         {
         }
 
-        public void SetFooter(Func<TuiBase, Theme, IReadonlyFooterDataProvider, IComponent>? factory)
+        public void SetFooter(Func<ITui, Theme, IReadonlyFooterDataProvider, IComponent>? factory)
         {
         }
 
-        public void SetHeader(Func<TuiBase, Theme, IComponent>? factory)
+        public void SetHeader(Func<ITui, Theme, IComponent>? factory)
         {
         }
 
@@ -2013,13 +2013,13 @@ public sealed class ExtensionRunner
 
         /// <summary>TS resolves this with <c>undefined as never</c>; the port returns the default value.</summary>
         public Task<T> Custom<T>(
-            Func<TuiBase, Theme, KeybindingsManager, Action<T>, IComponent> factory,
+            Func<ITui, Theme, KeybindingsManager, Action<T>, IComponent> factory,
             ExtensionCustomOptions? options = null) =>
             Task.FromResult(default(T)!);
 
         /// <inheritdoc cref="Custom{T}"/>
         public Task<T> CustomAsync<T>(
-            Func<TuiBase, Theme, KeybindingsManager, Action<T>, Task<IComponent>> factory,
+            Func<ITui, Theme, KeybindingsManager, Action<T>, Task<IComponent>> factory,
             ExtensionCustomOptions? options = null) =>
             Task.FromResult(default(T)!);
 
