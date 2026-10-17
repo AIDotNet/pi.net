@@ -5578,3 +5578,38 @@ L3970-4088）中可独立判定的部分 → `Modes/Interactive/InteractiveModeR
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3069 / 0 失败**（2m44s）。
+
+## 4f-4k：斜杠命令辅助层（2026-10-17）
+
+**范围**：`getPathCommandArgument`（L6511-6538）/ reload 完成态文案（L6478-6481）/
+import 用法错误（L6543）/ bash 失败文案（L7043-7045）/ `handleHotkeysCommand` 的
+markdown 正文（L6782-6876）→ `Modes/Interactive/InteractiveModeCommands.cs` +
+`InteractiveModeCommandsTests.cs`（20 例）。
+
+**落地内容**：
+- **路径参数**：`GetPathCommandArgument(text, command)` —— `/export` 与 `/import` 共用。
+  精确命令无参；非 `{cmd} ` 前缀无参；`TrimStart` 后取值（**只跳过前导**空白，
+  内部空白照旧截断）；引号参数（单双皆可）取引号内文本**原样**（不做转义、空串也照
+  返），未闭合引号返回 `null`；无引号在首个 `\s` 截断。
+- **文案**：
+  - `ReloadedStatusMessage`：saved-trust 变体是**同一句话加子句**（`; saved project trust`）
+    而非另一条字符串。
+  - `ImportUsageError` = `Usage: /import <path.jsonl>`。
+  - `BashFailureMessage`：非 `Error` 的拒绝显示 `Unknown error` 而非空串。
+- **热键表**：`BuildHotkeysMarkdown` —— Navigation / Editing / Other 三段固定表，键位
+  显示经回调插值（类里调 `keyDisplayText`）；`tui.input.newLine` 的
+  `(Ctrl+Enter on Windows Terminal)` 提示**仅 Windows**；扩展快捷键段（有 shortcut 才有，
+  `description ?? extensionPath`，键显示走 `FormatKeyText` 的 `Capitalize`）；返回前
+  `Trim()`，与 TS 喂给 `Markdown` 的 `hotkeys.trim()` 对齐。
+
+**顺延**：`handleReloadCommand` 的 reloadBox + beforeSessionStart 恢复序列、
+`handleBashCommand` 的 `emitUserBash` 拦截与 pending/chat 两路挂载、
+`handleImportCommand` 的确认与 MissingSessionCwd 分支、`handleSessionCommand` 的
+Session Info 文档（**纯渲染器**，读 `this.session` 统计与 cache-warming 状态）随 4f-4m。
+
+**测试（20 例）**：路径参数九组（裸命令 / 无关命令 / 无引号 / 前导空白 / 单双引号 /
+空引号 / 未闭合 / 纯空白）、文案五组、热键表六组（三段结构 / 键位插值 / Windows
+提示有无 / 扩展段与回落 / 无扩展无段）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3089 / 0 失败**（2m46s）。
