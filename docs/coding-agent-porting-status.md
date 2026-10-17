@@ -5940,3 +5940,32 @@ handleCopyCommand 空消息报错。
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3167 / 0 失败**。
+
+## 4f-4m-4-尾批-前半：模型选择器 / 新会话 / 调试日志（2026-10-17）
+
+**范围**：`showModelSelector`（L5321-5355）+ `handleClearCommand`（L6899-6912）+
+`handleFatalRuntimeError`（L2109-2123）+ `handleDebugCommand`（L6914-6945）→
+`InteractiveMode.Lifecycle.cs` + 3 例测试。**退役 1 缝**：`HandleDebugCommandForUi`；
+`SetupSelectorKeyHandlers` 收缩改名为 `SetupTreeForkResumeKeyHandlers`（tree / fork / resume
+三动作 + 对应 selector 方法依赖会话 fork / navigateTree / getUserMessagesForForking /
+switchSession 家族，未移植）；新增缝 `HandleFatalRuntimeErrorAsync`——不，本批已落地（见下）。
+
+**落地内容**：
+- **showModelSelector**：`ShowSelector` 装配 `ModelSelectorComponent`（当前模型 / runtime /
+  ScopedModelItem 转换（ThinkingLevel 枚举 → 文本）/ onSelect 与 onSelectAsDefault 双回调 →
+  `SetModelAsync` + provider 计数 + 状态文案 + anthropic 订阅告警 / 默认模型引用）。
+- **handleClearCommand**：`ClearStatusIndicator` → `runtimeHost.NewSessionAsync` → cancelled 短路 /
+  「✓ New session started」确认；错误进 `handleFatalRuntimeError`。
+- **handleFatalRuntimeError**（真实落地，非缝）：ShowError + 扩展栈提示 +
+  `recordCrash("fatal_error")` + 报告指引 + `Stop("transcript")` + `Environment.Exit(1)`
+  （TS stopThemeWatcher 在端口由 ThemeRuntime 缝托管，致命路径无需显式停）。
+- **handleDebugCommand**：`ui.Render(width)` 全行 + 可见宽 + JSON 转义清单 + 会话消息 JSONL →
+  `Config.GetDebugLogPath()` 落盘 + 「✓ Debug log written」双行确认。
+
+**测试（3 例）**：模型选择器挂载到编辑器位 + DisposeActiveSelector 清理、
+`NewSessionAsync` 探针（替换会话成功且非 cancelled）、调试日志确认渲染。
+**handleClearCommand 本体不测**：错误分支进入致命路径 `Environment.Exit(1)`（与 shutdown 同类的
+退出路径）；扩展 rebind 缝清零后补全链路。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3170 / 0 失败**。
