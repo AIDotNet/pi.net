@@ -1212,4 +1212,41 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
             mode.DisposeActiveSelector();
         }
     }
+
+    // ==================================================================
+    // 4f-4m-4 尾批后半：会话 navigateTree 编排
+    // ==================================================================
+
+    [Fact]
+    public async Task NavigateTreeToTheCurrentLeafIsANoOp()
+    {
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello");
+
+        var leafId = host.Session.SessionManager.GetLeafId();
+        Assert.NotNull(leafId);
+
+        var result = await host.Session.NavigateTreeAsync(leafId!);
+        Assert.False(result.Cancelled);
+        Assert.Null(result.EditorText);
+    }
+
+    [Fact]
+    public async Task NavigateTreeToAUserMessageSwitchesLeafAndFillsEditorText()
+    {
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello world");
+        await host.Session.PromptAsync("second");
+
+        var userEntry = host.Session.SessionManager.GetEntries()
+            .OfType<SessionMessageEntry>()
+            .First(e => e.Message is UserMessage user && InteractiveModeRender.GetUserMessageText(e.Message) == "hello world");
+        var beforeLeaf = host.Session.SessionManager.GetLeafId();
+
+        var result = await host.Session.NavigateTreeAsync(userEntry.Id!);
+
+        Assert.False(result.Cancelled);
+        Assert.Equal("hello world", result.EditorText);
+        Assert.NotEqual(beforeLeaf, host.Session.SessionManager.GetLeafId());
+    }
 }

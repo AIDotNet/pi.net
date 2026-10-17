@@ -1467,6 +1467,236 @@ public partial class AgentSession
     public IReadOnlyList<UserMessageForForking> GetUserMessagesForForking() =>
         ProjectUserMessagesForForking(SessionManager.GetEntries());
 
+    /// <summary>TS <c>navigateTree</c> 的返回（L3966）：<c>editorText? / cancelled / aborted? / summaryEntry?</c>。</summary>
+    public sealed record NavigateTreeResult(
+        string? EditorText,
+        bool Cancelled,
+        bool Aborted = false,
+        BranchSummaryEntry? SummaryEntry = null);
+
+    /// <summary>TS <c>navigateTree</c> 的内联选项（L3965）。</summary>
+    public sealed record NavigateTreeSessionOptions
+    {
+        public bool? Summarize { get; init; }
+
+        public string? CustomInstructions { get; init; }
+
+        public bool? ReplaceInstructions { get; init; }
+
+        public string? Label { get; init; }
+    }
+
+    /// <summary>
+    /// TS <c>navigateTree(targetId, options)</c>（agent-session.ts L3963-4155）：把会话树叶子切到
+    /// 目标条目；用户消息 / 自定义消息条目把叶子切到其父条目并回填编辑器文本；可选生成被放弃分支
+    /// 的摘要（扩展 <c>session_before_tree</c> 可取消、供摘要、改写指令与标签）。
+    /// （4e-3e-9h「叶子先行」顺延的编排，4f-4m-4 尾批落地。）
+    /// </summary>
+    public async Task<NavigateTreeResult> NavigateTreeAsync(
+        string targetId, NavigateTreeSessionOptions? options = null)
+    {
+        options ??= new NavigateTreeSessionOptions();
+        if (IsStreaming)
+        {
+            throw new InvalidOperationException("Wait for the current response to finish before navigating the session tree.");
+        }
+
+        if (IsCompacting)
+        {
+            throw new InvalidOperationException(
+                "Wait for the current compaction or tree navigation to finish before navigating the session tree.");
+        }
+
+        var oldLeafId = SessionManager.GetLeafId();
+
+        // No-op if already at target
+        if (targetId == oldLeafId)
+        {
+            return new NavigateTreeResult(null, Cancelled: false);
+        }
+
+        // Model required for summarization
+        if (options.Summarize == true && Model is null)
+        {
+            throw new InvalidOperationException("No model available for summarization");
+        }
+
+        var targetEntry = SessionManager.GetEntry(targetId)
+            ?? throw new InvalidOperationException($"Entry {targetId} not found");
+
+        // Collect entries to summarize (from old leaf to common ancestor)
+        var collected = BranchSummarization.CollectEntriesForBranchSummary(SessionManager, oldLeafId, targetId);
+
+        var customInstructions = options.CustomInstructions;
+        var replaceInstructions = options.ReplaceInstructions;
+        var label = options.Label;
+
+        var preparation = new TreePreparation
+        {
+            TargetId = targetId,
+            OldLeafId = oldLeafId,
+            CommonAncestorId = collected.CommonAncestorId,
+            EntriesToSummarize = collected.Entries,
+            UserWantsSummary = options.Summarize == true,
+            CustomInstructions = customInstructions,
+            ReplaceInstructions = replaceInstructions,
+            Label = label,
+        };
+
+        // Set up abort controller for summarization
+        _branchSummaryAbortController = new CancellationTokenSource();
+
+        try
+        {
+            TreeSummaryOverride? extensionSummary = null;
+            var fromExtension = false;
+
+            // Emit session_before_tree event
+            if (_extensionRunner.HasHandlers(ExtensionEventNames.SessionBeforeTree))
+            {
+                var result = await _extensionRunner.EmitAsync(new ExtensionEvent.SessionBeforeTree(
+                    preparation,
+                    _branchSummaryAbortController.Token)).ConfigureAwait(true);
+
+                if (ShouldCancelTreeNavigation(result?.Cancel == true))
+                {
+                    return new NavigateTreeResult(null, Cancelled: true);
+                }
+
+                if (result?.Summary is { } summary && options.Summarize == true)
+                {
+                    extensionSummary = summary;
+                    fromExtension = true;
+                }
+
+                // Allow extensions to override instructions and label
+                var overrides = ApplyTreeExtensionOverrides(
+                    new TreeNavigationOverrides(customInstructions, replaceInstructions, label),
+                    new TreeNavigationOverrides(result?.CustomInstructions, result?.ReplaceInstructions, result?.Label));
+                customInstructions = overrides.CustomInstructions;
+                replaceInstructions = overrides.ReplaceInstructions;
+                label = overrides.Label;
+            }
+
+            // Run default summarizer if needed
+            string? summaryText = null;
+            object? summaryDetails = null;
+            Usage? summaryUsage = null;
+            if (options.Summarize == true && collected.Entries.Count > 0 && extensionSummary is null)
+            {
+                var signal = _branchSummaryAbortController.Token;
+                var branchSummarySettings = SettingsManager.GetBranchSummarySettings();
+                var retrySettings = SettingsManager.GetRetrySettings();
+                var auth = await GetSummarizationRequestAuthAsync(Model!, signal).ConfigureAwait(true);
+                var result = await BranchSummarization.GenerateBranchSummaryAsync(collected.Entries, new GenerateBranchSummaryOptions
+                {
+                    Model = auth.Model,
+                    ApiKey = auth.ApiKey,
+                    CustomInstructions = customInstructions,
+                    ReplaceInstructions = replaceInstructions == true,
+                    ReserveTokens = branchSummarySettings.ReserveTokens,
+                    Signal = signal,
+                    Retry = new Pi.Ai.Utils.RetryPolicy
+                    {
+                        Enabled = retrySettings.Enabled,
+                        MaxRetries = retrySettings.MaxRetries,
+                        BaseDelayMs = retrySettings.BaseDelayMs,
+                        MaxAgentDelayMs = retrySettings.MaxAgentDelayMs,
+                    },
+                    Callbacks = CreateSummarizationRetryCallbacks(
+                        new SummarizationRetrySource { Source = SummarizationRetrySourceKind.BranchSummary },
+                        onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => Emit(
+                            new AgentSessionEvent.SummarizationRetryScheduledEvent(
+                                attempt, maxAttempts, (int)delayMs, errorMessage)),
+                        onRetryAttemptStart: source => Emit(
+                            new AgentSessionEvent.SummarizationRetryAttemptStartEvent(source.Source, source.Reason)),
+                        onRetryFinished: () => Emit(new AgentSessionEvent.SummarizationRetryFinishedEvent())),
+                }).ConfigureAwait(true);
+                if (result.Aborted == true)
+                {
+                    return new NavigateTreeResult(null, Cancelled: true, Aborted: true);
+                }
+
+                if (result.Error is not null)
+                {
+                    throw new InvalidOperationException(result.Error);
+                }
+
+                summaryText = result.Summary;
+                summaryUsage = result.Usage;
+                summaryDetails = new BranchSummaryDetails(
+                    result.ReadFiles ?? [],
+                    result.ModifiedFiles ?? []);
+            }
+            else if (extensionSummary is not null)
+            {
+                summaryText = extensionSummary.Summary;
+                summaryDetails = extensionSummary.Details;
+                summaryUsage = extensionSummary.UsageStats;
+            }
+
+            // Determine the new leaf position based on target type
+            var leaf = ResolveTreeNavigationLeaf(targetEntry, targetId);
+            var newLeafId = leaf.NewLeafId;
+            var editorText = leaf.EditorText;
+
+            // Switch leaf (with or without summary).
+            // Summary is attached at the navigation target position (newLeafId), not the old branch.
+            BranchSummaryEntry? summaryEntry = null;
+            if (summaryText is not null)
+            {
+                // Create summary at target position (can be null for root)
+                var summaryId = SessionManager.BranchWithSummary(
+                    newLeafId,
+                    summaryText,
+                    summaryDetails,
+                    fromExtension,
+                    summaryUsage);
+                summaryEntry = SessionManager.GetEntry(summaryId) as BranchSummaryEntry;
+
+                // Attach label to the summary entry
+                if (label is not null)
+                {
+                    SessionManager.AppendLabelChange(summaryId, label);
+                }
+            }
+            else if (newLeafId is null)
+            {
+                // No summary, navigating to root - reset leaf
+                SessionManager.ResetLeaf();
+            }
+            else
+            {
+                // No summary, navigating to non-root
+                SessionManager.Branch(newLeafId);
+            }
+
+            // Attach label to target entry when not summarizing (no summary entry to label)
+            if (label is not null && summaryText is null)
+            {
+                SessionManager.AppendLabelChange(targetId, label);
+            }
+
+            // Update finalized context from the canonical session projection.
+            RefreshFinalizedContext();
+            RestoreToolsFromTranscript();
+
+            // Emit session_tree event
+            await _extensionRunner.EmitAsync(new ExtensionEvent.SessionTree(
+                SessionManager.GetLeafId(),
+                oldLeafId,
+                summaryEntry,
+                summaryText is not null && fromExtension)).ConfigureAwait(true);
+
+            return new NavigateTreeResult(editorText, Cancelled: false, SummaryEntry: summaryEntry);
+        }
+        finally
+        {
+            _branchSummaryAbortController = null;
+            ResolveIdleWaitIfIdle();
+        }
+    }
+
     // =========================================================================
     // 上下文用量（TS getContextUsage 实例面）
     // =========================================================================
