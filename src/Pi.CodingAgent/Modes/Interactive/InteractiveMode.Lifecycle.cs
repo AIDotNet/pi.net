@@ -30,6 +30,8 @@ using System.Text.Json.Nodes;
 using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Core.Extensions;
+using Pi.CodingAgent.Core.Extensions.Types;
 using Pi.CodingAgent.Modes.Interactive.Components;
 using Pi.CodingAgent.Utils;
 using Pi.Tui;
@@ -963,18 +965,19 @@ public partial class InteractiveMode
 
         _defaultEditor.OnAction("app.session.new", () => _ = HandleClearCommandAsync());
         _defaultEditor.OnAction("app.model.select", () => ShowModelSelector());
+        _defaultEditor.OnAction("app.session.fork", () => ShowUserMessageSelector());
+        _defaultEditor.OnAction("app.session.resume", () => ShowSessionSelector());
         _ui.OnDebug = HandleDebugCommand;
-        SetupTreeForkResumeKeyHandlers();
+        SetupTreeKeyHandlers();
     }
 
     /// <summary>
-    /// Seam: the tree / fork / resume selector actions (TS L3099-3101) need the session
-    /// fork / navigateTree / getUserMessagesForForking / switchSession APIs and their selector
-    /// methods (showTreeSelector L5538 / showUserMessageSelector L5479 / showSessionSelector L5687)
-    /// — lands with the 4f-4m-4 尾批.
+    /// Seam: the tree action (TS L3099) needs <c>showTreeSelector</c> (L5538-5685), whose select
+    /// callback drives <c>session.navigateTree</c> with branch summarization — lands with the
+    /// 4f-4m-4 tail's tree slice.
     /// </summary>
-    private void SetupTreeForkResumeKeyHandlers() =>
-        throw new NotImplementedException("4f-4m-4 tail: tree/fork/resume selectors (TS L3099-3101)");
+    private void SetupTreeKeyHandlers() =>
+        throw new NotImplementedException("4f-4m-4 tail: app.session.tree → showTreeSelector (TS L3099)");
 
     // ---------------------------------------------------------------- selectors / clear / debug
 
@@ -1111,6 +1114,297 @@ public partial class InteractiveMode
             1,
             1));
         _ui.RequestRender();
+    }
+
+    // ---------------------------------------------------------------- fork / resume selectors (L5479-5515, L5687-5765, L2609-2622, L2746-2752)
+
+    /// <summary>TS <c>showUserMessageSelector</c> (L5479-5515).</summary>
+    internal void ShowUserMessageSelector()
+    {
+        var userMessages = Session.GetUserMessagesForForking();
+
+        if (userMessages.Count == 0)
+        {
+            ShowStatus("No messages to fork from");
+            return;
+        }
+
+        var initialSelectedId = userMessages[^1].EntryId;
+
+        ShowSelector(done =>
+        {
+            var selector = new UserMessageSelectorComponent(
+                [.. userMessages.Select(m => new UserMessageItem(m.EntryId, m.Text))],
+                async entryId =>
+                {
+                    done();
+                    try
+                    {
+                        var result = await _runtimeHost.ForkAsync(entryId).ConfigureAwait(true);
+                        if (result.Cancelled)
+                        {
+                            _ui.RequestRender();
+                            return;
+                        }
+
+                        _editor.SetText(result.SelectedText ?? "");
+                        ShowStatus("Forked to new session");
+                    }
+                    catch (Exception error)
+                    {
+                        ShowError(error.Message);
+                    }
+                },
+                () =>
+                {
+                    done();
+                    _ui.RequestRender();
+                },
+                initialSelectedId);
+            return (selector, selector.GetMessageList(), null);
+        });
+    }
+
+    /// <summary>TS <c>showSessionSelector</c> (L5687-5728).</summary>
+    internal void ShowSessionSelector()
+    {
+        ShowSelector(done =>
+        {
+            var selector = new SessionSelectorComponent(
+                (onProgress, signal) => SessionManager.ListAsync(
+                    SessionManager.GetCwd(),
+                    SessionManager.GetSessionDir(),
+                    onProgress,
+                    signal),
+                (onProgress, signal) => SessionManager.GetSessionDir() is { } sessionDir
+                    ? SessionManager.ListAllAsync(sessionDir, onProgress, signal)
+                    : SessionManager.ListAllAsync(onProgress: onProgress, signal: signal),
+                sessionPath =>
+                {
+                    done();
+                    _ = HandleResumeSessionAsync(sessionPath);
+                },
+                () =>
+                {
+                    done();
+                    _ui.RequestRender();
+                },
+                () => _ = ShutdownAsync(),
+                () => _ui.RequestRender(),
+                new SessionSelectorComponent.Options
+                {
+                    RenameSession = async (sessionFilePath, nextName) =>
+                    {
+                        var next = (nextName ?? "").Trim();
+                        if (next.Length == 0)
+                        {
+                            return;
+                        }
+
+                        var mgr = SessionManager.Open(sessionFilePath);
+                        mgr.AppendSessionInfo(next);
+                        await Task.CompletedTask.ConfigureAwait(true);
+                    },
+                    ShowRenameHint = true,
+                    Keybindings = _keybindings,
+                },
+                SessionManager.GetSessionFile());
+            return (selector, selector, null);
+        });
+    }
+
+    /// <summary>TS <c>handleResumeSession</c> (L5730-5765).</summary>
+    internal async Task<bool> HandleResumeSessionAsync(string sessionPath)
+    {
+        ClearStatusIndicator();
+        try
+        {
+            var result = await _runtimeHost.SwitchSessionAsync(sessionPath, new SwitchSessionRuntimeOptions
+            {
+                ProjectTrustContextFactory = CreateProjectTrustContext,
+            }).ConfigureAwait(true);
+            if (result.Cancelled)
+            {
+                return true;
+            }
+
+            ShowStatus("Resumed session");
+            return false;
+        }
+        catch (MissingSessionCwdException error)
+        {
+            var selectedCwd = await PromptForMissingSessionCwdAsync(error).ConfigureAwait(true);
+            if (selectedCwd is null)
+            {
+                ShowStatus("Resume cancelled");
+                return true;
+            }
+
+            var result = await _runtimeHost.SwitchSessionAsync(sessionPath, new SwitchSessionRuntimeOptions
+            {
+                CwdOverride = selectedCwd,
+                ProjectTrustContextFactory = CreateProjectTrustContext,
+            }).ConfigureAwait(true);
+            if (result.Cancelled)
+            {
+                return true;
+            }
+
+            ShowStatus("Resumed session in current cwd");
+            return false;
+        }
+        catch (Exception error)
+        {
+            await HandleFatalRuntimeErrorAsync("Failed to resume session", error).ConfigureAwait(true);
+            return true;
+        }
+    }
+
+    /// <summary>TS <c>promptForMissingSessionCwd</c> (L2746-2752).</summary>
+    private async Task<string?> PromptForMissingSessionCwdAsync(MissingSessionCwdException error)
+    {
+        var confirmed = await ShowExtensionConfirmAsync(
+            "Session cwd not found",
+            SessionCwd.FormatMissingSessionCwdPrompt(error.Issue)).ConfigureAwait(true);
+        return confirmed ? error.Issue.FallbackCwd : null;
+    }
+
+    /// <summary>TS <c>createProjectTrustContext</c> (L2609-2622): TUI-mode trust context over the extension dialogs.</summary>
+    internal ProjectTrustContext CreateProjectTrustContext(string cwd)
+    {
+        var ui = CreateExtensionUIContext();
+        return new ProjectTrustContext
+        {
+            Cwd = cwd,
+            Mode = "tui",
+            HasUI = true,
+            Ui = ui,
+        };
+    }
+
+    /// <summary>TS <c>createExtensionUIContext()</c> (L2624-2666): the interactive UI surface for extensions.</summary>
+    internal IExtensionUIContext CreateExtensionUIContext() => new ExtensionUIContextImplementation(this);
+
+    /// <summary>TS <c>setWorkingMessage(message?)</c>: stage the message and live-update a working indicator.</summary>
+    internal void SetWorkingMessage(string? message = null)
+    {
+        _workingMessage = message ?? DefaultWorkingMessage;
+        if (_activeStatusIndicator?.Kind == StatusIndicatorKind.Working)
+        {
+            _activeStatusIndicator.SetMessage(_workingMessage);
+        }
+    }
+
+    internal void SetEditorText(string text) => _editor.SetText(text);
+
+    internal string GetEditorText() => _editor.GetText();
+
+    /// <summary>Seam: the autocomplete stack lands with the 4f-4m-5 closeout (TS addAutocompleteProvider).</summary>
+    internal void AddAutocompleteProvider(AutocompleteProviderFactory factory) =>
+        throw new NotImplementedException("4f-4m-5 closeout: addAutocompleteProvider (autocomplete assembly)");
+
+    /// <summary>Seam: pasteToEditor needs the editor's optional cursor APIs (4f-4m-4 input batch).</summary>
+    internal void PasteToEditor(string text) =>
+        throw new NotImplementedException("4f-4m-4 input batch: pasteToEditor (editor cursor APIs)");
+
+    /// <summary>The interactive-mode UI surface handed to extensions and the trust flow.</summary>
+    private sealed class ExtensionUIContextImplementation(InteractiveMode owner) : IExtensionUIContext
+    {
+        public Task<string?> Select(string title, IReadOnlyList<string> options, ExtensionUIDialogOptions? opts = null) =>
+            owner.ShowExtensionSelectorAsync(title, options, opts);
+
+        public Task<bool> Confirm(string title, string message, ExtensionUIDialogOptions? opts = null) =>
+            owner.ShowExtensionConfirmAsync(title, message, opts);
+
+        public Task<string?> Input(string title, string? placeholder = null, ExtensionUIDialogOptions? opts = null) =>
+            owner.ShowExtensionInputAsync(title, placeholder, opts);
+
+        public void Notify(string message, string? type = null) => owner.ShowExtensionNotify(message, type);
+
+        public Action OnTerminalInput(TerminalInputHandler handler) => owner.AddExtensionTerminalInputListener(handler);
+
+        public void SetStatus(string key, string? text) => owner.SetExtensionStatus(key, text);
+
+        public void SetWorkingMessage(string? message = null) => owner.SetWorkingMessage(message);
+
+        public void SetWorkingVisible(bool visible) => owner.SetWorkingVisible(visible);
+
+        public void SetWorkingIndicator(WorkingIndicatorOptions? options = null) => owner.SetWorkingIndicator(options);
+
+        public void SetHiddenThinkingLabel(string? label = null) => owner.SetHiddenThinkingLabel(label);
+
+        public void SetWidget(string key, IReadOnlyList<string>? content, ExtensionWidgetOptions? options = null) =>
+            owner.SetExtensionWidget(key, content, options);
+
+        public void SetWidget(string key, Func<ITui, Theme, IComponent>? factory, ExtensionWidgetOptions? options = null) =>
+            owner.SetExtensionWidget(key, factory, options);
+
+        public void SetFooter(Func<ITui, Theme, IReadonlyFooterDataProvider, IComponent>? factory) =>
+            owner.SetExtensionFooter(factory);
+
+        public void SetHeader(Func<ITui, Theme, IComponent>? factory) => owner.SetExtensionHeader(factory);
+
+        public void SetTitle(string title) => owner.UiForTests.Terminal.SetTitle(title);
+
+        /// <summary>Seam: TS <c>custom&lt;T&gt;</c> (L5285-5320) lands with the custom-component batch.</summary>
+        public Task<T> Custom<T>(
+            Func<ITui, Theme, Core.KeybindingsManager, Action<T>, IComponent> factory,
+            ExtensionCustomOptions? options = null) =>
+            throw new NotImplementedException("4f-4m custom-component batch: custom<T> (TS L5285-5320)");
+
+        public Task<T> CustomAsync<T>(
+            Func<ITui, Theme, Core.KeybindingsManager, Action<T>, Task<IComponent>> factory,
+            ExtensionCustomOptions? options = null) =>
+            throw new NotImplementedException("4f-4m custom-component batch: customAsync<T> (TS L5285-5320)");
+
+        public void PasteToEditor(string text) => owner.PasteToEditor(text);
+
+        public void SetEditorText(string text) => owner.SetEditorText(text);
+
+        public string GetEditorText() => owner.GetEditorText();
+
+        public Task<string?> Editor(string title, string? prefill = null) =>
+            owner.ShowExtensionEditorAsync(title, prefill);
+
+        public void AddAutocompleteProvider(AutocompleteProviderFactory factory) =>
+            owner.AddAutocompleteProvider(factory);
+
+        public void SetEditorComponent(EditorFactory? factory) => owner.SetCustomEditorComponent(factory);
+
+        /// <summary>Seam: the stored custom-editor factory accessor lands with the 4f-4m-5 closeout.</summary>
+        public EditorFactory? GetEditorComponent() =>
+            throw new NotImplementedException("4f-4m-5 closeout: getEditorComponent (custom editor factory storage)");
+
+        public Theme Theme => ThemeRuntime.Current;
+
+        /// <summary>Seam: the theme listing lands with the settings/theme batch (TS getAllThemes).</summary>
+        public IReadOnlyList<ThemeInfo> GetAllThemes() =>
+            throw new NotImplementedException("4f-4m theme batch: getAllThemes (resource loader themes)");
+
+        /// <summary>Seam: theme loading by name lands with the settings/theme batch (TS getTheme).</summary>
+        public Theme? GetTheme(string name) =>
+            throw new NotImplementedException("4f-4m theme batch: getTheme (resource loader themes)");
+
+        public SetThemeResult SetTheme(string name)
+        {
+            var result = owner._themeController.SetThemeName(name);
+            if (InteractiveModeExtensions.ShouldPersistThemeName(result.Success, owner.SettingsManager.GetThemeSetting(), name))
+            {
+                owner.SettingsManager.SetTheme(name);
+            }
+
+            return result;
+        }
+
+        public SetThemeResult SetTheme(Theme theme)
+        {
+            owner._themeController.SetThemeInstance(theme);
+            return new SetThemeResult(true);
+        }
+
+        public bool GetToolsExpanded() => owner.ToolOutputExpandedForTests;
+
+        public void SetToolsExpanded(bool expanded) => owner.SetToolsExpanded(expanded);
     }
 
     // ---------------------------------------------------------------- command methods (L4454-4591, L6610-6639)

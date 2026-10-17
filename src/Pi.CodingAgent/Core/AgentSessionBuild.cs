@@ -1463,6 +1463,10 @@ public partial class AgentSession
     /// <summary>TS <c>getLastAssistantText()</c> 实例面：最近一条助手消息的文本（4f-4m-4 补）。</summary>
     public string? GetLastAssistantText() => GetLastAssistantText(Messages);
 
+    /// <summary>TS <c>getUserMessagesForForking()</c> 实例面：fork 选择器的用户消息清单（4f-4m-4 补）。</summary>
+    public IReadOnlyList<UserMessageForForking> GetUserMessagesForForking() =>
+        ProjectUserMessagesForForking(SessionManager.GetEntries());
+
     // =========================================================================
     // 上下文用量（TS getContextUsage 实例面）
     // =========================================================================

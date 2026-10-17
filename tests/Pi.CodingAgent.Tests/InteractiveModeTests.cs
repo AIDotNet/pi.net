@@ -1183,4 +1183,33 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         var rendered = AnsiText.StripAnsi(string.Join("\n", last.Render(80)));
         Assert.Contains("✓ Debug log written", rendered);
     }
+
+    [Fact]
+    public async Task ShowUserMessageSelectorShowsTheEmptyStatusWithoutMessages()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.ShowUserMessageSelector();
+
+        var last = mode.ChatChildrenForTests[^1];
+        Assert.Contains("No messages to fork from", string.Join("\n", last.Render(80)));
+        // 空清单不挂选择器。
+        Assert.Null(mode.ExtensionSelectorForTests);
+    }
+
+    [Fact]
+    public async Task ShowSessionSelectorMountsTheSelectorInPlaceOfTheEditor()
+    {
+        var mode = await CreateModeAsync();
+        try
+        {
+            mode.ShowSessionSelector();
+
+            Assert.IsType<SessionSelectorComponent>(mode.EditorContainerChildrenForTests[0]);
+        }
+        finally
+        {
+            mode.DisposeActiveSelector();
+        }
+    }
 }
