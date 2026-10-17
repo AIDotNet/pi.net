@@ -1053,4 +1053,84 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         var noteMarkdown = Assert.IsType<Markdown>(mode.ChatChildrenForTests[^4]);
         Assert.Contains("Fixes a bug", AnsiText.StripAnsi(string.Join("\n", noteMarkdown.Render(80))));
     }
+
+    // ==================================================================
+    // 4f-4m-4 中段：会话 cycle API + 命令键位方法
+    // ==================================================================
+
+    [Fact]
+    public async Task SessionCycleThinkingLevelCyclesAndAppendsTranscriptEntry()
+    {
+        var host = await CreateHostAsync();
+
+        var first = host.Session.CycleThinkingLevel();
+        Assert.NotNull(first);
+
+        var second = host.Session.CycleThinkingLevel();
+        Assert.NotNull(second);
+
+        Assert.Contains(host.Session.SessionManager.GetEntries(), e => e is ThinkingLevelChangeEntry);
+    }
+
+    [Fact]
+    public async Task CycleModelWithASingleAvailableModelShowsTheSingleModelStatus()
+    {
+        var mode = await CreateModeAsync();
+
+        await mode.CycleModelAsync("forward");
+
+        var last = mode.ChatChildrenForTests[^1];
+        Assert.Contains("Only one model available", string.Join("\n", last.Render(80)));
+    }
+
+    [Fact]
+    public async Task CycleThinkingLevelWritesTheLevelStatus()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.CycleThinkingLevel();
+
+        var last = mode.ChatChildrenForTests[^1];
+        Assert.Contains("Thinking level:", string.Join("\n", last.Render(80)));
+    }
+
+    [Fact]
+    public async Task HandleDequeueReportsTheRestoreCount()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleDequeue();
+        var empty = string.Join("\n", mode.ChatChildrenForTests[^1].Render(80));
+        Assert.Contains("No queued messages to restore", AnsiText.StripAnsi(empty));
+
+        mode.QueueCompactionMessage("queued-1", CompactionQueueModes.Steer);
+        mode.HandleDequeue();
+        var restored = string.Join("\n", mode.ChatChildrenForTests[^1].Render(80));
+        Assert.Contains("Restored 1 queued message to editor", AnsiText.StripAnsi(restored));
+    }
+
+    [Fact]
+    public async Task HandleFollowUpFallsThroughToTheSubmitHandlerWhenIdle()
+    {
+        var mode = await CreateModeAsync();
+        var submitted = new List<string>();
+        mode.EditorForTests.OnSubmit = text => submitted.Add(text);
+        mode.EditorForTests.SetText("queued text");
+
+        await mode.HandleFollowUpAsync();
+
+        Assert.Equal(["queued text"], submitted);
+        Assert.Equal("", mode.EditorForTests.GetText());
+    }
+
+    [Fact]
+    public async Task HandleCopyCommandWithoutMessagesShowsTheError()
+    {
+        var mode = await CreateModeAsync();
+
+        await mode.HandleCopyCommandAsync();
+
+        var last = mode.ChatChildrenForTests[^1];
+        Assert.Contains("No agent messages to copy yet.", string.Join("\n", last.Render(80)));
+    }
 }

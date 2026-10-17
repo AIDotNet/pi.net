@@ -25,6 +25,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
+using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Modes.Interactive.Components;
 using Pi.CodingAgent.Utils;
@@ -940,9 +941,202 @@ public partial class InteractiveMode
     private void SetupEditorSubmitHandler() =>
         throw new NotImplementedException("4f-4m-4 command slice: setupEditorSubmitHandler (TS L3179-3375)");
 
-    /// <summary>Seam: command-family editor actions land with the 4f-4m-4 command slice.</summary>
-    private void SetupCommandKeyHandlers() =>
-        throw new NotImplementedException("4f-4m-4 command slice: setupKeyHandlers command actions (TS L3082-3101)");
+    /// <summary>
+    /// TS <c>setupKeyHandlers</c>' command-family actions (L3082-3101). The selector actions
+    /// (model/tree/fork/resume) and the debug TUI handler land with the 4f-4m-4 tail slice — see
+    /// <see cref="SetupSelectorKeyHandlers"/> and <see cref="HandleDebugCommandForUi"/>.
+    /// </summary>
+    private void SetupCommandKeyHandlers()
+    {
+        _defaultEditor.OnAction("app.thinking.cycle", CycleThinkingLevel);
+        _defaultEditor.OnAction("app.model.cycleForward", () => _ = CycleModelAsync("forward"));
+        _defaultEditor.OnAction("app.model.cycleBackward", () => _ = CycleModelAsync("backward"));
+
+        _defaultEditor.OnAction("app.tools.expand", ToggleToolOutputExpansion);
+        _defaultEditor.OnAction("app.thinking.toggle", ToggleThinkingBlockVisibility);
+        _defaultEditor.OnAction("app.message.copy", () => _ = HandleCopyCommandAsync(flashConfirmation: true, preferSelection: true));
+        _defaultEditor.OnAction("app.message.followUp", () => _ = HandleFollowUpAsync());
+        _defaultEditor.OnAction("app.message.dequeue", HandleDequeue);
+
+        _ui.OnDebug = HandleDebugCommandForUi;
+        SetupSelectorKeyHandlers();
+    }
+
+    /// <summary>Seam: the four selector actions land with the 4f-4m-4 tail slice (TS L3088, L3099-3101).</summary>
+    private void SetupSelectorKeyHandlers() =>
+        throw new NotImplementedException("4f-4m-4 tail: selector actions (app.model.select / app.session.tree / fork / resume)");
+
+    /// <summary>Seam: TS <c>handleDebugCommand</c> (L6914-6950) lands with the 4f-4m-4 tail slice.</summary>
+    private void HandleDebugCommandForUi() =>
+        throw new NotImplementedException("4f-4m-4 tail: handleDebugCommand (TS L6914-6950)");
+
+    // ---------------------------------------------------------------- command methods (L4454-4591, L6610-6639)
+
+    /// <summary>TS <c>handleFollowUp</c> (L4454-4484).</summary>
+    internal async Task HandleFollowUpAsync()
+    {
+        // TS reads `editor.getExpandedText?.() ?? editor.getText()`; the optional expansion API is
+        // not part of the editor port yet, so the getText fallback is the only path.
+        var text = _editor.GetText().Trim();
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        // Queue input during compaction (extension commands execute immediately)
+        if (Session.IsCompacting)
+        {
+            if (IsExtensionCommand(text))
+            {
+                _editor.AddToHistory(text);
+                _editor.SetText("");
+                await Session.PromptAsync(text).ConfigureAwait(true);
+            }
+            else
+            {
+                QueueCompactionMessage(text, CompactionQueueModes.FollowUp);
+            }
+
+            return;
+        }
+
+        // Alt+Enter queues a follow-up message (waits until agent finishes).
+        // This handles extension commands (execute immediately), prompt template expansion, and queueing.
+        if (Session.IsStreaming)
+        {
+            _editor.AddToHistory(text);
+            _editor.SetText("");
+            await Session.PromptAsync(text, new PromptOptions { StreamingBehavior = "followUp" }).ConfigureAwait(true);
+            UpdatePendingMessagesDisplay();
+            _ui.RequestRender();
+        }
+        else if (_editor.OnSubmit is { } onSubmit)
+        {
+            // If not streaming, Alt+Enter acts like regular Enter (trigger onSubmit)
+            _editor.SetText("");
+            onSubmit(text);
+        }
+    }
+
+    /// <summary>TS <c>handleDequeue</c> (L4486-4493).</summary>
+    internal void HandleDequeue()
+    {
+        var restored = RestoreQueuedMessagesToEditor();
+        if (restored == 0)
+        {
+            ShowStatus("No queued messages to restore");
+        }
+        else
+        {
+            ShowStatus($"Restored {restored} queued message{(restored > 1 ? "s" : "")} to editor");
+        }
+    }
+
+    /// <summary>TS <c>cycleThinkingLevel</c> (L4506-4515).</summary>
+    internal void CycleThinkingLevel()
+    {
+        var newLevel = Session.CycleThinkingLevel();
+        if (newLevel is null)
+        {
+            ShowStatus("Current model does not support thinking");
+        }
+        else
+        {
+            _footer.Invalidate();
+            UpdateEditorBorderColor();
+            ShowStatus($"Thinking level: {Pi.Ai.Types.ThinkingLevelText.ToText(newLevel.Value)}");
+        }
+    }
+
+    /// <summary>TS <c>cycleModel</c> (L4517-4534).</summary>
+    internal async Task CycleModelAsync(string direction)
+    {
+        try
+        {
+            var result = await Session.CycleModelAsync(direction).ConfigureAwait(true);
+            if (result is null)
+            {
+                var msg = Session.ScopedModels.Count > 0 ? "Only one model in scope" : "Only one model available";
+                ShowStatus(msg);
+            }
+            else
+            {
+                _footer.Invalidate();
+                UpdateEditorBorderColor();
+                var thinkingStr = result.Model.Reasoning && result.ThinkingLevel != ThinkingLevel.Off
+                    ? $" (thinking: {Pi.Ai.Types.ThinkingLevelText.ToText(result.ThinkingLevel)})"
+                    : "";
+                ShowStatus($"Switched to {result.Model.Name ?? result.Model.Id}{thinkingStr}");
+                _ = MaybeWarnAboutAnthropicSubscriptionAuthAsync(result.Model);
+            }
+        }
+        catch (Exception error)
+        {
+            ShowError(error.Message);
+        }
+    }
+
+    /// <summary>TS <c>handleOpenExternalEditor</c> (L4575-4591).</summary>
+    internal async Task HandleOpenExternalEditorAsync()
+    {
+        var editorCommand = SettingsManager.GetExternalEditorCommand();
+        var content = _editor.GetText();
+        _ui.Stop();
+        try
+        {
+            var result = await ExternalEditor.EditInExternalEditorAsync(new ExternalEditorOptions
+            {
+                Command = editorCommand,
+                Content = content,
+            }).ConfigureAwait(true);
+            if (result is ExternalEditorResult.Complete complete)
+            {
+                _editor.SetText(complete.Content);
+            }
+        }
+        finally
+        {
+            _ui.Start();
+            _ui.RequestRender(true);
+        }
+    }
+
+    /// <summary>TS <c>handleCopyCommand</c> (L6610-6639).</summary>
+    internal async Task HandleCopyCommandAsync(bool flashConfirmation = false, bool preferSelection = false)
+    {
+        if (preferSelection
+            && _renderer is TuiAltScreen selectionScreen
+            && !selectionScreen.GetCopyOnSelect()
+            && selectionScreen.HasActiveSelection())
+        {
+            await selectionScreen.CopyActiveSelectionToClipboardAsync().ConfigureAwait(true);
+            return;
+        }
+
+        var text = Session.GetLastAssistantText();
+        if (string.IsNullOrEmpty(text))
+        {
+            ShowError("No agent messages to copy yet.");
+            return;
+        }
+
+        try
+        {
+            await Clipboard.CopyToClipboardAsync(text).ConfigureAwait(true);
+            if (flashConfirmation && _renderer is TuiAltScreen flashScreen)
+            {
+                flashScreen.Flash("Copied!");
+            }
+            else
+            {
+                ShowStatus("Copied last agent message to clipboard");
+            }
+        }
+        catch (Exception error)
+        {
+            ShowError(error.Message);
+        }
+    }
 
     /// <summary>Seam: double-escape → tree / user-message selector lands with 4f-4m-4.</summary>
     private void ShowDoubleEscapeSelector(string action) =>

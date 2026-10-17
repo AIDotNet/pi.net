@@ -1340,6 +1340,129 @@ public partial class AgentSession
             ?? ThinkingLevel.Off;
     }
 
+    /// <summary>
+    /// TS <c>cycleThinkingLevel(options)</c>：循环到下一档思考档位；模型不支持思考时返回
+    /// <c>null</c>（TS <c>undefined</c>）。（4f-4m-4 命令键位批补的实例方法）
+    /// </summary>
+    public ThinkingLevel? CycleThinkingLevel(ModelMutationOptions? options = null)
+    {
+        if (!SupportsThinking())
+        {
+            return null;
+        }
+
+        var levels = GetAvailableThinkingLevels();
+        var currentIndex = levels.ToList().IndexOf(ThinkingLevel);
+        var nextLevel = levels[(currentIndex + 1) % levels.Count];
+
+        SetThinkingLevel(nextLevel, options);
+        return nextLevel;
+    }
+
+    /// <summary>
+    /// TS <c>ModelCycleResult</c>：<c>cycleModel</c> 的返回（新模型 + 生效思考档位 + 是否 scoped）。
+    /// </summary>
+    public sealed record ModelCycleResult(ModelSpec Model, ThinkingLevel ThinkingLevel, bool IsScoped);
+
+    /// <summary>
+    /// TS <c>cycleModel(direction, options)</c>：有 scoped 模型（--models）时在 scope 内循环，
+    /// 否则在全部可用模型间循环。仅剩一个可用模型时返回 <c>null</c>。
+    /// </summary>
+    public async Task<ModelCycleResult?> CycleModelAsync(string direction = "forward", ModelMutationOptions? options = null)
+    {
+        if (_scopedModels.Count > 0)
+        {
+            return await CycleScopedModelAsync(direction, options).ConfigureAwait(true);
+        }
+
+        return await CycleAvailableModelAsync(direction, options).ConfigureAwait(true);
+    }
+
+    private async Task<ModelCycleResult?> CycleScopedModelAsync(string direction, ModelMutationOptions? options)
+    {
+        var availableIds = _modelRuntime.GetAvailableSnapshot()
+            .Select(model => $"{model.Provider}\0{model.Id}")
+            .ToHashSet(StringComparer.Ordinal);
+        var scopedModels = _scopedModels
+            .Where(scoped => availableIds.Contains($"{scoped.Model.Provider}\0{scoped.Model.Id}"))
+            .ToList();
+        if (scopedModels.Count <= 1)
+        {
+            return null;
+        }
+
+        var currentModel = Model;
+        var currentIndex = scopedModels.FindIndex(sm => ModelOperations.ModelsAreEqual(sm.Model, currentModel));
+        if (currentIndex == -1)
+        {
+            currentIndex = 0;
+        }
+
+        var len = scopedModels.Count;
+        var nextIndex = direction == "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
+        var next = scopedModels[nextIndex];
+        var thinkingLevel = GetThinkingLevelForModelSwitch(next.Model, next.ThinkingLevel);
+
+        // Apply model
+        SetCurrentModel(next.Model);
+        SessionManager.AppendModelChange(next.Model.Provider, next.Model.Id);
+        if (options?.Persist == true)
+        {
+            SettingsManager.SetDefaultModelAndProvider(next.Model.Provider, next.Model.Id);
+            AddPersistedDefaultToNonEmptyScope(next.Model);
+        }
+
+        // Apply thinking level for the new model.
+        // - Explicit scoped model thinking level overrides defaults
+        // - Per-model thinking level overrides take priority over the global default
+        // Model persistence does not implicitly rewrite the global thinking default.
+        SetThinkingLevel(thinkingLevel);
+
+        await EmitModelSelectAsync(next.Model, currentModel, "cycle").ConfigureAwait(true);
+
+        return new ModelCycleResult(next.Model, ThinkingLevel, IsScoped: true);
+    }
+
+    private async Task<ModelCycleResult?> CycleAvailableModelAsync(string direction, ModelMutationOptions? options)
+    {
+        var availableModels = _modelRuntime.GetAvailableSnapshot();
+        if (availableModels.Count <= 1)
+        {
+            return null;
+        }
+
+        var currentModel = Model;
+        var currentIndex = availableModels.ToList().FindIndex(m => ModelOperations.ModelsAreEqual(m, currentModel));
+        if (currentIndex == -1)
+        {
+            currentIndex = 0;
+        }
+
+        var len = availableModels.Count;
+        var nextIndex = direction == "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
+        var nextModel = availableModels[nextIndex];
+
+        var thinkingLevel = GetThinkingLevelForModelSwitch(nextModel);
+        SetCurrentModel(nextModel);
+        SessionManager.AppendModelChange(nextModel.Provider, nextModel.Id);
+        if (options?.Persist == true)
+        {
+            SettingsManager.SetDefaultModelAndProvider(nextModel.Provider, nextModel.Id);
+            AddPersistedDefaultToNonEmptyScope(nextModel);
+        }
+
+        // Apply thinking level for the new model.
+        // Model persistence does not implicitly rewrite the global thinking default.
+        SetThinkingLevel(thinkingLevel);
+
+        await EmitModelSelectAsync(nextModel, currentModel, "cycle").ConfigureAwait(true);
+
+        return new ModelCycleResult(nextModel, ThinkingLevel, IsScoped: false);
+    }
+
+    /// <summary>TS <c>getLastAssistantText()</c> 实例面：最近一条助手消息的文本（4f-4m-4 补）。</summary>
+    public string? GetLastAssistantText() => GetLastAssistantText(Messages);
+
     // =========================================================================
     // 上下文用量（TS getContextUsage 实例面）
     // =========================================================================
