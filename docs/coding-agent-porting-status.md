@@ -5907,3 +5907,36 @@ init 后段抛错——与所有登记缝一致的「先立缝后清零」）。
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3161 / 0 失败**。
+
+## 4f-4m-4-中段：会话 cycle API + 命令键位（2026-10-17）
+
+**范围**：`agent-session.ts` 的 `cycleThinkingLevel` / `cycleModel`（L2640-2650、L2518-2599，
+含 `_cycleScopedModel` / `_cycleAvailableModel` / `ModelCycleResult`）→ `AgentSessionBuild.cs`
+实例方法 + `interactive-mode.ts` 的命令键位六方法（handleFollowUp L4454 / handleDequeue L4486 /
+cycleThinkingLevel L4506 / cycleModel L4517 / handleOpenExternalEditor L4575 / handleCopyCommand
+L6610）→ `InteractiveMode.Lifecycle.cs` + 6 例测试。
+**退役 1 缝**：`SetupCommandKeyHandlers`（真实方法落地——thinking.cycle / model.cycle×2 /
+tools.expand / thinking.toggle / message.copy / followUp / dequeue + `ui.OnDebug` 接线；
+选择器四动作与 handleDebugCommand 拆为两个新缝 → 4f-4m-4 尾批）。
+
+**会话层（Core 增补）**：`CycleThinkingLevel`（supportsThinking 门控 + 档位环进 +
+`SetThinkingLevel` 复用）、`CycleModelAsync`（scoped 优先，可用快照过滤 scope；环形下标；
+`SetCurrentModel` + `AppendModelChange` + persist 分支 + `GetThinkingLevelForModelSwitch`（scoped
+显式档位优先）+ `EmitModelSelectAsync("cycle")`）、`ModelCycleResult` 记录、
+`GetLastAssistantText()` 实例包装。此前 4e-3e-3 只有静态叶子，本轮对照 TS L2518-2690 补齐实例层
+——上层全部复用（SetThinkingLevel / GetAvailableThinkingLevels / SupportsThinking /
+GetThinkingLevelForModelSwitch / EmitModelSelectAsync / AddPersistedDefaultToNonEmptyScope 均已存在）。
+
+**命令层**：handleFollowUp（compaction 排队 / streaming followUp / 空闲回落 onSubmit；
+C-diff C272：TS 的 `editor.getExpandedText?.()` 可选展开 API 未随编辑器移植，回退 getText——
+可选调用的未定义分支）；handleDequeue（恢复计数文案）；cycleThinkingLevel / cycleModel 状态文案
+（`ThinkingLevelText.ToText` 枚举串化）；handleOpenExternalEditor（`ui.Stop` → 编辑 → `ui.Start`
++ 强制重绘，`ExternalEditorResult.Complete` 模式匹配）；handleCopyCommand（alt-screen 选区优先
+路径 + `GetLastAssistantText` 空态报错 + `Flash("Copied!")` vs 状态行）。
+
+**测试（6 例）**：Session cycleThinkingLevel 循环 + transcript 追加、单可用模型状态、
+思考档位状态行、handleDequeue 空/非空两态、handleFollowUp 空闲回落 onSubmit、
+handleCopyCommand 空消息报错。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3167 / 0 失败**。
