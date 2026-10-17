@@ -4890,8 +4890,77 @@ console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失�
 - `EarendilAnnouncementComponentTests` **1 / 0**：标题 + 博客 URL + 上下边框行。
 - `Pi.CodingAgent.Tests` 全量 **2624 / 0 失败**（新增 10）；构建 0 警告 0 错误。
 
-> **4f-3e 余**：`footer`（302）/ `tool-execution`（408）/ `bash-execution`（223）/ `armin`（384）/
-> `easter-egg-3d`（1292 + lazy 27）/ `mermaid`（89，**阻塞**：grok-mermaid + marked 不可得）。
+> **4f-3e 余**：`armin`（384）/ `easter-egg-3d`（1292 + lazy 27）/ `mermaid`（89，**阻塞**：
+> grok-mermaid + marked 不可得）。`footer` / `tool-execution` / `bash-execution` 已随 Batch 2 收口。
+
+## 4f-3e Batch 2：footer / bash-execution / tool-execution（2026-10-17）
+
+**范围**：`footer.ts`（302 行）、`bash-execution.ts`（223 行）、`tool-execution.ts`（408 行），
+合计 933 行 → `Components/Footer.cs`、`Components/BashExecution.cs`、`Components/ToolExecution.cs`
++ `FooterAndToolComponentsTests.cs`（30 例）。三者均未被漂移窗口触及。
+
+**落地内容**：
+- `Footer.cs`：`FooterFormatting`（`SanitizeStatusText` / `FormatTokens` / `FormatCwdForFooter`
+  三个纯函数，`GeneratedRegex` 承载 `[\r\n\t]` 与 ` +`）+ `FooterComponent`。
+  会话统计按 `(session, sessionId, leafId, entryCount, limitsModel)` 五元组缓存——entries 只追加、
+  每次追加都移动 leaf，所以这四个键加「生效 contextWindow 的模型」足以判定失效；`limitsModel`
+  取 `routedModel?.model ?? model`（TS 原样）。stats 行右对齐模型名，`• thinking off` 特例、
+  `→ routed.id • level`、多 provider 时 `(provider) ` 前缀放不下则整体回落；`statsLeft` 与
+  `remainder` **分段 dim**（statsLeft 内含 context% 的颜色 reset，外层整体包 dim 会被清掉）。
+- `BashExecution.cs`：`AppendOutput` 续行（新 chunk 首行并入末行）+ `AnsiText.StripAnsi` +
+  `\r\n`/`\r` 归一；先按 bash 工具的上下文限额 `TruncateTail`，再取末 20 条**逻辑行**做预览；
+  折叠态用 `CachedVisualLines`（宽度感知缓存的 `TruncateToVisualLines`），展开态直出全部行；
+  状态行三段（隐藏行数 / cancelled / exit code / 截断警告）。
+- `ToolExecution.cs`：call/result 双渲染槽 + 共享 `rendererState`；self shell 直接渲染
+  `_selfRenderContainer`（首行留空、图片 spacer 逐张拼接），default shell 走 `_contentBox`；
+  图片按 `(data, mimeType, widthCells)` 三元组比较复用旧 `Image`（避免重复 PNG 转码）；
+  渲染器抛异常时回落到 fallback 组件并把对应槽置空；`FromDefinition` 承载 TS 的
+  `ToolRenderers | ToolDefinition` 结构联合。
+
+**关键移植差异**：
+- **C246**：`Box` 在端口里是 `IComponent` 的**兄弟类**，不是 `Container` 的子类（TS 是
+  `Box extends Container`）。TS 的 `renderContainer = shell === "self" ? selfRenderContainer :
+  contentBox` 之后统一调 `clear()/addChild()`，C# 强转 `(Container)renderBox` 必然
+  `InvalidCastException`（本批 9 个用例曾全部因此失败）。改为局部函数
+  `ClearRender()` / `AddToRender(child)` 在 `Box` 与 `Container` 两条分支间分派。
+- **C247**：`ToolExecutionOptions` 用可空字段承载 TS 的 `?? 默认值`（`ShowImages` /
+  `ImageWidthCells` / `OutputPad`）；`UpdateResult` 把 TS 挂在 result 对象上的 `durationMs`
+  拆成独立参数，经 `ToolRenderContext.DurationMs` 下发（`_isPartial ? null : _resultDurationMs`，
+  对齐 TS 的 `this.isPartial ? undefined : this.result?.durationMs`）。
+- **C248**：测试缝 `IFooterSessionView` + `AgentSessionFooterView`。TS 的 footer 测试用对象字面量
+  冒充 `AgentSession`（`as unknown as AgentSession`），C# 对具体类做不到，故把 footer 实际读取的
+  12 个成员收成接口，公开构造器接 `AgentSession` 并委派到内部构造器。沿用 E-2 `OpenOverride` 的注入缝做法。
+- 不编号：`IReadonlyFooterDataProvider` 由占位空接口补成真实契约（`GetGitBranch` /
+  `GetExtensionStatuses` / `GetAvailableProviderCount` / `OnBranchChange`，对齐 TS
+  `ReadonlyFooterDataProvider = Pick<FooterDataProvider, …>` 的四成员；`onBranchChange` 返回的
+  取消订阅函数在 C# 侧就是 `Action` 返回值）。`FormatCwdForFooter` 用 `Path.GetFullPath` +
+  `Path.GetRelativePath` 复刻 `resolve`/`relative`，并把 .NET 的 `"."` 归一成 `""`；`Math.round`
+  用 `JsRound(v) => (long)Math.Floor(v + 0.5)`（C# 默认银行家舍入）；`localeCompare` →
+  `StringComparer.CurrentCulture`。
+
+**三处测试期望按 TS 原文改正（实现无误，先回查上游再改断言）**：
+1. `AppendOutput("hi\r\n")` 的尾随换行会留一个空尾行——TS 的 `clean.split("\n")` 同样保留该空项，
+   故 `GetOutput()` 是 `"abcdef\nghi\n"` 而不是 `"abcdef\nghi"`。
+2. 25 个 `line-NN\n` chunk 产生 **26** 条逻辑行（同上），预览留末 20 条 → 隐藏数是 **6** 不是 5。
+3. 截断警告的条件是 `truncationResult?.truncated || contextTruncation.truncated`，只传
+   `fullOutputPath` 不触发；测试需构造 `Truncated = true` 的 `TruncationResult`。
+另：`formatTokens` 的 `<10000` 档是 `(count / 1000).toFixed(1)`，**不是四舍五入**——
+9999 → `"10.0k"`、9950 → `"9.9k"`（9.95 在二进制浮点里低于半格）。测试改为钉住这一对，
+顺带验证 `JsNumber.ToFixed` 的 JS 语义。
+
+**测试与验证（4f-3e Batch 2）**：
+- `FooterTests` **13 / 0**：`test/footer-width.test.ts` 的 11 例全部转写（2 例 formatCwd + 9 例
+  组件级：宽会话名/宽模型名不超宽、虚拟模型路由显示、summary+toolResult 用量计入总花费、
+  追加 entry 后缓存失效重算、`CH25.0%`、kimi-coding `(sub)`、显式订阅 `$0.000 (sub)`、
+  OAuth 登录不算订阅），另加 `FormatTokensUsesCompactBuckets` 与
+  `SanitizesExtensionStatusesAndSortsThemByKey` 两项补。
+- `BashExecutionTests` **6 / 0**：`test/bash-execution-width.test.ts` 的 2 例（渲染时按宽度截、
+  宽度变化后重算）+ 4 项补（续行/归一、exit code 与 cancelled、截断警告、折叠隐藏计数）。
+- `ToolExecutionComponentTests` **11 / 0**：双槽堆叠、self shell 空行不占位、fallback 显示工具名
+  与 `file_path`、折叠/展开、共享 state、`args` 进上下文、渲染器抛异常回落、`durationMs` 只在
+  终态下发、点击展开、内置 `read` 渲染器的折叠与 `null offset/limit`。
+- `Pi.CodingAgent.Tests` 全量 **2654 / 0 失败**（新增 30）；`dotnet build Pi.slnx -m:1`
+  **0 警告 0 错误**。
 
 
 
