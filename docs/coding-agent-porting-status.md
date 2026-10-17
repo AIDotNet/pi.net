@@ -5542,3 +5542,39 @@ null 堆栈 / 无关堆栈）、快捷错误一例、主题门控三例（新名
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3038 / 0 失败**（1m12s）。
+
+## 4f-4j：消息与渲染决策层（2026-10-17）
+
+**范围**：`renderSessionEntries` / `renderSessionItems` / `addMessageToChat` /
+`getUserMessageText` / `isUnknownModel`（L277-289、L327-329、L3774-3781、L3847-3968、
+L3970-4088）中可独立判定的部分 → `Modes/Interactive/InteractiveModeRender.cs` +
+`InteractiveModeRenderTests.cs`（31 例）。
+
+**落地内容**：
+- **类型落地**：`CompactionCostNotice`（`Kind` + `Usage`）与 `CompactionCostKind` 常量
+  （`compaction` / `branch_summary`）——4f-4c 顺延的类型在本批补上。
+- **条目折叠**：
+  - `IsRenderedDirectly`：`custom` 与 `usage(kind=cache_warm)` 条目**原样渲染**，不走
+    上下文消息折叠；其余 usage kind 不算。
+  - `ShouldAppendCompactionCost`：`compaction` / `branch_summary` 且有 usage 且折叠后
+    **至少一条消息**才追加成本提示——全被裁掉的摘要不留空提示。
+- **工具结果**：
+  - `IsFailedStopReason`：`aborted` / `error` 的助手消息把工具组件**收尾为错误结果**
+    而不是登记 pending（其余 stopReason 的组件留在 `pendingTools` 等结果）。
+  - `ResolveToolResultErrorMessage`：aborted 报重试次数（`>1` 复数化 `attempts`，
+    `0` 则 `Operation aborted`）；error 回显 `errorMessage`，空则 `Error`。
+- **用户文本**：`GetUserMessageText`：字符串内容原样；块内容过滤 `text` 后**无分隔符
+  连接**；结果同时是编辑器历史的入史文本；非 user 角色一律空串。
+- **占位模型**：`IsUnknownModel`：provider/id/api 三字段全为字面 `"unknown"`；
+  `null` 不算（TS `!!model` 短路）。
+
+**顺延**：`handleEvent` 的 388 行事件分发、`addMessageToChat` 的八类组件构造、
+`addCacheWarmingUsage` / `addCacheMissNotice` 与 `collectCacheMisses` 的接线
+（`CollectCacheMisses` 已在 `Core/CacheStats.cs`）随 4f-4m。
+
+**测试（31 例）**：未知模型六组（含 null）、条目折叠八组、成本提示五组、
+工具结果错误八组（含复数化与空回退）、用户文本四组（字符串 / 多块 / 图片 /
+非 user 角色）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3069 / 0 失败**（2m44s）。
