@@ -269,6 +269,7 @@ public partial class InteractiveMode
     internal bool ActiveWorkingIndicatorEmbeddedForTests => _activeWorkingIndicatorEmbedded;
     internal IReadOnlyList<IComponent> ChatChildrenForTests => _chatContainer.Children;
     internal IReadOnlyList<IComponent> PendingMessagesContainerChildrenForTests => _pendingMessagesContainer.Children;
+    internal SessionManager SessionManagerForTests => SessionManager;
     internal IReadOnlyList<IComponent> EditorContainerChildrenForTests => _editorContainer.Children;
     internal IReadOnlyList<IComponent> FooterContainerChildrenForTests => _footerContainer.Children;
     internal IReadOnlyList<IComponent> HeaderContainerChildrenForTests => _headerContainer.Children;

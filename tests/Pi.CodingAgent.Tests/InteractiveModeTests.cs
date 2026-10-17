@@ -1214,6 +1214,38 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
     }
 
     // ==================================================================
+    // 4f-4m 命令族（增量）：/name
+    // ==================================================================
+
+    [Fact]
+    public async Task NameCommandWithoutArgumentsShowsUsageWhenUnnamed()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleNameCommand("/name");
+
+        var last = mode.ChatChildrenForTests[^1];
+        Assert.Contains("Usage: /name <name>", string.Join("\n", last.Render(80)));
+    }
+
+    [Fact]
+    public async Task NameCommandSetsTheSessionName()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleNameCommand("/name my-session");
+
+        var last = mode.ChatChildrenForTests[^1];
+        Assert.Contains("Session name set:", string.Join("\n", last.Render(80)));
+        Assert.NotNull(mode.SessionManagerForTests.GetSessionName());
+
+        // 再次空参 /name 显示当前会话名。
+        mode.HandleNameCommand("/name");
+        var current = string.Join("\n", mode.ChatChildrenForTests[^1].Render(80));
+        Assert.Contains("Session name:", AnsiText.StripAnsi(current));
+    }
+
+    // ==================================================================
     // 4f-4m-4 尾批后半：会话 navigateTree 编排
     // ==================================================================
 

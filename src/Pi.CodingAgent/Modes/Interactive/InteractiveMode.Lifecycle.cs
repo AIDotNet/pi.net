@@ -23,6 +23,7 @@
 // ============================================================================
 
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -1111,6 +1112,45 @@ public partial class InteractiveMode
             () => $"{ThemeRuntime.Current.Fg("accent", "✓ Debug log written")}\n{ThemeRuntime.Current.Fg("muted", debugLogPath)}",
             1,
             1));
+        _ui.RequestRender();
+    }
+
+    // ---------------------------------------------------------------- /name (L6641-6664)
+
+    /// <summary>TS <c>handleNameCommand</c> (L6641-6664).</summary>
+    internal void HandleNameCommand(string text)
+    {
+        var name = Regex.Replace(text, @"^/name\s*", "").Trim();
+        if (name.Length == 0)
+        {
+            var currentName = SessionManager.GetSessionName();
+            if (currentName is not null)
+            {
+                _chatContainer.AddChild(new Spacer(1));
+                _chatContainer.AddChild(new ThemedText(
+                    () => ThemeRuntime.Current.Fg("dim", $"Session name: {currentName}"), 1, 0));
+            }
+            else
+            {
+                ShowWarning("Usage: /name <name>");
+            }
+
+            _ui.RequestRender();
+            return;
+        }
+
+        Session.SetSessionName(name);
+        var sessionName = SessionManager.GetSessionName();
+        if (sessionName != name)
+        {
+            ShowWarning(
+                $"Session name was normalized from {JsonSerializer.Serialize(name)} to {JsonSerializer.Serialize(sessionName)}");
+        }
+
+        _chatContainer.AddChild(new Spacer(1));
+        var displayName = sessionName ?? name;
+        _chatContainer.AddChild(new ThemedText(
+            () => ThemeRuntime.Current.Fg("dim", $"Session name set: {displayName}"), 1, 0));
         _ui.RequestRender();
     }
 
