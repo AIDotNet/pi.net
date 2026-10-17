@@ -5209,5 +5209,54 @@ auto-sync 三态、主题加载失败与错误文案、实例注入、preview、
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **2840 / 0 失败**（2m15s）。
 
+## 4f-4b：tui-renderer（2026-10-17）
+
+**范围**：`modes/interactive/tui-renderer.ts`（81 行）→ `Modes/Interactive/TuiRenderer.cs`
+（约 230 行）+ `TuiRendererTests.cs`（7 例）。
+
+**落地内容**：
+- `InteractiveTuiOptions`（`tuiMode` / `showHardwareCursor` / `logDirectory` /
+  `terminal?` / `onRightClickPaste?` / `fullscreenCopyOnSelect?` /
+  `fullscreenWheelScrollLines?`）。
+- `CreateInteractiveTui`：`regular` → `TuiMainScreen`，`fullscreen` → `TuiAltScreen`，
+  终端缺省用 `ProcessTerminal`。fullscreen 六个回调逐条对齐：
+  - `SearchMatchStyle` = `underline(bg("searchMatchBg", fg("searchMatchText", t)))`
+  - `SearchCurrentMatchStyle` = `bold(inverse(同一个 styleSearchMatch(t)))`
+  - `SearchNavigationButtonStyle` = hover 时 underline，否则原样
+  - `ScrollToEndIndicator` = `bg("selectedBg", fg("text", " ↓ Jump to latest message · <快捷键> "))`，
+    快捷键取 `tui.altScreen.bottom` 的显示文本，为空时省掉 ` · …` 段
+  - `OpenUrl` → `OpenBrowser.Open`
+  - `CopySelection` → `Clipboard.CopyToClipboardAsync`，成功 `ClipboardCopyResult.Ok`、
+    失败 `Fail(e.Message)`（TS 的 `true | error.message`）
+  - **TS 闭包读模块级 `theme` 绑定**（切主题时绑定被替换），故 C# 在每个回调内取
+    `ThemeRuntime.Current`，而不是在构造时抓一次。
+- `CreateInteractiveTuiReference(getTui)`：组件持有的稳定引用，转发到「当前」renderer。
+
+**关键移植差异**：
+- **C262（Proxy → 显式转发）**：TS 返回一个 `Proxy`，`get` 陷阱在**实例变化后**重新
+  `Reflect.get` 拿到新方法，`has` / `getPrototypeOf` 也转发。C# 没有 Proxy，改为
+  `TuiReference : ITui` 显式实现全部 30 个成员，每个成员体内取 `getTui()` 再调用；
+  等价于 Proxy 的「每次调用都解析到当前实例」。缺的是 TS 那两条元编程陷阱
+  （`has` / `getPrototypeOf`），C# 的静态类型不需要它们。
+- `logDirectory` 在端口是**死参数**：TS 基类把 TUI 调试日志写到该目录，端口的
+  `TuiBase` 不写文件日志（4f-2a 已记），保留字段只为对齐 API。
+- TS 用字面量类型重载区分返回值（`tuiMode: "fullscreen"` → `TuiAltScreen`）；
+  C# 统一返回 `TuiBase`，需要全屏专属成员时由调用方转型。
+
+**批次调整**：原计划的「4f-4b = 类骨架 + 构造器 + 字段块」顺延为 **4f-4d**。构造器要调
+`resetExtensionUI` / `rebindCurrentSession` / `showError` / `updateEditorBorderColor`，
+这些方法还不存在，硬写只能靠 stub 编译——违反「不跳过或假设已完成」。4f-4 因此由
+10 个子批次改为 **12 个**，新的 4f-4c 是 interactive-mode 的模块级层（局部类型 +
+`ExpandableText` / `BuiltInHeader` + 全部模块级纯函数）。
+
+**测试（7 例）**：上游无测试文件。覆盖双模式工厂的返回类型/模式/终端注入、参考的
+状态转发（Mode / Terminal / Children / FullRedraws / 光标 / shrink / overlay）、
+变更转发（AddChild / RemoveChild / RequestRender / Invalidate / OnDebug）、
+**renderer 换掉后参考仍跟随**（Proxy 的核心语义）、颜色查询与颜色方案监听转发。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2847 / 0 失败**（2m50s）。
+
+
 
 
