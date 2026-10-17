@@ -5876,3 +5876,34 @@ init 后段抛错——与所有登记缝一致的「先立缝后清零」）。
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3156 / 0 失败**。
+
+## 4f-4m-4-前段：crash-log 三缝 + 登录告警 + 新版本通知（2026-10-17）
+
+**范围**：五个独立可收口单元 → `InteractiveMode.Lifecycle.cs` + `ExtensionRunner` + 5 例测试。
+**退役 5 缝**：`TakeUnnotifiedCrashForWarning` / `RecordCrashForUi` /
+`GetCrashExtensionHintForUi`（三缝随 4f-4m-5 收口批顺延——本批提前落地）/
+`MaybeWarnAboutAnthropicSubscriptionAuth`（随 4f-4m-4 登录批顺延）/ `ShowNewVersionNotification`
+（随 4f-4m-4 命令批顺延）。
+
+**落地内容**：
+- **takeUnnotifiedCrash**：`CrashLog.TakeUnnotified`（Core 已有公开件，4f-4d 留下的）接实例路径；
+  时间戳 ISO 解析 + `Members["message"]` 提取。**recordCrash**：`CrashLog.Record` +
+  会话文件/cwd 填充。两处都带 `path` 可选参（TS 默认 `crashLogPath()`）以便测试注入临时日志。
+- **getCrashExtensionHint**：Core `ExtensionRunner` 增补 TS 同名方法
+  `GetExtensionStackMetadata()`（按加载顺序产出每扩展路径元数据，此前 runner 只有私有列表），
+  接 `InteractiveModeExtensions.GetCrashExtensionHint`（栈匹配 + try/catch 折叠）。
+- **maybeWarnAboutAnthropicSubscriptionAuth**（L5240-5268）：`warnings.anthropicExtraUsage === false`
+  门控（JsonObject 严格 false 判定）→ 一次性旗标 → provider 门控 → `CheckAuthAsync` oauth 分支 →
+  `GetAuthAsync` 的 `sk-ant-oat` 前缀分支（`IsAnthropicSubscriptionAuthKey` 叶子）→
+  `ANTHROPIC_SUBSCRIPTION_AUTH_WARNING` 常量（4f-4c 已有）；auth 查询失败静默。
+- **showNewVersionNotification**（L4616-4644）：更新横幅（DynamicBorder + 粗体标题 + `pi update`
+  指引）+ 可选 note（Markdown + `DefaultTextStyle.Color`——TS 的 options `{color}` 在 C# 落在
+  DefaultTextStyle 而非 MarkdownOptions）+ OSC8 超链接 changelog 行（`TerminalImage.Hyperlink`，
+  按 `Hyperlinks` 能力降级）。
+
+**测试（5 例）**：take 取最新并标记 notified（二次取空）、record 经实例路径持久化（message/cwd
+回读）、无匹配扩展时 crash 提示为 null、非 anthropic 模型跳过订阅告警、新版本横幅（无 note 5 项 /
+带 note 8 项 + note 正文回读）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3161 / 0 失败**。
