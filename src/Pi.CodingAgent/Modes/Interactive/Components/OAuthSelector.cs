@@ -354,7 +354,8 @@ public sealed partial class OAuthSelectorComponent : Container, IFocusable
     /// <summary>
     /// TS interpolates <c>provider.authType</c> straight into the fuzzy haystack, so the wire spelling
     /// is part of the observable behaviour: searching <c>api_key</c> must match API-key providers.
+    /// Public because the login-command autocomplete builds the same haystack (4f-4e).
     /// </summary>
-    private static string AuthTypeText(CredentialKind authType) =>
+    public static string AuthTypeText(CredentialKind authType) =>
         authType == CredentialKind.OAuth ? "oauth" : "api_key";
 }
