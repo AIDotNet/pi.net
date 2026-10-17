@@ -5643,3 +5643,89 @@ tmux 六组（沉默 / on+csi-u / always+xterm / off+xterm / auto+null）、chan
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3105 / 0 失败**（3m03s）。
+
+## 4f-4m-1：类装配首批——骨架与扩展 UI 面（2026-10-17）
+
+**范围**：`InteractiveModeOptions`（L425-448）+ 类字段块（L451-585 全量照抄，另含后置的
+`MAX_WIDGET_LINES` L2477 与 `isShuttingDown` L4268）+ 便利访问器（L587-599）+ 构造器（L601-667）
++ 构造器回调链可达的实例方法 → `Modes/Interactive/InteractiveMode.cs`（partial class）+
+`InteractiveModeTests.cs`（32 例）。
+
+**批次调整**：4f-4m 原定为收尾单批；清点实测剩余 **145 个成员 ≈ 4,755 行 TS**，单批不可收口，
+拆为子批：**-1 骨架与扩展 UI 面（本批）→ -2 事件与渲染（handleEvent 388 行）→ -3 生命周期与
+命令族 → -4 登录认证族 → -5 autocomplete 组装与收口**（字段块 pragma 随收口批摘除）。
+
+**落地内容**：
+- **构造器**：`setCapabilityOverrides`（Core→Pi.Tui 记录换算）、tuiMode 解析（`options ?? getTuiMode()`，
+  未设置时 TS 字面量判定落到 Fullscreen）、`SetBeforeSessionInvalidate(ResetExtensionUI)`、
+  `SetRebindSession(rebind + applyFromSettings)`、TUI 工厂 + 引用转发、十个容器、全局键位注册、
+  CustomEditor（embedWorkingStatus）、footer/footerDataProvider、`SetRegisteredThemes`、
+  `InteractiveThemeController`（TS 顺序原样：控制器最后创建，`_themeController = null!` 化解
+  回调闭包的可空流告警）。
+- **通知**：`showError`/`showWarning`（4f-4d 的 `ChatNotice` 叶子接线，padding 不对称原样）、
+  `showStatus`（coalescing：连续两次合流为原地更新，被其它组件打断后恢复追加）。
+- **编辑器 chrome**：`updateEditorBorderColor`（`ResolveEditorBorderColor` 叶子）、
+  `updateTerminalTitle`（`BuildTerminalTitle` 叶子 + `terminal.setTitle`）。
+- **TUI**：`mountInteractiveTui`（viewport 需布局根，否则 `Fullscreen layout is not initialized`）、
+  `stopInteractiveTui`（fullscreen+transcript 先弹层、切回 regular、再按 mode 决定 preserveScreen）、
+  `switchTuiMode`（同 mode 早退真、有 overlay 拒绝、捕获焦点/键位/渲染状态、重建 renderer、
+  `rebindTui` + `rebindExtensionTerminalInputListeners` + 流式期进度条恢复）。
+- **运行时设置**：`applyRuntimeSettings`（能力覆盖 / PNG 转码器 / 全屏滚动条 / alt-screen 两设置 /
+  footer 换 session / cwd / hideThinking / outputPad / 硬件光标 / clearOnShrink 与 statusContainer
+  交互 / 编辑器 padding 与补全可见数）；`ensurePngTranscoder`、`applyFullscreenScrollbarSetting`。
+- **会话事件**：`subscribeToAgent`（`Session.Subscribe`，async 分发 fire-and-forget——TS 的
+  `session.subscribe(async …)` 语义）；`updateAvailableProviderCount`（scoped 优先、provider 去重计数）；
+  `rebindCurrentSession`（退订 → applyRuntimeSettings → renderBeforeBind 分支 → 重绑扩展 →
+  会话身份校验 → 计数/边框/标题）。
+- **状态指示器链**：`setExtensionStatus` / `setEditorWorkingStatusIndicator` / `showStatusIndicator` /
+  `clearStatusIndicator`（kind 过滤 + Idle 占位四条件接 `ShouldRestoreIdleStatus` 叶子）/
+  `showWorkingStatusIndicator`（`ResolveWorkingStatusColor` 叶子）/ `setWorkingVisible` /
+  `setWorkingIndicator`（`StatusIndicator.ToLoaderIndicator` 提为 public 复用）/
+  `setHiddenThinkingLabel`（容器遍历 + 流式组件）。
+- **扩展 UI 面**：widget 两重载（string[] / factory，`WidgetContent` 叶子 + 截断注释独立
+  ThemedText）+ `clearExtensionWidgets` / `renderWidgets` / `renderWidgetContainer`（上下容器
+  spacer 规则不对称）；`setExtensionFooter` / `setExtensionHeader`（builtInHeader 未建时早退、
+  按 index 原位替换、找不到则顶部插入）；终端输入监听三方法（`ToTuiInputListener` 适配）；
+  selector/input/editor 三对话框（TCS + abort 注册一次性、命中即 `TrySetResult`）与三个 hide
+  （编辑器原样回挂 + 焦点归还）；`showExtensionConfirm`（`ConfirmTitle`/`ConfirmOptions`/
+  `IsConfirmed` 叶子）；`showExtensionNotify`（error/warning/其余三分支）；`showSelector` +
+  `disposeActiveSelector`（单飞令牌）；`setCustomEditorComponent`（文本搬运、onSubmit/onChange
+  引用复制、边框色/padding/补全可见数复制——TS 的可选调用在 C# 恒成立、actionHandlers 复制）；
+  `resetExtensionUI` 全家（顺序原样）。
+- **视图叶子**：`clearEditor` / `toggleToolOutputExpansion` / `setToolsExpanded`（header 与两容器
+  的 IExpandable 遍历）/ `updateThinkingBlockVisibility` / `toggleThinkingBlockVisibility`（写设置）。
+
+**缝台账（登记 5 个，收口批清零）**：`SetupAutocompleteProvider`（→ -5）、`RenderCurrentSessionState`
+（→ -2）、`HandleEventAsync`（→ -2）、`BindCurrentSessionExtensionsAsync`（→ -4）、
+`HandleRightClickPaste`（→ -3）。构造器注册的 rebind 回调在缝清零前触达会抛
+`NotImplementedException`——沿用 9h-4a「先立缝、后清零」的先例，每缝标注退役批次。
+
+**关键移植差异**：
+- **C267**：TS `applyRuntimeSettings` 的 `configureHttpDispatcher(getHttpIdleTimeoutMs())` 在 .NET
+  无对应物——undici 全局 dispatcher 的空闲超时在端口里改为**按请求**从设置现读
+  （`Sdk.ResolveRequestTimeouts`），没有可配置的全局对象；分支删除并注释。
+- **C268**：TS 组件的 `dispose` 是可选方法（`widget.dispose?.()`）；C# 以 `IDisposable` 判定
+  （`DisposeWidget`），同一处语义。
+- **C269**：`IExtensionUIContext` 的组件工厂形参 `TuiBase` → `ITui`——InteractiveMode 的 `ui`
+  字段是 TS Proxy 的等价转发引用（`TuiReference : ITui`，**不是** `TuiBase`），工厂必须能收到它；
+  同步了 `ExtensionRunner` 两侧实现与 `McpExtensionTests`/`ExtensionRunnerTests` 两处测试桩。
+- **C270**：TS `resourceLoader.getThemes()` 交出**已构建的 `Theme[]`**；C# `ResourceLoader.Themes`
+  是 name/path/document 记录（4f 前最小面），构造器按路径经 `ThemeRuntime.LoadThemeFromPath`
+  重读同一文件（内容等价），再 `SetRegisteredThemes`。
+- **扩展终端输入监听**：TS 结构化类型直传 `tui.addInputListener`；C# 的 TUI 监听形状不同，
+  以 `ToTuiInputListener` 适配（`{consume?, data?} | undefined` → `TuiInputListenerResult`）。
+- **真实并发缺陷（本批修掉）**：`Pi.Tui` `Loader` 的 tick 回调在**锁外**调用 `UpdateDisplay`，
+  与 `Stop()` 竞争时可在主题拆卸后调用配色函数（本批测试稳定复现进程崩溃；T13 的注释本就
+  声称 tick 整体受锁保护）——tick 整体置于 `_gate` 内。
+- **可空流**：`_themeController` 以 `= null!` 声明（构造器按 TS 顺序先注册 rebind 回调、后建控制器）。
+- **字段块**：TS 字段块整块照抄进 partial 类并以
+  `#pragma warning disable CS0169, CS0414, CS0649` 包住（未点亮字段随子批逐个使用，收口批摘除）；
+  被测成员放宽为 `internal` 测试缝（`InternalsVisibleTo` 已就位，沿用此前批次的只读缝做法）。
+
+**测试（32 例）**：构造器装配三、通知四、终端标题一、状态指示器五、widget 六、footer/header 二、
+编辑器切换二、对话框七、TUI 切换二、运行时设置一。带动画定时器的指示器用例一律 try/finally
+清理（4f-3d Batch E-5 已记录的坑）；夹具沿用 `SelectorTestFixture`（全局键位/主题/Chalk 保存
+恢复）+ `AgentSessionRuntimeTests` 同款 runtime 装配 + `StringTerminal`（不触真实控制台）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3137 / 0 失败**；`Pi.Tui.Tests` 全量 **23854 / 0 失败**（Loader 改动回归）。
