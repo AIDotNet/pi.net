@@ -6003,3 +6003,31 @@ handleResumeSession 不测（致命路径 Exit(1)）。
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3172 / 0 失败**。
+
+## 4f-4m-4-尾批-后段：会话 navigateTree 编排（2026-10-18）
+
+**范围**：`agent-session.ts` 的 `navigateTree(targetId, options)`（L3963-4155，4e-3e-9h「叶子先行」
+明确顺延的编排）→ `AgentSessionBuild.cs` 实例方法 `NavigateTreeAsync` + `NavigateTreeResult` +
+`NavigateTreeSessionOptions` + 2 例测试。**这是 4f-4m-4 尾批的最后一块会话 API 前置**——
+`showTreeSelector`（L5538-5685）现在已无依赖障碍，仅剩接线与 UI 组装，随下一批落地。
+
+**落地内容**：流式 / 压缩中守卫（异常文案原样）→ 同叶 no-op → 摘要需要模型 → 目标条目校验 →
+`BranchSummarization.CollectEntriesForBranchSummary` 收集 → `TreePreparation` +
+`session_before_tree`（取消 / 供摘要 / 三项覆盖经 `ApplyTreeExtensionOverrides` 叶子合并）→
+默认摘要器（`GenerateBranchSummaryAsync` + `_getSummarizationRequestAuth` + 重试策略四元组转
+`RetryPolicy` + `_summarizationRetryCallbacks` 三事件发射）→ aborted / error 语义 →
+**叶子/回填走 4e-3e-9h 既有的 `ResolveTreeNavigationLeaf` 叶件**（用户消息 / 自定义消息回填编辑器、
+其余切到目标节点）→ 摘要三分支（`BranchWithSummary` + 标签 / `ResetLeaf` / `Branch`）+
+`ShouldLabelTargetEntry` 语义 → `RefreshFinalizedContext` + `RestoreToolsFromTranscript` →
+`session_tree` 事件 → finally 清理 abort 控制器 + 空闲唤醒。
+
+**关键复用**：本轮零新增判定——取消 / 覆盖合并 / 叶位计算 / 切换方式 / 标签挂载全部落在
+4e-3e-9h 早已备好的叶件上（`ShouldCancelTreeNavigation` / `ApplyTreeExtensionOverrides` /
+`ResolveTreeNavigationLeaf` / `ShouldLabelSummaryEntry` / `ShouldLabelTargetEntry`），编排只是把
+它们按 TS 顺序串起来。
+
+**测试（2 例）**：同叶 no-op（cancelled:false 无编辑器文本）、导航到用户消息（叶子切换到父条目 +
+`editorText` 回填）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3174 / 0 失败**。
