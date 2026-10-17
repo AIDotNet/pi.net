@@ -5969,3 +5969,37 @@ switchSession 家族，未移植）；新增缝 `HandleFatalRuntimeErrorAsync`�
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3170 / 0 失败**。
+
+## 4f-4m-4-尾批-中段：fork / resume 选择器 + 扩展 UI 上下文（2026-10-18）
+
+**范围**：`showUserMessageSelector`（L5479-5515）+ `showSessionSelector`（L5687-5728）+
+`handleResumeSession`（L5730-5765）+ `promptForMissingSessionCwd`（L2746-2752）+
+`createProjectTrustContext`（L2609-2622）+ `createExtensionUIContext`（L2624-2666）→
+`InteractiveMode.Lifecycle.cs` + 2 例测试。**退役 1 缝**：`SetupTreeForkResumeKeyHandlers` 收缩为
+`SetupTreeKeyHandlers`（仅剩 `app.session.tree` → showTreeSelector，依赖 navigateTree 富结果——
+C# 现有 `NavigateTree` 返回 Task<bool>，缺 TS 的 {aborted, cancelled, editorText} 形状）。
+**接线**：`app.session.fork` / `app.session.resume`。
+
+**落地内容**：
+- **Core 增补**：`AgentSession.GetUserMessagesForForking()` 实例包装（4e-3e-3 的
+  `ProjectUserMessagesForForking` 静态叶子上接实例面）。
+- **showUserMessageSelector**：空清单状态行 + `UserMessageSelectorComponent`（条目转换 +
+  末条预选 + `ForkAsync` → `SelectedText` 回填编辑器 + 「Forked to new session」）。
+- **showSessionSelector**：`SessionSelectorComponent`（`ListAsync` 当前目录 / `ListAllAsync`
+  全局、重命名经 `SessionManager.Open + AppendSessionInfo`、onExit → shutdown、当前会话文件）。
+- **handleResumeSession**：`SwitchSessionAsync` + `ProjectTrustContextFactory`；
+  `MissingSessionCwdException` → `promptForMissingSessionCwd`（confirm 对话框 → fallbackCwd）→
+  带 `CwdOverride` 重试；其余异常进致命路径。
+- **createProjectTrustContext**：TUI 模式信任上下文（cwd + mode + hasUI + 完整扩展 UI 上下文）。
+- **createExtensionUIContext**：`IExtensionUIContext` 全量实现（嵌套类，21 成员）——四对话框 +
+  终端输入监听 + 状态/工作消息/指示器/widget/footer/header/标题 + 编辑器文本三简写 +
+  `SetTheme`（走 `SetThemeName` + `ShouldPersistThemeName` 叶子持久化）与 `SetTheme(Theme)`；
+  缝承载成员：`Custom<T>`/`CustomAsync<T>`（custom 组件批）、`PasteToEditor`（编辑器光标 API）、
+  `AddAutocompleteProvider`（4f-4m-5）、`GetAllThemes`/`GetTheme(string)`（主题清单批）、
+  `GetEditorComponent`（自定义编辑器工厂存储）。
+
+**测试（2 例）**：fork 空清单状态（不挂选择器）、会话选择器挂载到编辑器位 + 清理。
+handleResumeSession 不测（致命路径 Exit(1)）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3172 / 0 失败**。
