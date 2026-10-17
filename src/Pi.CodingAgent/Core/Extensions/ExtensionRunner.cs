@@ -100,6 +100,13 @@ public sealed class ExtensionRunner
     private readonly IReadOnlyList<Extension> extensions;
     private readonly IExtensionRuntime runtime;
     private readonly string cwd;
+
+    /// <summary>
+    /// TS <c>getExtensionStackMetadata()</c>：按加载顺序给出每个扩展的路径元数据，供崩溃报告把
+    /// 堆栈帧归属到扩展。
+    /// </summary>
+    public IReadOnlyList<ExtensionStackMetadata> GetExtensionStackMetadata() =>
+        [.. extensions.Select(ExtensionStackMetadata.From)];
     private readonly IReadonlySessionManager sessionManager;
     private readonly ModelRegistry modelRegistry;
     private readonly List<ExtensionErrorListener> errorListeners = [];

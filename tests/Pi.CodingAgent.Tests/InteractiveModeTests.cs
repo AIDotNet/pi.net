@@ -967,4 +967,90 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         // shutdownRequested 为 false：不触达 shutdown（触达即 Environment.Exit）。
         mode.CheckShutdownRequested();
     }
+
+    // ==================================================================
+    // 4f-4m-4 前段：crash-log 三缝落地 + 登录告警 + 新版本通知
+    // ==================================================================
+
+    [Fact]
+    public async Task TakeUnnotifiedCrashForWarningReturnsTheNewestCrashAndMarksItAnnounced()
+    {
+        var mode = await CreateModeAsync();
+        var tempPath = Path.Combine(_root, "crashes-take.json");
+
+        CrashLog.Record(new CrashInput
+        {
+            Kind = CrashKind.UncaughtException,
+            Error = new InvalidOperationException("boom-1"),
+            SessionFile = null,
+            Cwd = _cwd,
+        }, tempPath);
+
+        var taken = mode.TakeUnnotifiedCrashForWarning(tempPath);
+        Assert.NotNull(taken);
+        Assert.Contains("boom-1", taken.Value.Message);
+
+        // 已标记 notified：再取为空。
+        Assert.Null(mode.TakeUnnotifiedCrashForWarning(tempPath));
+    }
+
+    [Fact]
+    public async Task RecordCrashForUiPersistsThroughTheInstancePath()
+    {
+        var mode = await CreateModeAsync();
+        var tempPath = Path.Combine(_root, "crashes-record.json");
+
+        Assert.True(mode.RecordCrashForUi(CrashKind.UncaughtException, new InvalidOperationException("instance-crash"), tempPath));
+
+        var records = CrashLog.Read(tempPath);
+        Assert.Single(records);
+        Assert.False(records[0].Notified);
+        Assert.Equal("instance-crash", records[0].Members!["message"].GetString());
+        Assert.Equal(_cwd, records[0].Members!["cwd"].GetString());
+    }
+
+    [Fact]
+    public async Task GetCrashExtensionHintForUiReturnsNullWithoutMatchingExtensions()
+    {
+        var mode = await CreateModeAsync();
+
+        // 夹具只带一个 no-op 扩展：真实异常栈不会命中任何扩展路径 → 无提示。
+        Assert.Null(mode.GetCrashExtensionHintForUi(new InvalidOperationException("no stack match")));
+    }
+
+    [Fact]
+    public async Task AnthropicSubscriptionWarningSkipsForNonAnthropicModels()
+    {
+        var mode = await CreateModeAsync();
+
+        // stub 模型 provider 非 anthropic：直接返回，不产生告警。
+        await mode.MaybeWarnAboutAnthropicSubscriptionAuthForTestsAsync();
+
+        Assert.DoesNotContain(
+            mode.ChatChildrenForTests.Select(c => string.Join("\n", c.Render(80))),
+            line => line.Contains("Anthropic subscription auth is active"));
+    }
+
+    [Fact]
+    public async Task ShowNewVersionNotificationRendersBannerAndOptionalNote()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.ShowNewVersionNotification(new LatestPiRelease("9.9.9"));
+
+        var children = mode.ChatChildrenForTests;
+        Assert.Equal(5, children.Count); // spacer + 边框 + 正文 + changelog 行 + 边框
+        var banner = string.Join("\n", children[2].Render(80));
+        Assert.Contains("Update Available", AnsiText.StripAnsi(banner));
+        Assert.Contains("New version 9.9.9 is available", AnsiText.StripAnsi(banner));
+        var changelogLine = AnsiText.StripAnsi(string.Join("\n", children[3].Render(80)));
+        Assert.Contains("Changelog: https://pi.dev/changelog", changelogLine);
+
+        var countBefore = children.Count;
+        mode.ShowNewVersionNotification(new LatestPiRelease("9.9.9", Note: "Fixes a bug"));
+        // 第二条 banner 本体 5 项（spacer+边框+正文+changelog 行+边框），note 再加 spacer+markdown+spacer。
+        Assert.Equal(countBefore + 8, mode.ChatChildrenForTests.Count);
+        var noteMarkdown = Assert.IsType<Markdown>(mode.ChatChildrenForTests[^4]);
+        Assert.Contains("Fixes a bug", AnsiText.StripAnsi(string.Join("\n", noteMarkdown.Render(80))));
+    }
 }

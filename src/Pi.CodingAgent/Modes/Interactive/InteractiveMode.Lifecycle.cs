@@ -24,6 +24,7 @@
 
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Modes.Interactive.Components;
 using Pi.CodingAgent.Utils;
@@ -947,33 +948,140 @@ public partial class InteractiveMode
     private void ShowDoubleEscapeSelector(string action) =>
         throw new NotImplementedException($"4f-4m-4 command slice: double-escape action '{action}' (TS L3065-3070)");
 
-    /// <summary>Seam: the anthropic subscription auth warning lands with the 4f-4m-4 login slice.</summary>
-    private Task MaybeWarnAboutAnthropicSubscriptionAuthAsync() =>
-        throw new NotImplementedException("4f-4m-4 login slice: maybeWarnAboutAnthropicSubscriptionAuth (TS L5240+)");
+    /// <summary>Test seam: the default-arg path of the anthropic warning check.</summary>
+    internal Task MaybeWarnAboutAnthropicSubscriptionAuthForTestsAsync() =>
+        MaybeWarnAboutAnthropicSubscriptionAuthAsync();
 
-    /// <summary>
-    /// Seam: TS <c>takeUnnotifiedCrash()</c> — read and mark-notified the pending crash record.
-    /// The crash-log take flow lands with the 4f-4m-5 closeout slice.
-    /// </summary>
-    private (DateTimeOffset Timestamp, string Message)? TakeUnnotifiedCrashForWarning() =>
-        throw new NotImplementedException("4f-4m-5 closeout: takeUnnotifiedCrash (crash-log module)");
+    /// <summary>TS <c>maybeWarnAboutAnthropicSubscriptionAuth</c> (L5240-5268).</summary>
+    private async Task MaybeWarnAboutAnthropicSubscriptionAuthAsync(Pi.Ai.Models.ModelSpec? model = null)
+    {
+        var warnings = SettingsManager.GetWarnings();
+        if (warnings.TryGetPropertyValue("anthropicExtraUsage", out var flag)
+            && flag is JsonValue { } jsonValue
+            && jsonValue.TryGetValue<bool>(out var enabled)
+            && !enabled)
+        {
+            return;
+        }
 
-    /// <summary>Seam: TS <c>recordCrash</c> — persist a crash record. Lands with the 4f-4m-5 closeout.</summary>
-    private bool RecordCrashForUi(string kind, Exception error) =>
-        throw new NotImplementedException("4f-4m-5 closeout: recordCrash (crash-log module)");
+        if (_anthropicSubscriptionWarningShown)
+        {
+            return;
+        }
+
+        model ??= Session.Model;
+        if (model is null || model.Provider != "anthropic")
+        {
+            return;
+        }
+
+        try
+        {
+            if ((await Session.ModelRuntime.CheckAuthAsync("anthropic").ConfigureAwait(true))?.Type == Pi.Ai.Auth.CredentialKind.OAuth)
+            {
+                _anthropicSubscriptionWarningShown = true;
+                ShowWarning(InteractiveModeSupport.AnthropicSubscriptionAuthWarning);
+                return;
+            }
+
+            var apiKey = (await Session.ModelRuntime.GetAuthAsync(model.Provider).ConfigureAwait(true))?.Auth?.ApiKey;
+            if (!InteractiveModeSupport.IsAnthropicSubscriptionAuthKey(apiKey))
+            {
+                return;
+            }
+
+            _anthropicSubscriptionWarningShown = true;
+            ShowWarning(InteractiveModeSupport.AnthropicSubscriptionAuthWarning);
+        }
+        catch
+        {
+            // Ignore auth lookup failures for warning-only checks.
+        }
+    }
+
+    /// <summary>TS <c>takeUnnotifiedCrash()</c>: the newest recent crash, marked as announced.</summary>
+    internal (DateTimeOffset Timestamp, string Message)? TakeUnnotifiedCrashForWarning(string? path = null)
+    {
+        var crash = CrashLog.TakeUnnotified(path);
+        if (crash is null)
+        {
+            return null;
+        }
+
+        var timestamp = DateTimeOffset.TryParse(crash.Timestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed
+            : DateTimeOffset.UtcNow;
+        var message = crash.Members?.TryGetValue("message", out var messageElement) == true
+            ? messageElement.GetString() ?? ""
+            : "";
+        return (timestamp, message);
+    }
+
+    /// <summary>TS instance <c>recordCrash(kind, error)</c>: best-effort persistence; returns whether it recorded.</summary>
+    internal bool RecordCrashForUi(string kind, Exception error, string? path = null) =>
+        CrashLog.Record(new CrashInput
+        {
+            Kind = kind,
+            Error = error,
+            SessionFile = SessionManager.GetSessionFile(),
+            Cwd = SessionManager.GetCwd(),
+        }, path) is not null;
 
     /// <summary>
     /// TS <c>this.getCrashExtensionHint(error)</c>: the error stack matched against the loaded
-    /// extensions. The runner-side extension-stack metadata accessor lands with the 4f-4m-5
-    /// closeout; the pure matcher is <see cref="InteractiveModeExtensions.GetCrashExtensionHint"/>.
+    /// extensions (try/catch upstream — any throw collapses rather than breaking the crash report).
     /// </summary>
-    private string? GetCrashExtensionHintForUi(Exception error) =>
-        throw new NotImplementedException("4f-4m-5 closeout: getCrashExtensionHint (TS L2125-2137)");
+    internal string? GetCrashExtensionHintForUi(Exception error)
+    {
+        try
+        {
+            return InteractiveModeExtensions.GetCrashExtensionHint(
+                error.StackTrace,
+                Session.ExtensionRunner.GetExtensionStackMetadata());
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
-    /// <summary>
-    /// Seam: TS <c>showNewVersionNotification</c> (L4620-4644). Lands with the 4f-4m-4 command
-    /// slice (it shares the changelog-markdown rendering path).
-    /// </summary>
-    private void ShowNewVersionNotification(object newRelease) =>
-        throw new NotImplementedException("4f-4m-4 command slice: showNewVersionNotification (TS L4620-4644)");
+    /// <summary>TS <c>showNewVersionNotification</c> (L4620-4644).</summary>
+    internal void ShowNewVersionNotification(LatestPiRelease release)
+    {
+        string UpdateInstruction() =>
+            ThemeRuntime.Current.Fg("muted", $"New version {release.Version} is available. Run ")
+            + ThemeRuntime.Current.Fg("accent", $"{Config.AppName} update");
+        const string changelogUrl = "https://pi.dev/changelog";
+        string ChangelogLine()
+        {
+            var changelogLink = TerminalImage.GetCapabilities().Hyperlinks
+                ? TerminalImage.Hyperlink(ThemeRuntime.Current.Fg("accent", changelogUrl), changelogUrl)
+                : ThemeRuntime.Current.Fg("accent", changelogUrl);
+            return ThemeRuntime.Current.Fg("muted", "Changelog: ") + changelogLink;
+        }
+
+        var note = release.Note?.Trim();
+
+        _chatContainer.AddChild(new Spacer(1));
+        _chatContainer.AddChild(new DynamicBorder(text => ThemeRuntime.Current.Fg("warning", text)));
+        _chatContainer.AddChild(new ThemedText(
+            () => $"{ThemeRuntime.Current.Bold(ThemeRuntime.Current.Fg("warning", "Update Available"))}\n{UpdateInstruction()}",
+            1,
+            0));
+        if (!string.IsNullOrEmpty(note))
+        {
+            _chatContainer.AddChild(new Spacer(1));
+            _chatContainer.AddChild(new Markdown(
+                note,
+                1,
+                0,
+                GetMarkdownThemeWithSettings(),
+                new DefaultTextStyle { Color = text => ThemeRuntime.Current.Fg("muted", text) }));
+            _chatContainer.AddChild(new Spacer(1));
+        }
+
+        _chatContainer.AddChild(new ThemedText(ChangelogLine, 1, 0));
+        _chatContainer.AddChild(new DynamicBorder(text => ThemeRuntime.Current.Fg("warning", text)));
+        _ui.RequestRender();
+    }
 }
