@@ -5813,3 +5813,66 @@ basis=auto grow=0 shrink=1 minSize=1）。TS 的 `{ basis: "auto" }` 对应 `Bas
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3149 / 0 失败**。
+
+## 4f-4m-3：生命周期批——init/run/shutdown/信号（2026-10-17）
+
+**范围**：`init`（L936-1119）+ `run`（L1138-1253）+ `shutdown`（L4270-4309）+
+`handleCtrlC/D`（L4248-4261）+ 崩溃退出（L4311-4357 emergencyTerminalExit/uncaughtCrash）+
+`checkShutdownRequested` + 信号注册（L4367-4415）+ `handleCtrlZ`（L4417-4452）+
+`setupKeyHandlers` 本批半部（escape 四分支 + bash-mode 边框 + onPasteImage）+
+剪贴板右键粘贴（L3118-3130）+ 启动辅助（startup 三门、getChangelogForDisplay /
+reportInstallTelemetry 本体、showManagedToolStatus、handleStartupSubmit、
+checkForPackageUpdates、tmux 查询接线、showPackageUpdateNotification）→
+`Modes/Interactive/InteractiveMode.Lifecycle.cs`（约 1,000 行）+ 7 例测试。
+**退役 3 缝**：InitAsync / CheckShutdownRequested / HandleRightClickPaste。
+**新登记缝**：`SetupEditorSubmitHandler` 与 `SetupCommandKeyHandlers` /
+`ShowDoubleEscapeSelector` / `MaybeWarnAboutAnthropicSubscriptionAuth` / `ShowNewVersionNotification`
+（→ 4f-4m-4 命令与登录批）、`HandleClipboardPasteAsync`（→ 4f-4m-4 输入批，编辑器光标 API 未移植）、
+`TakeUnnotifiedCrashForWarning` / `RecordCrashForUi` / `GetCrashExtensionHintForUi`
+（→ 4f-4m-5，crash-log take/record 流程与 runner 扩展栈元数据访问器）。
+`CheckForPackageUpdatesAsync` 登记为**已知缺口**（SemverRange 注释：update /
+checkForAvailableUpdates 流程未移植）——它落在 run 主路径上，按 9h-4a 先例本应抛错缝，
+但主入口不可抛，故按 TS 的 offline 分支返回空表并在台账登记。
+
+**落地内容**：
+- **init**：注册信号 → changelog 装载 → model scope 提示（console.log，TUI 启动前）→
+  `RenderWidgets` + `ChatViewportFactory.CreateChatViewport`（前置批）→ `MountInteractiveTui`
+  七容器 → 启动期编辑器三 handler（app.clear/OnCtrlD/OnSubmit）→ `SetFocus` → `ui.Start` →
+  `EnsurePngTranscoder` → 主题 `ApplyFromSettings` + `WaitForTerminalColorsAsync` →
+  BuiltInHeader（紧凑/展开双文本、logo 点击 EasterEgg、quietStartup 门控）→
+  `EnsureToolAsync(fd/rg)`（`ShowManagedToolStatus` 直写 chat，且重置 showStatus 合并游标）→
+  `SetupKeyHandlers` + `SetupEditorSubmitHandler`（缝）→ `RebindCurrentSessionAsync` →
+  `RenderInitialMessages` → 主题变更回调 → footer 分支变更回调 → provider 计数 →
+  `RenderNow` + `LoadAllLanguagesAsync`。
+- **run**：15s 超时目录刷新（`ModelCatalogRefresh.RefreshAsync` + CTS）→ 新版本检查
+  （`VersionCheck.CheckForNewPiVersionAsync`）→ 包更新检查（已知缺口）+ Windows 标题恢复 →
+  tmux 键盘告警（进程查询 + `ResolveTmuxKeyboardWarning` 叶子）→ 启动诊断 / 凭据迁移 /
+  models.json 错误 / 模型回落 / 崩溃告警（缝）/ Anthropic 订阅告警（缝）→ 初始消息 prompt →
+  主循环 `GetUserInputAsync` + `PromptAsync`。
+- **shutdown**：单飞守卫；信号路径（先 `runtimeHost.DisposeAsync` 发 session_shutdown 再停 TUI）
+  与交互路径（先停 TUI 再 dispose）分离；resume 命令行输出；`Environment.Exit(0)`。
+- **崩溃退出**：`EmergencyTerminalExit`（129，不做正常清理）；`UncaughtCrash`
+  （死终端转 emergency、恢复终端、crash 扩展提示（缝）+ 记录（缝）+ 报告指引叶子）；
+  AppDomain.UnhandledException 桥接。
+- **信号**：PosixSignalRegistration（SIGTERM + 非 Windows SIGHUP；SIGHUP 软关停语义）+
+  一次性清理链。TS 的 stdin/stdout/stderr 流错误监听在 .NET 无对应物（注释记录，
+  死终端转换统一走 UncaughtCrash）。
+- **CtrlC/D/Z**：双击 500ms 窗口关停 / 单击清编辑器；CtrlZ Windows 提示、Unix 走
+  SIGINT 屏蔽 + SIGCONT 恢复 + libc kill(0, SIGTSTP)（P/Invoke）。
+- **其他**：`GetChangelogForDisplay`（ShouldSkipChangelog / IsFreshInstall 叶子 + 新条目拼接；
+  C271：TS 计 `session.state.messages`，端口计持久化 message 条目，init 时刻等值）；
+  `ReportInstallTelemetry`（HttpClient 5s 超时 + PI_OFFLINE 门控）；
+  `Session.IsBashRunning` 只读访问器（Core 增补，原仅私有控制器列表）。
+
+**移植差异（记录）**：C271（changelog 消息计数口径）；tmux 查询用 Process + 2s 超时（TS spawn
++ setTimeout）；SIGTSTP/SIGCONT 用 PosixSignalRegistration + libc kill（TS process.kill）；
+telemetry fetch 用 HttpClient（TS fetch + AbortSignal.timeout）；stdin/out/err 流错误监听无
+.NET 对应物。**init 全链路测试随 4f-4m-4/5 缝清零后补**（SetupCommandKeyHandlers 缝当前会在
+init 后段抛错——与所有登记缝一致的「先立缝后清零」）。
+
+**测试（7 例）**：startup 三门（默认 / verbose / 工具展开联动）、handleStartupSubmit 回显 +
+状态行、showManagedToolStatus（spacer 一次 + Warning 前缀 + 合并游标重置）、CtrlC 单击清编辑器
+（不触发关停路径）、CtrlZ Windows 分支、信号注册幂等 + 清理、checkShutdownRequested 未请求 no-op。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3156 / 0 失败**。
