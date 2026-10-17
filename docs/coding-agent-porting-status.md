@@ -5477,3 +5477,35 @@ L374-423 + 来源标签与冲突诊断 L669-715）→ `Modes/Interactive/Interac
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **2969 / 0 失败**（55s）。
+
+## 4f-4h：扩展绑定辅助层（2026-10-17）
+
+**范围**：`bindCurrentSessionExtensions`（L1963-2052）/ `setExtensionWidget`（L2398-2427）/
+`showExtensionConfirm`（L2620-2626）/ `getCrashExtensionHint`（L2125-2137）/
+扩展快捷 handler（L2277-2281）/ UI context 的 `setTheme`（L2660-2671）中可独立判定的部分 →
+`Modes/Interactive/InteractiveModeExtensions.cs` + `InteractiveModeExtensionsTests.cs`（14 例）。
+
+**落地内容**：
+- **widget 截断**：`MaxWidgetLines = 10` 与 `WidgetContent(content)`。只取前 10 行，另给一个
+  「是否截断」标志由调用方补 `"... (widget truncated)"`——TS 的截断提示是**独立一条
+  ThemedText**，不混进内容行，所以这是两部分而不是一段字符串。
+- **确认框**：`ConfirmTitle`（`{title}\n{message}`）、`ConfirmOptions`（`["Yes","No"]`）、
+  `IsConfirmed`（严格 `=== "Yes"`，大小写敏感；关闭对话框拿到 `undefined` 即否定）。
+- **崩溃提示**：`GetCrashExtensionHint(stack, extensions)`：堆栈帧匹配结果过
+  `InteractiveModeSupport.FormatCrashExtensionHint`，**整体 try/catch**，任何异常塌成
+  `null`——不能让「崩溃提示」本身再崩一次。
+- **快捷 handler 错误**：`ShortcutErrorMessage` = `Shortcut handler error: {msg}`。
+- **主题写盘门控**：`ShouldPersistThemeName(succeeded, recordedSetting, requestedName)`：
+  setTheme 仅在**成功**且与已记录设置**不同**时才写。拒绝不动设置；同名不重复写；
+  `recordedSetting == null` 视为「不同」，照写。
+
+**顺延**：`bindCurrentSessionExtensions` 的 `commandContextActions`（newSession / fork /
+navigateTree / switchSession / reload / shutdownHandler / onError）与
+`createExtensionUIContext` 的 25 个回调都直接绑 `session` / `editor` / `ui`，随 4f-4m。
+
+**测试（14 例）**：widget 截断四例（10 行整取 / 25 行取前 10 且 truncated / 文案常量 /
+限额本身）、确认框三例（换行标题、只认 `Yes`、选项表）、崩溃提示三例（命中 /
+null 堆栈 / 无关堆栈）、快捷错误一例、主题门控三例（新名写 / 拒绝不写 / 同名不写）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**2983 / 0 失败**（1m14s）。
