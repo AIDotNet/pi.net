@@ -81,6 +81,12 @@ public class Text : IComponent
     {
     }
 
+    /// <summary>
+    /// Virtual mouse hook, for the same reason as <see cref="HandleInput"/> (C233): without it a
+    /// subclass override would not be reachable through an <see cref="IComponent"/> reference.
+    /// </summary>
+    public virtual TuiMouseEventResult? HandleMouse(TuiMouseEvent @event) => null;
+
     private void ClearCache()
     {
         _cachedText = null;

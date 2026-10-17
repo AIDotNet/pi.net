@@ -18,7 +18,7 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 /// changing data before creating the component, or call <see cref="Invalidate"/> after changing state
 /// that <paramref name="build"/> reads.
 /// </remarks>
-public sealed class ThemedText : Text
+public class ThemedText : Text
 {
     private readonly Func<string> _build;
     private bool _stale = true;
