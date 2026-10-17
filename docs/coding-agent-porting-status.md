@@ -4800,6 +4800,59 @@ console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失�
 
 > **4f-3d 余 1 个 / 1,435 行**：`tree-selector`。
 
+## 4f-3d Batch F-5：tree-selector（2026-10-17）
+
+**范围**：`tree-selector.ts`（1,435 行，未被漂移触及）→
+`Modes/Interactive/Components/TreeSelector.cs`（约 1,790 行）+ `TreeSelectorTests.cs`（18 例，
+**上游 14 例全部转写**——tree-selector 是选择器组里唯一有上游测试文件的组件）。
+
+**落地内容**：
+- 视口层：`HorizontalViewport.RenderHorizontalViewport`（树槽恒可见、仅按选中行 anchor
+  水平裁剪正文；`MIN/MAX_VISIBLE_ANCHOR_CONTENT_WIDTH` 与 `MIN/MAX_ANCHOR_CONTEXT_WIDTH`
+  四常量、`floor(viewport/3|4)` 两档、`sliceByColumn` 后补 `\x1b[0m`）。
+- `TreeList`（IComponent）：`flattenTree`（迭代后序判「子树含活跃叶」、活跃分支优先的
+  roots/children 排序、多根=虚拟根分支的 indent/connector/gutters 规则、assistant 消息
+  toolCall 块提取进 `toolCallMap`）；`applyFilter`（usage 剔除、无文本非当前叶的 assistant
+  折叠（error/aborted 豁免）、六档 filterMode（default/no-tools/user-only/labeled-only/all/
+  循环）、逐 token 搜索）；`recalculateVisualStructure`（可见父子映射 + 折叠传播）；搜索文本
+  十二种条目类型逐条对齐；渲染（搜索框/状态标签/折叠连线/label 时间戳/选中高亮）；键盘
+  十九路优先级（fold/unfold 的「可折叠则折叠否则段跳」双语义、六档过滤、Esc 清搜索、
+  控制字符判定后进搜索）。
+- `SearchLine` / `TreeHelp`（chunk-aware 换行）+ `FormatHelpKeys` / `CompactRawKeys`。
+- `LabelInput`（IComponent + IFocusable）：标签编辑（空值=清除）、confirm/cancel/转发三路。
+- `TreeSelectorComponent`（Container + IFocusable）：装配、空树 100ms 自动 cancel（`Timer`
+  保引用防 GC）、标签编辑面板与树列表互斥切换、Focusable 传播、`OnCopy` 转发。
+
+**动工前核对（约定执行）**：参照检出实测为 `eb326d26`，`428a12bc7..eb326d26` 25 提交、
+`eb326d26..HEAD` 0 提交——即漂移就是 S0–S4 已对账的那批，`tree-selector.ts` 未被触及，
+按当前检出移植。
+
+**本批修掉的实现缺陷（提交前自查发现，未上线过）**：
+1. 五处 `Types.StopReason`（无此类型名）→ `StopReason`；空 id 过滤后的可空性修复。
+2. **`FormatHelpKeys` 词边界缺失**：TS 用 `\bpageUp\b` 等词边界正则，首轮写成裸
+   `string.Replace`——`"pgup"` 会被 `Replace("up","↑")` 误伤成 `"pg↑"`（TS 的 `\b` 不会命中，
+   `pgup` 中 g→u 无词边界）。改为 `Regex.Replace` + `\b` 包装（`ReplaceRegexWholeWord`）。
+   当前默认键位表下是潜伏缺陷（帮助项 16 个键无一含 `pgup`），仍按逐行对齐原则修正。
+3. `SessionSelector` 的局部类 `SessionTreeNode` 改名 `SessionInfoTreeNode`（Core 层已有
+   `SessionTreeNode`，TreeSelector 经 using 别名直接复用 Core 的树节点——TS 两侧本就是
+   同一个 `core/session-manager.ts` 类型）。
+4. `UpdateNodeLabel`：TS 原地改 `node.label`，C# 的 `SessionTreeNode` 是不可变 record →
+   `with` 表达式 + `FlatNode.Node` 可变 setter 承载，行为等价。
+
+**测试与验证（Batch F-5）**：
+- `TreeSelectorTests` **18 / 0**（上游 `test/tree-selector.test.ts` 14 例全部转写）：元数据
+  条目（model_change/context_edit/thinking_level_change）的最近可见祖先聚焦、context_edit
+  默认隐藏 + all 模式 `[context omit: …]`、Ctrl+U/D 过滤切换的父链遍历、30 宽帮助行
+  （不截断 + 全行宽 ≤30）、Ctrl+X 复制全文、`T` 切换 label 时间戳（`[checkpoint]` →
+  `3/28 14:32` + `[+label time]`）、空过滤两次往返保留选中、Ctrl+←/→ 折叠/展开/段跳全序、
+  Alt+←/→ 别名、折叠根 + 嵌套折叠保持、非活跃分支折叠、多根折叠、中间节点被过滤时折叠
+  仍隐藏后代、搜索与过滤切换重置折叠状态。
+- `SessionSelectorTests` **22 / 0**（改名后回归）；`Pi.CodingAgent.Tests` 全量 **2614 / 0 失败**
+  （新增 18）；`dotnet build Pi.slnx -m:1` **0 警告 0 错误**。
+
+> **4f-3d 选择器组 21/21 全部收口。** 下一阶段：4f-3e → 4f-4 → 4f-5 → 4g → evals。
+
+
 
 
 

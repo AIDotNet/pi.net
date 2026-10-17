@@ -60,10 +60,10 @@ internal static partial class SessionSelectorStatics
 }
 
 /// <summary>A session tree node for hierarchical display.</summary>
-internal sealed class SessionTreeNode
+internal sealed class SessionInfoTreeNode
 {
     public required SessionInfo Session { get; init; }
-    public List<SessionTreeNode> Children { get; } = [];
+    public List<SessionInfoTreeNode> Children { get; } = [];
     public long LatestActivity { get; set; }
 }
 
@@ -84,21 +84,21 @@ internal static class SessionTree
     /// Build a tree structure from sessions based on parentSessionPath.
     /// Returns root nodes sorted by modified date (descending).
     /// </summary>
-    public static List<SessionTreeNode> BuildSessionTree(IReadOnlyList<SessionInfo> sessions)
+    public static List<SessionInfoTreeNode> BuildSessionTree(IReadOnlyList<SessionInfo> sessions)
     {
-        var byPath = new Dictionary<string, SessionTreeNode>(StringComparer.Ordinal);
+        var byPath = new Dictionary<string, SessionInfoTreeNode>(StringComparer.Ordinal);
 
         foreach (var session in sessions)
         {
             var sessionPath = SessionSelectorStatics.CanonicalizePath(session.Path) ?? session.Path;
-            byPath[sessionPath] = new SessionTreeNode
+            byPath[sessionPath] = new SessionInfoTreeNode
             {
                 Session = session,
                 LatestActivity = session.Modified.ToUnixTimeMilliseconds(),
             };
         }
 
-        var roots = new List<SessionTreeNode>();
+        var roots = new List<SessionInfoTreeNode>();
 
         foreach (var session in sessions)
         {
@@ -116,7 +116,7 @@ internal static class SessionTree
             }
         }
 
-        long UpdateLatestActivity(SessionTreeNode node)
+        long UpdateLatestActivity(SessionInfoTreeNode node)
         {
             var latestActivity = node.Session.Modified.ToUnixTimeMilliseconds();
             foreach (var child in node.Children)
@@ -133,7 +133,7 @@ internal static class SessionTree
         }
 
         // Sort children and roots by latest activity in each subtree (descending)
-        void SortNodes(List<SessionTreeNode> nodes)
+        void SortNodes(List<SessionInfoTreeNode> nodes)
         {
             // TS Array.prototype.sort is stable; LINQ OrderBy(Descending) keeps that property.
             var ordered = nodes.OrderByDescending(n => n.LatestActivity).ToList();
@@ -152,11 +152,11 @@ internal static class SessionTree
     }
 
     /// <summary>Flatten tree into display list with tree structure metadata.</summary>
-    public static List<FlatSessionNode> FlattenSessionTree(List<SessionTreeNode> roots)
+    public static List<FlatSessionNode> FlattenSessionTree(List<SessionInfoTreeNode> roots)
     {
         var result = new List<FlatSessionNode>();
 
-        void Walk(SessionTreeNode node, int depth, IReadOnlyList<bool> ancestorContinues, bool isLast)
+        void Walk(SessionInfoTreeNode node, int depth, IReadOnlyList<bool> ancestorContinues, bool isLast)
         {
             result.Add(new FlatSessionNode
             {
