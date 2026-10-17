@@ -4852,6 +4852,47 @@ console 行会以普通文本项混在正文里。这是 S4 唯一真正缺失�
 
 > **4f-3d 选择器组 21/21 全部收口。** 下一阶段：4f-3e → 4f-4 → 4f-5 → 4g → evals。
 
+## 4f-3e Batch 1：bordered-loader / custom-entry / earendil-announcement（2026-10-17）
+
+**范围**：三个自包含小组件（TS 合计 190 行）→ `Components/BorderedLoader.cs` /
+`Components/CustomEntry.cs` / `Components/EarendilAnnouncement.cs` + `SmallComponentTests.cs`
+（10 例，上游无这三个组件的测试，照源码行为自定观测点）。
+
+**落地内容**：
+- `BorderedLoader`（Container）：cancellable 走 `CancellableLoader`（`Signal`/`OnAbort` 转发、
+  HandleInput 经 C233 override）、非 cancellable 自持 `CancellationTokenSource`（OnAbort setter
+  为 no-op）；`DisposeLoader` 复刻 TS 的 dispose/stop 探测链（`IDisposable` → `Loader.Stop`）。
+- `CustomEntryComponent`（Container）：扩展自定义条目渲染；renderer 异常 →
+  `[customType] renderer failed: …` 错误 Box（`outputPad` 进 `Box` paddingX、bg=
+  customMessageBg）；`SetExpanded`（变化才重建）/`SetOutputPad`/`Invalidate` 三触发点重建；
+  输出恒前置 `Spacer(1)`，renderer 返回 null 时 `HasContent()==false` 且渲染为空。
+- `EarendilAnnouncementComponent`（Container）：标题 + 博客链接 + 可选内联图
+  （`clankolas.png` 缺失时静默跳过；模块级缓存静态字段 + attempted 标记）。
+- **不移植**：`components/index.ts`（37 行）是纯 re-export barrel，C# 无对应物
+  （组件各自 public 类型即消费面），与既往批次对 barrel 文件的处置一致。
+
+**前置依赖核实**：`GetBundledInteractiveAssetPath`（Config，4a 已移植）、`CancellableLoader` /
+`Loader` / `Image`（Pi.Tui 已就绪）、`EntryRenderer` / `EntryRenderOptions`（9g 契约层已就绪）、
+`ThemeColors` / `ThemeBackgrounds` 作用域常量（4f-2a 已就绪）均无缺口。
+
+**mermaid 阻塞记录**：`mermaid.ts`（89 行）依赖外部包 `grok-mermaid@0.2.3`（diagram 渲染
+引擎）与 `marked@18`（markdown lexer）；参照检出的 `node_modules` 为空，两个包都不可得，
+上游 `test/mermaid.test.ts`（108 行）的期望向量依赖 grok-mermaid 的真实渲染输出，无法
+差分验证。处置：**延后**，待依赖可得后按「transformer 骨架 + 渲染引擎注入缝」移植
+（codemode 引擎先例）；不假装完成。
+
+**测试与验证（4f-3e Batch 1）**：
+- `BorderedLoaderTests` **4 / 0**：cancellable 结构（边框/消息/提示行）、esc 触发 OnAbort 且
+  Signal 转取消、非 cancellable 无提示行且输入不影响 Signal、DisposeLoader 双路不抛。
+- `CustomEntryComponentTests` **5 / 0**：renderer 输出包装（Spacer + 组件 + HasContent）、
+  null 输出为空、异常 → 错误 Box 文案、SetExpanded 三态重建序、SetOutputPad/Invalidate
+  重建计数。
+- `EarendilAnnouncementComponentTests` **1 / 0**：标题 + 博客 URL + 上下边框行。
+- `Pi.CodingAgent.Tests` 全量 **2624 / 0 失败**（新增 10）；构建 0 警告 0 错误。
+
+> **4f-3e 余**：`footer`（302）/ `tool-execution`（408）/ `bash-execution`（223）/ `armin`（384）/
+> `easter-egg-3d`（1292 + lazy 27）/ `mermaid`（89，**阻塞**：grok-mermaid + marked 不可得）。
+
 
 
 
