@@ -5509,3 +5509,36 @@ null 堆栈 / 无关堆栈）、快捷错误一例、主题门控三例（新名
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **2983 / 0 失败**（1m14s）。
+
+## 4f-4i：编辑器提交路由层（2026-10-17）
+
+**范围**：`setupEditorSubmitHandler`（L3179-3375，201 行 if-chain）的路由决策 →
+`Modes/Interactive/InteractiveModeSubmit.cs` + `InteractiveModeSubmitTests.cs`（55 例）。
+
+**落地内容**：
+- **命令表**：`SubmitCommand` 枚举（27 个内置命令）+ `SubmitRoute(Command, Argument,
+  FullText)` + `Route(text)`，把 TS 的 26 个 `if` 分支变成一张表。
+  - **带参命令**（5 个）：`/bug` `/model` `/thinking` `/login` `/compact`。匹配形如
+    `/name` 或 `/name …`；切片长度是**可观测契约**——`/bug` 切 4（命令本身，
+    `/bug hi` → ` hi` → `hi`），`/model`、`/login` 切 7，`/thinking` 切 10，
+    `/compact` 切 9（后四个都含尾空格）。空白切片按 TS 的 `|| undefined` 塌成
+    `null`，handler 收到的是「无参」而不是 `""`。
+  - **精确命令**（19 个）：只做全等匹配，`/settings x`、`/quit now` 都不是命令。
+  - **整行命令**（3 个）：`/export` `/import` `/name`，handler 收**整行**。
+- **bash 分支**：`ParseBashCommand`。`!` 正常执行、`!!` 排除上下文，**恰好剥两个
+  字符**（`!!!foo` → `!foo`，excluded）；裸 `!` / `!!`（命令为空）**不是** bash 行，
+  落到普通提交分支——这是 handler 里唯一一个「前缀命中却放行」的分支。
+- **名称探针**：`GetSlashCommandName`（isExtensionCommand 用的首个空格前、去 `/`）。
+- **常量**：`BashBusyWarning`。
+
+**顺延**：onSubmit 闭包本体（各分支调 `handleXxx`、`editor.setText("")` 的先后、
+压缩期的 `queueCompactionMessage(text, "steer")` / 扩展命令直通、流式期的
+`prompt(text, { streamingBehavior: "steer" })`、`flushPendingBashComponents` 与
+`onInputCallback` / `pendingUserInputs` 兜底）随 4f-4m。
+
+**测试（55 例）**：带参命令 13 组切片用例、`/bug` 的 4 字符切片特例、六组近失、
+19 个精确命令逐个 + 带参不算、整行命令 6 组、普通消息与扩展命令不路由、bash 八组
+（含 `!!!foo`）、名称探针四组、busy 文案。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3038 / 0 失败**（1m12s）。
