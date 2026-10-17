@@ -24,6 +24,19 @@ internal sealed class FakeTui : ITui
 {
     public int RenderRequests { get; private set; }
 
+    public int Invalidations { get; private set; }
+
+    /// <summary>Last value passed to <see cref="SetTerminalColorSchemeNotifications"/>, null when never called.</summary>
+    public bool? ColorSchemeNotifications { get; private set; }
+
+    /// <summary>The listener installed by <see cref="OnTerminalColorSchemeChange"/>, null when none.</summary>
+    public Action<TerminalColorScheme>? ColorSchemeListener { get; private set; }
+
+    /// <summary>Replacement for the terminal color query; the default reports no colors.</summary>
+    public Func<TerminalColorQueryOptions, Task<TerminalColorsSnapshot>>? QueryTerminalColorsHandler { get; set; }
+
+    public TerminalColorQueryOptions? LastColorQuery { get; private set; }
+
     public TuiMode Mode => TuiMode.Regular;
 
     public List<IComponent> Children { get; } = [];
@@ -84,14 +97,30 @@ internal sealed class FakeTui : ITui
     {
     }
 
-    public Action OnTerminalColorSchemeChange(Action<TerminalColorScheme> listener) => () => { };
+    /// <summary>Forget the installed listener, to model a TUI swap.</summary>
+    public void ClearColorSchemeListener() => ColorSchemeListener = null;
 
-    public void SetTerminalColorSchemeNotifications(bool enabled)
+    public Action OnTerminalColorSchemeChange(Action<TerminalColorScheme> listener)
     {
+        ColorSchemeListener = listener;
+        return () =>
+        {
+            if (ReferenceEquals(ColorSchemeListener, listener))
+            {
+                ColorSchemeListener = null;
+            }
+        };
     }
 
-    public Task<TerminalColorsSnapshot> QueryTerminalColorsAsync(TerminalColorQueryOptions options) =>
-        Task.FromResult(new TerminalColorsSnapshot());
+    public void SetTerminalColorSchemeNotifications(bool enabled) => ColorSchemeNotifications = enabled;
+
+    public Task<TerminalColorsSnapshot> QueryTerminalColorsAsync(TerminalColorQueryOptions options)
+    {
+        LastColorQuery = options;
+        return QueryTerminalColorsHandler is null
+            ? Task.FromResult(new TerminalColorsSnapshot())
+            : QueryTerminalColorsHandler(options);
+    }
 
     public Task<RgbColor?> QueryTerminalBackgroundColorAsync(int timeoutMs) => Task.FromResult<RgbColor?>(null);
 
@@ -104,9 +133,7 @@ internal sealed class FakeTui : ITui
     {
     }
 
-    public void Invalidate()
-    {
-    }
+    public void Invalidate() => Invalidations++;
 }
 
 // ------------------------------------------------------- extension-selector
