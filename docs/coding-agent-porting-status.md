@@ -5613,3 +5613,33 @@ Session Info 文档（**纯渲染器**，读 `this.session` 统计与 cache-warm
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3089 / 0 失败**（2m46s）。
+
+## 4f-4l：生命周期叶子层（2026-10-17）
+
+**范围**：`formatResumeCommand`（L341-358）/ `checkTmuxKeyboardSetup` 的判定
+（L1287-1305）/ `getChangelogForDisplay` 的门控（L1324-1350）→
+`Modes/Interactive/InteractiveModeLifecycle.cs` + `InteractiveModeLifecycleTests.cs`（16 例）。
+
+**落地内容**：
+- **恢复命令**：`FormatResumeCommand(isTty, isPersisted, sessionFile, sessionFileExists,
+  usesDefaultSessionDir, sessionDir, sessionId, appName)`。isTty / isPersisted / 会话文件
+  存在**三道独立门**，任一不满足即 `null`（空串文件路径也算缺失，TS 的 `!sessionFile`）；
+  自定义会话目录追加 `--session-dir` 且目录经
+  `InteractiveModeSupport.QuoteIfNeeded`（含空格 → 单引号）；默认目录不加该参数。
+  崩溃报告（4f-4d）与安装变更告警共用同一条命令。
+- **tmux 键盘**：`ResolveTmuxKeyboardWarning(extendedKeys, extendedKeysFormat)`。
+  查询失败（`null`）**刻意沉默**——超时或沙箱不该告警；`extended-keys` 非
+  `on` / `always` 先报 off；仅 `xterm` 格式才报 csi-u 建议。两条告警互斥、前者优先。
+- **变更日志门控**：`ShouldSkipChangelog(messageCount)`（transcript 已有消息即续会话，
+  一律不显示）；`IsFreshInstall(lastVersion)`（无已记录版本 = 全新安装——记录版本 +
+  发遥测，但**不显示**内容，哪怕文件里有条目）。
+
+**顺延**：`showSettingsSelector` / `showTreeSelector` / `showModelsSelector` 三个对话框
+（选组件 + `activeSelectorToken` 单飞令牌）与 `init` / `run` / `shutdown` 直接操纵容器与
+runtimeHost，随 4f-4m。
+
+**测试（16 例）**：恢复命令六组（三道门逐项抑制、默认与自定义目录、引号目录）、
+tmux 六组（沉默 / on+csi-u / always+xterm / off+xterm / auto+null）、changelog 门控四组。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3105 / 0 失败**（3m03s）。
