@@ -6031,3 +6031,29 @@ handleResumeSession 不测（致命路径 Exit(1)）。
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3174 / 0 失败**。
+
+## 4f-4m-4-尾批-收尾：showTreeSelector + 双击 escape（2026-10-18）
+
+**范围**：`showTreeSelector`（L5538-5685）+ 双击 escape 分派（L3065-3070）→
+`InteractiveMode.Lifecycle.cs` + 1 例测试。**退役 2 缝**：`SetupTreeKeyHandlers`（真实接线
+`app.session.tree`）与 `ShowDoubleEscapeSelector`（"tree" → 树选择器 / "fork" → fork 选择器）。
+**至此 `setupKeyHandlers` 全部动作真实接线完毕。**
+
+**落地内容**：
+- **showTreeSelector**：`GetTree` 空清单状态行（新会话 `GetTree()` 恒含根节点——空状态文案在
+  移植语义下不可达，测试注释记录）→ `ShowSelector` 装配 `TreeSelectorComponent`
+  （`GetLeafId` / 终端高度 / `GetTreeFilterMode` 初始过滤、标签编辑经 `AppendLabelChange`、
+  `OnCopy` → 剪贴板 + 状态行/错误）。
+- **onSelect 回调**（L5553-5659）：同叶 no-op「Already at this point」→ 关闭选择器 →
+  「Summarize branch?」三选对话框（`GetBranchSummarySkipPrompt` 门控；Esc 重开树选择器、
+  自定义提示词编辑取消回环）→ 流式中先 `RestoreQueuedMessagesToEditor` + `AbortAsync` →
+  压缩中拦截 → 摘要期 escape 换防（`AbortBranchSummary`）+ `BranchSummaryStatusIndicator` →
+  `NavigateTreeAsync`（aborted 重开树选择器 / cancelled 状态行 / 成功清空 chat +
+  `RenderInitialMessages` + 编辑器回填（仅当编辑器为空）+ `FlushCompactionQueue(false)`）→
+  finally 摘要指示器清理 + escape 归还。
+
+**测试（1 例）**：双击 escape 两个动作分别挂载树选择器与 fork 选择器（带条目会话）+ 清理。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3175 / 0 失败**（复跑；首跑 `ModelSelectorTests.InitialSearchThatMatchesNothing…` 单次时序
+Flake，单独运行 5/5 与复跑均绿——与既有 TestOrder 类 Flake 同型，非本批引入）。
