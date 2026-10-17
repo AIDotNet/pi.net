@@ -1249,4 +1249,28 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         Assert.Equal("hello world", result.EditorText);
         Assert.NotEqual(beforeLeaf, host.Session.SessionManager.GetLeafId());
     }
+
+    // ShowTreeSelector 空清单分支：GetTree() 在新会话也返回根节点（非空清单），空状态文案
+    // 在移植语义下不可达——挂载行为由 DoubleEscapeActions 用例覆盖。
+
+    [Fact]
+    public async Task DoubleEscapeActionsMountTheTreeAndForkSelectors()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+        await host.Session.PromptAsync("hello world");
+        try
+        {
+            mode.ShowDoubleEscapeSelector("tree");
+            Assert.IsType<TreeSelectorComponent>(mode.EditorContainerChildrenForTests[0]);
+            mode.DisposeActiveSelector();
+
+            mode.ShowDoubleEscapeSelector("fork");
+            Assert.IsType<UserMessageSelectorComponent>(mode.EditorContainerChildrenForTests[0]);
+        }
+        finally
+        {
+            mode.DisposeActiveSelector();
+        }
+    }
 }

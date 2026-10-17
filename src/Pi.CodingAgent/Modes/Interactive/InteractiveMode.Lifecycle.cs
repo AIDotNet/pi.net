@@ -971,13 +971,11 @@ public partial class InteractiveMode
         SetupTreeKeyHandlers();
     }
 
-    /// <summary>
-    /// Seam: the tree action (TS L3099) needs <c>showTreeSelector</c> (L5538-5685), whose select
-    /// callback drives <c>session.navigateTree</c> with branch summarization — lands with the
-    /// 4f-4m-4 tail's tree slice.
-    /// </summary>
-    private void SetupTreeKeyHandlers() =>
-        throw new NotImplementedException("4f-4m-4 tail: app.session.tree → showTreeSelector (TS L3099)");
+    /// <summary>TS <c>setupKeyHandlers</c> 的树动作（L3099）。</summary>
+    private void SetupTreeKeyHandlers()
+    {
+        _defaultEditor.OnAction("app.session.tree", () => ShowTreeSelector());
+    }
 
     // ---------------------------------------------------------------- selectors / clear / debug
 
@@ -1303,6 +1301,188 @@ public partial class InteractiveMode
     internal void AddAutocompleteProvider(AutocompleteProviderFactory factory) =>
         throw new NotImplementedException("4f-4m-5 closeout: addAutocompleteProvider (autocomplete assembly)");
 
+    // ---------------------------------------------------------------- tree selector (L5538-5685)
+
+    /// <summary>TS <c>showTreeSelector</c> (L5538-5685).</summary>
+    internal void ShowTreeSelector(string? initialSelectedId = null)
+    {
+        var tree = SessionManager.GetTree();
+        var realLeafId = SessionManager.GetLeafId();
+        var initialFilterMode = SettingsManager.GetTreeFilterMode();
+
+        if (tree.Count == 0)
+        {
+            ShowStatus("No entries in session");
+            return;
+        }
+
+        ShowSelector(done =>
+        {
+            var selector = new TreeSelectorComponent(
+                tree,
+                realLeafId,
+                _ui.Terminal.Rows,
+                entryId => _ = HandleTreeSelectionAsync(entryId, done),
+                () =>
+                {
+                    done();
+                    _ui.RequestRender();
+                },
+                (entryId, label) =>
+                {
+                    SessionManager.AppendLabelChange(entryId, label);
+                    _ui.RequestRender();
+                },
+                initialSelectedId,
+                initialFilterMode);
+            selector.OnCopy = async text =>
+            {
+                if (string.IsNullOrEmpty(text))
+                {
+                    ShowError("Selected entry has no text to copy");
+                    return;
+                }
+
+                try
+                {
+                    await Clipboard.CopyToClipboardAsync(text).ConfigureAwait(true);
+                    ShowStatus("Copied selected message to clipboard");
+                }
+                catch (Exception error)
+                {
+                    ShowError(error.Message);
+                }
+            };
+            return (selector, selector, null);
+        });
+    }
+
+    /// <summary>TS <c>showTreeSelector</c> 的 onSelect 回调体（L5553-5659）。</summary>
+    private async Task HandleTreeSelectionAsync(string entryId, Action done)
+    {
+        // Selecting the current leaf is a no-op (already there)
+        if (entryId == SessionManager.GetLeafId())
+        {
+            done();
+            ShowStatus("Already at this point");
+            return;
+        }
+
+        // Ask about summarization
+        done(); // Close selector first
+
+        // Loop until user makes a complete choice or cancels to tree
+        var wantsSummary = false;
+        string? customInstructions = null;
+
+        // Check if we should skip the prompt (user preference to always default to no summary)
+        if (!SettingsManager.GetBranchSummarySkipPrompt())
+        {
+            while (true)
+            {
+                var summaryChoice = await ShowExtensionSelectorAsync(
+                    "Summarize branch?",
+                    ["No summary", "Summarize", "Summarize with custom prompt"]).ConfigureAwait(true);
+
+                if (summaryChoice is null)
+                {
+                    // User pressed escape - re-show tree selector with same selection
+                    ShowTreeSelector(entryId);
+                    return;
+                }
+
+                wantsSummary = summaryChoice != "No summary";
+
+                if (summaryChoice == "Summarize with custom prompt")
+                {
+                    customInstructions = await ShowExtensionEditorAsync("Custom summarization instructions").ConfigureAwait(true);
+                    if (customInstructions is null)
+                    {
+                        // User cancelled - loop back to summary selector
+                        continue;
+                    }
+                }
+
+                // User made a complete choice
+                break;
+            }
+        }
+
+        // The user committed to navigating: stop the active response first.
+        if (Session.IsStreaming)
+        {
+            RestoreQueuedMessagesToEditor();
+            await Session.AbortAsync().ConfigureAwait(true);
+        }
+
+        // Recheck after the dialogs and streaming abort, before replacing another operation's UI.
+        if (Session.IsCompacting)
+        {
+            ShowError("Wait for the current compaction or tree navigation to finish before navigating the session tree.");
+            return;
+        }
+
+        // Set up escape handler and status indicator if summarizing
+        var showingSummaryIndicator = false;
+        var originalOnEscape = _defaultEditor.OnEscape;
+
+        if (wantsSummary)
+        {
+            _defaultEditor.OnEscape = () => Session.AbortBranchSummary();
+            _chatContainer.AddChild(new Spacer(1));
+            ShowStatusIndicator(new BranchSummaryStatusIndicator(_ui));
+            showingSummaryIndicator = true;
+            _ui.RequestRender();
+        }
+
+        try
+        {
+            var result = await Session.NavigateTreeAsync(entryId, new AgentSession.NavigateTreeSessionOptions
+            {
+                Summarize = wantsSummary,
+                CustomInstructions = customInstructions,
+            }).ConfigureAwait(true);
+
+            if (result.Aborted)
+            {
+                // Summarization aborted - re-show tree selector with same selection
+                ShowStatus("Branch summarization cancelled");
+                ShowTreeSelector(entryId);
+                return;
+            }
+
+            if (result.Cancelled)
+            {
+                ShowStatus("Navigation cancelled");
+                return;
+            }
+
+            // Update UI
+            _chatContainer.Clear();
+            RenderInitialMessages();
+            if (result.EditorText is not null && string.IsNullOrWhiteSpace(_editor.GetText()))
+            {
+                _editor.SetText(result.EditorText);
+            }
+
+            ShowStatus("Navigated to selected point");
+            _ = FlushCompactionQueueAsync(willRetry: false);
+        }
+        catch (Exception error)
+        {
+            ShowError(error.Message);
+        }
+        finally
+        {
+            if (showingSummaryIndicator)
+            {
+                ClearStatusIndicator(StatusIndicatorKind.BranchSummary);
+            }
+
+            _defaultEditor.OnEscape = originalOnEscape;
+        }
+    }
+
     /// <summary>Seam: pasteToEditor needs the editor's optional cursor APIs (4f-4m-4 input batch).</summary>
     internal void PasteToEditor(string text) =>
         throw new NotImplementedException("4f-4m-4 input batch: pasteToEditor (editor cursor APIs)");
@@ -1575,9 +1755,18 @@ public partial class InteractiveMode
         }
     }
 
-    /// <summary>Seam: double-escape → tree / user-message selector lands with 4f-4m-4.</summary>
-    private void ShowDoubleEscapeSelector(string action) =>
-        throw new NotImplementedException($"4f-4m-4 command slice: double-escape action '{action}' (TS L3065-3070)");
+    /// <summary>TS double-escape with empty editor: /tree or /fork based on the setting (L3065-3070).</summary>
+    internal void ShowDoubleEscapeSelector(string action)
+    {
+        if (action == "tree")
+        {
+            ShowTreeSelector();
+        }
+        else
+        {
+            ShowUserMessageSelector();
+        }
+    }
 
     /// <summary>Test seam: the default-arg path of the anthropic warning check.</summary>
     internal Task MaybeWarnAboutAnthropicSubscriptionAuthForTestsAsync() =>
