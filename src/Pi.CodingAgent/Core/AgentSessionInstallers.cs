@@ -1209,6 +1209,9 @@ public partial class AgentSession
         _bashAbortControllers.Clear();
     }
 
+    /// <summary>TS <c>isBashRunning</c>：是否有进行中的 <c>!</c> 命令（4f-4m-3 生命周期批补的只读访问器）。</summary>
+    public bool IsBashRunning => _bashAbortControllers.Count > 0;
+
     /// <summary>TS <c>_flushPendingBashMessages()</c>（TS 3924-3932）。</summary>
     private void FlushPendingBashMessages()
     {

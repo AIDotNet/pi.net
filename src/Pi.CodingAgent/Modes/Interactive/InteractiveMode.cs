@@ -293,7 +293,7 @@ public partial class InteractiveMode
             _themeController.ApplyFromSettings();
         });
         _version = Config.Version;
-        _onRightClickPaste = HandleRightClickPaste;
+        _onRightClickPaste = () => _ = HandleRightClickPasteAsync();
         _renderer = TuiRenderer.CreateInteractiveTui(new InteractiveTuiOptions
         {
             TuiMode = tuiMode,
@@ -1432,10 +1432,4 @@ public partial class InteractiveMode
         _editor.SetText("");
         _ui.RequestRender();
     }
-
-    // ---------------------------------------------------------------- paste seam (L3118-3131)
-
-    /// <summary>Seam: paste handling lands with the 4f-4m input slice (TS L3118-3173).</summary>
-    private void HandleRightClickPaste() =>
-        throw new NotImplementedException("4f-4m input slice: handleRightClickPaste (TS L3118-3131)");
 }

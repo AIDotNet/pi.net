@@ -1024,7 +1024,7 @@ public partial class InteractiveMode
     }
 
     /// <summary>Seam: signal-handler registration lands with the 4f-4m lifecycle slice.</summary>
-    private void UnregisterSignalHandlers()
+    internal void UnregisterSignalHandlers()
     {
         foreach (var cleanup in _signalCleanupHandlers)
         {
@@ -1526,12 +1526,4 @@ public partial class InteractiveMode
     }
 
     // ---------------------------------------------------------------- seams
-
-    /// <summary>Seam: init lands with the 4f-4m lifecycle slice (TS L936-1123).</summary>
-    private Task InitAsync() =>
-        throw new NotImplementedException("4f-4m lifecycle slice: init (TS L936-1123)");
-
-    /// <summary>Seam: the shutdown hand-off lands with the 4f-4m lifecycle slice (TS L4362-4366).</summary>
-    private void CheckShutdownRequested() =>
-        throw new NotImplementedException("4f-4m lifecycle slice: checkShutdownRequested (TS L4362-4366)");
 }

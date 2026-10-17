@@ -860,4 +860,111 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         Assert.False(pending.IsCompleted);
         mode.Stop();
     }
+
+    // ==================================================================
+    // 4f-4m-3：生命周期批
+    // ==================================================================
+
+    [Fact]
+    public async Task StartupGatesFollowQuietStartupAndVerboseOptions()
+    {
+        var host = await CreateHostAsync();
+
+        // 默认设置（quietStartup 为 "false"）→ header 与 details 都显示；展开态默认关闭。
+        var mode = await CreateModeAsync(host: host);
+        Assert.True(mode.ShouldShowStartupHeader());
+        Assert.True(mode.ShouldShowStartupDetails());
+        Assert.False(mode.GetStartupExpansionState());
+
+        // verbose 选项全开。
+        var verbose = await CreateModeAsync(o => o with { Verbose = true }, host);
+        Assert.True(verbose.ShouldShowStartupHeader());
+        Assert.True(verbose.ShouldShowStartupDetails());
+        Assert.True(verbose.GetStartupExpansionState());
+
+        // 工具输出展开 → 启动 header 默认展开。
+        verbose.SetToolsExpanded(true);
+        Assert.True(verbose.GetStartupExpansionState());
+    }
+
+    [Fact]
+    public async Task HandleStartupSubmitMirrorsTextIntoTheEditorAndShowsStatus()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleStartupSubmit("early input");
+
+        Assert.Equal("early input", mode.EditorForTests.GetText());
+        var last = mode.ChatChildrenForTests[^1];
+        Assert.Contains("Startup is still in progress", string.Join("\n", last.Render(80)));
+    }
+
+    [Fact]
+    public async Task ShowManagedToolStatusAppendsSpacerOnceAndResetsStatusCoalescing()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.ShowManagedToolStatus(new ToolStatus("info", "downloading fd"));
+        mode.ShowManagedToolStatus(new ToolStatus("warning", "fd download failed"));
+
+        var children = mode.ChatChildrenForTests;
+        // 首条前一个 spacer，之后每条一行；warning 带 Warning: 前缀。
+        Assert.Equal(3, children.Count);
+        var warningText = string.Join("\n", children[2].Render(80));
+        Assert.Contains("Warning: fd download failed", AnsiText.StripAnsi(warningText));
+
+        // managed-tool 状态行清掉 showStatus 的合并游标：下一条 showStatus 不合流。
+        mode.ShowStatus("after tools");
+        var countBefore = mode.ChatChildrenForTests.Count;
+        mode.ShowStatus("again");
+        Assert.Equal(countBefore, mode.ChatChildrenForTests.Count);
+    }
+
+    [Fact]
+    public async Task SingleCtrlCPressClearsTheEditorWithoutShuttingDown()
+    {
+        var mode = await CreateModeAsync();
+        mode.EditorForTests.SetText("to be cleared");
+
+        mode.HandleCtrlC();
+
+        Assert.Equal("", mode.EditorForTests.GetText());
+        // 注意：不能按第二次——500ms 内双击会触发 shutdown → Environment.Exit。
+    }
+
+    [Fact]
+    public async Task CtrlZOnWindowsShowsTheUnsupportedStatus()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var mode = await CreateModeAsync();
+
+        mode.HandleCtrlZ();
+
+        var last = mode.ChatChildrenForTests[^1];
+        Assert.Contains("Suspend to background is not supported on Windows", string.Join("\n", last.Render(80)));
+    }
+
+    [Fact]
+    public async Task SignalHandlerRegistrationIsIdempotentAndClean()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.RegisterSignalHandlersForTests();
+        mode.RegisterSignalHandlersForTests();
+        mode.UnregisterSignalHandlers();
+        mode.UnregisterSignalHandlers();
+    }
+
+    [Fact]
+    public async Task CheckShutdownRequestedIsANoOpWhenNotRequested()
+    {
+        var mode = await CreateModeAsync();
+
+        // shutdownRequested 为 false：不触达 shutdown（触达即 Environment.Exit）。
+        mode.CheckShutdownRequested();
+    }
 }
