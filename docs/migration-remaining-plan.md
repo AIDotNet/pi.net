@@ -1063,3 +1063,15 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **4g-3d 起**：`server.ts`(770) + `session-worker-manager.ts`(848) + `session-worker.ts`(840) +
   `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12)（~3,359 行）。
   `cli.ts` 里落地 `--internal-role coordinator` 分发（C337）。
+
+### 0.27 4g-3d-1 Radius 中继鉴权（`1dd39c4`，2026-10-19）
+
+- **范围**：`radius-auth.ts`(67) = 67 行（`core/radius.ts` 早前已移植）。测试 **+12 例**；全量 **4585/0**（2m）。
+- **解析顺序与 TS 逐行对齐**：取消检查 → `PI_OFFLINE` 短路 → 显式 token（内联/文件，trim 后空串抛错）→
+  存储凭据（按需创建一次并共享的 ModelRuntime，5 分钟 OAuth 有效期下限）→ required 兜底抛错。
+- **接缝设计**：`Env` / `RuntimeFactory` 都是实例级 internal（C343）——进程级静态 `Radius.Env` 会让
+  并行测试互相观察；`RuntimeFactory` 也避免把 Pi.Ai 的 radius provider 拖进测试进程（用 stub provider
+  + `RegisterNativeProvider` 覆盖）。
+- **4g-3d 后续**：`radius-relay.ts`(724) → `session-worker-manager.ts`(848) + `session-worker.ts`(840) →
+  `server.ts`(770) + `commands.ts`(98) + `cli.ts`(12)。`server.ts` 的前 126 行（目录/锁/默认 ID）自包含，
+  但 `activateServer` / `startForegroundServer` 依赖中继与 worker manager，故排在两者之后。

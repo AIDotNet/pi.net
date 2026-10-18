@@ -6874,3 +6874,22 @@ sha256 取十六进制前 12 / 24 位（`createHash("sha256").digest("hex").slic
 | C340 | **信号处理的平台差异** | SIGINT 走 `Console.CancelKeyPress`（并 `Cancel = true` 接管默认终止）；SIGTERM 用 `PosixSignalRegistration`，不支持的平台上静默降级（仅 Ctrl+C 可关） |
 | C341 | **销毁错误只在本地可见** | TS 的 `socket.destroy(error)` 与 .NET 的 `Destroy(error)` 都不经由线路传给对端——对端只观察到关闭。测试据此分行：通道级断言错误原文，进程级断言关闭与后续行为 |
 | C342 | **`JsonNode` 不能重复挂载** | 路由转发 payload 时必须 `DeepClone()`（直接赋值抛 "The node already has a parent"）；TS 直接传引用无此约束 |
+
+## 4g-3d-1 Radius 中继鉴权（radius-auth.ts）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/radius-auth.ts` | 67 | `Experimental/RadiusAuth.cs` | `RadiusRelayAuth` / `RadiusRelayAuthResolver` / `ResolveRadiusRelayAuthOptions` |
+| （`core/radius.ts` 9 行早前已移植） | 9 | `Core/Radius.cs` | `ProviderId` / `EnvRadiusGateway` / `McpUrl` / `GetGatewayUrl`（含 `Env` 接缝） |
+
+**解析顺序（与 TS 逐行对齐）**：取消检查 → `PI_OFFLINE` 短路（required 抛 "unavailable in offline mode"，
+optional 返回 null）→ 显式 token（内联或文件内容 trim）→ 存储凭据（经按需创建一次并共享的
+`ModelRuntime`，`minOAuthValidityMs` 5 分钟）→ 都没有时 required 抛 "Radius authentication is required"。
+显式 token 为空串同样抛错（TS 的 `token.length === 0` 分支）。
+
+### 4g-3d-1 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C343 | **测试接缝是实例级的，不复用进程级静态 `Radius.Env`** | TS 直接读 `process.env.PI_OFFLINE`；C# 若走 `Radius.Env`（public static）会让并行测试互相观察对方的环境。故解析器自带 `internal Func<string,string?>? Env` 与 `RuntimeFactory`（InternalsVisibleTo），生产默认行为不变 |
+| C344 | **`AuthInput` 判别联合用 exhaustive switch + 防御分支** | TS 的 `input.type === "token" ? … : …` 对联合只有两个成员；C# record 联合加 `_ => throw` 防御未来新增成员静默走错分支 |
