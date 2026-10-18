@@ -2,9 +2,9 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`c0ffee2`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2`）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`68812e9`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → **4f-5 `68812e9`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C272`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C279`）。
 
 ---
 
@@ -35,7 +35,10 @@
 
 **4f-5**（~2,043 行 TS）：`modes/rpc/rpc-types.ts`(303) / `rpc/jsonl.ts`(58) /
 `rpc/rpc-client.ts`(617) / `rpc/rpc-mode.ts`(819) / `print-mode.ts`(169) /
-`json-event.ts`(61) / `modes/index.ts`(16)。
+`json-event.ts`(61) / `modes/index.ts`(16)。✅ **已全部收口**（`68812e9`，见 0.13：
+类型层 + JSONL 线路层 + 事件投影 + RPC 客户端 + RPC 模式 33 命令分支 + print 模式；
+Core 侧补 `GetSessionStats()` 实例包装 / `SetAutoRetryEnabled` / `ExportToHtmlAsync`；
+`AgentSessionEvent` 22 变体多态注册）。
 
 **4g**（~13,600 行 TS）：`4g-1` `cli/*`（12 文件 1,455 行）+ `cli/experimental/*`（504 行）；
 `4g-2` `main.ts`(999) / `index.ts`(494) / `package-manager-cli.ts`(1,141) / `cli.ts`(6) /
@@ -110,6 +113,33 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
   7 个 transcript 组件实现。
 - 测试 +11 例（提交链 9 + 扩展自产组件 2）；全量 **3277/0**。
 - **4f-4m（interactive-mode.ts 本体）至此全部收口。** 下一阶段：4f-5（RPC/print/json ~2,043 行）。
+
+### 0.13 4f-5 收口记录（2026-10-18，`68812e9`）——headless 三模式
+
+- **四个新文件**（`src/Pi.CodingAgent/Modes/Rpc/` + `Modes/PrintMode.cs`）：
+  类型层（33 命令判别联合 + 响应三态）、JSONL 线路层（LF-only + 自制
+  `JsonStringifyEncoder` 复刻 `JSON.stringify` 转义）、事件投影
+  （`toJsonEvent` 剥 partial）、RPC 客户端（27 命令 + 进程生命周期）、
+  RPC 模式（33 命令分支 + 25 成员扩展 UI 协议桩 + shutdown/信号）、
+  print 模式（text/json 两路 + 退出码语义）。
+- **Core 侧三成员 + 事件多态**：`GetSessionStats()` 实例包装、
+  `SetAutoRetryEnabled`/`AutoRetryEnabled`、`ExportToHtmlAsync`；
+  `AgentSessionEvent` 22 变体 `[JsonDerivedType]`（`Type` 属性 `[JsonIgnore]`）。
+- **一致性检查发现的两处平台事实**（均已用测试钉住）：① STJ 的判别式必须是
+  JSON 对象的**第一个键**，协议不保证客户端键序，故 `TryDeserializeCommand`
+  把 `type` 重排到最前；② 内置三种 `JavaScriptEncoder` 都与 `JSON.stringify`
+  不等价（`UnsafeRelaxedJsonEscaping` 仍转义 U+2028/U+2029，正是 TS
+  `rpc-jsonl.test.ts` 钉住「行内出现原始分隔符」的那条），自制编码器只转义
+  `"` `\` 控制字符与孤立代理；孤立代理本身是平台差异（STJ 写 UTF-8 前替换为
+  U+FFFD，编码器层管不到）。
+- **TS 测试对拍**：`rpc-jsonl` / `rpc-client-clear-queue` / `rpc-client-clone` /
+  `rpc-client-process-exit` / `rpc-prompt-response-semantics` / `print-mode`
+  六个文件逐条移植为 52 例；monkey-patch 类测试改为 `internal virtual` 子类
+  替换（`RpcClient` 为此去掉 sealed），`vi.mock` 类测试改为
+  `RpcModeOptions` 注入（output/输入/退出/flush 四个接缝）。
+- 测试 **+52 例**；全量 **3329/0**。
+- **4f-5 至此全部收口。** 下一阶段：**4g**（cli/* + main.ts/index.ts 等 ~13,600 行），
+  届时 4f-5 的 `RpcClientOptions.FileName`（现默认 `"node"`）切到 .NET CLI 入口。
 
 ---
 

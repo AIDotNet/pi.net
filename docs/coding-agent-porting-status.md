@@ -6280,3 +6280,92 @@ aborted/errorMessage 合成与 `_emitSessionCompactFailed`→finally 清理。
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**（字段块 pragma 摘除后）；
 `Pi.CodingAgent.Tests` 全量 **3277 / 0 失败**。**4f-4m（interactive-mode.ts 本体）全部收口。**
+
+## 4f-5：RPC / print / json 线路（2026-10-18）——headless 三模式收口
+
+**范围**（TS 共 2,043 行）：`modes/rpc/rpc-types.ts`(303) / `rpc/jsonl.ts`(58) /
+`rpc/rpc-client.ts`(617) / `rpc/rpc-mode.ts`(819) / `print-mode.ts`(169) /
+`json-event.ts`(61) / `modes/index.ts`(16)。
+
+**落地内容**：
+- **`Modes/Rpc/RpcTypes.cs`（新建）**：`RpcCommand` 33 变体判别联合
+  （`[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]` + 33 个
+  `[JsonDerivedType]`，与 `SessionEntry` 同手法）、`RpcSlashCommand` /
+  `RpcSessionState` / `RpcExtensionUIRequest`（9 method 扁平记录，TS 联合的线形状）
+  / `RpcExtensionUIResponse`（键存在性判别 → 可空三字段）、`RpcResponses`
+  （success/successNull/error 三态：`data` 省略 vs 显式 `null` 逐键对齐 TS）。
+- **`Modes/Rpc/JsonL.cs`（新建）**：`SerializeLine`（LF-only）+ `TryDeserializeCommand`
+  （未知 type → null，交调用方走 TS 的 `Unknown command:` 分支）+ `JsonlLineReader`
+  （只按 `\n` 切分、剥尾 `\r`、流末不满一行也发、UTF-8 跨分片重组）。
+  线路选项 = camelCase + `WhenWritingNull` + **自制 `JsonStringifyEncoder`**：
+  内置编码器无一等价 `JSON.stringify`（Default 转义一切非 ASCII；
+  `UnsafeRelaxedJsonEscaping` 仍转义 U+2028/U+2029；`Create(UnicodeRanges.All)`
+  保留 U+2028 但转义 `<>&'`），故按 `TextEncoder` 指针 API 自制——
+  只转义 `"` `\` 控制字符（含 `\b\t\n\f\r` 短式、小写十六进制）与孤立代理
+  （为此给 `Pi.CodingAgent.csproj` 开 `AllowUnsafeBlocks`，仅此一处使用）。
+- **`Modes/Rpc/JsonEvent.cs`（新建）**：`ToJsonEvent`——非 `message_update` 原样透传；
+  `message_update` 投影 `{type, usage?, assistantMessageEvent}`，剥 `partial`，
+  `toolcall_start` 从快照补 `id`/`toolName` 并校验 content 是 toolCall。
+- **`Modes/Rpc/RpcClient.cs`（新建）**：27 个命令方法 + `waitForIdle` /
+  `collectEvents` / `promptAndWait`；spawn（`node <cliPath> --mode rpc …`，参数序与
+  TS 一致——**cliPath 在前**）、stderr 收集+回显、exit 错误（`code=… signal=null`，
+  .NET 不暴露终止信号）、30s 请求超时、`req_N` 关联 id、非 JSON 行忽略、
+  待处理请求随进程退出全部 reject。
+- **`Modes/Rpc/RpcMode.cs`（新建）**：`runRpcMode` 全链——`takeOverStdout`、
+  33 命令分支 `handleCommand`、`handleInputLine`（parse 失败 → `parse` 错误响应；
+  `extension_ui_response` 路由；异常兜底）、`createDialogPromise`（signal/timeout
+  两路默认值 + 清理）、25 成员 `IExtensionUIContext`（RPC 协议桩：dialog 四方法走
+  请求/响应，notify/setStatus/setWidget/setTitle/set_editor_text 即发即忘，
+  组件工厂/TUI 类成员按 TS 逐一忽略）、`rebindSession`（mode=rpc +
+  commandContextActions 六成员 + shutdownHandler + extension_error 输出）、
+  shutdown/checkShutdownRequested、SIGTERM/SIGHUP（Windows 跳 SIGHUP）、
+  stdin EOF → shutdown。
+- **`Modes/PrintMode.cs`（新建）**：`runPrintMode`——text 模式末条 assistant
+  （error/aborted → stderr + exit 1，`errorMessage || Request <reason>` 回退）、
+  json 模式 header 先行 + 事件流 + backpressure 订阅、无 uiContext 绑定
+  （mode print/json）、信号处理与 finally 清理 + flush。
+- **Core 侧新增三个成员**：`AgentSession.GetSessionStats()` 实例包装（RPC
+  `get_session_stats` 入口）、`SetAutoRetryEnabled`/`AutoRetryEnabled`
+  （TS L3818-3825）、`ExportToHtmlAsync`（TS `exportToHtml`：主题名解析 +
+  扩展 toolRenderers 链 + `ExportSessionToHtml`；RPC `export_html` 入口）。
+- **`Core/AgentSessionEvents.cs`**：`AgentSessionEvent` 加 22 个 `[JsonDerivedType]`
+  多态注册（`Type` 属性改 `[JsonIgnore]`——STJ 不允许判别式与属性重名，实测确认），
+  事件自此可序列化为 TS 的 `type` 判别线路形状。
+
+**测试（+52 例）**：
+- `RpcTypesTests`(11)：33 命令反序列化逐字段、判别式不在首位时的重排容忍、
+  未知命令 → null、缺字段抛错、响应三态（`data` 省略/显式 null/error）、
+  `serializeJsonLine` 转义语义逐项钉死（U+2028/U+2029 原样、`<>&'` 原样、
+  控制字符短式 + 小写十六进制）。
+- `RpcJsonlTests`(8)：TS `rpc-jsonl.test.ts` 四例逐条对拍 + CRLF + 无尾 LF +
+  UTF-8 跨分片（`世`/`界` 按字节切开）。
+- `RpcJsonEventTests`(5)：非 message_update 透传（同一实例）、剥 partial、
+  toolcall_start 补 id/toolName、非 toolCall content 抛 TS 文案、usage 条件插入。
+- `RpcClientTests`(7)：TS 三个客户端测试逐条对拍（clear_queue / clone 的
+  monkey-patch 改为 internal virtual 子类替换；子脚本退出 43 → 拒绝在途请求）
+  + stop 后 "Client not started" + `GetCommandType` 与序列化判别式防漂移 +
+  handleLine 响应/事件分发。
+- `RpcModeTests`(16)：TS `rpc-prompt-response-semantics.test.ts` 七例逐条对拍
+  （preflight 失败一条 error / 成功一条 started / 扩展命令与拦截输入都 handled
+  且零 agent_start / 流中 followUp 排队 queued / 扩展边 handled 边排队 B /
+  transform 后 queued）+ clear_queue 收尾 + 未知命令 + 畸形行 parse 错误 +
+  get_state 投影 / get_entries since 未命中 / set_session_name 空名 /
+  export_html 落盘 / get_commands 列扩展命令。
+- `PrintModeTests`(5)：TS `print-mode.test.ts` 三例对拍（text/json 的
+  session_shutdown reason=quit + 退出码；error → exit 1 + stderr 文案）
+  + aborted 无文案回退 `Request aborted` + json 模式 header 与事件行落 stdout。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests`
+全量 **3329 / 0 失败**（基线 3277 + 52）。
+
+### 4f-5 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C273 | **无 `RpcResponse` 记录类型** | TS 把它导出为类型联合，但运行时只是 JSON 信封。端口用 `RpcResponses` 静态构造 `JsonObject`（模式侧）+ 客户端按节点读 `success`/`data`/`error`——线形状逐键一致，类型联合没有运行时角色 |
+| C274 | **无 `JsonAgentSessionEvent` 类型别名** | 同理：TS 是 `Exclude<AgentSessionEvent, message_update> \| …` 的类型视图。端口事件经 `JsonEvent.ToJsonEvent` 投影后直接序列化；客户端监听方收 `JsonNode`（判别只需 `node["type"]`） |
+| C275 | **`JsonL` 自制 `JsonStringifyEncoder`** | 内置三态编码器都与 `JSON.stringify` 不等价（见上）。孤立代理一处平台差异：STJ 的 Utf8JsonWriter 在写 UTF-8 前把孤立代理替换为 U+FFFD，编码器层管不到；RPC 负载来自合法 JSON，不产生孤立代理（已用 `SerializeLine_LoneSurrogateBecomesReplacementChar_AsStjDoes` 钉住） |
+| C276 | **`TextDelta`/`ThinkingDelta` 多出 `sequence`、`ToolCallDelta` 多出 `index`** | TS 该联合没有这些字段（C# pi-ai 端的既有附加字段）。`toJsonEvent` 只剥 `partial`，故这三个附加字段会出现在 JSON 线路上——JSON 等价，TS 客户端忽略未知键。不额外剥离，以保持「只剥 partial」与 TS 逐字同构 |
+| C277 | **`RpcClient.stop()` 无 SIGTERM** | .NET 无发送 SIGTERM 的托管 API，`Kill(entireProcessTree)` 即终止（SIGKILL 语义）；TS 先 SIGTERM、1s 后 SIGKILL 的宽限期在端口不存在。退出错误文案里 `signal` 恒为 `null`（.NET 不暴露终止信号） |
+| C278 | **`RpcClientOptions.FileName` 默认 `"node"`** | 与 TS 的 `spawn("node", [cliPath, …])` 一致；.NET CLI 入口本身属 4g-2，届时经该选项指向真实入口（默认值保持 TS 原样） |
+| C279 | **`Pi.CodingAgent.csproj` 开 `AllowUnsafeBlocks`** | 仅为 `JsonStringifyEncoder` 实现 `TextEncoder` 的指针式抽象成员；方案内首例，已注释限定范围 |
