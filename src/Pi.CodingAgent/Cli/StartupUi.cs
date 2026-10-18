@@ -158,7 +158,9 @@ public static class StartupUi
             return false;
         }
 
-        if (!Experimental.AreExperimentalFeaturesEnabled())
+        // 全限定：`Pi.CodingAgent.Cli.Experimental` 是子命名空间（cli/experimental 的端口），
+        // 会把裸 `Experimental` 这个名字抢走。
+        if (!Pi.CodingAgent.Core.Experimental.AreExperimentalFeaturesEnabled())
         {
             return false;
         }
