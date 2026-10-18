@@ -393,6 +393,8 @@ internal static class MigrationsJson
     public static System.Text.Json.JsonSerializerOptions Options { get; } = new()
     {
         WriteIndented = true,
+        // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
+        NewLine = "\n",
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 }

@@ -10,6 +10,9 @@
 
 using Pi.CodingAgent.Cli;
 using Pi.CodingAgent.Core;
+// `Pi.CodingAgent.Experimental` (4g-3) is a namespace, so a bare `Experimental.` now resolves to the
+// namespace (outer-namespace members beat using aliases). Alias the type under a different name.
+using CoreExperimental = Pi.CodingAgent.Core.Experimental;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;
@@ -27,15 +30,15 @@ public sealed class CliStartupUiTests : IDisposable
         Directory.CreateDirectory(_tempDir);
         _settingsPath = Path.Combine(_tempDir, "settings.json");
 
-        _originalExperimental = Environment.GetEnvironmentVariable(Experimental.ExperimentalEnvVar);
+        _originalExperimental = Environment.GetEnvironmentVariable(CoreExperimental.ExperimentalEnvVar);
         _originalAgentDir = Environment.GetEnvironmentVariable(Config.EnvAgentDir);
-        Environment.SetEnvironmentVariable(Experimental.ExperimentalEnvVar, "1");
+        Environment.SetEnvironmentVariable(CoreExperimental.ExperimentalEnvVar, "1");
         Environment.SetEnvironmentVariable(Config.EnvAgentDir, null);
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable(Experimental.ExperimentalEnvVar, _originalExperimental);
+        Environment.SetEnvironmentVariable(CoreExperimental.ExperimentalEnvVar, _originalExperimental);
         Environment.SetEnvironmentVariable(Config.EnvAgentDir, _originalAgentDir);
         try
         {
@@ -56,7 +59,7 @@ public sealed class CliStartupUiTests : IDisposable
     [Fact]
     public void ReturnsFalseWhenExperimentalFeaturesAreDisabled()
     {
-        Environment.SetEnvironmentVariable(Experimental.ExperimentalEnvVar, null);
+        Environment.SetEnvironmentVariable(CoreExperimental.ExperimentalEnvVar, null);
         Assert.False(StartupUi.ShouldRunFirstTimeSetup(_settingsPath));
     }
 

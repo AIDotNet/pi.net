@@ -4,6 +4,9 @@ using System.Text.RegularExpressions;
 using Pi.Ai.Models;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Utils;
+// `Pi.CodingAgent.Experimental` (4g-3) is a namespace, so a bare `Experimental.` now resolves to the
+// namespace (outer-namespace members beat using aliases). Alias the type under a different name.
+using CoreExperimental = Pi.CodingAgent.Core.Experimental;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;
@@ -281,7 +284,7 @@ public class PromptCorpusTests : IDisposable
             foreach (var vector in Corpus.GetProperty("experimentalEnabled").EnumerateArray())
             {
                 Environment.SetEnvironmentVariable("PI_EXPERIMENTAL", OptString(vector, "env"));
-                var actual = Experimental.AreExperimentalFeaturesEnabled();
+                var actual = CoreExperimental.AreExperimentalFeaturesEnabled();
                 Check(failures, "experimental", Escape(OptString(vector, "env") ?? "<null>"), vector.GetProperty("result").GetBoolean(), actual);
             }
         }

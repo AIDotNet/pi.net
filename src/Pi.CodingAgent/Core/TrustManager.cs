@@ -201,6 +201,8 @@ public static class TrustManager
         public static readonly JsonSerializerOptions Options = new()
         {
             WriteIndented = true,
+            // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
+            NewLine = "\n",
             // JSON.stringify leaves non-ASCII and <>&' alone; the default encoder escapes them.
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };

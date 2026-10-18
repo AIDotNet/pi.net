@@ -312,6 +312,8 @@ public static class McpConfig
         var options = new JsonSerializerOptions
         {
             WriteIndented = true,
+            // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
+            NewLine = "\n",
             IndentCharacter = indent[0],
             IndentSize = indent.Length,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,

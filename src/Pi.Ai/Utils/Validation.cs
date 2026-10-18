@@ -68,7 +68,8 @@ public static class Validation
     private static JsonNode? Clone(JsonNode? node) => node?.DeepClone();
 
     private static string PrettyPrint(JsonNode? node)
-        => node?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "null";
+        // JSON.stringify always writes "\n"; .NET 9+ defaults the writer to Environment.NewLine.
+        => node?.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) ?? "null";
 
     private static IReadOnlyList<string> SchemaTypes(JsonObject schema)
     {

@@ -618,6 +618,9 @@ internal static class AuthJson
     public static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
+        // .NET 9+ defaults the writer's line break to Environment.NewLine; JSON.stringify always
+        // writes "\n", so without this Windows would persist CRLF.
+        NewLine = "\n",
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };

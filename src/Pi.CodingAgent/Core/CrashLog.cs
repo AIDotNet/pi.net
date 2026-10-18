@@ -155,6 +155,8 @@ public static partial class CrashLog
     private static readonly JsonSerializerOptions WriteOptions = new()
     {
         WriteIndented = true,
+        // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
+        NewLine = "\n",
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 

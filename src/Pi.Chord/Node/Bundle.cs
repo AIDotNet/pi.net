@@ -355,6 +355,8 @@ internal static class FacetBundleJson
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
         WriteIndented = true,
+        // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
+        NewLine = "\n",
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 }

@@ -26,7 +26,8 @@ public sealed record LlmImageContent(string Data, string MimeType) : LlmContent;
 /// <summary>Content conversion of the MCP protocol. Port of TS <c>toLlmContent</c> / <c>blockToLlmContent</c>.</summary>
 public static class McpContent
 {
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    // JSON.stringify always writes "\n"; .NET 9+ defaults the writer to Environment.NewLine.
+    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, NewLine = "\n" };
 
     /// <summary>
     /// Convert a tool result to text and image content for a model. A result without content

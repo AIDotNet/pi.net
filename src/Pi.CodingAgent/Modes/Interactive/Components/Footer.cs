@@ -303,7 +303,7 @@ public sealed class FooterComponent : IComponent
                     ? theme.Fg(ThemeColors.Warning, contextPercentDisplay)
                     : contextPercentDisplay;
         statsParts.Add(contextPercentStr);
-        if (Experimental.AreExperimentalFeaturesEnabled())
+        if (Pi.CodingAgent.Core.Experimental.AreExperimentalFeaturesEnabled())
         {
             statsParts.Add($"{theme.Fg(ThemeColors.Dim, "•")} {theme.Bold(theme.Fg(ThemeColors.Warning, "xp"))}");
         }

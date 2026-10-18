@@ -153,6 +153,8 @@ public static class McpCli
     private static readonly JsonSerializerOptions ReportJsonOptions = new()
     {
         WriteIndented = true,
+        // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
+        NewLine = "\n",
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 

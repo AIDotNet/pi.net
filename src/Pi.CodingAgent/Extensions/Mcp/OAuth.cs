@@ -172,7 +172,8 @@ public static class McpOAuth
     private static readonly McpFetch DefaultFetch = (request, cancellationToken) =>
         SharedHttpClient.SendAsync(request, cancellationToken);
 
-    private static readonly JsonSerializerOptions StatesJsonOptions = new() { WriteIndented = true };
+    // JSON.stringify always writes "\n"; .NET 9+ defaults the writer to Environment.NewLine.
+    private static readonly JsonSerializerOptions StatesJsonOptions = new() { WriteIndented = true, NewLine = "\n" };
 
     // ─── Pure helpers (TS module-level functions) ─────────────────────────────
 

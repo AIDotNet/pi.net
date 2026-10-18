@@ -152,6 +152,8 @@ internal static class SettingsJson
         // JSON.stringify leaves non-ASCII, <, >, & and ' alone; the default encoder escapes them.
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         WriteIndented = true,
+        // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
+        NewLine = "\n",
     };
 
     /// <summary>Serialize with a two-space indent, matching <c>JSON.stringify(value, null, 2)</c>.</summary>
