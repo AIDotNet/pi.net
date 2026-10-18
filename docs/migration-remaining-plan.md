@@ -2,9 +2,9 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`3d61bbc`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → **4g-1c `364926c`**）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`5c1d79a`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → **4g-2 `5c1d79a`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C300`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C307`）。
 
 ---
 
@@ -49,7 +49,9 @@ Core 侧补 `GetSessionStats()` 实例包装 / `SetAutoRetryEnabled` / `ExportTo
 `session-picker.ts` 55 = 794 行 + 60 例）；
 4g-1c `364926c`（见 0.16：`cli/experimental/*` 5 文件 504 行 + 62 例）。
 `4g-2` `main.ts`(999) / `index.ts`(494) / `package-manager-cli.ts`(1,141) / `cli.ts`(6) /
-`rpc-entry.ts`(13)；`4g-3` `experimental/*`（46 文件 9,950 行，依赖已移植的
+`rpc-entry.ts`(13)——**4g-2 ✅ 全部收口**（`5c1d79a`，见 0.17：移植 2,159 行 + 新建
+`Pi.Cli` 可执行工程；`index.ts` 判定为纯 re-export barrel 不单独移植）+ 71 例；
+`4g-3` `experimental/*`（46 文件 9,950 行，依赖已移植的
 Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61) + `client/*`(1)。
 
 **P7 evals**（~1,300 行，未建项目）。
@@ -219,6 +221,46 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
 - **4g-1 至此全部收口。** 下一阶段 **4g-2**：`main.ts`(999) / `index.ts`(494) /
   `package-manager-cli.ts`(1,141) / `cli.ts`(6) / `rpc-entry.ts`(13)，届时
   `RpcClientOptions.FileName`（现默认 `"node"`）切到 .NET CLI 入口。
+
+### 0.17 4g-2 收口记录（2026-10-18，`5c1d79a`）——CLI 入口层
+
+- **移植范围 2,159 行 TS**：`Cli/Main.cs`（`main.ts` 999）、`Cli/PackageManagerCli.cs`
+  （`package-manager-cli.ts` 1,141）、`Pi.Cli/Program.cs`（`cli.ts` 6）、
+  `Pi.Cli/RpcEntry.cs`（`rpc-entry.ts` 13）。`index.ts`(494) 复核为**纯 re-export barrel**
+  （全文只有 `export`/`export type`），延续 4f-3 既定结论：由命名空间 + public 类型承担，不单独移植。
+- **新建 `src/Pi.Cli` 可执行工程**（`OutputType=Exe`、`AssemblyName=pi`、`RootNamespace=Pi.Cli`、
+  `<Version>1.0.4</Version>` 对齐 TS `package.json`），已加入 `Pi.slnx`。`Program.Main` 走
+  `CliSetup.SetupCli()` → `PI_RPC_ENTRY` 分流 → `Main.MainAsync`，`MainExitException` 在入口
+  转成进程退出码。`RpcClientOptions.FileName` 默认由 `"node"` 改为 `Environment.ProcessPath`，
+  `CliPath` 置 null（原 `dist/cli.js`），端到端实测 `pi.exe --mode rpc` 可直接跑通。
+- **一致性检查抓到 6 处 TS 真实行为**（全部用测试钉住）：① `update` 无目标默认 `--self`，
+  且**先**打印 "Extensions are skipped."；② `--extension` 取值以 `-` 开头算缺值（不消费）；
+  ③ `uninstall` 是 `remove` 的别名，错误文案仍是 "Missing remove source."；
+  ④ `update --models` 走单独分支、不建 settingsManager；⑤ `--all` 与
+  `--self`/`--extensions`/`--models`/`--extension`/位置参数的 `conflictingOptions` 优先级链；
+  ⑥ `auth check --json` 的 `reason`/`authType` 是**可省略键**（不是恒写 null）。
+- **顺带修掉 5 处既有缺陷**（一致性检查发现，均非漂移）：① `BuiltInExtensions` 的 `mcp`
+  仍是占位工厂（4d-4 早已落地），导致**每次启动都报 "lands with batch 4d-4"、RPC 模式直接起不来**
+  ——旧用例 `PlaceholderFactory_FailsNamingItsBatch` 反而把这个 bug 固化成断言，改为
+  `McpFactory_IsTheRealFactory`（加载工厂断言注册了 `/mcp`）；② `ModelsStore.Serialize` 直接挂载
+  已有 parent 的 `JsonObject`（TS 的 `JSON.stringify` 无此限制）→ `update --models` 抛
+  "The node already has a parent"，补 `DeepClone()`；③ `Config.ReadAssemblyVersion` 在无
+  `package.json` 时返回 `0.0.0` → `--version` 打 `0.0.0`，改用
+  `AssemblyInformationalVersionAttribute` 兜底（剥 `+<sha>`）；④ `ResourceLoader` 三处 4e 遗留缺口
+  （`additionalExtensionPaths` / `systemPrompt` / `appendSystemPrompt`，含 `-e <path>` 不存在时的
+  错误收集）；⑤ `Environment.ExitCode` 是进程级静态，in-process 复用会跨用例污染 → 改为
+  `PackageCommandResult` / `AuthCommandRunResult` 显式返回码，删除 `DeferExit` 一类钩子。
+- **端到端实测 8 项全通过**：`--version`→`1.0.4`；`--help`/`auth --help`/`list --help`→0；
+  `install`→1 且文案正确；`update --self`/`--extensions`→1 报端口缺口；`update --models`→0
+  "Model catalogs refreshed"；`--mode rpc` 的 `get_state` 返回完整 JSON；`--fork x --session y`→1；
+  `--session-id "bad id!"`→1。
+- **平台缺口（已在 C301–C307 登记）**：`process.title` / `process.emitWarning` 全局替换（C284）、
+  `configureHttpDispatcher()`（C32）、`cleanupManagedInstall` / `cleanupWindowsSelfUpdateQuarantine`
+  未移植；`update --self` 与 `update --extensions` 的 npm/git 版本比对仍归 4e-3c-3。
+- **测试 +71 例**（`CliMainTests` 59 纯决策 + `CliMainEndToEndTests` 12 端到端，后者隔离
+  `PI_CODING_AGENT_DIR` 与 `Cwd`/`AgentDir`）；全量 **4296/0**（1m52s）；构建 0 警告 0 错误。
+- 差异编号推进到 **C307**。**4g-2 至此全部收口。** 下一阶段 **4g-3**：`experimental/*`
+  （46 文件 9,950 行）+ `bun/*`(61) + `client/*`(1)。
 
 ---
 
@@ -654,7 +696,7 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 
 ### 阶段 P6：4g 入口与实验层（拆 3 个子阶段）
 
-`4g-1` `cli/*` → `4g-2` `main.ts` / `index.ts` / `package-manager-cli.ts` / `rpc-entry.ts` → `4g-3` `experimental/*` + `bun/*` + `client/*`。
+`4g-1` `cli/*` ✅ → `4g-2` `main.ts` / `index.ts` / `package-manager-cli.ts` / `rpc-entry.ts` ✅（`5c1d79a`）→ `4g-3` `experimental/*` + `bun/*` + `client/*`（**下一步**）。
 
 ### 阶段 P7：evals（1,300 行，新建项目）
 

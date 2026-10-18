@@ -6539,3 +6539,66 @@ TS 五个文件共 **504 行**（`command.ts` 225 / `command-options.ts` 106 / `
 | C298 | **`parse` 的类型擦除用 `object?`** | TS 注册表存 `CommandOption<unknown>`；C# 用 `ICommandOption.ParseValue(string) → CommandOptionParseResult<object?>`，取值时由泛型 `Value/Values` 还原。`Value<T>` 在缺省时返回 `default`（引用类型 null、`bool` false），与 TS `undefined` 的用法等价（flag 只可能是 `true`） |
 | C299 | **`Pi.CodingAgent` 新增 `Pi.Protocol` 项目引用** | `--server-id` 的校验要复用 `ServerIds.IsServerId`（UUIDv4 小写正则），避免在 CLI 里复制一份。`Pi.Protocol` 只依赖 `Pi.Chord`（已是 Pi.CodingAgent 的依赖），无环 |
 | C300 | **命名空间 `Cli.Experimental` 会遮蔽类型 `Core.Experimental`** | 子命名空间 `Experimental` 在同程序集内优先于 `using Pi.CodingAgent.Core` 引入的类型名，故 `StartupUi.ShouldRunFirstTimeSetup` 里改写成全限定 `Pi.CodingAgent.Core.Experimental.AreExperimentalFeaturesEnabled()` |
+
+## 4g-2 CLI 入口层（main / package-manager-cli / cli / rpc-entry）
+
+TS 四个文件共 **2,159 行**，另 `index.ts`(494) 复核为纯 re-export barrel 不移植：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `main.ts` | 999 | `Cli/Main.cs` | `MainAsync` 全链：诊断输出 / 应用模式判定 / 参数校验 / `auth` 子命令 / 会话解析与 fork / services 构建 / 运行模式分派；`MainOptions` 把 `process.exit`、`cwd`、`stdin/stdout` 判定、`promptConfirm`、env 读写全部改成可注入 |
+| `package-manager-cli.ts` | 1,141 | `Cli/PackageManagerCli.cs` | `PackageCommandKind` / `UpdateTarget` 四态 / `PackageCommandOptions` / `ParsePackageCommand` / 四命令帮助文本 / `HandlePackageCommandAsync` / `HandleConfigCommandAsync` / 模型目录刷新 |
+| `cli.ts` | 6 | `Pi.Cli/Program.cs` | `SetupCli()` → `RPC_ENTRY` 分流 → `Main.MainAsync`；`MainExitException` 在此转进程退出码 |
+| `rpc-entry.ts` | 13 | `Pi.Cli/RpcEntry.cs` | 前置 `--mode rpc` 后转交同一入口；`PI_RPC_ENTRY=1` 即 TS 的独立 subpath |
+| `index.ts` | 494 | —— | 全文只有 `export` / `export type`，纯 barrel；C# 由命名空间 + public 类型承担（延续 4f-3 结论） |
+
+**新建可执行工程 `src/Pi.Cli`**：`OutputType=Exe`、`AssemblyName=pi`（产物即 `pi.exe`）、
+`RootNamespace=Pi.Cli`、`<Version>1.0.4</Version>` 对齐 TS `package.json`。已加入 `Pi.slnx`。
+
+**一致性检查发现的 TS 真实行为（全部用测试钉住）**：
+
+1. **`update` 无目标默认 `--self`**，且**先**打印 "Extensions are skipped." 再执行——不是「什么都不做」。
+2. **`--extension` 取值以 `-` 开头算缺值**（报 "Missing extension source." 且**不**消费该参数）。
+3. **`uninstall` 是 `remove` 的别名**，错误文案仍是 "Missing remove source."（不是 "uninstall"）。
+4. **`update --models` 走单独分支、不建 `SettingsManager`**（与 `--self` / `--extensions` 不同）。
+5. **`conflictingOptions` 有优先级链**：`--all` 与 `--self` / `--extensions` / `--models` /
+   `--extension` / 位置参数冲突时，报错顺序就是 TS 的拼接顺序，多者可同时出现。
+6. **`auth check --json` 的 `reason` / `authType` 是可省略键**（`JSON.stringify` 丢 `undefined`），
+   不是恒写 `null`；键序为 status → provider → reason → authType → credentials。
+
+**顺带修掉的 5 处既有缺陷（一致性检查发现，均非漂移）**：
+
+1. **`BuiltInExtensions` 的 `mcp` 仍是占位工厂**（4d-4 早已落地）——每次启动都报
+   "lands with batch 4d-4"，**RPC 模式直接起不来**。旧用例 `PlaceholderFactory_FailsNamingItsBatch`
+   反而把这个 bug 固化成断言，改为 `McpFactory_IsTheRealFactory`（加载工厂并断言注册了 `/mcp`）。
+2. **`ModelsStore.Serialize` 直接挂载已有 parent 的 `JsonObject`**——TS 的 `JSON.stringify`
+   无此限制，`JsonNode` 有；`update --models` 必抛 "The node already has a parent"，补 `DeepClone()`。
+3. **`Config.ReadAssemblyVersion` 无 `package.json` 时返回 `0.0.0`**——`--version` 打出 `0.0.0`，
+   改用 `AssemblyInformationalVersionAttribute`（剥 `+<sha>`）→ `AssemblyVersion` → `FileVersion` 兜底。
+4. **`ResourceLoader` 三处 4e 遗留缺口**：`additionalExtensionPaths` / `systemPrompt` /
+   `appendSystemPrompt` 三个构造参数与字段（显式 system prompt 源优先于文件发现），
+   以及 `-e <path>` 指向不存在文件时的错误收集（TS L584-591）。
+5. **`Environment.ExitCode` 是进程级静态**——in-process 复用会跨用例污染（实测
+   `PackageHelpExitsZero` 被前序用例带成 1）。改为 `PackageCommandResult(Handled, ExitCode)` /
+   `AuthCommandRunResult(Handled, ExitCode)` 逐层返回，删除 `DeferExit` 一类钩子。
+
+**端到端实测（`pi.exe`，8 项）**：`--version`→`1.0.4`；`--help` / `auth --help` / `list --help`→0；
+`install`→1 且文案正确；`update --self` / `update --extensions`→1 报端口缺口；
+`update --models`→0 "Model catalogs refreshed"；`--mode rpc` 的 `get_state` 返回完整 JSON；
+`--fork x --session y`→1；`--session-id "bad id!"`→1。
+
+**测试（+71 例）**：`CliMainTests` 59 例（纯决策函数 + `BuildSessionOptions` +
+`ResolveSessionPathAsync`）、`CliMainEndToEndTests` 12 例（`MainAsync` 端到端，隔离
+`PI_CODING_AGENT_DIR` 与 `Cwd`/`AgentDir`）。全量 **4296/0**。
+
+### 4g-2 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C301 | **`process.exit` → `MainExitException` + 注入钩子** | TS 的 `main()` 在会话校验、fork 冲突、缺 cwd、auth 子命令等 9 处直接 `process.exit(code)`。C# 改为 `MainOptions.Exit` 钩子（默认抛 `MainExitException`），入口 `Program.Main` 捕获后转进程退出码；测试注入 `Exit` 记录调用而不真的杀进程 |
+| C302 | **`cleanupManagedInstall` / `cleanupWindowsSelfUpdateQuarantine` 不移植** | 前者清托管安装的 staging 目录（`getActiveManagedInstallRoot()` + `update` 锁 + `cleanupManagedStaging`），后者删 `node_modules/.pi-native-quarantine`（Windows 自更新时把已加载原生 addon 移走的隔离区，依赖 `process.report.sharedObjects`）。两者都绑定 pi 自身的「托管安装 + 自更新」机制与 npm 目录布局，.NET 版没有该机制——属宿主差异，不是功能缺口 |
+| C303 | **`--version` 版本来源改为程序集** | TS 读 `package.json` 的 `version`；.NET 无该文件。`Config.ReadAssemblyVersion()` 依次取 `AssemblyInformationalVersionAttribute`（剥 `+<sha>` 构建元数据）→ `AssemblyVersion` → `FileVersion`，`Pi.Cli.csproj` 设 `<Version>1.0.4</Version>` 与 TS 对齐 |
+| C304 | **包管理 / 鉴权子命令改为显式返回码** | TS 靠 `process.exitCode = 1` 全局赋值；C# 的 `Environment.ExitCode` 是进程级静态，同进程内多用例互相污染。改为 `PackageCommandResult` / `AuthCommandRunResult` 逐层返回，`MainAsync` 只在最外层决定退出码 |
+| C305 | **`RpcClientOptions.FileName` 默认改 `Environment.ProcessPath`** | TS 的 RPC 客户端默认 `spawn("node", ["dist/cli.js", ...])`；.NET 的 CLI 就是自身可执行文件。默认 `FileName = Environment.ProcessPath ?? Config.AppName`、`CliPath = null`，`CreateStartInfo` 仅在 `CliPath` 非空时作为首参传入 |
+| C306 | **`ModelsStore.Serialize` 需 `DeepClone()`** | `JSON.stringify` 允许同一对象被多次序列化；`JsonNode` 有 parent 唯一性约束，直接挂载会抛 "The node already has a parent"。写出前统一 `DeepClone()` |
+| C307 | **`update --self` / `update --extensions` 报端口缺口** | TS 走 `package-manager.ts` 的 npm/git 版本比对（4e-3c-3 顺延项）。C# 侧解析、目标判定、冲突链、文案与退出码全部对齐，只缺网络检查本体——两条分支各返回 1 并打印缺口文案，与 `CheckForPackageUpdatesAsync` 的「失败降级为空表」同一策略 |
