@@ -2,9 +2,9 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`5c1d79a`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → **4g-2 `5c1d79a`**）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`1b4be2c`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → **4g-3a `1b4be2c`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C307`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C312`）。
 
 ---
 
@@ -52,7 +52,19 @@ Core 侧补 `GetSessionStats()` 实例包装 / `SetAutoRetryEnabled` / `ExportTo
 `rpc-entry.ts`(13)——**4g-2 ✅ 全部收口**（`5c1d79a`，见 0.17：移植 2,159 行 + 新建
 `Pi.Cli` 可执行工程；`index.ts` 判定为纯 re-export barrel 不单独移植）+ 71 例；
 `4g-3` `experimental/*`（46 文件 9,950 行，依赖已移植的
-Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61) + `client/*`(1)。
+Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61) + `client/*`(1)——
+**按依赖层次切 7 个子批**（`experimental/` 无任何外部引用，是一组独立实验入口）：
+
+| 子批 | 范围 | 行数 | 状态 |
+| --- | --- | --- | --- |
+| **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
+| 4g-3b | `services/*`（14 文件，chord 服务契约与 provider） | ~1,150 | 下一步 |
+| 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | |
+| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | |
+| 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
+| 4g-3f | `durable/*`（9 文件） | ~1,440 | |
+| 4g-3g | `vacation/*`（6 文件） | ~1,305 | |
+| 4g-3h | `bun/*`(61) + `client/*`(1) + `plugin.ts`(16) + `source-resolver.ts`(86) | ~164 | 平台缺口判定批 |
 
 **P7 evals**（~1,300 行，未建项目）。
 
@@ -261,6 +273,37 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
   `PI_CODING_AGENT_DIR` 与 `Cwd`/`AgentDir`）；全量 **4296/0**（1m52s）；构建 0 警告 0 错误。
 - 差异编号推进到 **C307**。**4g-2 至此全部收口。** 下一阶段 **4g-3**：`experimental/*`
   （46 文件 9,950 行）+ `bun/*`(61) + `client/*`(1)。
+
+### 0.18 4g-3a 收口记录（2026-10-18，`1b4be2c`）——实验层地基
+
+- **4g-3 勘察结论（动工前）**：`experimental/` **没有任何外部引用**（`grep "experimental/"` 在
+  `src/` 下除自身外零命中）——它是一组独立的实验入口，由 `experimental/cli.ts` 与各自的
+  `main.ts` 驱动，不参与 `main.ts` 的主链。`package.json` 的 `exports` 只暴露
+  `./experimental/plugin`（16 行，纯 re-export）。故 4g-3 按依赖层次切 7 个子批（见 4g 概览表）。
+- **前置件核对**：`@earendil-works/{chord,client,protocol,server,durable,ai,tui}` 均已有对应
+  C# 项目；`proper-lockfile` → `Core/NodeLock.cs`；`typebox` 的 `Value.Check` →
+  `Core/JsonSchema.Check`。无新增外部依赖。
+- **4g-3a 落地 193 行**：`Experimental/SessionCatalog.cs`（`session-catalog.ts` 87）与
+  `Experimental/InternalProcess.cs`（`process.ts` 106）。`meta.json` 的 tab 缩进、键序
+  （createdAt 在前）与尾换行按 `JSON.stringify(…, null, "\t")` 逐字节复刻。
+- **一致性检查抓到的最大问题：14 处 CRLF 缺陷**。.NET 9+ 的 `JsonSerializerOptions` 新增
+  `NewLine`，**默认值是 `Environment.NewLine`**；TS 的 `JSON.stringify` 恒写 `"\n"`。既有移植
+  里凡 `WriteIndented = true` 的写盘在 Windows 上全部落成 CRLF：settings / auth / crashes /
+  models / trust / mcp.json / mcp-auth / migrations / 工具调用 JSON 渲染 / 校验错误消息 /
+  chord bundle 清单 / MCP structuredContent 文本。全部补 `NewLine = "\n"`（C311）。
+  这是**平台默认值差异**，不是笔误——凡新增缩进序列化都必须显式设置。
+- **`Pi.CodingAgent.Experimental` 命名空间遮蔽 `Core.Experimental` 类型（C300 复发）**：
+  新增目录后 `Footer.cs` 的 `Experimental.AreExperimentalFeaturesEnabled()` 解析到命名空间而报
+  CS0234。修法是全限定。**`using Experimental = Pi.CodingAgent.Core.Experimental;` 这样的同名别名
+  **无效**——简单名称解析时外层命名空间成员优先于 using 别名（C312）；测试文件改用
+  `CoreExperimental` 别名才生效。
+- **测试 +58 例**（`ExperimentalFoundationTests`）：16 条会话 id 语料（含 128/129 边界、
+  `"a\n"` 因 JS 的 `$` 不匹配尾换行而拒绝）、meta.json 精确文本、EEXIST/非法 id 文案、
+  8 条 readSession 拒绝形状（含 `[]` —— JS 里 `typeof [] === "object"` 但两字段都是 undefined）、
+  小数 createdAt 被接受、list 的三类跳过、storage 路径不创建文件、delete 幂等、
+  角色读写/消费/未知值抛错、控制行 UTF-8 字节计数（`"中"` = 6 字节）。
+- 全量 **4354/0**（1m53s）；构建 0 警告 0 错误。差异编号推进到 **C312**。
+- **4g-3a 收口。** 下一批 **4g-3b**：`services/*`（14 文件 ~1,150 行，chord 服务契约与 provider）。
 
 ---
 

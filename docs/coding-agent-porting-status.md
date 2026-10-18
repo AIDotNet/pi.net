@@ -6602,3 +6602,47 @@ TS 四个文件共 **2,159 行**，另 `index.ts`(494) 复核为纯 re-export ba
 | C305 | **`RpcClientOptions.FileName` 默认改 `Environment.ProcessPath`** | TS 的 RPC 客户端默认 `spawn("node", ["dist/cli.js", ...])`；.NET 的 CLI 就是自身可执行文件。默认 `FileName = Environment.ProcessPath ?? Config.AppName`、`CliPath = null`，`CreateStartInfo` 仅在 `CliPath` 非空时作为首参传入 |
 | C306 | **`ModelsStore.Serialize` 需 `DeepClone()`** | `JSON.stringify` 允许同一对象被多次序列化；`JsonNode` 有 parent 唯一性约束，直接挂载会抛 "The node already has a parent"。写出前统一 `DeepClone()` |
 | C307 | **`update --self` / `update --extensions` 报端口缺口** | TS 走 `package-manager.ts` 的 npm/git 版本比对（4e-3c-3 顺延项）。C# 侧解析、目标判定、冲突链、文案与退出码全部对齐，只缺网络检查本体——两条分支各返回 1 并打印缺口文案，与 `CheckForPackageUpdatesAsync` 的「失败降级为空表」同一策略 |
+
+## 4g-3a 实验层地基（session-catalog / process）
+
+TS 两个文件共 **193 行**，C# 落 `src/Pi.CodingAgent/Experimental/`：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/session-catalog.ts` | 87 | `Experimental/SessionCatalog.cs` | `SessionCatalogMetadata` / `SessionCatalogCreateOptions` / `IsSessionId` / `SessionStoragePath` / `ListSessionsAsync` / `ReadSessionAsync` / `CreateSessionAsync` / `DeleteSessionAsync` |
+| `experimental/process.ts` | 106 | `Experimental/InternalProcess.cs` | `InternalProcessRole`（三值）/ `InternalProcessEnv` / `InternalRoleArg` / `Get`·`ConsumeInternalProcessRole` / `SpawnInternalProcess` / `TerminateInternalProcessAsync` / `EncodeControlLine` / `MaxControlLineBytes` |
+
+**动工前的勘察结论**：`experimental/` 在 `src/` 下**没有任何外部引用**——它是一组独立的实验入口，
+由 `experimental/cli.ts` 与各自的 `main.ts` 驱动，`main.ts` 的主链完全不经过它。`package.json`
+的 `exports` 只暴露 `./experimental/plugin`（16 行，纯 re-export barrel）。故 4g-3 按依赖层次切 7 个子批。
+
+**前置件核对**：`@earendil-works/{chord,client,protocol,server,durable,ai,tui}` 均已有对应 C# 项目；
+`proper-lockfile` → `Core/NodeLock.cs`；typebox 的 `Value.Check` → `Core/JsonSchema.Check`。无新增依赖。
+
+**一致性检查抓到的核心问题：14 处 CRLF 缺陷（C311）**。.NET 9+ 的 `JsonSerializerOptions` 新增
+`NewLine`，默认值是 `Environment.NewLine`；TS 的 `JSON.stringify` 恒写 `"\n"`。既有移植里凡
+`WriteIndented = true` 的写盘在 Windows 上全部落成 CRLF，涉及 settings / auth / crashes / models /
+trust / `mcp.json` / `mcp-auth.json` / migrations / 工具调用 JSON 渲染 / 校验错误消息 / chord bundle
+清单 / MCP `structuredContent` 文本。全部补 `NewLine = "\n"`。**这是平台默认值差异，不是笔误**——
+凡新增缩进序列化都必须显式设置。
+
+**命名空间遮蔽复发（C300）**：新增 `Pi.CodingAgent.Experimental` 命名空间后，`Footer.cs` 的
+`Experimental.AreExperimentalFeaturesEnabled()` 解析到命名空间而报 CS0234。修法是全限定。
+注意 **`using Experimental = Pi.CodingAgent.Core.Experimental;` 这种同名别名无效**——简单名称解析
+时外层命名空间成员优先于 using 别名（C312）；测试文件改用 `CoreExperimental` 别名才生效。
+
+**测试（+58 例）**：`ExperimentalFoundationTests` —— 16 条会话 id 语料（含 128/129 边界、
+`"a\n"` 因 JS 的 `$` 不匹配尾换行而拒绝）、meta.json 精确文本（tab 缩进 + 键序 + 尾换行）、
+EEXIST 与非法 id 的精确文案、8 条 `readSession` 拒绝形状（含 `[]`：JS 里 `typeof [] === "object"`
+但两字段都是 undefined）、小数 `createdAt` 被接受、list 的三类跳过、storage 路径不创建文件、
+delete 幂等、角色读取/消费/未知值抛错、控制行的 UTF-8 字节计数（`"中"` = 6 字节）。
+
+### 4g-3a 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C308 | **`createSession` 的 EEXIST 检测改为显式存在性检查** | TS 靠非递归 `mkdir(path)` 的原子 EEXIST 判定重复 id。.NET 没有非递归原子 mkdir（`Directory.CreateDirectory` 幂等且递归），故改为 `Directory.Exists(path) \|\| File.Exists(path)` 后再创建。语义等价（抛 `Session {id} already exists`），但**失去原子性**——并发创建同一 id 时可能都通过检查，最后一个覆盖 `meta.json` |
+| C309 | **内部进程角色用 `--internal-role <role>` 参数承载** | TS 用三个不同的入口脚本（`coordinator.ts` / `server.ts` / `session-worker.ts`）区分子进程角色。.NET CLI 是单一可执行文件，没有入口脚本可指，故角色随参数传递。环境标签 `__PI_INTERNAL_SPAWN` 与「消费即删除」规则不变 |
+| C310 | **`isDirectInternalProcessEntry` 不移植** | 它回答「这个模块是被直接执行还是被 import」，只有 TS 模块同时也是脚本时才需要这个判断；.NET 没有模块加载等价物。属宿主差异，不是功能缺口 |
+| C311 | **所有缩进序列化必须显式 `NewLine = "\n"`** | .NET 9+ 的 `JsonSerializerOptions.NewLine` 默认是 `Environment.NewLine`，Windows 下写 CRLF；TS 的 `JSON.stringify` 恒写 `"\n"`。本批修正 14 处既有缺陷（settings/auth/crashes/models/trust/mcp×3/migrations/工具渲染/校验消息/chord bundle/MCP 内容/会话目录） |
+| C312 | **同名的 using 别名对命名空间遮蔽无效** | `using Experimental = Pi.CodingAgent.Core.Experimental;` 不能让 `Experimental.X` 解析到类型——简单名称解析时外层命名空间成员（`Pi.CodingAgent.Experimental`）优先于 using 别名。只能用全限定名，或改用不同名字的别名（`CoreExperimental`） |
