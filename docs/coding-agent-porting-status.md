@@ -6833,3 +6833,44 @@ sha256 取十六进制前 12 / 24 位（`createHash("sha256").digest("hex").slic
 | C334 | **打包器由调用方注入 `IFacetEntryBundler`** | TS 的 `bundleFacetPackage` 内置 esbuild；.NET 无 JS 打包器，`CreateServerPluginPackage` 收注入的 entry bundler 转交 `Pi.Chord.Bundler.BundleFacetPackageAsync`（测试用写真实产物的假 bundler 端到端验证） |
 | C335 | **`resolvePluginExternal` 映射到承载插件 API 的程序集** | TS 把 `@earendil-works/pi-coding-agent/experimental/plugin` 解析为宿主包内 `../plugin.js` 的 URL；C# 无 JS 模块图（扩展走 AssemblyLoadContext），故解析为该 specifier 对应的 `Pi.CodingAgent` 程序集位置，默认 `UnsupportedFacetModuleHost` 仍拒绝执行 JS bundle |
 | C336 | **`plugin.ts` 是不移植的纯 re-export barrel** | 其六个导出（`AgentController` / `PresentationUI` / `SlashCommands` 及相关类型）已由 `Pi.CodingAgent.Experimental.Services.*` 承载；C# 侧它对应的「模块」即 C335 中解析到的程序集 |
+
+## 4g-3c-3 协调器两端（coordinator.ts / coordinator-entry.ts）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `coordinator.ts`（客户端半边） | ~140 | `Experimental/Coordinator.cs` | `CoordinatorConnection`（注册/收发/替换/关闭）、消息词汇表解析、`ensureCoordinator` |
+| `coordinator.ts`（进程半边） | ~310 | `Experimental/CoordinatorProcess.cs` | `CoordinatorProcess`：控制/公开双 listener、注册与替换、路由、公开代理、空窗退出 |
+| `coordinator-entry.ts` | 10 | `Coordinator.RunCoordinatorEntryAsync` | 角色校验 + 运行进程（CLI 的 `--internal-role coordinator` 分发点） |
+| （TS 无对应文件） | — | `Experimental/CoordinatorSocket.cs` | 两侧共享的连接通道：字节级分行、上限、写队列、销毁语义 |
+
+**消息词汇表**：TS 用 typebox `Check(CoordinatorMessageSchema, value)` 校验并销毁非法连接；`Type.Object` 默认
+**允许额外属性**（JSON Schema 语义），故解析同样只查必需字段。五种形状：`server_registered`（含 peers 字符串数组）、
+`server_replaced`、`peer_connected` / `peer_disconnected`（peerId 非空字符串）、`message`（from 非空 + payload 键必须存在）。
+进程侧另有一层宽松视图 `ControlMessage`：只要对象带字符串 `type` 即接受，字段在使用点现查（对齐 TS 的 `unknown` + typeof）。
+
+**连接通道的三处 .NET 适配**：
+① **字节级分行**——按 0x0A 切分（多字节 UTF-8 序列里不可能出现 0x0A），跨 chunk 的半字符不会被误判成换行；
+② **写队列**——`WriteLine` 经每连接单排空任务保序（`Task.Run` 逐次发射会让线程池并发重排，Node 的 socket.write 是排队的）；
+③ **销毁语义**——`Destroy(error)` 幂等，`Closed` 事件携带错误（Node 的 'error' + 'close' 两个监听器的合并效果）；
+处理器抛错 → 以该错误销毁（TS reader 的 catch 语义）。
+
+**公开代理的拆卸**：每对连接两个泵 + 取消源；任一结束 → 取消另一侧 → 两侧都结束后才 `Shutdown(Both)` + 释放。
+直接 `Dispose` 一个尚有挂起读取的 socket 会让对端看到 **RST 而非 FIN**（Windows 实测），与 TS 的优雅关闭不等价。
+
+**路由语义**：`from` 对 server 侧恒为字面量 `"server"`（`to === "server"` 寻的也是它）；未知 `to` 静默丢弃；
+`broadcast` 仅当前 server 可用；被替换的 server 的消息一律丢弃。注册顺序：新 server 先收到 `server_registered`，
+再（有前任时）关公开连接、通知 peers `server_disconnected`、告诉前任 `server_replaced`，最后通知 peers `server_connected`。
+
+**空窗退出**：启动后排 30s 空窗计时；任何注册/公开连接取消它；全部断开后排 250ms 到点重查四项
+（currentServer / peers / publicConnections / controlConnections）后关闭双 listener、删除 socket 文件、`exit(0)`。
+
+### 4g-3c-3 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C337 | **协调器在 .NET 无独立入口脚本，角色走 CLI 分发** | TS 用 `coordinator-entry.ts` + `__PI_INTERNAL_SPAWN` 标签 + 直接入口判定；C# 由 `RunCoordinatorEntryAsync` 消费 env 角色并校验（`ConsumeInternalProcessRole`），CLI 侧 `--internal-role coordinator` 分发属 4g-3d |
+| C338 | **Unix socket 的 Windows 限制：无 S_ISSOCK、无 socket 文件清理** | `removeStaleSocket` 无法区分「陈旧 socket」与「普通文件」（TS 的 `lstat().isSocket()` 抛错保护用户文件），只能按「存在 + 连通性探测」判定；`cleanupSocket` 在 Windows 整体跳过（TS 同）——崩溃残留的 socket 文件在 Windows 上会阻止重启，与 TS 行为一致 |
+| C339 | **`peers` 快照的枚举顺序可能与 TS 不同** | TS 的 `Map` 恒为插入序；.NET `Dictionary` 在「删除后再添加」后不保证插入序。该数组只喂客户端 `peerIds` 集合（无序消费），故不额外维护并行顺序表 |
+| C340 | **信号处理的平台差异** | SIGINT 走 `Console.CancelKeyPress`（并 `Cancel = true` 接管默认终止）；SIGTERM 用 `PosixSignalRegistration`，不支持的平台上静默降级（仅 Ctrl+C 可关） |
+| C341 | **销毁错误只在本地可见** | TS 的 `socket.destroy(error)` 与 .NET 的 `Destroy(error)` 都不经由线路传给对端——对端只观察到关闭。测试据此分行：通道级断言错误原文，进程级断言关闭与后续行为 |
+| C342 | **`JsonNode` 不能重复挂载** | 路由转发 payload 时必须 `DeepClone()`（直接赋值抛 "The node already has a parent"）；TS 直接传引用无此约束 |

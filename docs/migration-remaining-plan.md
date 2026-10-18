@@ -1044,3 +1044,22 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 > BindCurrentSessionExtensionsAsync / HandleRightClickPaste），按子批逐个退役。
 
 （后续阶段完成后逐行追加。）
+
+### 0.26 4g-3c-3 协调器两端（`e8ff65c`，2026-10-18）
+
+- **范围**：`coordinator.ts`(612) + `coordinator-entry.ts`(10) = 622 行。测试 **+36 例**（`CoordinatorProcessTests` 17 /
+  `CoordinatorTests` 19）。**4g-3c 至此全部收口**。
+- **两个半边一个共享通道**：客户端（`CoordinatorConnection` + `ensureCoordinator` + 入口角色校验）与进程
+  （`CoordinatorProcess`：双 listener、注册/替换、路由、公开代理、空窗退出）共享 `CoordinatorSocket`
+  （字节级分行 + 写队列 + 销毁语义）。TS 是一个模块 + node:net，.NET 按职责拆三个文件。
+- **测试全是真实 Unix socket 的集成测试**（Windows 的 AF_UNIX 可用）：协调器行为无法用替身观察——
+  错误原因只存在于销毁方本地（C341），故进程级断言「关闭 + 后续行为」，通道级（处理器抛错 → Closed 带原文）
+  另立用例。写序与 RST/FIN 两个 bug 都是被这些测试抓出来的：逐次 `Task.Run` 发射会重排同一连接上的写
+  （改单排空任务保序）；带挂起读取直接 `Dispose` 会让对端看到 RST 而非 FIN（改双泵 + 取消源 + 事后 Shutdown）。
+- **踩坑记录**：① `JsonNode` 重复挂载抛 "The node already has a parent"——路由转发 payload 必须 `DeepClone()`（C342）；
+  ② typebox `Type.Object` 默认允许额外属性，消息解析同样只查必需字段（一开始的测试断言写反了）；
+  ③ TS 的路由 `from` 对 server 侧恒为字面量 `"server"`（与 `to === "server"` 同一身份），不是 serverConnectionId；
+  ④ `Task.Run` 的三个 lambda 体可能被三个线程同时取走，信号量不保证提交序——保序必须在调用点排队。
+- **4g-3d 起**：`server.ts`(770) + `session-worker-manager.ts`(848) + `session-worker.ts`(840) +
+  `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12)（~3,359 行）。
+  `cli.ts` 里落地 `--internal-role coordinator` 分发（C337）。
