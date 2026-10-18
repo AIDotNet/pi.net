@@ -7060,3 +7060,39 @@ publish 包装成 `service_update`）→ WorkerLifecycle → readCommands → `w
   观察顺序后又挂——根因是**根本没等注册落地**：协调器把发给未注册 peer 的 send 静默丢弃，
   满负载下 server 的 send 先于两条 register_peer 被处理，"only-you" 永久丢失。改为先等
   `server.PeerIds` 含两个 peer 再发（同文件其他用例的既有等法）。
+
+## 4g-3d-3c Session Worker 编排端到端（session-worker.ts 入口半收尾）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/session-worker.ts` `run()` 编排 | ~230 | `SessionWorkerEntryE2ETests.cs` | 真协调器 + 真 Harness（MemoryStorage）+ 真 services 的控制协议端到端 |
+
+**e2e 形态**（TS 侧对应物是 `test/fixtures/faux-session-worker.ts` + `experimental-remote-runtime.test.ts`
+的 worker 半；manager 本身随 4g-3d-4 落地，故本测试直接以 server 角色驱动 worker）：
+`CoordinatorProcess` + server 角色 `CoordinatorConnection` → `HarnessImpl(MemoryStorage)`（faux
+provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（env 含控制四件套与两个
+宽限覆盖）→ 断言 `worker_ready`（sessionId/metadata）→ `session_demand`（attached）→
+`demand_applied` → `operation`（`pi.session-plugins`/`reload`）→ `operation_result`（无 result 键）
+→ `shutdown` → run 结束且会话锁文件释放。锁文件全程存在性断言（`path + ".lock"`，`FileMode.CreateNew`
+存在式锁，无持有句柄）。
+**测试等法**：所有等待轮询 + 20s 截止，并把 run 任务的失败/提前结束抛出来（ worker 在事件前死掉
+时surface 异常而不是裸超时）。
+
+### 4g-3d-3c 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C361 | **`AttachedReplicatedState` 附加时即激活，worker 不得再 `Activate()`** | TS 与 C# 的 `attachReplicatedStateSource` 都在返回前 `state.activate()`（TS state.ts:331 / C# ReplicatedState.cs:255）；TS 的 `run()` 只 `subscribe`。初版 C# 多调了一次 `activity.Activate()`，真机一跑就抛 "State attachment is already active"——**被 e2e 测试抓出的真 bug**，已删。同类 `.Activate()` 误用只此一处（其余均在订阅句柄上） |
+| C362 | **`createCodingAgentHarness` 暂缓** | 依赖 `durable/harness-setup.ts`（4g-3f 范围）+ `openNodeSqliteStorage`——**Pi.Durable 的 sqlite 存储整体未移植**（现有仅 `MemoryStorage`；schema/migrations ~1,454 行 TS + Microsoft.Data.Sqlite 依赖，此前任何台账均未记录该缺口）。3c 只收口 `run()` 编排的端到端；`createCodingAgentHarness` 与 `runSessionWorkerProcess` 排在 4g-3f + sqlite 存储之后 |
+
+### 4g-3d-3c 测试方法论
+
+- **e2e 的等待必须把 run 任务的失败抛出来**：worker 早夭时（如本次的 Activate bug）先看到
+  "the worker run failed before worker_ready" + 内层栈，而不是 20s 后的裸超时。
+- **`reload` 会成功而非拒绝**：TS/C# 的种子拒绝桩（"Session plugins are not ready"）在 facet host
+  建成后即被真 reload 覆盖（TS worker.ts:65→92），空 plugin loader 下 reload 解析为无结果——
+  `operation_result` 且无 `result` 键。初版按种子桩断言 `operation_error` 被纠正。
+- **已知负载敏感 flake（旧账，未修）**：`ThemeRuntimeTests.StartWatcher_IgnoresChangesToOtherFiles`
+  偶发把 accent 断言成默认色（期望 `#111111`，实得 `#800080`）——该类共享 `ThemeRuntime` 静态态
+  与固定 sleep（100ms 防抖 + 250ms 等待），单跑全绿、满负载偶发。与 4g-3d 各批无关，待 TUI
+  主题测试基础设施隔离化时一并处理。

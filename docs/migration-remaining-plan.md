@@ -60,7 +60,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
 | **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）+ 末段 ✅ `8500da8`（0.23）；余 `server.ts` / `connection.ts` |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | 🟡 `plugins/*` ✅ `b1b4b80`（0.25）；余 `coordinator.ts` / `coordinator-entry.ts` |
-| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 全文 ✅ `1602814`/`6422a37`（0.28/0.29）+ `session-worker.ts` 协议半 ✅ `106978b`（0.30）；余 `session-worker.ts` 入口半 + `session-worker-manager.ts` + `server.ts`/`commands.ts`/`cli.ts` |
+| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 全文 ✅ `1602814`/`6422a37`（0.28/0.29）+ `session-worker.ts` 协议半 ✅ `106978b`（0.30）+ 入口半 ✅ `00e5b14`/`262f413`（0.31/0.32，`createCodingAgentHarness` 暂缓见 C362）；余 `session-worker-manager.ts` + `server.ts`/`commands.ts`/`cli.ts` |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
 | 4g-3f | `durable/*`（9 文件） | ~1,440 | |
 | 4g-3g | `vacation/*`（6 文件） | ~1,305 | |
@@ -1146,3 +1146,24 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **4g-3d-3c**：`run()` 编排的端到端评估（MemoryStorage + 假 harness）+ `createCodingAgentHarness`
   （需先补 `durable/harness-setup.ts`）；随后 4g-3d-4：`session-worker-manager.ts`(848) +
   `server.ts`(770) + `commands.ts`(98) + `cli.ts`(12)（含 C337 的 `--internal-role coordinator`）。
+
+### 0.32 4g-3d-3c Session Worker 编排端到端（`262f413`，2026-10-19）
+
+- **范围**：`run()` 编排的端到端（新增 `SessionWorkerEntryE2ETests.cs`，1 例；5 连跑稳定）。
+  全量 **4720/0**（2m21s）。形态对齐 TS `fixtures/faux-session-worker.ts` +
+  `experimental-remote-runtime.test.ts` 的 worker 半：真协调器 + server 角色 + 真 Harness
+  （MemoryStorage + faux provider）+ 真 services，经控制协议断言 worker_ready → demand_applied
+  → operation_result → shutdown 后锁释放。等待全部轮询 + 20s 截止，并把 run 任务失败抛出来。
+- **抓出真 bug（C361）**：`AttachReplicatedStateSource` 返回前已激活（TS 同），`RunAsync` 里
+  多调的 `activity.Activate()` 一跑就抛 "State attachment is already active"——e2e 首跑即抓到，
+  已删。教训：**静态/共享状态的「已初始化」契约只能靠真机装配验证**，单类测试覆盖不到。
+- **`createCodingAgentHarness` 暂缓（C362）**：依赖 4g-3f 的 `durable/harness-setup.ts` +
+  `durable/prompt.ts`，以及 **Pi.Durable 的 sqlite 存储整体未移植**（新记录的缺口：~1,454 行
+  TS + Microsoft.Data.Sqlite，此前台账未记）。`createCodingAgentHarness` 与
+  `runSessionWorkerProcess` 改排在 4g-3f + sqlite 存储之后。
+- **已知负载敏感 flake（旧账，未修）**：`ThemeRuntimeTests.StartWatcher_IgnoresChangesToOtherFiles`
+  满负载偶发（期望 `#111111` 实得 `#800080`），单跑全绿；共享 `ThemeRuntime` 静态态 + 固定
+  sleep，待 TUI 主题测试隔离化时处理。
+- **4g-3d 后续**：`session-worker-manager.ts`(848) + `server.ts`(770) + `commands.ts`(98) +
+  `cli.ts`(12)（4g-3d-4）；`durable/*` 9 文件（4g-3f，含 harness-setup.ts/prompt.ts）之后补
+  `createCodingAgentHarness`；Pi.Durable sqlite 存储需单独排期。
