@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -964,7 +965,7 @@ public static partial class Config
     {
         string? path = null;
         var name = DefaultPackageName;
-        var version = DefaultVersion;
+        var version = ReadAssemblyVersion();
         string? piConfigName = null;
         string? piConfigDir = null;
 
@@ -1012,8 +1013,28 @@ public static partial class Config
             path);
     }
 
-    private static string? ReadVersionFromJson(string content)
+    /// <summary>
+    /// The version to use when there is no readable <c>package.json</c>: the entry assembly's
+    /// <c>AssemblyInformationalVersion</c> (the csproj <c>&lt;Version&gt;</c>), with the
+    /// <c>+&lt;sha&gt;</c> build-metadata suffix stripped. TS always has a package.json, so this
+    /// fallback is a port-only path (difference C304).
+    /// </summary>
+    private static string ReadAssemblyVersion()
     {
+        var assembly = System.Reflection.Assembly.GetEntryAssembly() ?? typeof(Config).Assembly;
+        var informational = assembly
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrEmpty(informational))
+        {
+            var plus = informational.IndexOf('+');
+            return plus >= 0 ? informational[..plus] : informational;
+        }
+
+        var version = assembly.GetName().Version;
+        return version is null ? DefaultVersion : $"{version.Major}.{version.Minor}.{version.Build}";
+    }
+
+    private static string? ReadVersionFromJson(string content)    {
         try
         {
             using var document = JsonDocument.Parse(content);

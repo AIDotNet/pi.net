@@ -58,6 +58,19 @@ public sealed class DefaultResourceLoader
     private readonly IReadOnlyList<string> _additionalSkillPaths;
     private readonly IReadOnlyList<string> _additionalPromptPaths;
     private readonly IReadOnlyList<string> _additionalThemePaths;
+
+    /// <summary>
+    /// TS <c>additionalExtensionPaths</c>. Only the local-path existence check is modelled: resolving
+    /// package sources still needs <c>DefaultPackageManager.resolveExtensionSources</c>, which is the
+    /// recorded 4e-3e-9h-2b-2 blocker (see <c>ReloadAsync</c>).
+    /// </summary>
+    private readonly IReadOnlyList<string> _additionalExtensionPaths;
+
+    /// <summary>TS <c>systemPrompt</c>: an explicit system-prompt source, skipping discovery.</summary>
+    private readonly string? _systemPromptSource;
+
+    /// <summary>TS <c>appendSystemPrompt</c>: explicit append sources, skipping discovery.</summary>
+    private readonly IReadOnlyList<string>? _appendSystemPromptSource;
     private readonly EventBus _eventBus;
     private readonly IReadOnlyList<InlineExtension> _extensionFactories;
     private readonly Dictionary<string, InlineExtension.Described> _builtinExtensions;
@@ -98,9 +111,12 @@ public sealed class DefaultResourceLoader
         bool noPromptTemplates = false,
         bool noThemes = false,
         bool noContextFiles = false,
+        IReadOnlyList<string>? additionalExtensionPaths = null,
         IReadOnlyList<string>? additionalSkillPaths = null,
         IReadOnlyList<string>? additionalPromptTemplatePaths = null,
         IReadOnlyList<string>? additionalThemePaths = null,
+        string? systemPrompt = null,
+        IReadOnlyList<string>? appendSystemPrompt = null,
         EventBus? eventBus = null,
         IReadOnlyList<InlineExtension>? extensionFactories = null,
         bool noExtensions = false,
@@ -131,9 +147,12 @@ public sealed class DefaultResourceLoader
         _noPromptTemplates = noPromptTemplates;
         _noThemes = noThemes;
         _noContextFiles = noContextFiles;
+        _additionalExtensionPaths = additionalExtensionPaths ?? [];
         _additionalSkillPaths = additionalSkillPaths ?? [];
         _additionalPromptPaths = additionalPromptTemplatePaths ?? [];
         _additionalThemePaths = additionalThemePaths ?? [];
+        _systemPromptSource = systemPrompt;
+        _appendSystemPromptSource = appendSystemPrompt;
         _noExtensions = noExtensions;
         _disabledBuiltinExtensions = new HashSet<string>(
             disabledBuiltinExtensions ?? [], StringComparer.Ordinal);
@@ -285,6 +304,34 @@ public sealed class DefaultResourceLoader
 
         var extensionsResult = await LoadFinalExtensionSetAsync(extensionPaths, preTrustExtensions)
             .ConfigureAwait(false);
+
+        // TS L584-591: a local `-e <path>` that does not exist surfaces as a load error rather than
+        // being silently dropped. The package-source half of `additionalExtensionPaths` still needs
+        // `resolveExtensionSources` (4e-3e-9h-2b-2 blocker), so only local paths are checked here.
+        var missingExtensionPaths = new List<ExtensionLoadError>();
+        foreach (var path in _additionalExtensionPaths)
+        {
+            if (!Paths.IsLocalPath(path))
+            {
+                continue;
+            }
+
+            var resolvedPath = ResolveResourcePath(path);
+            if (!File.Exists(resolvedPath) && !Directory.Exists(resolvedPath))
+            {
+                missingExtensionPaths.Add(new ExtensionLoadError(
+                    resolvedPath, $"Extension path does not exist: {resolvedPath}"));
+            }
+        }
+
+        if (missingExtensionPaths.Count > 0)
+        {
+            extensionsResult = extensionsResult with
+            {
+                Errors = [.. extensionsResult.Errors, .. missingExtensionPaths],
+            };
+        }
+
         _extensionsResult = _extensionsOverride is null ? extensionsResult : _extensionsOverride(extensionsResult);
         ApplyExtensionSourceInfo(_extensionsResult.Extensions, metadataByPath);
 
@@ -391,22 +438,20 @@ public sealed class DefaultResourceLoader
     }
 
     /// <summary>
-    /// TS loader's system-prompt block (L653-679). Design note: the TS loader options carry explicit
-    /// <c>systemPrompt</c> / <c>appendSystemPrompt</c> sources plus override hooks (used by tests and
-    /// the SDK, which passes an empty string); the port's loader has no such parameters, so only the
-    /// discovery path is modelled — the SDK's empty-string source resolves to no custom prompt,
-    /// which is what discovery produces when no SYSTEM.md exists (registered difference).
+    /// TS loader's system-prompt block (L653-679). An explicit <c>systemPrompt</c> /
+    /// <c>appendSystemPrompt</c> source wins over discovery, exactly as in TS
+    /// (<c>this.systemPromptSource ?? this.discoverSystemPromptFile()</c>).
     /// </summary>
     private void LoadSystemPromptSources()
     {
-        var systemPromptSource = DiscoverSystemPromptFile();
+        var systemPromptSource = _systemPromptSource ?? DiscoverSystemPromptFile();
         SystemPrompt = ResolvePromptInput(systemPromptSource, "system prompt");
         SystemPromptSourcePath = systemPromptSource is not null && File.Exists(systemPromptSource)
             ? Paths.ResolvePath(systemPromptSource)
             : null;
 
-        var appendSource = DiscoverAppendSystemPromptFile();
-        var appendSources = appendSource is null ? [] : new[] { appendSource };
+        var appendSources = _appendSystemPromptSource
+            ?? (DiscoverAppendSystemPromptFile() is { } discovered ? [discovered] : []);
         AppendSystemPrompt = appendSources
             .Select(source => ResolvePromptInput(source, "append system prompt"))
             .Where(content => content is not null)

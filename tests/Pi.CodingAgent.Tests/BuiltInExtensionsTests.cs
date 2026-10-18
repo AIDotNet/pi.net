@@ -23,14 +23,20 @@ public class BuiltInExtensionsTests
     }
 
     [Fact]
-    public async Task PlaceholderFactory_FailsNamingItsBatch()
+    public async Task McpFactory_IsTheRealFactory()
     {
-        // The remaining placeholder lands with 4d-4 (mcp); until then it fails loudly instead of
-        // registering nothing. llama.cpp / codemode / tool-search are already real factories.
-        var mcp = Assert.IsType<InlineExtension.Described>(BuiltInExtensions.All[3]);
-        var mcpError = await Assert.ThrowsAsync<NotSupportedException>(() => mcp.Factory(null!));
-        Assert.Contains("mcp", mcpError.Message, StringComparison.Ordinal);
-        Assert.Contains("4d-4", mcpError.Message, StringComparison.Ordinal);
+        // mcp registers the /mcp command; a placeholder throws NotSupportedException before
+        // registering anything. The registry carried a placeholder for mcp long after 4d-4 landed,
+        // which made every startup fail with "lands with batch 4d-4"; 4g-2 replaced it with the real
+        // factory. This test guards against the registry regressing to a placeholder.
+        var runtime = ExtensionLoader.CreateExtensionRuntime();
+        var extension = await ExtensionLoader.LoadExtensionFromFactory(
+            ((InlineExtension.Described)BuiltInExtensions.All[3]).Factory,
+            Path.GetTempPath(),
+            EventBusController.CreateEventBus(),
+            runtime);
+
+        Assert.Contains("mcp", extension.Commands.Keys);
     }
 
     [Fact]

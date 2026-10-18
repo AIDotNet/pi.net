@@ -274,9 +274,12 @@ public static class AgentSessionServicesBuilder
             noPromptTemplates: extra.NoPromptTemplates,
             noThemes: extra.NoThemes,
             noContextFiles: extra.NoContextFiles,
+            additionalExtensionPaths: extra.AdditionalExtensionPaths,
             additionalSkillPaths: extra.AdditionalSkillPaths,
             additionalPromptTemplatePaths: extra.AdditionalPromptTemplatePaths,
             additionalThemePaths: extra.AdditionalThemePaths,
+            systemPrompt: extra.SystemPrompt,
+            appendSystemPrompt: extra.AppendSystemPrompt,
             eventBus: extra.EventBus,
             extensionFactories: extra.ExtensionFactories,
             noExtensions: extra.NoExtensions,
@@ -402,6 +405,8 @@ public sealed record ResourceLoaderExtraOptions
 
     public bool NoExtensions { get; init; }
 
+    public IReadOnlyList<string>? AdditionalExtensionPaths { get; init; }
+
     public IReadOnlyList<string>? AdditionalSkillPaths { get; init; }
 
     public IReadOnlyList<string>? AdditionalPromptTemplatePaths { get; init; }
@@ -413,6 +418,12 @@ public sealed record ResourceLoaderExtraOptions
     public IReadOnlyList<InlineExtension>? ExtensionFactories { get; init; }
 
     public IReadOnlyList<string>? DisabledBuiltinExtensions { get; init; }
+
+    /// <summary>Explicit system-prompt source, skipping SYSTEM.md discovery.</summary>
+    public string? SystemPrompt { get; init; }
+
+    /// <summary>Explicit append-system-prompt sources, skipping APPEND_SYSTEM.md discovery.</summary>
+    public IReadOnlyList<string>? AppendSystemPrompt { get; init; }
 
     public Func<LoadExtensionsResult, LoadExtensionsResult>? ExtensionsOverride { get; init; }
 

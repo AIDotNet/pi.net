@@ -19,15 +19,21 @@ namespace Pi.CodingAgent.Modes.Rpc;
 /// <summary>RPC 客户端构造选项。对应 TS <c>RpcClientOptions</c>。</summary>
 public sealed record RpcClientOptions
 {
-    /// <summary>
-    /// 启动 agent 用的可执行文件名。TS 固定 <c>"node"</c>（配合 <see cref="CliPath"/>
-    /// 指向 <c>dist/cli.js</c>）；端口默认保持一致，真实部署时指向 .NET CLI 入口
-    /// （CLI 入口本身属 4g-2，届时经本选项切换）。
-    /// </summary>
-    public string FileName { get; init; } = "node";
+    /// <summary>The executable that hosts the CLI: the running process, or <c>pi</c> on PATH.</summary>
+    private static string DefaultFileName => Environment.ProcessPath ?? Config.AppName;
 
-    /// <summary>CLI 入口路径（默认 <c>dist/cli.js</c>，对齐 TS）。</summary>
-    public string CliPath { get; init; } = "dist/cli.js";
+    /// <summary>
+    /// 启动 agent 用的可执行文件。TS 固定 <c>"node"</c>（配合 <see cref="CliPath"/> 指向
+    /// <c>dist/cli.js</c>）；端口 4g-2 起默认指向**当前进程的可执行文件**（<c>pi</c>），
+    /// 因为 .NET 版是原生入口而非 node 脚本（差异 C306）。显式设置时行为与 TS 一致。
+    /// </summary>
+    public string FileName { get; init; } = DefaultFileName;
+
+    /// <summary>
+    /// CLI 入口路径。TS 默认 <c>dist/cli.js</c>；端口默认 <see langword="null"/>——原生入口
+    /// 不需要额外的脚本参数。设为非空时按 TS 的方式作为第一个参数传入（差异 C306）。
+    /// </summary>
+    public string? CliPath { get; init; }
 
     /// <summary>agent 的工作目录。</summary>
     public string? Cwd { get; init; }
@@ -538,7 +544,11 @@ public class RpcClient
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        startInfo.ArgumentList.Add(_options.CliPath);
+        if (!string.IsNullOrEmpty(_options.CliPath))
+        {
+            startInfo.ArgumentList.Add(_options.CliPath!);
+        }
+
         startInfo.ArgumentList.Add("--mode");
         startInfo.ArgumentList.Add("rpc");
         if (!string.IsNullOrEmpty(_options.Provider))

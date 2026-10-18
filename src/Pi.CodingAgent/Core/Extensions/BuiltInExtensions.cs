@@ -8,16 +8,15 @@
 // omitReplacedExtensions) when another extension registers the same tool, command, or flag name;
 // llama.cpp is not replaceable.
 //
-// The factories themselves land with the per-extension batches — mcp with 4d-4, codemode with
-// 4d-5, tool-search with 4d-6 (landed), llama (non-UI) with 4d-7. Until then each entry carries a
-// placeholder factory that fails with a clear error naming its batch, the same placeholder
-// strategy the 4d-1 contract layer used for 4e/4f types (Types/Placeholders.cs). A placeholder
-// that runs surfaces as one aggregated load error, never a silent no-op.
+// All four factories are real: llama / codemode / tool-search landed with 4d-5..4d-7 and mcp with
+// 4d-4 (McpExtension.CreateMcpExtension). The registry used to carry a placeholder for mcp even
+// after 4d-4 landed, which made every startup fail with "lands with batch 4d-4"; 4g-2 replaced it.
 
 namespace Pi.CodingAgent.Core.Extensions;
 
 using Pi.CodingAgent.Extensions.Codemode;
 using Pi.CodingAgent.Extensions.Llama;
+using Pi.CodingAgent.Extensions.Mcp;
 using Pi.CodingAgent.Extensions.ToolSearch;
 
 /// <summary>
@@ -38,13 +37,6 @@ public static class BuiltInExtensions
         new InlineExtension.Described(
             "tool-search", ToolSearch.CreateToolSearchExtension(), Replaceable: true, Builtin: true),
         new InlineExtension.Described(
-            "mcp", PlaceholderFactory("mcp", "4d-4"), Replaceable: true, Builtin: true),
+            "mcp", McpExtension.CreateMcpExtension(), Replaceable: true, Builtin: true),
     };
-
-    private static ExtensionFactory PlaceholderFactory(string name, string batch) =>
-        _ => throw new NotSupportedException(
-            $"The built-in '{name}' extension factory lands with batch {batch} of the 4d porting plan " +
-            $"(docs/4d-extension-system-plan.md). It is registered here as a placeholder so the " +
-            $"registry shape (name, replaceable, builtin) is final; replace this factory when porting " +
-            $"the extension entry.");
 }

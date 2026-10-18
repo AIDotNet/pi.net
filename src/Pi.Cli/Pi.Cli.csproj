@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Port of packages/coding-agent's CLI entry points (`cli.ts` + `rpc-entry.ts`).
+       AssemblyName is `pi` so `dotnet build` produces pi.exe / pi, matching the TS bin name. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>pi</AssemblyName>
+    <RootNamespace>Pi.Cli</RootNamespace>
+    <!-- Matches packages/coding-agent/package.json at the porting baseline. -->
+    <Version>1.0.4</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pi.CodingAgent\Pi.CodingAgent.csproj" />
+  </ItemGroup>
+</Project>

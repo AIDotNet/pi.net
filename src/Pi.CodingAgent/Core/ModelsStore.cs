@@ -312,7 +312,10 @@ public sealed class FileModelsStore : IModelsStore
     private static string Serialize(Dictionary<string, JsonObject> data)
     {
         var root = new JsonObject();
-        foreach (var (providerId, entry) in data) root[providerId] = entry;
+        // `JsonObject` refuses a node that already has a parent, while TS's `JSON.stringify` does not
+        // care. The entries can be handed in by a caller that still holds them (the refresh publish
+        // path does), so clone before attaching (difference C305).
+        foreach (var (providerId, entry) in data) root[providerId] = entry.DeepClone();
         return root.ToJsonString(ModelsStoreJson.Options);
     }
 }
