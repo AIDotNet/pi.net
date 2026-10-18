@@ -482,6 +482,10 @@ public static class SessionWorkerProtocol
     private static double? NumberField(JsonObject message, string name)
     {
         if (message[name] is not JsonValue value || value.GetValueKind() != JsonValueKind.Number) return null;
+        // In-process JSON (the event encoders' output) backs numbers with CLR ints/longs, and
+        // GetValue<double>() rejects an integral backing; read that first, as ToolTask does.
+        if (value.TryGetValue<long>(out var integer)) return integer;
+        if (value.TryGetValue<int>(out var small)) return small;
         return value.GetValue<double>();
     }
 

@@ -150,6 +150,11 @@ public class CoordinatorTests
                 });
             }
 
+            // The coordinator drops a send aimed at a peer it has not registered yet, so wait
+            // for both registrations to land: the server is told about each as it is processed,
+            // and only then is the peer in the routing table.
+            await WaitAsync(() => server.PeerIds.Contains("peer-1") && server.PeerIds.Contains("peer-2"));
+
             await server.SendAsync("peer-1", JsonValue.Create("only-you"));
             await server.BroadcastAsync(JsonValue.Create("everyone"));
 

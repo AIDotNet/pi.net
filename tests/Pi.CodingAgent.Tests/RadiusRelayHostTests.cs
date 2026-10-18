@@ -141,6 +141,9 @@ public class RadiusRelayHostTests
         await WaitUntilAsync(() => rig.Statuses.Count(status => status is RadiusRelayHostStatus.Connecting) == 2);
 
         // The first backoff is one second; the second connecting proves the loop came around.
+        // Its handshake subscription lands asynchronously (the loop resumed from a real delay),
+        // so wait for it: an event raised with no subscriber is lost, exactly as in a browser.
+        await WaitUntilAsync(() => second.OpenPending);
         second.RaiseOpened();
         await WaitUntilAsync(() => second.Serving);
         await WaitUntilAsync(() => rig.Statuses.Count(status => status is RadiusRelayHostStatus.Connected) == 2);

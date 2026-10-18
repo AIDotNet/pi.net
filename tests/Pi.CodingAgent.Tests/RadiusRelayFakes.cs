@@ -75,6 +75,14 @@ internal sealed class FakeRelayWebSocket : IRadiusRelayWebSocket
     /// </summary>
     public bool Serving => MessageReceived is not null && Closed is not null && Errored is not null;
 
+    /// <summary>
+    /// Whether the opening handshake is subscribed — <see cref="RadiusRelaySockets.OpenAsync"/>
+    /// hooks the open, close and error events before awaiting. On a retry the loop resumes from a
+    /// real backoff delay, so the subscription lands asynchronously and tests must poll this
+    /// before raising <see cref="RaiseOpened"/>.
+    /// </summary>
+    public bool OpenPending => Opened is not null && Closed is not null && Errored is not null;
+
     public void RaiseOpened() => Opened?.Invoke();
 
     public void RaiseMessage(RadiusRelayMessage message) => MessageReceived?.Invoke(message);
