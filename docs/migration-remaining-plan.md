@@ -60,7 +60,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
 | **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）+ 末段 ✅ `8500da8`（0.23）；余 `server.ts` / `connection.ts` |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | 🟡 `plugins/*` ✅ `b1b4b80`（0.25）；余 `coordinator.ts` / `coordinator-entry.ts` |
-| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | |
+| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 协议核心 ✅ `1602814`（0.28）；余 `radius-relay.ts` 主/客户端类 + `session-worker*.ts` + `server.ts`/`commands.ts`/`cli.ts` |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
 | 4g-3f | `durable/*`（9 文件） | ~1,440 | |
 | 4g-3g | `vacation/*`（6 文件） | ~1,305 | |
@@ -1075,3 +1075,11 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **4g-3d 后续**：`radius-relay.ts`(724) → `session-worker-manager.ts`(848) + `session-worker.ts`(840) →
   `server.ts`(770) + `commands.ts`(98) + `cli.ts`(12)。`server.ts` 的前 126 行（目录/锁/默认 ID）自包含，
   但 `activateServer` / `startForegroundServer` 依赖中继与 worker manager，故排在两者之后。
+
+### 0.28 4g-3d-2a Radius 中继协议核心（`1602814`，2026-10-19）
+
+- **范围**：`radius-relay.ts`(724) 的前半 ~330 行（协议/传输核心）。测试 **+43 例**；全量 **4628/0**（1m54s）。
+- **接口化的 WebSocket 抽象**：undici 的浏览器 API（addEventListener/binaryType/readyState）收进 `IRadiusRelayWebSocket`，主/客户端（4g-3d-2b）与测试都可替换为假 socket，与 TS 测试方式一致。
+- **踩坑**（C349）：`Task.ContinueWith` 不传播 antecedent 异常（实测延续任务仍 RanToCompletion），TS 的 `operation.finally(...)` 会保留拒绝，改用 async + try/finally。同一处被测试抓出的保真偏差：字符串发送必须保持文本帧（我的初版把它扬成 UTF-8 字节）。
+- **测试设计故事**：厂函数里同步 raise 事件会挂死（OpenAsync 订阅在工厂调用之后才挂）——改为调用后 raise（OpenAsync 同步预运行到第一个 await，订阅时点确定），与真实浏览器事件循环误带顺序一致。假 socket 的两个控制流程（等 FirstSend 信号）也是为止 ContinueWith 调度竞态。
+- **4g-3d-2b**：`RadiusRelayHost`（运行循环 + 重连退避 + 连接表）、`createRadiusClientTransportFactory`、`RadiusClientByteTransport`、`RelayServerByteConnection`（直接实现 C# `IByteConnection`）、`RadiusClientReconnect`（依赖 Pi.Client 的 Client 事件面）。

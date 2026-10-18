@@ -6893,3 +6893,30 @@ optional 返回 null）→ 显式 token（内联或文件内容 trim）→ 存�
 |---|---|---|
 | C343 | **测试接缝是实例级的，不复用进程级静态 `Radius.Env`** | TS 直接读 `process.env.PI_OFFLINE`；C# 若走 `Radius.Env`（public static）会让并行测试互相观察对方的环境。故解析器自带 `internal Func<string,string?>? Env` 与 `RuntimeFactory`（InternalsVisibleTo），生产默认行为不变 |
 | C344 | **`AuthInput` 判别联合用 exhaustive switch + 防御分支** | TS 的 `input.type === "token" ? … : …` 对联合只有两个成员；C# record 联合加 `_ => throw` 防御未来新增成员静默走错分支 |
+
+## 4g-3d-2a Radius 中继协议核心（radius-relay.ts 前半）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/radius-relay.ts`（协议/传输半） | ~330 | `Experimental/RadiusRelayProtocol.cs` | `RadiusRelay` 常量 / `RadiusRelayFrames` / `IRadiusRelayWebSocket` / `OrderedWebSocketWriter` / `RadiusRelaySockets` |
+
+**移植内容**：子协议名与重连退避常量；`WebSocketUrl`（https→wss、http→ws，其余抛错；默认端口按
+`url.toString()` 语义丢弃、显式端口保留）；18 字节头数据帧编解码（version/type 各 1 字节 + 16 字节
+UUIDv4，短帧/错版本/错类型/重建非 UUIDv4 均返回 undefined）；主机控制消息解析（version 必须为
+**数字** 1——字符串 "1" 与 `true` 都走「Unsupported version」分支；ping/pong 直通；
+connection_open/close 的 connection_id 过 UUIDv4 正则，code 缺省或 [1000,4999] 整数才有效；
+额外属性放行）与编码（code 仅非 null 时写键）。**TS 细节**：connection_open 的返回字面量**丢弃**
+已校验的 code，只有 connection_close 保留——逐行回查才发现并复刻。
+握手四条失败路径（子协议不符、提前关闭、错误事件、取消）都先 `Close(1000, "Radius relay connection
+failed")` 再 reject；`webSocketError` 优先非空（trim 后）的 error.message，回退 event.message，
+再回退 "Radius WebSocket connection failed"。
+
+### 4g-3d-2a 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C345 | **无效连接 ID 抛 `ArgumentException` 而非 TS 的 `TypeError`** | .NET 无 TypeError；按 BCL 映射约定用 ArgumentException（非法参数值） |
+| C346 | **浏览器 WebSocket API 表达为事件接口** | undici 的 `addEventListener`/`binaryType`/`readyState` 收进 `IRadiusRelayWebSocket`；`BinaryType` 在 .NET 无对应语义（消息总是字节），保留只为与 TS 的设置顺序一致；`Open => 1` 作为 readyState 常量 |
+| C347 | **`DelayAsync` 的 `unref` 参数被接受但忽略** | Node timer 的 unref 语义（不阻止进程退出）在 .NET 无对应物——后台 Task 本就不阻止退出 |
+| C348 | **`ToError` 对非 Exception/string/null 输入用 `ToString()`** | TS 的 `String(obj)` 产出 "[object Object]"；真实调用点只传 Exception 或字符串，该分支不可达，故不做完整 String() 语义 |
+| C349 | **写器待发字节的释放用 try/finally，不用 `ContinueWith` 计数** | `Task.ContinueWith` **不**把 antecedent 的异常传播进延续任务（实测：antecedent 抛错后延续任务仍 RanToCompletion，异常被静默吞掉）——TS 的 `operation.finally(...)` 保留拒绝语义，必须用 async + try/finally 复刻。同一处还复刻了 TS 的另两个细节：字符串发送保持文本帧（不转字节），ArrayBuffer 输入先复制再入队 |
