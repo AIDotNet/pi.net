@@ -730,12 +730,13 @@ public static class SessionWorkerEntry
             CloseAndExit);
 
         // Every live task, background work included, keeps the worker and its Session open.
+        // The attached state activates inside AttachReplicatedStateSource, as TS's does; a second
+        // Activate here would throw "State attachment is already active".
         var activitySubscription = activity.Subscribe((graph, _, _) =>
         {
             lifecycle!.SetHarnessActive(graph.Count > 0);
             return (Task?)null;
         });
-        activity.Activate();
         stopActivity = activitySubscription;
 
         // Recovered work from an interrupted turn continues now.
