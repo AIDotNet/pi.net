@@ -124,7 +124,47 @@ public class SessionWorkerEntryE2ETests
                 Assert.Equal("op-1", result["requestId"]!.GetValue<string>());
                 Assert.False(result.AsObject().ContainsKey("result"));
 
-                // 5. Shutdown releases everything: the run ends and the lock file is gone.
+                // 5. Subscribing to the transcript service answers with the wire snapshot of its
+                // state member, and a conversation change publishes a wire-encoded update for it.
+                var cwd2 = Path.Combine(root, "cwd2");
+                Directory.CreateDirectory(cwd2);
+                await server.SendAsync(PeerId, JsonNode.Parse(
+                    $$$"""{"type":"operation","requestId":"op-2","scope":{"serverConnectionId":"{{{server.ServerConnectionId}}}","attachmentId":"{{{AttachmentId}}}"},"call":{"serviceId":"$chord.service","member":"subscribe","args":["sub-1","pi.transcript","singleton"]}}"""));
+                var subscribed = await WaitForResponseAsync(messages, gate, "op-2", run);
+                var subscribedResult = subscribed["response"]!;
+                Assert.Equal("operation_result", subscribedResult["type"]!.GetValue<string>());
+                Assert.Equal("op-2", subscribedResult["requestId"]!.GetValue<string>());
+                var wireSnapshot = subscribedResult["result"]!;
+                Assert.Equal("pi.transcript", wireSnapshot["serviceId"]!.GetValue<string>());
+                Assert.Equal("singleton", wireSnapshot["mode"]!.GetValue<string>());
+                var snapshotMember = wireSnapshot["instances"]![0]!["members"]![0]!;
+                Assert.Equal("state", snapshotMember["kind"]!.GetValue<string>());
+                Assert.Equal("state", snapshotMember["name"]!.GetValue<string>());
+                var snapshotOp = Assert.IsType<JsonArray>(Assert.Single(snapshotMember["ops"]!.AsArray()));
+                Assert.Equal("r", snapshotOp[0]!.GetValue<string>());
+                // The view crosses as TS's JSON does: camelCase keys, root-replaced.
+                var view = Assert.IsType<JsonObject>(snapshotOp[1]);
+                Assert.Contains("conversation", view);
+                Assert.Contains("entries", view);
+                Assert.Contains("docs", view);
+                var snapshotSequence = snapshotMember["sequence"]!.GetValue<long>();
+
+                // 6. A conversation change advances the view: the worker publishes the update as
+                // its wire form for the subscription it just answered.
+                await conversation.ConfigureAsync(new AgentChange { Cwd = cwd2 }, Context.Background);
+                var update = await WaitForEventAsync(messages, gate, "service_update", run);
+                Assert.Equal("sub-1", update["subscriptionId"]!.GetValue<string>());
+                var updateScope = update["scope"]!;
+                Assert.Equal(server.ServerConnectionId, updateScope["serverConnectionId"]!.GetValue<string>());
+                Assert.Equal(AttachmentId, updateScope["attachmentId"]!.GetValue<string>());
+                var updatePayload = update["update"]!;
+                Assert.Equal("state", updatePayload["type"]!.GetValue<string>());
+                Assert.Equal("state", updatePayload["member"]!.GetValue<string>());
+                Assert.True(updatePayload["sequence"]!.GetValue<long>() > snapshotSequence,
+                    "the update's sequence follows the snapshot's");
+                Assert.NotEmpty(updatePayload["ops"]!.AsArray());
+
+                // 7. Shutdown releases everything: the run ends and the lock file is gone.
                 await server.SendAsync(PeerId, JsonNode.Parse("""{"type":"shutdown"}"""));
                 var completed = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(20)));
                 Assert.Same(run, completed);
@@ -178,6 +218,35 @@ public class SessionWorkerEntryE2ETests
             if (DateTime.UtcNow > deadline)
             {
                 throw new TimeoutException($"no {type} event arrived");
+            }
+
+            await Task.Delay(10);
+        }
+    }
+
+    /// <summary>Wait for the operation response of one request, not merely the first one.</summary>
+    private static async Task<JsonObject> WaitForResponseAsync(
+        List<JsonObject> messages, object gate, string requestId, Task run)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        while (true)
+        {
+            if (run.IsFaulted) throw new InvalidOperationException(
+                $"the worker run failed before the response to {requestId}", run.Exception);
+            if (run.IsCompleted) throw new InvalidOperationException(
+                $"the worker run ended before the response to {requestId}");
+
+            lock (gate)
+            {
+                var found = messages.FirstOrDefault(message =>
+                    message["type"]?.GetValue<string>() == "operation_response"
+                    && message["response"]?["requestId"]?.GetValue<string>() == requestId);
+                if (found is not null) return found;
+            }
+
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException($"no response to {requestId} arrived");
             }
 
             await Task.Delay(10);

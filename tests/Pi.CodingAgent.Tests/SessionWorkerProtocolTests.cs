@@ -111,6 +111,36 @@ public class SessionWorkerProtocolTests
         Assert.NotNull(withoutInstance);
         Assert.Null(withoutInstance.Instance);
         Assert.Equal(3, withoutInstance.Args.Count);
+        // The args cross as the CLR value tree the service layer speaks: the endpoint's
+        // control-call decoder pattern-matches string arguments and the wire adapters read
+        // dictionaries and lists, so a JsonNode argument would match none of them.
+        Assert.Equal(1L, withoutInstance.Args[0]);
+        Assert.Equal("x", withoutInstance.Args[1]);
+        Assert.Null(withoutInstance.Args[2]);
+
+        var structured = SessionWorkerProtocol.TryParseServiceCall(Node(
+            """{"serviceId":"s","member":"m","args":[{"a":[1,true]},["y"]]}"""));
+        Assert.NotNull(structured);
+        Assert.Equal(
+            new Dictionary<string, object?> { ["a"] = new List<object?> { 1L, true } },
+            structured.Args[0]);
+        Assert.Equal(new List<object?> { "y" }, structured.Args[1]);
+    }
+
+    [Fact]
+    public void ServiceCall_ControlCallsDecodeAfterTheWireRoundTrip()
+    {
+        // The manager serializes the client's control call to JSON and the worker parses it back;
+        // the endpoint's decoder only recognizes the string arguments that round trip produces.
+        var wire = ServiceCallJson.ToJson(ServiceWire.CreateServiceSubscribeCall(
+            "sub-1", "pi.transcript", ServiceMode.Singleton));
+        var call = SessionWorkerProtocol.TryParseServiceCall(JsonNode.Parse(wire.ToJsonString()));
+        Assert.NotNull(call);
+        var control = ServiceWire.DecodeServiceControlCall(call);
+        var subscribe = Assert.IsType<ServiceControlCall.Subscribe>(control);
+        Assert.Equal("sub-1", subscribe.SubscriptionId);
+        Assert.Equal("pi.transcript", subscribe.ServiceId);
+        Assert.Equal(ServiceMode.Singleton, subscribe.Mode);
     }
 
     [Fact]

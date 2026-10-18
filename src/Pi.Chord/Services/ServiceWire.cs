@@ -1,5 +1,9 @@
 namespace Pi.Chord.Services;
 
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+
 /// <summary>服务订阅模式。对应 TS <c>ServiceMode</c>。</summary>
 public enum ServiceMode
 {
@@ -157,6 +161,174 @@ public static class ServiceWire
     /// <summary>解析线上服务商更新。对应 TS <c>parseWireServiceProviderUpdate</c>。</summary>
     public static WireServiceProviderUpdate ParseWireServiceProviderUpdate(object? value)
         => AssertProviderUpdate(value, requireOps: false);
+
+    // ─── 线上形态 → 协议值树 ──────────────────────────────────────────────
+
+    /// <summary>
+    /// 服务目录 → 协议值树（<c>{serviceId, mode}</c> 条目数组）。对应 TS 的目录本就是
+    /// 普通 JSON；C# 的 provider 给的是已解码记录，协议层（CBOR/JSON 行）只说值树。
+    /// </summary>
+    public static List<object?> ToValue(IReadOnlyList<ServiceCatalogueEntry> entries)
+        => entries.Select(entry => (object?)new Dictionary<string, object?>
+        {
+            ["serviceId"] = entry.ServiceId,
+            ["mode"] = entry.Mode == ServiceMode.Singleton ? "singleton" : "keyed",
+        }).ToList();
+
+    /// <summary>线上订阅快照 → 协议值树：解析器的逆映射，供响应与事件携带。</summary>
+    public static Dictionary<string, object?> ToValue(WireServiceSubscriptionSnapshot snapshot) => new()
+    {
+        ["serviceId"] = snapshot.ServiceId,
+        ["mode"] = snapshot.Mode == ServiceMode.Singleton ? "singleton" : "keyed",
+        ["instances"] = snapshot.Instances.Select(InstanceValue).Cast<object?>().ToList(),
+    };
+
+    /// <summary>线上服务商更新 → 协议值树：解析器的逆映射。</summary>
+    public static Dictionary<string, object?> ToValue(WireServiceProviderUpdate update)
+    {
+        var value = update switch
+        {
+            WireServiceProviderUpdate.StateUpdate state => new Dictionary<string, object?>
+            {
+                ["type"] = "state",
+                ["member"] = state.Member,
+                ["sequence"] = state.Sequence,
+                ["ops"] = OpsValue(state.Ops),
+            },
+            WireServiceProviderUpdate.Reset reset => new Dictionary<string, object?>
+            {
+                ["type"] = "reset",
+                ["snapshot"] = ToValue(reset.Snapshot),
+            },
+            WireServiceProviderUpdate.Unavailable => new Dictionary<string, object?> { ["type"] = "unavailable" },
+            WireServiceProviderUpdate.Replaced replaced => new Dictionary<string, object?>
+            {
+                ["type"] = "replaced",
+                ["snapshot"] = InstanceValue(replaced.Snapshot),
+            },
+            WireServiceProviderUpdate.Spawned spawned => new Dictionary<string, object?>
+            {
+                ["type"] = "spawned",
+                ["instance"] = InstanceValue(spawned.Instance),
+            },
+            WireServiceProviderUpdate.Closed closed => new Dictionary<string, object?>
+            {
+                ["type"] = "closed",
+                ["instance"] = InstanceValue(closed.Instance),
+            },
+            _ => throw new ArgumentException("unknown service provider update", nameof(update)),
+        };
+        // The instance address is optional on a state update, as the parser's keys allow.
+        if (update is WireServiceProviderUpdate.StateUpdate withInstance && withInstance.Instance is not null)
+        {
+            value["instance"] = InstanceValue(withInstance.Instance);
+        }
+
+        return value;
+    }
+
+    private static Dictionary<string, object?> InstanceValue(WireServiceInstanceSnapshot instance)
+    {
+        var value = new Dictionary<string, object?>
+        {
+            ["members"] = instance.Members.Select(MemberValue).Cast<object?>().ToList(),
+        };
+        if (instance.Instance is not null)
+        {
+            value["instance"] = InstanceValue(instance.Instance);
+        }
+
+        return value;
+    }
+
+    private static Dictionary<string, object?> InstanceValue(ServiceInstanceAddress address) => new()
+    {
+        ["key"] = address.Key,
+        ["generation"] = address.Generation,
+    };
+
+    private static Dictionary<string, object?> MemberValue(WireServiceMemberSnapshot member) => member switch
+    {
+        WireServiceMemberSnapshot.Method method => new Dictionary<string, object?>
+        {
+            ["name"] = method.Name,
+            ["kind"] = "method",
+        },
+        WireServiceMemberSnapshot.State state => new Dictionary<string, object?>
+        {
+            ["name"] = state.Name,
+            ["kind"] = "state",
+            ["sequence"] = state.Sequence,
+            ["ops"] = OpsValue(state.Ops),
+        },
+        _ => throw new ArgumentException("unknown service member", nameof(member)),
+    };
+
+    private static List<object?> OpsValue(IReadOnlyList<List<object?>> ops)
+        => ops.Select(op => (object?)op.Select(PayloadValue).ToList()).ToList();
+
+    /// <summary>
+    /// Op 载荷归一为协议值树成员：已是值树标量/容器的原样通过，其余（直连附件的已解码记录）
+    /// 经 camelCase JSON 转过一趟——线上的 JSON 本就是 camelCase 键。
+    /// </summary>
+    private static object? PayloadValue(object? value)
+    {
+        switch (value)
+        {
+            case null or bool or string:
+                return value;
+            case double or float or decimal:
+                return Convert.ToDouble(value);
+            case long or int or short or byte or sbyte or ushort or uint:
+                return value;
+            case Dictionary<string, object?> map:
+                return map.ToDictionary(pair => pair.Key, pair => PayloadValue(pair.Value), StringComparer.Ordinal);
+            case List<object?> list:
+                return list.Select(PayloadValue).ToList();
+            case IReadOnlyDictionary<string, object?> map:
+                return map.ToDictionary(pair => pair.Key, pair => PayloadValue(pair.Value), StringComparer.Ordinal);
+            case IReadOnlyList<object?> list:
+                return list.Select(PayloadValue).ToList();
+            default:
+                return JsonTree(JsonSerializer.SerializeToNode(value, WireJsonOptions));
+        }
+    }
+
+    /// <summary>JsonNode → 协议值树（整数保持整数，对齐线上解析器的输入形状）。</summary>
+    private static object? JsonTree(JsonNode? node) => node switch
+    {
+        null => null,
+        JsonObject json => json.ToDictionary(pair => pair.Key, pair => JsonTree(pair.Value), StringComparer.Ordinal),
+        JsonArray array => array.Select(JsonTree).ToList(),
+        JsonValue value => value.GetValueKind() switch
+        {
+            JsonValueKind.String => value.GetValue<string>(),
+            JsonValueKind.Number => NumberValue(value),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null,
+        },
+        _ => null,
+    };
+
+    /// <summary>
+    /// In-process JSON (the serializers' output) backs numbers with CLR longs/ints, and
+    /// GetValue&lt;double&gt;() rejects an integral backing; read the integral forms first, as the
+    /// protocol's NumberField does (C358). The wire parsers cast sequences to long, so every
+    /// integral payload normalizes to one — and each arm returns its own boxed type, since a
+    /// long/double conditional would widen the long.
+    /// </summary>
+    private static object? NumberValue(JsonValue value)
+    {
+        if (value.TryGetValue<long>(out var integer)) return integer;
+        if (value.TryGetValue<int>(out var small)) return (long)small;
+        return value.GetValue<double>();
+    }
+
+    private static readonly JsonSerializerOptions WireJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
 
     // ─── 内部校验 ────────────────────────────────────────────────────────
 

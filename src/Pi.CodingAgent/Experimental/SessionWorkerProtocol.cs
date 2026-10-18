@@ -226,7 +226,49 @@ public static class SessionWorkerProtocol
         if (IsExplicitNull(message, "instance")) return null;
         if (message["args"] is not JsonArray args) return null;
         if (serviceId is null || member is null) return null;
-        return new ServiceCall(serviceId, member, args.ToArray(), instance);
+        // The args cross as the CLR value tree the service layer speaks: the chord endpoint's
+        // control-call decoder pattern-matches string arguments, and the wire adapters read
+        // dictionaries and lists — a JsonNode argument matches none of them.
+        var arguments = new object?[args.Count];
+        for (var index = 0; index < args.Count; index++)
+        {
+            arguments[index] = ClrValue(args[index]);
+        }
+
+        return new ServiceCall(serviceId, member, arguments, instance);
+    }
+
+    /// <summary>
+    /// A JSON-line value as the CLR value tree: objects become dictionaries, arrays lists, and
+    /// numbers stay integral where the JSON backs them integrally (the wire parsers and the
+    /// service adapters speak those types). Corresponds to the value the JSON line carries in TS,
+    /// where every JSON value already is the value tree.
+    /// </summary>
+    internal static object? ClrValue(JsonNode? node) => node switch
+    {
+        null => null,
+        JsonObject json => json.ToDictionary(
+            pair => pair.Key, pair => ClrValue(pair.Value), StringComparer.Ordinal),
+        JsonArray array => array.Select(ClrValue).ToList(),
+        JsonValue value => value.GetValueKind() switch
+        {
+            JsonValueKind.String => value.GetValue<string>(),
+            JsonValueKind.Number => NumberValue(value),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null,
+        },
+        _ => null,
+    };
+
+    private static object? NumberValue(JsonValue value)
+    {
+        // In-process JSON (the event encoders' output and the test fakes' literals) backs numbers
+        // with CLR longs/ints, and GetValue<double>() rejects an integral backing; read the
+        // integral forms first, as ToolTask does (C358).
+        if (value.TryGetValue<long>(out var integer)) return integer;
+        if (value.TryGetValue<int>(out var small)) return (long)small;
+        return value.GetValue<double>();
     }
 
     // ---------------------------------------------------------------- operation protocol

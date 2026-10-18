@@ -301,6 +301,8 @@ public sealed class CoordinatorWorkerControl : IWorkerControl
     private readonly CoordinatorSocket _socket;
     private readonly string _token;
     private readonly string _sessionKey;
+    private readonly Lock _sendGate = new();
+    private Task _sendTail = Task.CompletedTask;
 
     public CoordinatorWorkerControl(
         CoordinatorSocket socket,
@@ -326,18 +328,34 @@ public sealed class CoordinatorWorkerControl : IWorkerControl
         remove => _socket.Closed -= value;
     }
 
-    /// <summary>TS <c>send</c>: a routed message to the server carrying the event as its payload.</summary>
+    /// <summary>
+    /// TS <c>send</c>: a routed message to the server carrying the event as its payload. The
+    /// service updates are published from arbitrary threads while the operation responses are
+    /// awaited, so the writes chain onto one tail: Node queues every <c>socket.write</c> on the
+    /// socket itself, and the port needs the same ordering (a fire-and-forget update must not
+    /// interleave its bytes with an awaited response).
+    /// </summary>
     public Task SendAsync(SessionWorkerEvent message)
     {
         var payload = SessionWorkerEventJson.ToJson(message);
         payload["token"] = _token;
         payload["sessionKey"] = _sessionKey;
-        return _socket.WriteLineAsync(new JsonObject
+        var line = new JsonObject
         {
             ["type"] = "send",
             ["to"] = "server",
             ["payload"] = payload,
-        });
+        };
+        Task send;
+        lock (_sendGate)
+        {
+            send = _sendTail = _sendTail.ContinueWith(
+                _ => _socket.WriteLineAsync(line), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                System.Threading.Tasks.TaskScheduler.Default).Unwrap();
+        }
+
+        return send;
     }
 
     public void Fail(string message) => _socket.Destroy(new InvalidOperationException(message));
@@ -568,7 +586,7 @@ public static class ServiceUpdateWireJson
         return json;
     }
 
-    private static JsonObject SnapshotJson(WireServiceSubscriptionSnapshot snapshot) => new()
+    internal static JsonObject SnapshotJson(WireServiceSubscriptionSnapshot snapshot) => new()
     {
         ["serviceId"] = snapshot.ServiceId,
         ["mode"] = snapshot.Mode == ServiceMode.Singleton ? "singleton" : "keyed",
@@ -581,11 +599,151 @@ public static class ServiceUpdateWireJson
         var json = new JsonArray();
         foreach (var op in ops)
         {
-            json.Add(JsonSerializer.SerializeToNode(op));
+            // The op payloads may be decoded records (a provider state's typed value); the wire
+            // JSON TS carries is camelCase-keyed, so serialize them that way — value-tree members
+            // keep their keys either way.
+            json.Add(JsonSerializer.SerializeToNode(op, PayloadOptions));
         }
 
         return json;
     }
+
+    private static readonly JsonSerializerOptions PayloadOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+}
+
+/// <summary>
+/// The worker's per-subscription service encoders, each subscription's production ordered on one
+/// tail. TS's provider owns the wire encoder state internally — its snapshot ops are built at
+/// subscribe time, ahead of every update (provider.ts <c>#snapshotInstance</c>) — and its event
+/// loop keeps the encodes in order. The port's provider emits decoded records and publishes from
+/// arbitrary threads, so the snapshot and the updates of a subscription chain onto one tail with
+/// the encode and the send together: a batch's wire ops reference path ids defined by earlier
+/// batches, so arrival order has to be the encode order.
+/// </summary>
+internal sealed class ServiceUpdateStream(string token, string sessionKey, IWorkerControl control)
+{
+    private readonly Lock _gate = new();
+    private readonly Dictionary<(WorkerServiceScope Scope, string SubscriptionId), ServiceStateEncoder> _encoders = [];
+    private readonly Dictionary<(WorkerServiceScope Scope, string SubscriptionId), Task> _tails = [];
+    private readonly Dictionary<(WorkerServiceScope Scope, string SubscriptionId), TaskCompletionSource<ServiceSubscriptionSnapshot?>> _slots = [];
+
+    /// <summary>
+    /// Reserve the stream slot for a subscribe's snapshot before the call runs: the provider can
+    /// publish an update while the call is in flight, and that update has to be encoded after the
+    /// snapshot. Returns the slot task, which completes once the response is on the wire.
+    /// </summary>
+    public Task BeginSubscribe(
+        WorkerServiceScope scope, string subscriptionId, SessionWorkerCommand.Operation request)
+    {
+        var ready = new TaskCompletionSource<ServiceSubscriptionSnapshot?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+        {
+            var key = (scope, subscriptionId);
+            var encoder = EncoderLocked(key);
+            _slots[key] = ready;
+            _tails[key] = ChainLocked(key, async () =>
+            {
+                try
+                {
+                    var snapshot = await ready.Task.ConfigureAwait(false);
+                    if (snapshot is null) return;
+                    var wire = encoder.EncodeSnapshot(snapshot);
+                    await control.SendAsync(new SessionWorkerEvent.OperationResponse(
+                        token,
+                        sessionKey,
+                        new WorkerOperationResponse.Result(
+                            request.RequestId, request.Scope, ServiceUpdateWireJson.SnapshotJson(wire)))).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // The subscribe failed, or the send did: the error response is sent by the
+                    // caller outside the stream, and a dead socket unwinds the whole run. The slot
+                    // stays empty so the production chained behind it still runs.
+                }
+            });
+        }
+
+        return _tails[(scope, subscriptionId)];
+    }
+
+    /// <summary>TS's publish callback: encode the update and send it, in stream order.</summary>
+    public Task PublishAsync(WorkerServiceScope scope, string subscriptionId, ServiceProviderUpdate update)
+    {
+        lock (_gate)
+        {
+            var key = (scope, subscriptionId);
+            var encoder = EncoderLocked(key);
+            return _tails[key] = ChainLocked(key, async () =>
+            {
+                var wire = encoder.EncodeUpdate(update);
+                await control.SendAsync(new SessionWorkerEvent.ServiceUpdate(
+                    token, sessionKey, scope, subscriptionId,
+                    ServiceUpdateWireJson.ToJson(wire))).ConfigureAwait(false);
+            });
+        }
+    }
+
+    /// <summary>Hand the reserved slot the snapshot the call returned.</summary>
+    public void CompleteSubscribe(WorkerServiceScope scope, string subscriptionId, ServiceSubscriptionSnapshot snapshot)
+    {
+        lock (_gate)
+        {
+            if (_slots.TryGetValue((scope, subscriptionId), out var ready)) ready.TrySetResult(snapshot);
+        }
+    }
+
+    /// <summary>Release the reserved slot without a snapshot; the caller sends the error response.</summary>
+    public void AbandonSubscribe(WorkerServiceScope scope, string subscriptionId)
+    {
+        lock (_gate)
+        {
+            if (_slots.TryGetValue((scope, subscriptionId), out var ready))
+            {
+                ready.TrySetException(new InvalidOperationException("Session worker subscribe returned no snapshot"));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Forget the subscriptions of the scopes the endpoint disposal dropped. Pending slots still
+    /// complete — an in-flight subscribe answers with whatever its call returned, as TS's does.
+    /// </summary>
+    public void RemoveMatching(Func<WorkerServiceScope, bool> matches)
+    {
+        lock (_gate)
+        {
+            foreach (var key in _encoders.Keys.Where(key => matches(key.Scope)).ToList())
+            {
+                _encoders.Remove(key);
+                _tails.Remove(key);
+            }
+        }
+    }
+
+    private ServiceStateEncoder EncoderLocked((WorkerServiceScope Scope, string SubscriptionId) key)
+    {
+        if (!_encoders.TryGetValue(key, out var encoder))
+        {
+            encoder = new ServiceStateEncoder();
+            _encoders[key] = encoder;
+        }
+
+        return encoder;
+    }
+
+    /// <summary>
+    /// Chain one production step onto the subscription's tail. The continuation runs whatever the
+    /// previous step did — a failed send must not stall the stream, as a rejected promise does not
+    /// stop the next <c>.then</c>.
+    /// </summary>
+    private Task ChainLocked((WorkerServiceScope Scope, string SubscriptionId) key, Func<Task> body)
+        => (_tails.TryGetValue(key, out var previous) ? previous : Task.CompletedTask)
+            .ContinueWith(_ => body(), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                System.Threading.Tasks.TaskScheduler.Default).Unwrap();
 }
 
 /// <summary>
@@ -615,13 +773,13 @@ public static class SessionWorkerEntry
         SessionWorkerRuntime? runtime = null;
         SessionWorkerServices? services = null;
         AttachedReplicatedState<IReadOnlyDictionary<string, object?>>? activity = null;
+        var stream = new ServiceUpdateStream(token, sessionKey, control);
         try
         {
             runtime = await createHarness(SessionCatalog.SessionStoragePath(new SessionCatalogMetadata(
                 options.Metadata.Id, options.Metadata.CreatedAt, options.Metadata.Cwd, options.Metadata.Path)),
             options).ConfigureAwait(false);
             activity = await runtime.Harness.TaskGraphAsync(Context.Todo).ConfigureAwait(false);
-            var encoders = new Dictionary<(WorkerServiceScope Scope, string SubscriptionId), ServiceStateEncoder>();
             var built = await SessionWorkerProvider.CreateSessionWorkerServicesAsync(new ServicesWorkerOptions
             {
                 Harness = runtime.Harness,
@@ -629,20 +787,10 @@ public static class SessionWorkerEntry
                 ModelRuntime = runtime.ModelRuntime,
                 SettingsManager = runtime.SettingsManager,
                 FacetLoader = runtime.FacetLoader,
-                Publish = (scope, subscriptionId, update) =>
-                {
-                    // TS receives wire updates and re-parses them; the C# provider emits decoded
-                    // updates, so the worker owns one encoder per subscription.
-                    if (!encoders.TryGetValue((scope, subscriptionId), out var encoder))
-                    {
-                        encoder = new ServiceStateEncoder();
-                        encoders[(scope, subscriptionId)] = encoder;
-                    }
-
-                    return control.SendAsync(new SessionWorkerEvent.ServiceUpdate(
-                        token, sessionKey, scope, subscriptionId,
-                        ServiceUpdateWireJson.ToJson(encoder.EncodeUpdate(update))));
-                },
+                // TS receives wire updates and re-parses them; the C# provider emits decoded
+                // updates, so the worker owns one encoder per subscription, produced in stream
+                // order (see ServiceUpdateStream).
+                Publish = stream.PublishAsync,
             }).ConfigureAwait(false);
 
             // Drop the encoders of whatever subscriptions the worker removes.
@@ -652,10 +800,7 @@ public static class SessionWorkerEntry
                 RemoveSubscriptions = matches =>
                 {
                     built.RemoveSubscriptions(matches);
-                    foreach (var key in encoders.Keys.Where(key => matches(key.Scope)).ToList())
-                    {
-                        encoders.Remove(key);
-                    }
+                    stream.RemoveMatching(matches);
                 },
                 Dispose = built.Dispose,
             };
@@ -746,11 +891,38 @@ public static class SessionWorkerEntry
         {
             Action releaseRequest = () => { };
             var cancellable = ContextSignals.WithCancel(Context.Background);
+            // TS returns the provider's snapshot object as the result — its ops are already the
+            // wire tuples. The C# provider emits the decoded form, so a subscribe reserves its
+            // stream slot before the call runs and answers from inside it, ahead of every update
+            // the provider publishes for that subscription.
+            var subscribe = ServiceWire.DecodeServiceControlCall(request.Call) as ServiceControlCall.Subscribe;
+            Task? slot = subscribe is null
+                ? null
+                : stream.BeginSubscribe(request.Scope, subscribe.SubscriptionId, request);
             try
             {
                 releaseRequest = lifecycle!.BeginRequest(request.Scope.ServerConnectionId, request.Scope.AttachmentId);
                 activeRequests[request.RequestId] = (request.Scope, cancellable.Cancel);
                 var result = await services!.InvokeAsync(request.Call, request.Scope, cancellable.Context).ConfigureAwait(false);
+                if (result is IReadOnlyList<ServiceCatalogueEntry> catalogue)
+                {
+                    // TS: the provider's catalogue is already plain JSON; the C# provider emits
+                    // the decoded records, so cross them as the wire value tree.
+                    result = ServiceWire.ToValue(catalogue);
+                }
+
+                if (subscribe is not null && result is ServiceSubscriptionSnapshot snapshot)
+                {
+                    stream.CompleteSubscribe(request.Scope, subscribe.SubscriptionId, snapshot);
+                    await slot!.ConfigureAwait(false);
+                    return;
+                }
+
+                if (subscribe is not null)
+                {
+                    stream.AbandonSubscribe(request.Scope, subscribe.SubscriptionId);
+                }
+
                 if (result is not null && !Json.IsJsonValue(result))
                 {
                     throw new InvalidOperationException("Service produced a non-JSON result");
@@ -766,6 +938,11 @@ public static class SessionWorkerEntry
             }
             catch (Exception error)
             {
+                if (subscribe is not null)
+                {
+                    stream.AbandonSubscribe(request.Scope, subscribe.SubscriptionId);
+                }
+
                 string? code = null;
                 if (error is RemoteServiceError remote)
                 {

@@ -228,8 +228,18 @@ public static class ExperimentalServerProvider
 
         private async Task<object?> InvokeAsync(ServiceCall call, ServiceUpdatePublisher publish, Context context)
         {
-            var (_, result) = await _endpoint.InvokeAsync(call, publish, context).ConfigureAwait(false);
-            return result;
+            var (isControl, result) = await _endpoint.InvokeAsync(call, publish, context).ConfigureAwait(false);
+            if (!isControl) return result;
+            // TS's control results are already plain JSON; the C# endpoint answers with decoded
+            // records, and the protocol layer the server speaks only carries value trees — so the
+            // catalogue and the subscribe snapshot cross as their wire form here.
+            return result switch
+            {
+                ServiceSubscriptionSnapshot snapshot =>
+                    ServiceWire.ToValue(new ServiceStateEncoder().EncodeSnapshot(snapshot)),
+                IReadOnlyList<ServiceCatalogueEntry> catalogue => ServiceWire.ToValue(catalogue),
+                _ => result,
+            };
         }
 
         public Task ReleaseAsync(Context context)

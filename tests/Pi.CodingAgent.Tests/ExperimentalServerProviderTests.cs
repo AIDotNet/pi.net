@@ -27,8 +27,11 @@ public class ExperimentalServerProviderTests
         var result = await attachment.InvokeServiceAsync(
             ServiceWire.CreateServiceCatalogueCall(), (_, _, _) => Task.CompletedTask, Context.Background);
 
-        var catalogue = Assert.IsAssignableFrom<IReadOnlyList<ServiceCatalogueEntry>>(result);
-        var ids = catalogue.Select(entry => entry.ServiceId).ToList();
+        // The catalogue crosses as the wire value tree, the shape the protocol layer carries.
+        var catalogue = Assert.IsType<List<object?>>(result);
+        var ids = catalogue
+            .Select(entry => Assert.IsType<Dictionary<string, object?>>(entry)["serviceId"])
+            .ToList();
         Assert.Contains("pi.session-directory", ids);
         Assert.Contains("pi.session-management", ids);
         Assert.Contains("pi.presentation-plugins", ids);
@@ -49,9 +52,10 @@ public class ExperimentalServerProviderTests
 
         // The create refreshed the directory: revision 2 with the new session.
         var state = await DirectoryStateAsync(attachment);
-        Assert.Equal(2L, state.Revision);
-        var single = Assert.IsType<SessionSummary>(Assert.Single(state.Sessions));
-        Assert.Equal("s1", single.SessionId);
+        Assert.Equal(2L, Assert.IsType<long>(state["revision"]));
+        var sessions = Assert.IsType<List<object?>>(state["sessions"]);
+        var single = Assert.IsType<Dictionary<string, object?>>(Assert.Single(sessions));
+        Assert.Equal("s1", single["sessionId"]);
         Assert.Equal(1, host.Created);
     }
 
@@ -64,8 +68,8 @@ public class ExperimentalServerProviderTests
 
         Assert.Equal(["prepare-removal:s1", "remove:s1"], host.Log);
         var state = await DirectoryStateAsync(attachment);
-        Assert.Equal(2L, state.Revision);
-        Assert.Empty(state.Sessions);
+        Assert.Equal(2L, state["revision"]);
+        Assert.Empty(Assert.IsType<List<object?>>(state["sessions"]));
     }
 
     [Fact]
@@ -184,7 +188,7 @@ public class ExperimentalServerProviderTests
         await services.RefreshAsync();
 
         var state = await DirectoryStateAsync(attachment);
-        Assert.Equal(2L, state.Revision);
+        Assert.Equal(2L, state["revision"]);
     }
 
     [Fact]
@@ -220,17 +224,20 @@ public class ExperimentalServerProviderTests
     private static Task<object?> InvokeAsync(IRoutedServerServiceAttachment attachment, ServiceCall call)
         => attachment.InvokeServiceAsync(call, (_, _, _) => Task.CompletedTask, Context.Background);
 
-    private static async Task<SessionDirectoryState> DirectoryStateAsync(
+    private static async Task<Dictionary<string, object?>> DirectoryStateAsync(
         IRoutedServerServiceAttachment attachment)
     {
         var snapshot = await InvokeAsync(attachment, ServiceWire.CreateServiceSubscribeCall(
             "sub-1", "pi.session-directory", ServiceMode.Singleton));
-        var wire = Assert.IsType<ServiceSubscriptionSnapshot>(snapshot);
-        var instance = Assert.Single(wire.Instances);
+        // The subscribe answer crosses as the wire value tree, exactly what the protocol layer
+        // carries; decode it the way the client does.
+        var wire = ServiceWire.ParseWireServiceSubscriptionSnapshot(snapshot);
+        var decoded = new ServiceStateDecoder().DecodeSnapshot(wire);
+        var instance = Assert.Single(decoded.Instances);
         var member = Assert.IsType<ServiceMemberSnapshot.State>(
             instance.Members.OfType<ServiceMemberSnapshot.State>().Single());
         var op = Assert.IsType<DeltaOp.Replace>(Assert.Single(member.Ops));
-        return Assert.IsType<SessionDirectoryState>(op.Value);
+        return Assert.IsType<Dictionary<string, object?>>(op.Value);
     }
 
     private static ExperimentalServerOptions Options(FakeHost host) => new()

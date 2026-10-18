@@ -396,7 +396,9 @@ public sealed class Server<TMetadata> where TMetadata : ISessionMetadata
                 }
                 var wire = ServiceWire.ParseServiceSubscriptionSnapshot(result);
                 var stateEncoder = new ServiceStateEncoder();
-                result = stateEncoder.EncodeSnapshot(new ServiceStateDecoder().DecodeSnapshot(wire));
+                // The re-encoded wire snapshot travels as a protocol value tree: TS sends the
+                // plain object its encoder produced, and the CBOR layer only carries values.
+                result = ServiceWire.ToValue(stateEncoder.EncodeSnapshot(new ServiceStateDecoder().DecodeSnapshot(wire)));
                 state.ServiceStateEncoders[subscribing.SubscriptionId] = stateEncoder;
                 installedSubscriptionEncoder = true;
             }
@@ -507,8 +509,9 @@ public sealed class Server<TMetadata> where TMetadata : ISessionMetadata
         ServiceProviderUpdate update)
     {
         if (!connection.ServiceStateEncoders.TryGetValue(subscriptionId, out var stateEncoder)) return;
+        // The wire update travels as a protocol value tree, exactly as the snapshot response does.
         await SendMessageAsync(connection, new ServerMessage.ServiceEvent(subscriptionId,
-            stateEncoder.EncodeUpdate(update))).ConfigureAwait(false);
+            ServiceWire.ToValue(stateEncoder.EncodeUpdate(update)))).ConfigureAwait(false);
     }
 
     private async Task<bool> SendMessageAsync(ConnectionState connection, ServerMessage message)
