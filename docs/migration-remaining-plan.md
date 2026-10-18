@@ -2,9 +2,9 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`68812e9`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → **4f-5 `68812e9`**）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`3d61bbc`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → **4g-1a `3d61bbc`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C279`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C287`）。
 
 ---
 
@@ -40,7 +40,12 @@
 Core 侧补 `GetSessionStats()` 实例包装 / `SetAutoRetryEnabled` / `ExportToHtmlAsync`；
 `AgentSessionEvent` 22 变体多态注册）。
 
-**4g**（~13,600 行 TS）：`4g-1` `cli/*`（12 文件 1,455 行）+ `cli/experimental/*`（504 行）；
+**4g**（~13,600 行 TS）：`4g-1` `cli/*`（12 文件 1,455 行）+ `cli/experimental/*`（504 行）——
+**🟡 进行中**：**4g-1a ✅**（`3d61bbc`，见 0.14：`args.ts` 479 / `initial-message.ts` 43 /
+`setup.ts` 13 / `auth-command.ts` 126 = 661 行 + 597 例差分语料）；
+剩余 `auth-check.ts`(73) / `credential-print.ts`(87) / `file-processor.ts`(88) /
+`list-models.ts`(115) / `project-trust.ts`(62) / `session-picker.ts`(55) / `config-selector.ts`(61) /
+`startup-ui.ts`(253) + `cli/experimental/*`（504 行）。
 `4g-2` `main.ts`(999) / `index.ts`(494) / `package-manager-cli.ts`(1,141) / `cli.ts`(6) /
 `rpc-entry.ts`(13)；`4g-3` `experimental/*`（46 文件 9,950 行，依赖已移植的
 Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61) + `client/*`(1)。
@@ -140,6 +145,32 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
 - 测试 **+52 例**；全量 **3329/0**。
 - **4f-5 至此全部收口。** 下一阶段：**4g**（cli/* + main.ts/index.ts 等 ~13,600 行），
   届时 4f-5 的 `RpcClientOptions.FileName`（现默认 `"node"`）切到 .NET CLI 入口。
+
+### 0.14 4g-1a 收口记录（2026-10-18，`3d61bbc`）——CLI 辅助层第一批
+
+- **新目录 `src/Pi.CodingAgent/Cli/`**：`Args.cs`（`args.ts` 479 行）、
+  `InitialMessage.cs`（43）、`CliSetup.cs`（13）、`AuthCommand.cs`（126）。
+- **新增差分对拍手法**：`args.ts` 是分支密集的纯决策层，除逐条移植 `args.test.ts`
+  （129 例）外，把 TS 的 `parseArgs` + `getToolListError`/`isToolModifier`
+  **逐行抄进独立 Node 脚本**（`tools/gen-args-corpus.mjs`，只去类型标注与
+  chalk/config 导入），生成 597 例语料（`args.test.ts` 全量 argv + 该套件未覆盖
+  的边界 + 400 例种子化 fuzz），`CliArgsCorpusTests` 逐例回放比对 → **597/597 全中**。
+  生成脚本按约定留在 gitignore 的 `tools/`，语料 JSON 入库。
+- **一致性检查抓到的 6 处 TS 真实行为**（全部用测试钉住，不做顺手修正）：
+  ① 取值型 flag 尾缀无值时**下落到未知 flag 捕获**（`["--provider"]` → `unknownFlags{provider:true}`，
+  且 `-t` 与 `--tools` 因此行为不同）；② `--print` 只吞「非 `@` 且（非 `-` 或 `---` 开头）」的下一参数；
+  ③ `--mode`/`--tui-mode`/`--use-theme` 缺值**不消费**、非法值**消费**；
+  ④ `--` 之后一切按位置参数（含 `-p`）；⑤ `--min-expiry` 正则带 `i` 但单位比较**大小写敏感**
+  （`30M` 按小时算）；⑥ `printAuthCommandHelp` 写死 `pi` 而上表用 `APP_NAME`。
+- **测试**：`CliArgsTests` 129 + `CliArgsCorpusTests` 597 + `CliInitialMessageTests` 5 +
+  `CliAuthCommandTests` 43 = **+774 例**；全量 **4103/0**（基线 3329）。
+- 差异编号推进到 **C287**（C280–C287：unknownFlags 装箱字典、诊断复用运行时记录、
+  `listModels` 拆双字段、`Mode`→`CliMode`、`setupCli` 两处平台缺口、
+  `--min-expiry` 的 `[0-9]`+`\z`、`getAuthCredential` 转发、帮助文本写死 `pi`）。
+- **4g-1a 收口。** 4g-1 剩余：`startup-ui.ts`(253) / `list-models.ts`(115) /
+  `credential-print.ts`(87) / `file-processor.ts`(88) / `auth-check.ts`(73) /
+  `project-trust.ts`(62) / `config-selector.ts`(61) / `session-picker.ts`(55)
+  + `cli/experimental/*`(504)。
 
 ---
 

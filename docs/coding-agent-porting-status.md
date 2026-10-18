@@ -6369,3 +6369,70 @@ aborted/errorMessage 合成与 `_emitSessionCompactFailed`→finally 清理。
 | C277 | **`RpcClient.stop()` 无 SIGTERM** | .NET 无发送 SIGTERM 的托管 API，`Kill(entireProcessTree)` 即终止（SIGKILL 语义）；TS 先 SIGTERM、1s 后 SIGKILL 的宽限期在端口不存在。退出错误文案里 `signal` 恒为 `null`（.NET 不暴露终止信号） |
 | C278 | **`RpcClientOptions.FileName` 默认 `"node"`** | 与 TS 的 `spawn("node", [cliPath, …])` 一致；.NET CLI 入口本身属 4g-2，届时经该选项指向真实入口（默认值保持 TS 原样） |
 | C279 | **`Pi.CodingAgent.csproj` 开 `AllowUnsafeBlocks`** | 仅为 `JsonStringifyEncoder` 实现 `TextEncoder` 的指针式抽象成员；方案内首例，已注释限定范围 |
+
+---
+
+## 4g-1a CLI 辅助层（args / initial-message / setup / auth-command）
+
+TS 四个文件共 **661 行**，C# 落 `src/Pi.CodingAgent/Cli/`（新目录）：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `cli/args.ts` | 479 | `Cli/Args.cs` | `Args` + `Parse` + `IsValidThinkingLevel` + `NormalizeSessionName` + `PrintHelp` + `CliMode`/`CliModeText` |
+| `cli/initial-message.ts` | 43 | `Cli/InitialMessage.cs` | `InitialMessageInput`/`InitialMessageResult` + `InitialMessages.Build` |
+| `cli/setup.ts` | 13 | `Cli/CliSetup.cs` | `CliSetup.SetupCli`（两件有 .NET 对应物，两件平台缺口，见 C284） |
+| `cli/auth-command.ts` | 126 | `Cli/AuthCommand.cs` | `AuthCommandKind`/`AuthCommand`/`AuthCommandError` + 解析/校验/帮助；`getAuthCredential` 转发到 4e 期已落地的 `AuthCredentials` |
+
+**一致性检查发现的 TS 真实行为（全部用测试钉住，不做「顺手修正」）**：
+
+1. **取值型 flag 尾缀无值时下落到未知 flag 捕获**：TS 的守卫是 `arg === "--provider" && i + 1 < args.length`，
+   条件为假时不是「报缺值」而是**继续沿 else-if 链下落**，最终落进 `arg.startsWith("--")` 分支，
+   记为 `unknownFlags{provider: true}`。`parseArgs(["--provider"])` 因此既无诊断也无 provider。
+   短形式 `-t` 无此行为（`-t` 不以 `--` 开头，落到 `Unknown option: -t`）——`--tools` 与 `-t` 在
+   尾缀无值时行为不同，是 TS 的真实差异。
+2. **`--print` 的三横线例外**：`(!next.startsWith("-") || next.startsWith("---"))`——YAML frontmatter
+   提示词（`---`）被吞成 message，`--provider` 不会。`["-p", "---", "-p"]` 的结果是
+   `messages: ["---"]` 且 `print: true`（后一个 `-p` 仍按 flag 解析）。
+3. **`--mode` / `--tui-mode` / `--use-theme` 的缺值与非法值不同**：缺值**不消费**下一个参数
+   （`["--mode", "--version"]` 仍解析出 `version: true`），非法值**消费**（`["--tui-mode", "other"]`
+   后没有残留 message）。`--name` 是唯一「缺值也报错」且空串原样保留（交上层校验）的取值 flag。
+4. **`--` 之后一切按位置参数**：`@` 开头进 `fileArgs`（剥 `@`），其余进 `messages`——包括 `-p` 这种
+   形似 flag 的项。
+5. **`--min-expiry` 的单位比较大小写敏感**：正则带 `i` 标志，但 TS 拿原始匹配串比 `"ms"/"s"/"m"`，
+   于是 `30M` / `30MS` 落到最后那个分支按**小时**算（30 小时）。端口照抄并加注释说明不是笔误。
+6. **`printAuthCommandHelp` 写死 `pi`**：同一文件的 `AUTH_COMMAND_USAGE` 用 `${APP_NAME}` 插值，
+   而帮助正文用字面量 `pi`（上游不一致），端口保留原文。
+
+**差分对拍（本阶段新增手法）**：`args.ts` 是纯决策层且分支密集，除逐条移植 `args.test.ts` 外，
+另把 TS 的 `parseArgs`（连同 `getToolListError`/`isToolModifier`）**逐行抄进独立 Node 脚本**
+（`tools/gen-args-corpus.mjs`，仅去掉类型标注与 chalk/config 导入），生成
+`tests/Pi.CodingAgent.Tests/args-corpus.json`：**597 例** = `args.test.ts` 全部 argv + 该套件未覆盖的
+边界例 + 400 例种子化 fuzz（token 池含 flag/值/`--`/`-`/`@file`/空串/`=值` 形式）。
+`CliArgsCorpusTests` 逐例回放 C# 解析结果并与 TS 结果逐字段比对——**597/597 全中**。
+生成脚本按既有约定留在 gitignore 的 `tools/`，语料 JSON 入库。
+
+**测试（+774 例）**：
+- `CliArgsTests`(129)：`args.test.ts` 每个 describe 块逐条对拍 + 14 条「尾缀无值下落」理论用例
+  + `--` 语义 / 裸 `-` / 空串 message / `--list-models` 三态 / `--thinking` 警告文案 /
+  `ValidThinkingLevels` 表与 `ThinkingLevel` 枚举逐项对拍 / `PrintHelp` 六个段落与扩展 flag 段。
+- `CliArgsCorpusTests`(597)：上述差分语料。
+- `CliInitialMessageTests`(5)：`initial-message.test.ts` 三例对拍 + 空输入 + 空 fileText 跳过。
+- `CliAuthCommandTests`(43)：`auth-check.test.ts` / `credential-print.test.ts` 的解析与校验断言
+  + 四种单位 / 大小写敏感 / 畸形时长 / 缺值 / 命令与 flag 配对 / `validateAuthCommandArgs`
+  的拒绝顺序（含 `--system-prompt` 不被「only accept」拦下的 TS 真实行为）。
+
+**验证**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；`Pi.CodingAgent.Tests` 全量 **4103 / 0 失败**
+（基线 3329 + 774）。
+
+### 4g-1a 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C280 | **`Args.UnknownFlags` 是 `Dictionary<string, object>`** | TS 为 `Map<string, boolean \| string>`；C# 装箱 `bool`/`string` 两态。同名重复出现后者覆盖（`Map.set` 同）。消费者（4g-2 的扩展 flag 应用）按 `is bool` / `is string` 分支 |
+| C281 | **`Args.Diagnostics` 复用 `AgentSessionRuntimeDiagnostic`** | TS 在 args.ts 内联声明 `{ type: "warning" \| "error"; message: string }`，但 main.ts 把这份列表与运行时诊断合并进同一个 `AgentSessionRuntimeDiagnostic[]`。C# 结构完全一致，直接复用该记录（含 `AgentSessionDiagnosticType` 枚举） |
+| C282 | **`listModels?: string \| true` 拆成两个字段** | `ListModels`（`bool?`，是否出现）+ `ListModelsSearch`（`string?`，非 null 即 string 分支，含空串）。main.ts 的两个判定（`!== undefined` / `typeof === "string"`）分别映射到这两者，语义等价 |
+| C283 | **`Mode` → `CliMode` 枚举 + `CliModeText`** | TS 导出裸名 `Mode`（`"text" \| "json" \| "rpc"`）。C# 侧裸 `Mode` 太易与组件模式冲突，改前缀名；文本互转集中在 `CliModeText`（`Parse` 未知返回 null，对齐联合收窄失败）。`PrintModeOptions.Mode` 仍是字符串，4g-2 经 `CliModeText.ToText` 转换 |
+| C284 | **`setupCli` 两件平台缺口** | `process.title = APP_NAME` 无 .NET 托管 API；`process.emitWarning = () => {}` 无等价全局 warning 发射器；`configureHttpDispatcher()` 在 C# 侧已被 `Core/HttpDispatcher.cs` 作为平台差异整体裁掉（C32）。仅保留两处 env 写入（`PI_CODING_AGENT=true` / `AI_AGENT=pi`，TS 亦为字面量） |
+| C285 | **`--min-expiry` 正则用 `[0-9]` + `\z`** | JS `\d` 只匹配 ASCII 数字（.NET 默认含 Unicode 数字），JS 无 `m` 标志的 `$` 只匹配输入末尾（.NET `$` 允许末尾 `\n` 之前），故写 `^([0-9]+)(ms\|s\|m\|h)\z` + `IgnoreCase`。单位比较仍按原串大小写敏感（见上文第 5 条） |
+| C286 | **`AuthCommands.GetAuthCredential` 只是转发** | TS 的 `getAuthCredential` 属 auth-command.ts，但 4e 期因 share/bug-report 流已落在 `Core/AuthCredentials.cs`（`\z` 替 `$` 的同一处理）。CLI 侧留转发方法保持 TS 的调用点形状，不复制实现 |
+| C287 | **`printAuthCommandHelp` 保留写死的 `pi`** | 上游 `AUTH_COMMAND_USAGE` 用 `APP_NAME` 插值而正文写死 `pi`，属既有不一致；端口以文本一致优先，加注释标注 |
