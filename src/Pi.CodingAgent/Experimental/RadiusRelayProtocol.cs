@@ -518,4 +518,180 @@ public static class RadiusRelaySockets
     /// <summary>TS <c>toError</c>.</summary>
     public static Exception ToError(object? error)
         => error as Exception ?? new InvalidOperationException(error?.ToString() ?? "null");
+
+    /// <summary>
+    /// TS <c>defaultWebSocketFactory</c>: the production socket. undici's WebSocket takes the
+    /// subprotocol and the authorization header; <see cref="ClientWebSocket"/> takes the same
+    /// through its options.
+    /// </summary>
+    public static readonly RadiusRelayWebSocketFactory DefaultWebSocketFactory =
+        (url, protocol, authorization) => new ClientWebSocketRelaySocket(url, protocol, authorization);
+}
+
+/// <summary>
+/// <see cref="IRadiusRelayWebSocket"/> over <see cref="ClientWebSocket"/>: connects with the
+/// relay's subprotocol and bearer header, pumps messages into the interface's events, and maps
+/// the browser close event's code/reason onto <see cref="IRadiusRelayWebSocket.Closed"/>.
+/// </summary>
+public sealed class ClientWebSocketRelaySocket : IRadiusRelayWebSocket, IDisposable
+{
+    private const int ReceiveBufferBytes = 64 * 1024;
+
+    private readonly ClientWebSocket _socket = new();
+    private readonly CancellationTokenSource _cts = new();
+    private readonly Task _loop;
+
+    public ClientWebSocketRelaySocket(string url, string protocol, string authorization)
+    {
+        var uri = new Uri(url);
+        // undici's WebSocket rejects a non-WebSocket scheme from its constructor; ClientWebSocket
+        // would instead fail inside ConnectAsync, where nobody is listening yet. Throw here so the
+        // failure surfaces out of the factory, as it does in TS.
+        if (uri.Scheme is not ("ws" or "wss"))
+        {
+            throw new ArgumentException($"Only ws:// and wss:// URLs are supported: {url}", nameof(url));
+        }
+
+        _socket.Options.AddSubProtocol(protocol);
+        _socket.Options.SetRequestHeader("authorization", authorization);
+        BinaryType = "arraybuffer";
+        _loop = RunAsync(uri);
+    }
+
+    /// <summary>Inert in .NET — messages always arrive as bytes; kept for parity with TS.</summary>
+    public string BinaryType { get; set; } = "arraybuffer";
+
+    /// <summary>
+    /// Always 0: <see cref="ClientWebSocket"/> exposes no send-buffer depth. Its own
+    /// <c>SendAsync</c> already applies backpressure, so the writer's drain loop never waits.
+    /// </summary>
+    public long BufferedAmount => 0;
+
+    public string Protocol => _socket.SubProtocol ?? "";
+
+    public int ReadyState => _socket.State switch
+    {
+        WebSocketState.Open => 1,
+        WebSocketState.CloseSent or WebSocketState.CloseReceived => 2,
+        WebSocketState.Closed or WebSocketState.Aborted => 3,
+        _ => 0,
+    };
+
+    public int Open => 1;
+
+    public event Action? Opened;
+
+    public event Action<RadiusRelayMessage>? MessageReceived;
+
+    public event Action<int, string>? Closed;
+
+    public event Action<RadiusRelayWebSocketError>? Errored;
+
+    public void Send(byte[] data)
+        => Detach(_socket.SendAsync(
+            new ArraySegment<byte>(data), WebSocketMessageType.Binary, endOfMessage: true, _cts.Token));
+
+    public void Send(string data)
+        => Detach(_socket.SendAsync(
+            new ArraySegment<byte>(Encoding.UTF8.GetBytes(data)), WebSocketMessageType.Text,
+            endOfMessage: true, _cts.Token));
+
+    public void Close(int? code = null, string? reason = null)
+    {
+        // undici's close() throws while the handshake is pending; ClientWebSocket reports the same
+        // through the returned task. Swallow it here — every relay call site is best effort.
+        try
+        {
+            var status = (WebSocketCloseStatus?)(code ?? 1000);
+            Detach(_socket.CloseOutputAsync(status ?? WebSocketCloseStatus.NormalClosure, reason ?? "", _cts.Token));
+        }
+        catch (Exception)
+        {
+            // A WebSocket can reject close() while its opening handshake is still pending.
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _socket.Dispose();
+    }
+
+    /// <summary>The browser fires an error event when a write fails; route it there, not to the void.</summary>
+    private void Detach(Task send)
+    {
+        if (send.IsCompletedSuccessfully) return;
+        _ = send.ContinueWith(
+            static (task, state) =>
+            {
+                var self = (ClientWebSocketRelaySocket)state!;
+                var error = task.Exception?.InnerException ?? new InvalidOperationException("Radius relay write failed");
+                self.Errored?.Invoke(new RadiusRelayWebSocketError(error, error.Message));
+            },
+            this,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private async Task RunAsync(Uri uri)
+    {
+        try
+        {
+            await _socket.ConnectAsync(uri, _cts.Token).ConfigureAwait(false);
+            Opened?.Invoke();
+            await PumpAsync().ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is OperationCanceledException or ObjectDisposedException)
+        {
+            // Local teardown: the close event already went out, or never had a chance to.
+        }
+        catch (Exception error)
+        {
+            Errored?.Invoke(new RadiusRelayWebSocketError(error, error.Message));
+            RaiseClosed(1006, "");
+        }
+        finally
+        {
+            _socket.Dispose();
+        }
+    }
+
+    private async Task PumpAsync()
+    {
+        var buffer = new byte[ReceiveBufferBytes];
+        while (true)
+        {
+            var result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token).ConfigureAwait(false);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                var status = result.CloseStatus ?? WebSocketCloseStatus.Empty;
+                RaiseClosed((int)status, result.CloseStatusDescription ?? "");
+                return;
+            }
+
+            // undici hands the whole message; ClientWebSocket may fragment it — reassemble.
+            using var message = new MemoryStream();
+            message.Write(buffer, 0, result.Count);
+            while (!result.EndOfMessage)
+            {
+                result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token).ConfigureAwait(false);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    var status = result.CloseStatus ?? WebSocketCloseStatus.Empty;
+                    RaiseClosed((int)status, result.CloseStatusDescription ?? "");
+                    return;
+                }
+
+                message.Write(buffer, 0, result.Count);
+            }
+
+            var payload = message.ToArray();
+            MessageReceived?.Invoke(result.MessageType == WebSocketMessageType.Text
+                ? RadiusRelayMessage.TextMessage(Encoding.UTF8.GetString(payload))
+                : RadiusRelayMessage.BinaryMessage(payload));
+        }
+    }
+
+    private void RaiseClosed(int code, string reason) => Closed?.Invoke(code, reason);
 }

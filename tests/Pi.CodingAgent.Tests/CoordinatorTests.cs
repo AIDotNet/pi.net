@@ -127,15 +127,19 @@ public class CoordinatorTests
             var first = await CoordinatorSocket.ConnectAsync(controlPath);
             var second = await CoordinatorSocket.ConnectAsync(controlPath);
 
-            var seen = new List<JsonObject>();
-            void Observe(JsonNode? message)
+            // One observation list per channel: ordering is only guaranteed within a connection,
+            // and a shared list would race the broadcast of one peer against the directed send of
+            // the other.
+            var firstSeen = new List<JsonObject>();
+            var secondSeen = new List<JsonObject>();
+            Action<JsonNode?> Observe(List<JsonObject> into) => node =>
             {
-                var line = (JsonObject)message!;
-                if (line["type"]!.GetValue<string>() == "message") seen.Add(line);
-            }
+                var line = (JsonObject)node!;
+                if (line["type"]!.GetValue<string>() == "message") into.Add(line);
+            };
 
-            first.StartReading(Observe);
-            second.StartReading(Observe);
+            first.StartReading(Observe(firstSeen));
+            second.StartReading(Observe(secondSeen));
             foreach (var (channel, peerId) in new[] { (first, "peer-1"), (second, "peer-2") })
             {
                 await channel.WriteLineAsync(new JsonObject
@@ -149,14 +153,9 @@ public class CoordinatorTests
             await server.SendAsync("peer-1", JsonValue.Create("only-you"));
             await server.BroadcastAsync(JsonValue.Create("everyone"));
 
-            await WaitAsync(() => seen.Count == 3);
-            var toFirst = Assert.IsType<JsonObject>(seen[0]);
-            Assert.Equal("message", toFirst["type"]!.GetValue<string>());
-            Assert.Equal("only-you", toFirst["payload"]!.GetValue<string>());
-            var broadcastFirst = Assert.IsType<JsonObject>(seen[1]);
-            Assert.Equal("everyone", broadcastFirst["payload"]!.GetValue<string>());
-            var broadcastSecond = Assert.IsType<JsonObject>(seen[2]);
-            Assert.Equal("everyone", broadcastSecond["payload"]!.GetValue<string>());
+            await WaitAsync(() => firstSeen.Count == 2 && secondSeen.Count == 1);
+            Assert.Equal(["only-you", "everyone"], firstSeen.Select(line => line["payload"]!.GetValue<string>()));
+            Assert.Equal(["everyone"], secondSeen.Select(line => line["payload"]!.GetValue<string>()));
 
             server.Close();
         }
