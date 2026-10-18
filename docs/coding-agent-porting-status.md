@@ -6213,3 +6213,30 @@ diagnostics 失败轮次收录·notified 剥离；条件文件清单；归档名
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3261 / 0 失败**（`InteractiveModeTests` 106/106）。
+
+## compact 公共入口收口（2026-10-18，`9b7bc1a`）
+
+**范围**：`agent-session.ts` L2749-2905 的 `compact()` 公共入口。编排本体随 4f-4m-5a 的
+命令族批落地为 `AgentSessionCompaction.cs` 的 `CompactAsync`；本批收口两处。
+
+**落地内容**：
+- `CompactAsync` 由 `internal` 转 `public`：TS 的 `compact()` 是 `AgentSession` 的公共
+  API（`/compact`、RPC、扩展三条路径共用），4f-5 的 RPC 层与 SDK 消费方都要经它进入。
+- 新增 `AgentSessionCompactEntryTests` 5 例（逐条对齐 TS）：快路径（压缩条目落盘 +
+  `compaction_start`/`compaction_end` 事件对 + `fromHook` 恒写 false）/ "Already compacted" /
+  "Nothing to compact (session too small)"（`compaction_end` 带 `Compaction failed: …`）/
+  扩展取消（`Compaction cancelled` + aborted 事件 errorMessage 为 undefined +
+  `session_compact_failed` + 模型流零调用）/ 扩展供结果（默认摘要器跳过 + `fromHook=true` +
+  `session_compact` 的 `fromExtension=true`）。
+
+**逐条核对确认与 TS 一致的分支**：abort→compaction_start→prepareCompaction（两条失败文案）→
+`session_before_compact`（cancel / 自定义结果）→默认摘要器→signal 中止检查→appendCompaction
+→session_compact→`_clearManualCompactionState` 先于 compaction_end→catch 的
+aborted/errorMessage 合成与 `_emitSessionCompactFailed`→finally 清理。
+
+**踩坑**：切分点落在回合中部会走 split-turn 双次摘要（历史 + 回合前缀各一次流调用），
+种子数据改为「长 user + 短 assistant」使预算在最后一个 user 消息处越过，对应 TS
+`startsTurn` 分支；`fromHook` 在 TS 的 entry 对象里恒存在（false 也写盘），断言不能写 Null。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3266 / 0 失败**。**4f-4m-5c 阶段全部收口。**

@@ -2,7 +2,7 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`4b9180d`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d`）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`9b7bc1a`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a`）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
 > 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C272`）。
 
@@ -54,7 +54,7 @@ P4c llama `ui.ts` 的 `LlamaView`/`HuggingFaceSearch`/`showLlamaUi`（依赖均�
 | --- | --- | --- |
 | **4f-4m-5a** | 命令族前半（thinking/model/clone/trust） | ✅ `9b9d67e`（与 5c 同批提交）；`InteractiveModeTests` 94/94、全量 3204/0 |
 | **4f-4m-5b** | 登录认证族（login/logout 全链，约 630 行 TS） | ✅ `159fda6`；`InteractiveModeTests` 105/105、全量 3215/0 |
-| **4f-4m-5c** | 命令族后半 + `session-share.ts` + `bug-report.ts` 交互流 + `AgentSession.compact` 公共入口 | 🟡 命令族后半 9 个处理器 ✅（export/import/session/changelog/hotkeys/armin/demented/bash/compact，`9b9d67e`）；share/bug 两模块 + core 收集/上传 + `getAuthCredential` ✅（`4b9180d`，见 0.10）；**余量**：`AgentSession` 公共 compact 入口（TS L2763-2895） |
+| **4f-4m-5c** | 命令族后半 + `session-share.ts` + `bug-report.ts` 交互流 + `AgentSession.compact` 公共入口 | ✅ 全部收口（`9b9d67e` + `4b9180d` + `9b7bc1a`）；`AgentSession.compact` 公共入口（编排本体 + public 化 + 5 例）见 0.11 |
 | **4f-4m-6** | 提交 if-chain + `handleClipboardPaste`（✅ 已随 `9b9d67e` 提前落地）+ autocomplete 组装（✅ 同批落地）+ **清零剩余缝**（`setupEditorSubmitHandler`、`custom<T>`/`customAsync<T>`、`checkForAvailableUpdates`）+ 摘字段块 pragma | 同上；`InteractiveMode` 类装配正式收口 |
 
 ### 0.9 5a/5c 收口记录（2026-10-18，`9b9d67e`）
@@ -72,6 +72,20 @@ P4c llama `ui.ts` 的 `LlamaView`/`HuggingFaceSearch`/`showLlamaUi`（依赖均�
 - 脱敏语义经 TS 对拍验证（`tools/bug-report-redaction-reference.mjs`，34 组用例）：`<redacted>` 占位、userinfo 剥离、嵌套 scheme、`isSensitiveKey` 理论 14 例（含 `privateKey`→false）。
 - **事故记录**：`/bug` 冒烟用例首版把 CrashLog 的 agent-dir 环境变量名写成 `PI_AGENT_DIR`（实际为 `PI_CODING_AGENT_DIR`），导致读写并 `Clear` 了真实的 `~/.pi/agent/crashes.json`（内容为历史测试残留）。已改用 `Config.EnvAgentDir` 常量并加断言钉住隔离路径；`CrashLog.Read`/`Clear` 走全局 env 而非会话 agentDir，凡测试触及默认路径处都需显式改环境变量。
 - 测试 +33 例（AuthCredentialsTests 9、BugReportCollectTests 12、脱敏扩展、/bug 全链路冒烟含 zip 内容/崩溃日志清除/会话条目断言）；全量 **3261/0**。
+
+### 0.11 compact 公共入口收口记录（2026-10-18，`9b7bc1a`）
+
+- 编排本体（TS `compact()` L2749-2909）随 5a 的命令族批落地为 `CompactAsync`；本批补两处：
+  ① `internal` → `public`（TS 的 `compact()` 是公共 API：/compact、RPC、扩展三路共用，
+  4f-5 的 RPC 层要经它进入）；② 补 5 例编排测试（`AgentSessionCompactEntryTests`）。
+- 用例踩坑：切分点落在回合中部会走 split-turn 双次摘要（历史 + 回合前缀各一次流调用），
+  种子数据改为「长 user + 短 assistant」使预算在最后一个 user 消息处越过，对应 TS
+  `startsTurn` 分支；`fromHook` 在 TS 的 entry 里恒存在（false 也写盘），断言不能写 Null。
+- 逐条核对确认与 TS 一致的分支：abort→compaction_start→prepareCompaction（两条失败文案）→
+  `session_before_compact`（cancel / 自定义结果两分支）→默认摘要器→signal 中止检查→
+  appendCompaction→session_compact→`_clearManualCompactionState` 先于 compaction_end→
+  catch 的 aborted/errorMessage 合成与 `_emitSessionCompactFailed`→finally 清理。
+- 全量 **3266/0**。**4f-4m-5c 阶段至此全部收口**，下一阶段 4f-4m-6（提交 if-chain + 清零剩余缝）。
 
 ---
 
@@ -615,7 +629,7 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 | 2026-10-18 | **命令族增量：/name** | handleNameCommand（L6641-6664）：空参显示当前会话名（无名时 Usage 警告）→ `SetSessionName` + 归一化警告（JSON.stringify 双引号原样）→「Session name set」。`Session.SetSessionName` 已有（4e 批）。命令族剩余：handleCompactCommand（**缺口确认 + 勘察完成**：TS `session.compact()` 在 agent-session.ts **L2763-2890**——abort → compaction_start → GetCompactionSettings(model ref) → prepareCompaction → session_before_compact（取消/供摘要）→ `_runDefaultCompaction`（已有 C# 私有件）→ appendCompaction → session_compact → compaction_end；C# 侧全部子件已在（GetCompactionSettings/RunDefaultCompaction/AppendCompaction/BuildSessionProjection/EstimateMessagesTokens/ClearManualCompactionState），只缺公共编排本体；该命令随会话 compact 入口批落地）/ handleBugCommand（缺口：reportBug 模块）/ handleExportCommand·handleImportCommand·handleHelpCommand·handleToolsCommand·handleExtensionsCommand·handleTerminalSetupCommand·handleTrustCommand·handleLogoutCommand·handleLoginCommand·handleReloadCommand·handleSessionCommand·handleNewCommand·handleModelsCommand | 本批提交 | `InteractiveModeTests` 全类 **67 / 0**（+2）；`Pi.CodingAgent.Tests` 全量 **3177 / 0 失败**；构建 0 警告 0 错误 |
 | 2026-10-18 | **4f-4m-5a/5c** | 命令族前半 5 个处理器（thinking/model/clone/trust/reload）+ 后半 9 个（export/import/session/changelog/hotkeys/armin/demented/bash/compact）+ **提前落地两件 4f-4m-6 前置件**（autocomplete 组装：createBaseAutocompleteProvider/setupAutocompleteProvider/TriggerCharacterOverrideProvider/getLoginProviderOptions；bindCurrentSessionExtensions 全量 6 成员 + showLoadedResources 四节四类诊断 + showStartupNoticesIfNeeded + setupExtensionShortcuts/ShortcutExtensionContext 17 成员）+ handleClipboardPasteAsync 全量实现（退役 3 缝）。**Core 侧**：ResourceLoader system-prompt 来源发现（SYSTEM.md/APPEND_SYSTEM.md + 项目受信任门控，接线进 AgentSessionBuild——顺延项落地）+ AgentSession.ExecuteBashAsync/RecordBashResult（abort 注册/shell prefix/bash_execution_update/流式延迟入队）+ BashExecutor.ExecuteBashOptions。测试 +26 例（94/94），修正 3 处用例（armin fullscreen 语义/hotkeys 渲染后文本/collapseChangelog 门控），Windows cmd 变体因沙箱挂起改 bash 内建 echo。命令族余：login/logout 族（5b）+ share/bug 两模块 + compact 公共入口 | `9b9d67e`（已推送） | `InteractiveModeTests` 全类 **94 / 0**（+27）；`Pi.CodingAgent.Tests` 全量 **3204 / 0 失败**；构建 0 警告 0 错误 |
 | 2026-10-18 | **4f-4m-5b** | 登录认证族 17 个成员全量落地（TS L5767-6397 + /login·/logout 分派）：getLogoutProviderOptions（15s 超时）/ findLoginProviderOptions / handleLoginCommand 三分支 / startProviderLogin 三路 / showLoginAuthTypeSelector（订阅·API key·Radius 直入 + 单项短路）/ showLoginProviderSelector / showOAuthSelector（logout 凭据清单 + CredentialSynchronizationError 文案）/ completeProviderAuthentication（默认模型选型 + persist、llama 指引、三路错误文案、deferSelection + 15s catalog 刷新竞态）/ ambient 与 api-key 对话框（bedrock 文档提示）/ showAuthSelect·showAuthPrompt（四型提示 + 提示级取消竞速）/ notifyAuthDialog / loginProvider（DialogAuthInteraction + device id）/ showLoginDialog / offerRadiusMcpServer（mcp.json auth.provider 接线 + oauth 删除 + reload）。offerRadiusMcpServer 的 agent dir 改取 Services.AgentDir（与 5a 信任存储同源；TS 读全局 getAgentDir()，生产同值）；IsUnknownModel 形参改 ModelSpec?（TS 入参是会话 Model<any>，该叶子此前无调用方）。测试 +11 例（105/105）+ 3 个测试缝；夹具支持追加 provider 与注入凭据存储 | `159fda6`（已推送） | `InteractiveModeTests` 全类 **105 / 0**（+11）；`Pi.CodingAgent.Tests` 全量 **3215 / 0 失败**；构建 0 警告 0 错误 |
-| 2026-10-18 | **4f-4m-5c 余量** | share/bug 两模块全链：`InteractiveMode.Share.cs`（session-share.ts 217 行：mkdtemp→export→Radius（5min OAuth 有效性 + canonical_url + 三级失败文案）→gh auth 检查→HTML→gist→cleanup；createShareTrailingEntries 的 systemPrompt/tools、8 位 hex id、parentId null 显式保留）+ `InteractiveMode.Bug.cs`（bug-report.ts 298 行：四提示组件 + 摘要 loader + 上传失败回退 + zip 导出 + recordInSession（hint null 显式 Add / path 仅 zip）+ CrashLog.Clear 分支）+ `AuthCredentials.cs`（getAuthCredential：apiKey 优先 → Authorization Bearer 回退，`\z` 对齐 JS `$`）+ `BugReportGenerate.cs`/`AgentSessionBugReport.cs`（summarizeForBugReport 包装）。**core 侧高保真重写**：collectBugReportMetadata（信封/cwd 省略/hint trim||null/environment 七项 + PI_ 变量名清单）/ collectBugReportDiagnostics（失败轮次收录 + notified 剥离 + 条件展开键）/ redactSettings / bugReportFiles / bugReportArchiveFileName / uploadBugReport（Bearer 头 + ok+bug_report.id + 失败文案三级回退）。**一致性检查修掉两处既有缺陷**：① settings 序列化缺 camelCase → trackingId/deviceId 摘除失效（隐私泄漏）；② upload 多部分字段名误用 "files"（TS 为 file.name）。事故：冒烟用例误写 `PI_AGENT_DIR`（实际 `PI_CODING_AGENT_DIR`）致真实 crashes.json 被读写清除，已改常量 + 断言钉住。测试 +33 例；`/share`·`/bug` 分派仍随 4f-4m-6 的提交 if-chain 落地（本批经测试缝直驱） | `4b9180d`（已推送） | `InteractiveModeTests` 全类 **106 / 0**（+1）；`Pi.CodingAgent.Tests` 全量 **3261 / 0 失败**；构建 0 警告 0 错误 |
+| 2026-10-18 | **compact 公共入口** | `AgentSession.compact()`（TS L2749-2905）公共入口收口：编排本体随 5a 命令族批落地，本批把 `CompactAsync` 由 internal 转 **public**（TS 是公共 API——/compact、RPC、扩展三路共用，4f-5 RPC 层要经它进入）+ 新增 `AgentSessionCompactEntryTests` 5 例（快路径条目落盘与 compaction_start/end 事件对；"Already compacted"；"Nothing to compact (session too small)" + Compaction failed 文案；扩展取消 → Compaction cancelled + aborted + session_compact_failed + 模型流零调用；扩展供结果 → 摘要器跳过 + fromHook=true + session_compact 的 fromExtension=true）。踩坑：切分点落回合中部走 split-turn 双次摘要，种子改「长 user+短 assistant」对齐 TS startsTurn；fromHook 在 TS entry 恒存在（false 也写盘）。**4f-4m-5c 全部收口** | `9b7bc1a`（已推送） | `AgentSessionCompactEntryTests` **5 / 0**（新增）；`Pi.CodingAgent.Tests` 全量 **3266 / 0 失败**；构建 0 警告 0 错误 |
 
 > **R2 漂移对账（S0–S4）与 S3c 已全部完成。** `packages/ai` 已无已知缺口。
 > **4f-3d 选择器组 21/21 全部收口**（Batch C + D + E + F-1～F-5，含 external-editor）。
