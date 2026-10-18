@@ -671,9 +671,11 @@ public class McpExtensionTests
 
         await harness.StartAsync();
         // Only servers that connected can be reconnected; only OAuth servers can be signed in or out.
+        // Wait for the state descriptions too: the candidates are listed as soon as the servers are
+        // registered, but their descriptions settle only once the transports finish connecting.
         var reconnects = await WaitForAsync(
             () => complete("reconnect "),
-            items => items?.Count == 2,
+            items => items?.Count == 2 && items.All(item => item.Description?.StartsWith("connected") == true),
             "both servers to connect");
         Assert.NotNull(reconnects);
         Assert.Equal(["reconnect oauth", "reconnect stdio"], reconnects.Select(item => item.Value));
