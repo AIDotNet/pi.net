@@ -6777,3 +6777,27 @@ TS `worker.ts`(157) + TS 无对应文件的 `Services/ServiceWire.cs`：
 | C326 | **`SessionPlugins` 的 reload 钩子用可换委托承载** | TS 重新赋值闭包变量 `reloadPlugins`；C# 用 `SessionPluginsState.Reload` 属性，初值为拒绝桩 "Session plugins are not ready" |
 | C327 | **目录在 provider 侧是 CLR 条目、过线才是 JSON** | `RemoteServiceEndpoint.InvokeAsync` 直接返回 `_provider.Catalogue`（`IReadOnlyList<ServiceCatalogueEntry>`）；`ServiceWire.ParseServiceCatalogue` 读的是传输序列化后的值树。测试据此分侧断言 |
 | C328 | **未知服务的异常是 chord `RemoteServiceError`** | TS 抛 chord 的 `RemoteServiceError`（`service_not_allowed`）；C# 同类型，非 `InvalidOperationException` |
+
+## 4g-3c-1 服务层两端（services/server.ts / services/connection.ts）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `services/server.ts` | 151 | `Services/ExperimentalServerProvider.cs` | `ExperimentalServerOptions` / `ExperimentalServerServices` / `CreateExperimentalServerServicesAsync` / `ServerServiceHost` / `ServerServiceAttachment` |
+| `services/connection.ts` | 399 | `Services/ServiceConnection.cs` | `ServerConnectionState` / `SessionAttachmentState` / `IServerServiceSource` / `ISessionServiceSource` / `ServiceConnection`（两个工厂）+ `RoutedServiceBinding` |
+
+**server 侧的成员字典**：TS 传内联对象字面量，C# 直接给字典——`pi.session-directory` 只有 `state`；`pi.session-management` 是
+`create` / `remove` / `attach` / `detach`；`pi.presentation-plugins` 是 `prepareSession` / `reload`。
+`create`/`remove` 后 `refreshNow`（修订号 +1 并整值替换），`remove` 先 `presentation.prepareSessionRemoval`。
+
+**connection 侧的状态机**：`ServerConnectionState`（connecting 带 attempt / connected 带 since / disconnected 带 reason+retryAt）与
+`SessionAttachmentState`（detached / attaching / attached / degraded）。每次附加变化修订号 +1，过期修订的发布一律跳过。
+
+### 4g-3c-1 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C329 | **`RoutedServiceBinding` 同时实现 `IRemoteServices` 与 TS 的 `RemoteServices` 面** | C# 的 `IRemoteServices` 只有 `ReadyAsync(CancellationToken)` + `UseRaw(string)`；`Use<T>`/`Observe<T>`/`RebindAsync`/`DisposeAsync` 作为公共成员暴露。`ReadyAsync(ct)` 用 `ContextSignals.WithAbortSignal` 把令牌变成 Context |
+| C330 | **server 侧服务用内联成员字典，不用双身份类** | TS 的 `attachClient` 传对象字面量；只有 worker 侧那种「TS 传类型化类」的服务才需要 `ServiceWireAdapter` 双身份 |
+| C331 | **`Client` 在本命名空间内解析到命名空间** | `using Pi.Client;` 后 `Client` 优先匹配命名空间 `Pi.Client`；类型须别名（`ServiceClient`） |
+| C332 | **`Service<T>` 在 `Pi.Chord.Facets`** | 与 `RemoteServiceProvider`/`ServiceWire`（`Pi.Chord.Services`）不同命名空间；`ProviderDefinition` 用于构造 provider 目录 |
+| C333 | **尾链用异步助手而非 `ContinueWith` 回调** | 单参 lambda 会命中 `ContinueWith(Action<Task,object?>, …)` 重载造成歧义；`IgnoreAsync` / `WatchAsync` 两个助手分别表达「吞掉失败的尾」与「定居后分流」 |

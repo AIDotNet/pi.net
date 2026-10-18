@@ -2,7 +2,7 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`8500da8`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → 4g-3b-1 `cc5bcaa` → 4g-3b-2 `70c9e9f` → 4g-3b-3 `ca4b2a0` → **4g-3b-4 `8500da8`**）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`2918a5d`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → 4g-3b-1 `cc5bcaa` → 4g-3b-2 `70c9e9f` → 4g-3b-3 `ca4b2a0` → 4g-3b-4 `8500da8` → **4g-3c-1 `2918a5d`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
 > 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C318`）。
 
@@ -424,6 +424,33 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
   `JsonValue | undefined` 观察行为一致（unsubscribe 对应 null）。
 - **4g-3b 至此全部收口**（14 文件全部落地）。下一阶段 **4g-3c**：`coordinator.ts`(?) / `server.ts`(151) / `connection.ts`(399) /
   `plugins/*`，届时 `connection.ts` 的 `RoutedServiceBinding` 改写方案以 0.21 节记录为准。
+
+### 0.24 4g-3c-1 服务层两端（`2918a5d`，2026-10-18）
+
+- **范围**：`services/server.ts`(151) + `services/connection.ts`(399) = 550 行。测试 **+25 例**（`ExperimentalServerProviderTests` 12 /
+  `ServiceConnectionTests` 13）；全量 **4499/0**（1m55s）。
+- **`services/server.ts` 与顶层 `server.ts` 不是同一个文件**（后者 770 行，属 4g-3d 顶层装配）。本批只做 services 子目录里的服务端半边。
+- **server 侧的服务提供形状与 worker 侧不同**：TS 在 `attachClient` 里给三个服务传的是**内联对象字面量**，因此 C# 直接提供成员字典
+  （不需要 4g-3b-4 的双身份类）；`pi.session-directory` 只有 `state` 一个成员，`pi.session-management` 四个方法，
+  `pi.presentation-plugins` 两个方法——成员名即 TS 属性名。
+- **`mutationTail` 串行化**（TS `serialize()`）：`mutationTail.catch(()=>{}).then(op)` 保证前一个变更失败不阻塞下一个，
+  尾任务只记录完成与否。C# 用 `ContinueWith(...).Unwrap()` + `IgnoreAsync` 复刻（`ContinueWith` 的单参 lambda 会命中
+  `Action<Task,object?>` 重载，故一律走异步助手而非 ContinueWith 回调）。
+- **connection 侧的 `RoutedServiceBinding` 按 0.21 节既定方案落地（C329）**：实现 `IRemoteServices`（`ReadyAsync(ct)` 走激活链、
+  `UseRaw(id)` 转发门面），同时把 `Use<T>` / `Observe<T>` / `RebindAsync` / `DisposeAsync` 作为公共成员暴露。
+  `ReadyAsync(CancellationToken)` 与 TS `ready(context)` 的差异用 `ContextSignals.WithAbortSignal(ct, Context.Background)` 弥合。
+- **连接/附加态的迁移语义**：连接变化 → 先发布连接态，再把 `updateBound(connected)` 串行推到全部绑定（失败经 `onError` 上报）；
+  附加变化 → 修订号 +1、先发 `attaching`、异步拉目录（仅在附件仍是当前时保留），rebind 成功后发 `attached`、失败发 `degraded` 并上报。
+  过期修订（`_attachmentRevision != revision`）的所有后续发布全部跳过——这条不变量用测试钉住。
+- **`Client` 类型名遮蔽**：`using Pi.Client;` 之后，在 `Pi.CodingAgent.Experimental.Services` 命名空间内写 `Client` 会解析到
+  **命名空间** `Pi.Client` 而非类型（C331）。别名 `using ServiceClient = Pi.Client.Client;` 解决。
+- **`Service<T>` 住在 `Pi.Chord.Facets`** 而非 `Pi.Chord.Services`（测试里踩到，C332）；`RemoteServiceProvider.ProviderDefinition`
+  才在 `Pi.Chord.Services`。
+- **csproj 补引用**：`Pi.CodingAgent` 原先未引用 `Pi.Client` / `Pi.Server`，本批补上（两者都不依赖 CodingAgent，无循环）。
+- **4g-3c 剩余**：`experimental/` 顶层装配（`cli.ts` 12 / `coordinator-entry.ts` 10 / `coordinator.ts` 612 / `server.ts` 770 /
+  `session-worker-manager.ts` 848 / `session-worker.ts` 840 / `client-runtime.ts` 230 / `client.ts` 86 / `source-resolver.ts` 86 /
+  `commands.ts` 98 / `radius-auth.ts` 67 / `radius-relay.ts` 724 / `client-tui.ts` 809 / `client-tui-chat.ts` 228）、
+  `durable/*`（7 文件 1,350 行）、`vacation/*`（6 文件 1,325 行）、`plugins/*`（2 文件 226 行）。
 
 ---
 
