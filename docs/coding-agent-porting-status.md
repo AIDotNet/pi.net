@@ -6240,3 +6240,43 @@ aborted/errorMessage 合成与 `_emitSessionCompactFailed`→finally 清理。
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3266 / 0 失败**。**4f-4m-5c 阶段全部收口。**
+
+## 4f-4m-6：提交 if-chain + 清零剩余缝（2026-10-18，`c0ffee2`）——类装配收口
+
+**范围**：`interactive-mode.ts` 的 `setupEditorSubmitHandler`（L3179-3375）、
+`showSettingsSelector`（L4888-5115）、`showModelsSelector`（L5357-5465）、
+`showExtensionCustom`（L2946-3010）与 `checkForPackageUpdates`（L1255-1271）的形状。
+
+**落地内容**：
+- **提交 if-chain**（`InteractiveModeSubmit.cs` 追加闭包本体）：`HandleSubmitAsync`
+  （trim + 空提交短路）+ `DispatchCommandAsync`（26 个命令分支逐条分派）。**清空编辑器的
+  时机按 TS 原样保留**：settings/scoped-models/model/thinking/bug/clone/login/new/compact/
+  reload/quit 在调用前，export/import/share/copy/name/session/changelog/hotkeys/fork/tree/
+  trust/logout/debug/armin/demented/resume 在后。尾链四段：bash（busy 警告恢复原文 →
+  历史 → 命令 → `isBashMode` 复位 + 边框色）、压缩期排队（扩展命令直通、其余 steer 队列）、
+  流式 steer（+ pending 显示 + 重渲）、正常提交（flush → onInputCallback/pendingUserInputs
+  → 历史；编辑器自清，故该分支无 setText）。路由判定复用既有表驱动 `InteractiveModeSubmit.Route`。
+- **两个缺失挂载**（`InteractiveMode.Selectors.cs` 新建）：`ShowSettingsSelector`
+  （37 个回调逐条对齐；http-idle-timeout 只落设置 + 状态文案——.NET 无全局 dispatcher，
+  设计差异 C267；quiet-startup 按 TS 三分联合处理）与 `ShowModelsSelector`
+  （15s 刷新竞态 + `selectionChanged` 守卫 + enabledIds 代数 + persist 全选短路；
+  刷新三态文案与 `disposed` 守卫齐全）。
+- **清零三缝**：`custom<T>`/`customAsync<T>` → `ShowExtensionCustomAsync`（草稿保存、
+  overlay/占位两路挂载、close 幂等 + dispose、工厂失败恢复编辑器并 reject；同步半支经
+  `Task.FromResult` 复用同一实现）；`checkForAvailableUpdates` → TS 形状（offline 短路 +
+  失败空表；网络检查本体仍顺延 4e-3c-3，但不再每次 online 启动炸后台任务）；
+  `setupEditorSubmitHandler` → 闭包。
+- **摘字段块 pragma**：`CS0169/CS0414/CS0649` 抑制移除后构建仍 **0 警告**——TS 字段块
+  （L451-585）全部被已落地成员点亮，类装配完成。
+- 顺手：`IOutputPadSettable` 接口（TS `"setOutputPad" in child` 鸭子探针的编译期版），
+  7 个 transcript 组件实现（AssistantMessage/BashExecution/BranchSummary/CompactionSummary/
+  CustomEntry/CustomMessage/SkillInvocation）。
+
+**测试（+11 例，`InteractiveModeTests` 117/117）**：提交链 9 例（/debug 路由 + 清编辑器；
+/settings、/scoped-models（刷新桩避免网络）、/model 无参挂选择器；/thinking 未知档位文案；
+空提交忽略；正常提交经 GetUserInputAsync 交付；裸 `!` 回落正常提交；`!echo hi` 保文本）+
+扩展自产组件 2 例（挂载 → done 解析 → 编辑器归还 + 草稿恢复；工厂失败 → 恢复 + reject）。
+新增测试缝 `InstallSubmitHandlerForTests`。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**（字段块 pragma 摘除后）；
+`Pi.CodingAgent.Tests` 全量 **3277 / 0 失败**。**4f-4m（interactive-mode.ts 本体）全部收口。**

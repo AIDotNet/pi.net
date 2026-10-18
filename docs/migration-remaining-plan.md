@@ -2,7 +2,7 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`9b7bc1a`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a`）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`c0ffee2`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2`）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
 > 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C272`）。
 
@@ -17,16 +17,17 @@
 
 ### 0.7 剩余清单（按当前检出逐文件核对，取代 2.2 节的旧快照）
 
-**4f-4m 收尾**（`interactive-mode.ts` 剩余成员，缝 3 处 + 命令族 16 个 + 两个未移植模块）：
+**4f-4m 收尾**（`interactive-mode.ts` 剩余成员）：✅ **已全部收口**（`c0ffee2`，见 0.12——
+命令族 16 个 + 登录族 17 成员 + share/bug 两模块 + 提交 if-chain + 三缝清零 + 字段块 pragma 摘除）。
 
 | 块 | TS 位置 | 内容 | 依赖 |
 | --- | --- | --- | --- |
-| 命令族前半 | L5124-5536 | `handleThinkingCommand`/`selectThinkingLevel`/`showThinkingSelector`、`handleModelCommand`/`findExactModelMatch`、`handleCloneCommand`、`showTrustSelector`、`maybeSaveImplicitProjectTrustAfterReload` | ThinkingSelector/TrustSelector 组件已就绪；`session.setThinkingLevel`/`setModel` 已有 |
-| 登录认证族 | L5767-6397 | `getLoginProviderOptions`/`getLogoutProviderOptions`/`findLoginProviderOptions`/`handleLoginCommand`/`startProviderLogin`/`showLoginAuthTypeSelector`/`showLoginProviderSelector`/`showOAuthSelector`/`completeProviderAuthentication`/`showAmbientAuthDialog`/`showApiKeyLoginDialog`/`showAuthSelect`/`showAuthPrompt`/`notifyAuthDialog`/`loginProvider`/`showLoginDialog`/`offerRadiusMcpServer` | OAuthSelector/LoginDialog/ExtensionSelector/ExtensionEditor 组件已就绪；ModelRuntime 登录 API 已有 |
-| 命令族后半 | L6403-7061 | `handleReloadCommand`/`handleExportCommand`/`handleImportCommand`/`handleShareCommand`/`handleBugCommand`/`handleSessionCommand`/`handleChangelogCommand`/`handleHotkeysCommand`/`handleArminSaysHi`/`handleDementedDelves`/`handleBashCommand`/`handleCompactCommand` | ✅ 已全部落地（`9b9d67e` + `4b9180d`）；share/bug 两模块、core 收集/上传、`getAuthCredential` 均已随 `4b9180d` 收口；余 `AgentSession.compact` 公共入口（agent-session.ts L2763-2895） |
-| 提交 if-chain | L3179-3378 | `setupEditorSubmitHandler`（26 个命令分支 + bash 分支 + 压缩/流式排队） | 命令族全部就绪后落地 |
-| 剪贴板粘贴 | L3132-3172 | `handleClipboardPaste` | 需编辑器 `getCursor`/`insertTextAtCursor` 可选 API |
-| autocomplete 组装 | L718-835 | `createBaseAutocompleteProvider` + `setupAutocompleteProvider` | 4f-4e 静态叶子已就绪；`CombinedAutocompleteProvider` 在 Pi.Tui |
+| 命令族前半 | L5124-5536 | `handleThinkingCommand`/`selectThinkingLevel`/`showThinkingSelector`、`handleModelCommand`/`findExactModelMatch`、`handleCloneCommand`、`showTrustSelector`、`maybeSaveImplicitProjectTrustAfterReload` | ✅ `9b9d67e`；ThinkingSelector/TrustSelector 组件已就绪 |
+| 登录认证族 | L5767-6397 | `getLoginProviderOptions`/`getLogoutProviderOptions`/`findLoginProviderOptions`/`handleLoginCommand`/`startProviderLogin`/`showLoginAuthTypeSelector`/`showLoginProviderSelector`/`showOAuthSelector`/`completeProviderAuthentication`/`showAmbientAuthDialog`/`showApiKeyLoginDialog`/`showAuthSelect`/`showAuthPrompt`/`notifyAuthDialog`/`loginProvider`/`showLoginDialog`/`offerRadiusMcpServer` | ✅ `159fda6` |
+| 命令族后半 | L6403-7061 | `handleReloadCommand`/`handleExportCommand`/`handleImportCommand`/`handleShareCommand`/`handleBugCommand`/`handleSessionCommand`/`handleChangelogCommand`/`handleHotkeysCommand`/`handleArminSaysHi`/`handleDementedDelves`/`handleBashCommand`/`handleCompactCommand` | ✅ `9b9d67e` + `4b9180d` + `9b7bc1a`（含 `AgentSession.compact` 公共入口） |
+| 提交 if-chain | L3179-3378 | `setupEditorSubmitHandler`（26 个命令分支 + bash 分支 + 压缩/流式排队） | ✅ `c0ffee2` |
+| 剪贴板粘贴 | L3132-3172 | `handleClipboardPaste` | ✅ `9b9d67e` 提前落地 |
+| autocomplete 组装 | L718-835 | `createBaseAutocompleteProvider` + `setupAutocompleteProvider` | ✅ `9b9d67e` 提前落地 |
 
 > **台账旧记载修正**：`/help` `/tools` `/extensions` `/terminal-setup` `/models` 五个命令在
 > **当前检出中不存在**（全网检索确认），旧台账「命令族缺口」一节列出它们有误——以当前检出为准，
@@ -45,8 +46,8 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 
 **顺延项**（不阻塞主链，随收尾阶段处理）：P4b-7 `McpManagerView`/`showMcpManager`、
 P4c llama `ui.ts` 的 `LlamaView`/`HuggingFaceSearch`/`showLlamaUi`（依赖均已满足）、
-4e-3c-3 package-manager update/网络检查（`CheckForPackageUpdatesAsync` 已知缺口，
-主入口路径按 offline 分支返回空表不抛错）。
+4e-3c-3 package-manager update/网络检查（`CheckForPackageUpdatesAsync` 已按 TS 形状落地——
+offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查本体仍未移植）。
 
 ### 0.8 S6 阶段计划（4f-4m 收尾）
 
@@ -55,7 +56,7 @@ P4c llama `ui.ts` 的 `LlamaView`/`HuggingFaceSearch`/`showLlamaUi`（依赖均�
 | **4f-4m-5a** | 命令族前半（thinking/model/clone/trust） | ✅ `9b9d67e`（与 5c 同批提交）；`InteractiveModeTests` 94/94、全量 3204/0 |
 | **4f-4m-5b** | 登录认证族（login/logout 全链，约 630 行 TS） | ✅ `159fda6`；`InteractiveModeTests` 105/105、全量 3215/0 |
 | **4f-4m-5c** | 命令族后半 + `session-share.ts` + `bug-report.ts` 交互流 + `AgentSession.compact` 公共入口 | ✅ 全部收口（`9b9d67e` + `4b9180d` + `9b7bc1a`）；`AgentSession.compact` 公共入口（编排本体 + public 化 + 5 例）见 0.11 |
-| **4f-4m-6** | 提交 if-chain + `handleClipboardPaste`（✅ 已随 `9b9d67e` 提前落地）+ autocomplete 组装（✅ 同批落地）+ **清零剩余缝**（`setupEditorSubmitHandler`、`custom<T>`/`customAsync<T>`、`checkForAvailableUpdates`）+ 摘字段块 pragma | 同上；`InteractiveMode` 类装配正式收口 |
+| **4f-4m-6** | 提交 if-chain + `handleClipboardPaste`（✅ 已随 `9b9d67e` 提前落地）+ autocomplete 组装（✅ 同批落地）+ **清零剩余缝**（`setupEditorSubmitHandler`、`custom<T>`/`customAsync<T>`、`checkForAvailableUpdates`）+ 摘字段块 pragma | ✅ `c0ffee2`（见 0.12）；`InteractiveMode` 类装配正式收口（字段块 pragma 摘除后 0 警告） |
 
 ### 0.9 5a/5c 收口记录（2026-10-18，`9b9d67e`）
 
@@ -86,6 +87,29 @@ P4c llama `ui.ts` 的 `LlamaView`/`HuggingFaceSearch`/`showLlamaUi`（依赖均�
   appendCompaction→session_compact→`_clearManualCompactionState` 先于 compaction_end→
   catch 的 aborted/errorMessage 合成与 `_emitSessionCompactFailed`→finally 清理。
 - 全量 **3266/0**。**4f-4m-5c 阶段至此全部收口**，下一阶段 4f-4m-6（提交 if-chain + 清零剩余缝）。
+
+### 0.12 4f-4m-6 收口记录（2026-10-18，`c0ffee2`）——InteractiveMode 类装配收口
+
+- **提交 if-chain**（TS `setupEditorSubmitHandler` L3179-3375）：闭包本体落在
+  `InteractiveModeSubmit.cs`（`HandleSubmitAsync` + `DispatchCommandAsync`），路由判定复用既有
+  表驱动件 `InteractiveModeSubmit.Route`。26 个命令分支逐条分派，**清空编辑器的时机按 TS
+  原样保留**（多数在调用处理器前；export/import/share/copy/name/session/changelog/hotkeys/
+  fork/tree/trust/logout/debug/armin/demented/resume 在后）；bash 分支（busy 警告恢复原文/
+  历史/`isBashMode` 复位）、压缩期排队（扩展命令直通）、流式 steer、正常提交四段尾链齐全。
+- **两个缺失挂载**（if-chain 的前置）：`ShowSettingsSelector`（TS L4888-5115，37 个回调）与
+  `ShowModelsSelector`（TS L5357-5465，15s 刷新竞态 + `selectionChanged` 守卫 + enabledIds
+  代数 + persist 全选短路）落 `InteractiveMode.Selectors.cs`。
+- **清零三处缝**：`custom<T>`/`customAsync<T>` → `ShowExtensionCustomAsync`（TS L2946-3010，
+  草稿保存/overlay 与占位两路/close 幂等 + dispose/工厂失败恢复并 reject）；
+  `checkForAvailableUpdates` → TS 形状（offline 短路 + 失败空表），npm/git 网络检查本体仍是
+  顺延项 4e-3c-3（原先每次 online 启动都炸一个后台任务，已消除）；
+  `setupEditorSubmitHandler` → 上面的闭包。
+- **摘字段块 pragma**：`CS0169/CS0414/CS0649` 抑制移除后仍 **0 警告**——TS 字段块全部被
+  已落地成员点亮，类装配确实完成。
+- 顺手：`IOutputPadSettable` 接口（TS `"setOutputPad" in child` 鸭子探针的编译期版），
+  7 个 transcript 组件实现。
+- 测试 +11 例（提交链 9 + 扩展自产组件 2）；全量 **3277/0**。
+- **4f-4m（interactive-mode.ts 本体）至此全部收口。** 下一阶段：4f-5（RPC/print/json ~2,043 行）。
 
 ---
 
@@ -630,6 +654,8 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 | 2026-10-18 | **4f-4m-5a/5c** | 命令族前半 5 个处理器（thinking/model/clone/trust/reload）+ 后半 9 个（export/import/session/changelog/hotkeys/armin/demented/bash/compact）+ **提前落地两件 4f-4m-6 前置件**（autocomplete 组装：createBaseAutocompleteProvider/setupAutocompleteProvider/TriggerCharacterOverrideProvider/getLoginProviderOptions；bindCurrentSessionExtensions 全量 6 成员 + showLoadedResources 四节四类诊断 + showStartupNoticesIfNeeded + setupExtensionShortcuts/ShortcutExtensionContext 17 成员）+ handleClipboardPasteAsync 全量实现（退役 3 缝）。**Core 侧**：ResourceLoader system-prompt 来源发现（SYSTEM.md/APPEND_SYSTEM.md + 项目受信任门控，接线进 AgentSessionBuild——顺延项落地）+ AgentSession.ExecuteBashAsync/RecordBashResult（abort 注册/shell prefix/bash_execution_update/流式延迟入队）+ BashExecutor.ExecuteBashOptions。测试 +26 例（94/94），修正 3 处用例（armin fullscreen 语义/hotkeys 渲染后文本/collapseChangelog 门控），Windows cmd 变体因沙箱挂起改 bash 内建 echo。命令族余：login/logout 族（5b）+ share/bug 两模块 + compact 公共入口 | `9b9d67e`（已推送） | `InteractiveModeTests` 全类 **94 / 0**（+27）；`Pi.CodingAgent.Tests` 全量 **3204 / 0 失败**；构建 0 警告 0 错误 |
 | 2026-10-18 | **4f-4m-5b** | 登录认证族 17 个成员全量落地（TS L5767-6397 + /login·/logout 分派）：getLogoutProviderOptions（15s 超时）/ findLoginProviderOptions / handleLoginCommand 三分支 / startProviderLogin 三路 / showLoginAuthTypeSelector（订阅·API key·Radius 直入 + 单项短路）/ showLoginProviderSelector / showOAuthSelector（logout 凭据清单 + CredentialSynchronizationError 文案）/ completeProviderAuthentication（默认模型选型 + persist、llama 指引、三路错误文案、deferSelection + 15s catalog 刷新竞态）/ ambient 与 api-key 对话框（bedrock 文档提示）/ showAuthSelect·showAuthPrompt（四型提示 + 提示级取消竞速）/ notifyAuthDialog / loginProvider（DialogAuthInteraction + device id）/ showLoginDialog / offerRadiusMcpServer（mcp.json auth.provider 接线 + oauth 删除 + reload）。offerRadiusMcpServer 的 agent dir 改取 Services.AgentDir（与 5a 信任存储同源；TS 读全局 getAgentDir()，生产同值）；IsUnknownModel 形参改 ModelSpec?（TS 入参是会话 Model<any>，该叶子此前无调用方）。测试 +11 例（105/105）+ 3 个测试缝；夹具支持追加 provider 与注入凭据存储 | `159fda6`（已推送） | `InteractiveModeTests` 全类 **105 / 0**（+11）；`Pi.CodingAgent.Tests` 全量 **3215 / 0 失败**；构建 0 警告 0 错误 |
 | 2026-10-18 | **compact 公共入口** | `AgentSession.compact()`（TS L2749-2905）公共入口收口：编排本体随 5a 命令族批落地，本批把 `CompactAsync` 由 internal 转 **public**（TS 是公共 API——/compact、RPC、扩展三路共用，4f-5 RPC 层要经它进入）+ 新增 `AgentSessionCompactEntryTests` 5 例（快路径条目落盘与 compaction_start/end 事件对；"Already compacted"；"Nothing to compact (session too small)" + Compaction failed 文案；扩展取消 → Compaction cancelled + aborted + session_compact_failed + 模型流零调用；扩展供结果 → 摘要器跳过 + fromHook=true + session_compact 的 fromExtension=true）。踩坑：切分点落回合中部走 split-turn 双次摘要，种子改「长 user+短 assistant」对齐 TS startsTurn；fromHook 在 TS entry 恒存在（false 也写盘）。**4f-4m-5c 全部收口** | `9b7bc1a`（已推送） | `AgentSessionCompactEntryTests` **5 / 0**（新增）；`Pi.CodingAgent.Tests` 全量 **3266 / 0 失败**；构建 0 警告 0 错误 |
+
+| 2026-10-18 | **4f-4m-6** | 提交 if-chain + 清零剩余缝——**InteractiveMode 类装配收口**：① 提交 if-chain 闭包本体（TS `setupEditorSubmitHandler` L3179-3375）落 `InteractiveModeSubmit.cs`：`HandleSubmitAsync`（trim/空提交短路）+ `DispatchCommandAsync`（26 个命令分支逐条分派，**清空编辑器时机按 TS 原样**——多数在调用前，export/import/share/copy/name/session/changelog/hotkeys/fork/tree/trust/logout/debug/armin/demented/resume 在后）+ bash 分支（busy 警告恢复原文/历史/`isBashMode` 复位）+ 压缩期排队（扩展命令直通）+ 流式 steer + 正常提交；路由复用既有表驱动 `Route`。② 两个缺失挂载落 `InteractiveMode.Selectors.cs`：`ShowSettingsSelector`（TS L4888-5115，37 回调；http-idle-timeout 按 C267 只落设置+状态文案）与 `ShowModelsSelector`（TS L5357-5465，15s 刷新竞态 + selectionChanged 守卫 + enabledIds 代数 + persist 全选短路）。③ 清零三缝：`custom<T>`/`customAsync<T>` → `ShowExtensionCustomAsync`（TS L2946-3010：草稿保存/overlay 与占位两路/close 幂等 + dispose/工厂失败恢复并 reject）；`checkForAvailableUpdates` → TS 形状（offline 短路 + 失败空表，网络检查本体仍顺延 4e-3c-3，但消除每次 online 启动炸后台任务）；`setupEditorSubmitHandler` → 闭包。④ **摘字段块 pragma**：CS0169/CS0414/CS0649 抑制移除后仍 0 警告。顺手：`IOutputPadSettable` 接口（TS 鸭子探针的编译期版）+ 7 个 transcript 组件实现。测试 +11 例（提交链 9 + 扩展自产组件 2）。**4f-4m 全部收口** | `c0ffee2`（已推送） | `InteractiveModeTests` 全类 **117 / 0**（+11）；`Pi.CodingAgent.Tests` 全量 **3277 / 0 失败**；构建 0 警告 0 错误 |
 
 > **R2 漂移对账（S0–S4）与 S3c 已全部完成。** `packages/ai` 已无已知缺口。
 > **4f-3d 选择器组 21/21 全部收口**（Batch C + D + E + F-1～F-5，含 external-editor）。
