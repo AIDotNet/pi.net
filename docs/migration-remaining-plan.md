@@ -1117,4 +1117,32 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
   `closeResources`、`run(options, createHarness)` 编排、`runSessionWorkerWithHarness` 参数校验。
   依赖面已确认齐备：`CoordinatorSocket`（4g-3c）、`NodeLock`（core）、`SessionWorkerServices`
   （4g-3b）、`IHarness.TaskGraphAsync`/`Resume`（Pi.Durable）、`AttachedReplicatedState`。
-  `createCodingAgentHarness` 依赖的 `durable/harness-setup.ts` 尚未移植，随 3b 评估是否需要先补。
+  `createCodingAgentHarness` 依赖的 `durable/harness-setup.ts` 尚未移植——3b 收口时确认：
+  入口半不碰它（harness 工厂保持可注入），随 3c 与 `createCodingAgentHarness` 一并评估。
+
+### 0.31 4g-3d-3b Session Worker 入口半（`00e5b14`，2026-10-19）
+
+- **范围**：`session-worker.ts`(840) 后半 ~425 行 → `Experimental/SessionWorkerEntry.cs`
+  （~950 行）：控制连接、命令分发、`closeResources`、`run` 编排、`runSessionWorkerWithHarness`
+  入口校验、事件 JSON 编码器（`SessionWorkerEventJson`）与 service_update 线型编码器
+  （`ServiceUpdateWireJson`）。测试 **+22 例**；全量 **4719/0**（2m25s，两轮 flakes 修复后）。
+- **`session-worker.ts`(840) 至此除 `createCodingAgentHarness` 外全部落地**；该函数依赖
+  `durable/harness-setup.ts`（未移植）与 `findInitialAgentModel`，是 4g-3d-3c 的前置。
+- **抓出真 bug（C358）**：编码器产出的进程内 JSON 把数字 backing 成 CLR `long`/`int`，
+  `GetValue<double>()` 对整型 backing 直接抛——round-trip 测试一跑就炸（`pid` 解析即抛）。
+  `NumberField` 改为先读整型再回落 double（与 `ToolTask` 同惯用法）。
+- **round-trip 走真实线路**：`ToJsonString()` → `JsonNode.Parse` → 解析器；比较用
+  `JsonNode.DeepEquals`（`JsonNode.Equals` 是引用相等，携带 JsonNode 成员的记录不可直接
+  `Assert.Equal`）。
+- **控制连接测试用真协调器**（`CoordinatorProcess` + server 角色 `CoordinatorConnection`），
+  断言 `peer_registered` 上报的 serverConnectionId 与 server 身份一致；命令必须经 `message`
+  信封路由（TS `readCommands` 只把 payload 当命令，直发 `shutdown` 会被拒后 `Fail` 终止）。
+- **入口校验**：参数计数 → JSON → schema + 三个 `Path.IsPathFullyQualified` + provider 须配
+  model。C359：Windows 上 `/p` 这类有根无盘符路径 Node `isAbsolute` 判合法、.NET 判非完全
+  限定——测试改用 `Path.GetTempPath()` 下的平台无关路径（盘符路径也无法写进 JSON 字面量）。
+- **顺带修两个 flakes**（均为此前批次旧账）：① `RadiusRelayHostTests.Start_RetriesAfterADropWithBackoff`
+  重连迭代从真实退避恢复、握手订阅异步落地——加 `OpenPending` 探针再 raise；② `CoordinatorTests.SendAndBroadcast_ReachThePeers`
+  根本没等注册落地，协调器把发给未注册 peer 的 send 静默丢弃——先等 `server.PeerIds`。
+- **4g-3d-3c**：`run()` 编排的端到端评估（MemoryStorage + 假 harness）+ `createCodingAgentHarness`
+  （需先补 `durable/harness-setup.ts`）；随后 4g-3d-4：`session-worker-manager.ts`(848) +
+  `server.ts`(770) + `commands.ts`(98) + `cli.ts`(12)（含 C337 的 `--internal-role coordinator`）。

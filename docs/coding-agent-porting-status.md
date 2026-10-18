@@ -7006,3 +7006,57 @@ catch）；重复 ID / 非二进制数据 / 坏控制消息 → 4000 协议错�
 - **顺带修 flaky**：`McpExtensionTests.McpCommand_CompletionsFollowTheArgumentGrammar`
   在满负载下把 `connecting…` 当成 `connected · 1 tool` 断言——等待条件补上「描述以
   connected 开头」。
+
+## 4g-3d-3b Session Worker 入口半（session-worker.ts 后半）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/session-worker.ts`（入口半） | ~425 | `Experimental/SessionWorkerEntry.cs` | 控制连接 / 命令分发 / 关闭 / `run` 编排 / 入口校验 / 事件 JSON 编码器 |
+
+**控制连接**（`connectControl`）：env 三件套（address/token/sessionKey，任一缺失即
+"requires a control address"）→ peerId → `CoordinatorSocket.ConnectAsync` → `register_peer`
+（协议版本 + peerId）→ 期待 `peer_registered`（否则 "Coordinator rejected the session worker
+registration"）→ Channel 驱动消息流；`initialServerConnectionId` 仅在协调器上报时非空。
+**命令分发**（`readCommands`）：CoordinatorInput 逐条校验，非法即 `Fail` 并终止；`message`
+类型把 payload 当命令解析，非命令静默跳过（与 TS 的 `continue` 一致）；五命令 + 两个
+server 生命周期事件分派给 handlers。
+**关闭**（`closeResources`）：services.dispose → harness.close → cleanup → releaseOwnership
+四源各自 try/catch 收错，单错原样重抛、多错 `AggregateException("Session worker cleanup
+failed", errors)`（消息追加形态见 C14）。
+**`run` 编排**：连接 → 锁 → harness → services（每订阅一个 `ServiceStateEncoder`，
+publish 包装成 `service_update`）→ WorkerLifecycle → readCommands → `worker_ready`；
+需求/操作/服务器事件处理器逐条对齐 TS（`holdRetirement` 包需求、`!attached` 先摘订阅、
+操作的 beginRequest/activeRequests/finally 释放、`isJsonValue` 结果检查、错误码从
+`RemoteServiceError` 或 `Data["code"]` 提取）。
+**入口校验**（`runSessionWorkerWithHarness`）：参数计数 → JSON 解析 → schema + 三个绝对路径
++ provider 须配 model；失败且控制连接已建立时上报 `worker_failed`（`.catch(() => {})` 不掩原错）。
+
+### 4g-3d-3b 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C358 | **`JsonNode` 是引用相等，进程内 JSON 的数字 backing 拒 `GetValue<double>()`** | ① 携带 `JsonNode?` 成员的记录不能用记录相等性比较（`JsonNode.Equals` 不比结构），测试改 `JsonNode.DeepEquals` + 重新编码的 wire JSON；② 编码器产出的进程内 JSON 把数字 backing 成 CLR `long`/`int`，`GetValue<double>()` 对整型 backing 直接抛——`NumberField` 先读整型再回落 double（与 `ToolTask` 同惯用法）。这是被 round-trip 测试抓出的**真 bug**：`pid` 等字段解析即抛 |
+| C359 | **`Path.IsPathFullyQualified` 严于 Node 的 `isAbsolute`** | Windows 上 `/p` 这类「有根无盘符」路径 Node 判合法、.NET 判非完全限定，入口校验会误拒；测试用 `Path.GetTempPath()` 下的平台无关绝对路径（Windows 盘符路径也无法原样写进 JSON 字符串字面量——单反斜杠不是合法 JSON 转义） |
+| C360 | **关闭路径完成运行而非 `process.exit`** | TS 的 `closeAndExit` 在 close 后 `process.exit(0/1)`；移植版完成 `RunAsync`（`closed` TCS 由 `CloseAsync` 落定）并把退出码交给进程入口（4g-3d-4 的 `runSessionWorkerProcess`），编排因此可测。`SIGTERM`/`SIGINT` 处理同样留给入口 |
+
+### 4g-3d-3b 测试方法论
+
+- **round-trip 走真实线路**：事件编码 → `ToJsonString()` → `JsonNode.Parse` → 解析器，与
+  JSON 行的实际收发一致；比较用 `JsonNode.DeepEquals`（记录相等对 JsonNode 成员无效）。
+- **控制连接用真协调器**：`CoordinatorProcess` + `CoordinatorConnection`（server 角色）+
+   worker 的 `ConnectControlAsync`，断言 `peer_registered` 上报的 serverConnectionId 与
+   server 身份一致（一开始误以为「无 server 就不上报」，实际 server 已注册就上报）。
+- **命令必须经 `message` 信封路由**：TS 的 `readCommands` 只把 `message` 类型的 payload 当
+  命令；初版把 `shutdown` 等直接发给控制流，被 `TryParseCoordinatorInput` 拒掉后 `Fail`
+  终止分发（测试挂死才发现）。
+- **聚合断言用 `StartsWith`**：.NET 会把内层消息追加进 `AggregateException.Message`
+  （C14 既有约定，见 `ServiceConnectionTests`）。
+- **wire op 形状**：`["replace", "/a", 1]` 不是合法 op——路径必须是数组、动词是
+  `r`/`s`/`d`/`p` 等单字母；reset 快照的 state 成员只允许根替换。
+- **顺带修 flaky**：`RadiusRelayHostTests.Start_RetriesAfterADropWithBackoff` 在满负载下
+  2/3 跑挂——重连迭代从真实退避延迟恢复，握手订阅异步落地，测试先轮询新的
+  `OpenPending` 探针再 `RaiseOpened`（订阅前 raise 的事件按浏览器语义丢失）。
+- **顺带修 flaky（旧账）**：`CoordinatorTests.SendAndBroadcast_ReachThePeers` 4g-3d-2b 修过
+  观察顺序后又挂——根因是**根本没等注册落地**：协调器把发给未注册 peer 的 send 静默丢弃，
+  满负载下 server 的 send 先于两条 register_peer 被处理，"only-you" 永久丢失。改为先等
+  `server.PeerIds` 含两个 peer 再发（同文件其他用例的既有等法）。
