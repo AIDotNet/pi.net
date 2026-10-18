@@ -2,7 +2,7 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`70c9e9f`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → 4g-3b-1 `cc5bcaa` → **4g-3b-2 `70c9e9f`**）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`ca4b2a0`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → 4g-3b-1 `cc5bcaa` → 4g-3b-2 `70c9e9f` → **4g-3b-3 `ca4b2a0`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
 > 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C318`）。
 
@@ -58,7 +58,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | 子批 | 范围 | 行数 | 状态 |
 | --- | --- | --- | --- |
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
-| **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）；余 5 文件 |
+| **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）；余 3 文件 |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | |
 | 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
@@ -389,6 +389,16 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
 - **4g-3b-3 开工顺序建议**：`models-provider`（依赖最少，可先跑通 `IModels` 的复制态）→
   `slash-commands-provider` → `worker`（把三个 provider 组装成 facet）→ `server`（host 侧）→
   `connection`（presentation 侧，体量最大且依赖 client 传输）。
+
+### 0.22 4g-3b-3 provider 中段（`ca4b2a0`，2026-10-18）
+
+- **范围**：`models-provider.ts`(173) + `slash-commands-provider.ts`(225) = 398 行 → `Services/ModelsProvider.cs` / `Services/SlashCommandsProvider.cs`。测试 **+67 例**（`ModelsProviderTests` 26 / `SlashCommandsProviderTests` 41）；全量 **4468/0**（1m49s）。
+- **决策叶子上提**：TS 把 `configurationOf` / `readCatalog` / `cycleThinking` 的索引运算都留在工厂闭包里；C# 按本端口既定约定抽成 `internal static`（`ConfigurationOf` / `NextThinkingLevel` / `IncludesModel` / `BuildCatalog` / `RefreshErrors` / `ParseLevel`），无 harness 也能单测——与 `AgentControllerProviderTests` 同一判定。
+- **registry 的分级退役语义**（本批最易错的一段，已用 5 例钉住）：`list()` 取每名的**首条目**；`replace` 只入队不发布（`#add` 仅在 `entries.length === 1` 时发布）；退订句柄只处置**队首**（非队首直接返回、不发布）；队首退役时 `while (entries[0]?.closed) shift()` 把后续已关闭的一并排空，名单空则删键。三代同名的场景：先退中间代无变化，再退最老代时关闭的中间代被一并排空。
+- **`publish` 的实时集合语义**：TS 的 `#listeners` 是 `Set`，`for...of` 边遍历边删——**先到的监听器把后到的退订掉，后到的不被访问**。初版用快照 `ToArray()` 会访问到它，已改为「快照 + 跳过已不在集合者」。两种形态（A：前者退订后者 → 只访问前者；B：自己退订自己 → 自己已被进入、继续访问后续）均用 Node 实证 JS Set 行为后写入测试。
+- **`env.use` → `Require` + `Use` 拆分**：built-in facet 依赖六个服务，TS 在 `setup` 里直接 `env.use(...)`；C# 的 `IFacetEnvironment.Use` 要求装配后才能调用，故 `Setup` 里 `Require` 六个、`OnActivate` 里 `Use` 六个。
+- **Pi.Durable 两处修正**：① `DocumentState<T>` 补 `Subscribe`——TS 的 `DocumentState<T>` 是 `AttachedReplicatedState` 的别名（带 `subscribe`），C# 包装类只留了 `Value`/`Dispose`，models-provider 的 `agent.subscribe(...)` 无处可去；② `AgentDocs.ApplyChange` 的 `thinkingLevel` 从 `CamelCase(level.ToString())` 改为 `ThinkingLevelText.ToText(level)`（C320）——前者把 `XHigh` 存成 `"xHigh"`，TS 恒存 `"xhigh"`；C# 侧大小写不敏感解析所以行为不坏，但落盘文本与 TS 不一致。
+- **4g-3b-3 至此完成 3/5**。余 `worker.ts`(157) / `server.ts`(151) / `connection.ts`(399)。
 
 ---
 

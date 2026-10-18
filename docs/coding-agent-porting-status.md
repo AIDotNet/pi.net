@@ -6722,3 +6722,31 @@ answer 缺省 → `Done("")`。
 | C317 | **`defineFacet({id, setup})` 工厂 → 实现 `IFacet`** | TS 用工厂闭包描述 facet；C# 的 `IFacet` 是 `Id` + `Setup(IFacetEnvironment)`。facet 类私有化，只暴露 `CreateTranscriptServiceFacetAsync`。`env.own(() => state.dispose())` → `environment.Own(() => { state.Dispose(); return Task.CompletedTask; })` |
 | C318 | **`submit` 的 `string \| Content[]` → 恒为块表** | TS 的 `UserInput` 允许裸字符串（纯消息快捷方式）；C# 的 `SubmissionDraft.Input.Content` 是 `IReadOnlyList<ContentBlock>`，纯消息规整成单个 `TextContent`。语义等价（durable 层本来就把字符串规整成 text block） |
 | C319 | **`toAgentError` 只区分 `ConversationBusy`** | TS 的 `error instanceof Error ? error.message : String(error)` 要处理非 Error 抛值；C# 的 throw 只接受异常对象，故统一取 `error.Message`（与 TS 在 Error 情形下的输出逐字一致） |
+
+## 4g-3b-3 provider 中段（models-provider / slash-commands-provider）
+
+TS 两个文件共 **398 行**，C# 落 `src/Pi.CodingAgent/Experimental/Services/`：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `services/models-provider.ts` | 173 | `Services/ModelsProvider.cs` | `ModelsServiceFacetOptions` / `ModelsServiceRuntime` / `CreateModelsService` / `CreateModelsServiceFacetAsync` / 私有 `ModelsFacet` / `ModelsService` |
+| `services/slash-commands-provider.ts` | 225 | `Services/SlashCommandsProvider.cs` | `SlashCommandRegistry`（公开类）+ `CreateSlashCommandsRuntimeFacet` / `CreateBuiltInSlashCommandsFacet` + model / thinking / compact / reload 四命令 |
+
+**`IModels` 五方法的行为对齐**：`cycleThinking` 的索引运算（空档位表 → `"off"`；未知档位 → 首档）、`refresh` 两段发布（先 `refreshing`，再 `done`/`warning` + 新 catalog）、`select`（未知模型抛错 → clamp 档位 → `configure` → 写 settings → flush）、`selectThinking`（不可用档位的精确文案）、`getThinkingLevels`。
+
+**registry 分级退役**（`SlashCommandRegistry`）：`list()` 取每名首条目；`replace` 只入队；发布只发生在「该名首次入队」与「队首退役」两种时刻；非队首退订不发布；队首退役时顺带排空后续已关闭条目。
+
+**顺带修掉的两处 Pi.Durable 缺陷**：
+
+1. **`DocumentState<T>` 缺 `Subscribe`**——TS 的 `DocumentState<T> = AttachedReplicatedState<Readonly<T> | null>`，`subscribe` 是它的一半；C# 包装类只暴露 `Value`/`Dispose`，`models-provider` 的 `agent.subscribe(...)` 无法表达。
+2. **`AgentDocs.ApplyChange` 的 `thinkingLevel` 落盘文本**——`CamelCase(ThinkingLevel.XHigh.ToString())` 得 `"xHigh"`，TS 恒写 `"xhigh"`（C320）。改为 `ThinkingLevelText.ToText`；顺带删除随之失去调用方的 `CamelCase` 助手。
+
+### 4g-3b-3 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C317 | **`defineFacet({id, setup})` 工厂 → 实现 `IFacet`** | 同 4g-3b-2；本批另确认 `IFacetEnvironment.Use` 须在装配后调用，故 TS 的 `env.use(...)` 拆成 `Setup` 里的 `Require` + `OnActivate` 里的 `Use` |
+| C320 | **`AgentChange.ThinkingLevel` 的存储文本** | TS 直接存字符串联合字面量；C# 曾用 `CamelCase(enum.ToString())`，`XHigh` 会存成 `"xHigh"`。改用 `ThinkingLevelText.ToText` 后与 TS 逐字一致 |
+| C321 | **`publish` 遍历实时集合而非快照** | TS 的 `#listeners` 是 `Set`，`for...of` 边遍历边删：先到的监听器退订后到者，后到者不被访问。C# 用「快照 + 跳过已不在集合者」复刻（实测 JS Set 两种删除形态后写入测试） |
+| C322 | **`THINKING_DESCRIPTIONS` 用 switch 而非字典** | 表驱动常量按 `ThinkingLevel` 枚举穷尽，编译期保证无缺项；TS 侧是 `Record<ModelThinkingLevel, string>` |
+| C323 | **`SlashCommandContribution` 的可选成员 → 可空属性** | `description?` / `argumentHint?` / `getArgumentCompletions?` 在 C# 接口里是可空属性（实现方返回 `null`）；`Object.freeze({...command})` 的浅拷贝无语义对应物——C# 贡献按约定不可变 |
