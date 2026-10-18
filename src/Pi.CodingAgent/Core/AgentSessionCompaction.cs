@@ -724,7 +724,11 @@ public partial class AgentSession
     }
 
     /// <summary>TS <c>compact(customInstructions?)</c>（TS 2750-2895）。</summary>
-    internal async Task<CompactionResult> CompactAsync(CompactOptions? options)
+    /// <remarks>
+    /// 公开成员：TS 的 <c>compact()</c> 是 <c>AgentSession</c> 的公共入口（/compact、RPC 与扩展
+    /// 三条路径共用），RPC 批（4f-5）与 SDK 消费方都要经它进入。
+    /// </remarks>
+    public async Task<CompactionResult> CompactAsync(CompactOptions? options)
     {
         await AbortAsync().ConfigureAwait(false);
         _compactionAbortController = new CancellationTokenSource();
