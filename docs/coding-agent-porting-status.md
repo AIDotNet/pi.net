@@ -6109,3 +6109,52 @@ CPU 冻结实测），PowerShell 工具下 1.97s 通过——改用 bash 内建 
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3204 / 0 失败**。
+
+## 4f-4m-5b：登录认证族（2026-10-18，`159fda6`）
+
+**范围**：`interactive-mode.ts` L5767-6397 全 17 个成员 + `/login`·`/logout` 分派
+（L3273-3283）→ `InteractiveMode.Login.cs`（新建，~860 行）。
+
+**落地内容**：
+- **选项装配**：`GetLogoutProviderOptionsAsync`（已存凭据 → 选项，15s 读取超时；
+  `subscription` 仅 `isSubscription === true` 为真）、`FindLoginProviderOptions`
+  （id 或名称 trim + 小写匹配，空 ref 返回空清单）。
+- **命令分派**：`HandleLoginCommandAsync` 三分支（唯一匹配直登 / 同 provider 多方式 →
+  带 providerOptions 的 auth-type 选择器 / 其余 → 全局 provider 选择器带 initialSearchInput）；
+  `HandleLogoutCommand`（void，TS 同样不 await）。
+- **选择器链**：`ShowLoginAuthTypeSelector`（subscriptionLabel ← oauth method 的 loginLabel，
+  缺省 "Sign in with an account"；Radius 直入项仅顶层出现；options 空 → 状态行；
+  providerOptions 且单项 → 直接开登；`CreateLoginMenuSelector` 装配 + dispose 挂钩）、
+  `ShowLoginProviderSelector`（`OAuthSelectorComponent` login 模式 + onBack 重开）、
+  `ShowOAuthSelectorAsync`（login 复用 auth-type 选择器；logout 走凭据清单，
+  `CredentialSynchronizationError` 专项文案）。
+- **登录对话框族**：`ShowLoginDialogAsync` / `ShowApiKeyLoginDialogAsync`（bedrock 文档提示；
+  完成/取消/同步失败三路 catch，`"Login cancelled"` 消息匹配走 onBack）/
+  `ShowAmbientAuthDialog`（无 login 的 api-key：展示「在 pi 外配置」信息卡）/
+  `ShowAuthSelectAsync`（TCS 化 + Radius 描述行）/ `ShowAuthPromptAsync`（select·manual_code·
+  text·secret 四型 + 提示级取消竞速，取消即 `"Login cancelled"`）/ `NotifyAuthDialog`
+  （auth_url·device_code+waiting·info·progress）/ `LoginProviderAsync`
+  （`DialogAuthInteraction` 适配 `IAuthInteraction`，signal 取 dialog.Signal，
+  `GetDeviceId` 接 SettingsManager）。
+- **完成后编排**：`CompleteProviderAuthenticationAsync`——`deferSelection`（unknown 前置模型 +
+  有默认模型 + 快照缺省时延迟选型）；`FinishAuthenticationAsync` 四路（llama.cpp 指引 /
+  无默认模型 / 无可用模型 / 默认模型选型 + `SetModelAsync(persist: true)`，选型失败降级为
+  error 文案）；15s catalog 刷新竞态防护（`ReferenceEquals` 对会话与模型，对齐 TS `===`）。
+- **Radius MCP offer**：全局 mcp.json 按规范化 url 找已有服务；已用本登录即静默返回；
+  否则 Yes/No 选择器 → `McpConfig.Add` 写入 `auth.provider` 并删除 `oauth` 键 → reload。
+- **两处类型/取源决策**：`offerRadiusMcpServer` 的 agent dir 取 `_runtimeHost.Services.AgentDir`
+  （与 5a 信任存储同源；TS 读全局 `getAgentDir()`，生产环境同值）；
+  `InteractiveModeRender.IsUnknownModel` 形参改 `ModelSpec?`（TS 入参是会话的
+  `Model<any>`，端口的会话模型即 `ModelSpec`；该叶子此前无调用方，测试助手同步更新）。
+
+**测试（+11 例，`InteractiveModeTests` 105/105）**：auth-type 选择器装配（含 Radius 直入项，
+`RadiusLoginMenuComponent`）／内建 provider 恒有登录方式（空选项分支不可达，钉住实际路径）／
+已知 provider → ambient 对话框／未知 ref → provider 选择器／同 provider 二义 → 带标题的
+auth-type 选择器（无 Radius 项）／logout 有凭据（选择器 + 标题 + provider 名）与无凭据
+（状态行）两路／completeProviderAuthentication 选默认模型（persist + 状态文案）与 llama.cpp
+指引（不改当前模型）／offerRadiusMcpServer 已配置即跳过与缺失即写入（url·auth.provider·
+oauth 删除三断言，回车选 Yes）。新增 3 个测试缝；夹具 `CreateHostAsync` 扩展为支持追加
+provider 与注入凭据存储。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3215 / 0 失败**。
