@@ -6436,3 +6436,106 @@ TS 四个文件共 **661 行**，C# 落 `src/Pi.CodingAgent/Cli/`（新目录）
 | C285 | **`--min-expiry` 正则用 `[0-9]` + `\z`** | JS `\d` 只匹配 ASCII 数字（.NET 默认含 Unicode 数字），JS 无 `m` 标志的 `$` 只匹配输入末尾（.NET `$` 允许末尾 `\n` 之前），故写 `^([0-9]+)(ms\|s\|m\|h)\z` + `IgnoreCase`。单位比较仍按原串大小写敏感（见上文第 5 条） |
 | C286 | **`AuthCommands.GetAuthCredential` 只是转发** | TS 的 `getAuthCredential` 属 auth-command.ts，但 4e 期因 share/bug-report 流已落在 `Core/AuthCredentials.cs`（`\z` 替 `$` 的同一处理）。CLI 侧留转发方法保持 TS 的调用点形状，不复制实现 |
 | C287 | **`printAuthCommandHelp` 保留写死的 `pi`** | 上游 `AUTH_COMMAND_USAGE` 用 `APP_NAME` 插值而正文写死 `pi`，属既有不一致；端口以文本一致优先，加注释标注 |
+
+## 4g-1b CLI 辅助层（startup-ui / list-models / session-picker / config-selector / credential-print / file-processor / project-trust / auth-check）
+
+TS 八个文件共 **794 行**（`startup-ui.ts` 253 / `list-models.ts` 115 / `credential-print.ts` 87 /
+`file-processor.ts` 88 / `auth-check.ts` 73 / `project-trust.ts` 62 / `config-selector.ts` 61 /
+`session-picker.ts` 55），C# 落在 `src/Pi.CodingAgent/Cli/`：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `cli/startup-ui.ts` | 253 | `Cli/StartupUi.cs` | `IsOfficialDistribution`（参数化）/ `LoadThemes`（吞异常 + 名字去重）/ `CreateStartupTuiAsync` / `StartStartupTui` / `QueryStartupTerminalColors` / `ClearStartupTuiAsync`(25ms) / `ShouldRunFirstTimeSetup` / `ShowStartupSelectorAsync<T>` / `ShowFirstTimeSetupAsync` / `ShowStartupInputAsync` |
+| `cli/list-models.ts` | 115 | `Cli/ListModels.cs` | `FormatTokenCount` + `RenderTable`（纯排版）+ `ListModelsAsync`（IO 层） |
+| `cli/credential-print.ts` | 87 | `Cli/CredentialPrint.cs` | `ResolveCredentialForPrintAsync`：凭据类型表 → provider/model 解析 → kind 交叉过滤 → 0/1/多三态错误 |
+| `cli/file-processor.ts` | 88 | `Cli/FileProcessor.cs` | `ProcessFileArgumentsAsync`：`@file` → `<file>` 片段 + 图像附件 |
+| `cli/auth-check.ts` | 73 | `Cli/AuthCheck.cs` | `AuthCheckStatus`/`AuthCheckReason`/`AuthCheckResult` + `ProviderAuthCheck.CheckProviderAuthAsync` / `GetProviderCredentialAsync` / `CreateAuthCheckModelRuntimeAsync` |
+| `cli/project-trust.ts` | 62 | `Cli/ProjectTrustUi.cs` | `CreateProjectTrustContext` + 四成员 `StartupTrustUiContext` |
+| `cli/config-selector.ts` | 61 | `Cli/ConfigSelectorCli.cs` | `ConfigSelectorOptions` + `SelectConfigAsync` |
+| `cli/session-picker.ts` | 55 | `Cli/SessionPicker.cs` | `SelectSessionAsync` |
+
+**一致性检查发现的 TS 真实行为（全部用测试钉住）**：
+
+1. **`file-processor` 的片段模板会多出空行**：模板是 `<file name="…">\n${content}\n</file>\n`，
+   `content` 自带尾换行时关闭标签前就多一个空行。端口照抄，不 trim。
+2. **`list-models` 的末列也 `padEnd`**：输出行尾带空格（`images` 列宽 6，`yes` 补到 `yes   `）。
+3. **`formatTokenCount` 不会在舍入后升位**：`999_999` → `"1000.0K"`（不是 `"1M"`）。
+4. **`auth-check` 的未知 flag 文案用 `getAuthCommandName`**：报 `for "auth check"` 而不是 `for "check"`。
+5. **`credential-print` 的「0 个可用」错误只看第一个候选 provider**：`providers[0]` 的类型决定报
+   「configured with OAuth」还是「not configured with an OAuth bearer token」，不是「所有 provider 都不是」。
+6. **`project-trust` 的 `confirm` 在取消时按「否」**：`(await select(...)) ?? false`。
+
+**测试（+60 例）**：
+- `Pi.Tui.Tests/FuzzyTests.cs`(20)：对齐 `packages/tui/test/fuzzy.test.ts` 全部 14 例（`--list-models`
+  依赖 `fuzzyFilter`），并把 TS 实现在 Node 里跑出的**具体分值**钉成断言
+  （`fuzzyMatch("test","test")` = −159.4、`("codex52","gpt-5.2-codex")` = −65、
+  换位串直配 `("52codex",…)` = −70 且换位分支 = 直配 + 5）。
+- `CliListModelsTests`(25)：`FormatTokenCount` 20 组语料（含 `1250000→1.3M`、`999999→1000.0K`、
+  `1048576→1.0M`）+ 整表逐行对拍 + 末列补齐 + 同 provider 内 id 排序。
+- `CliFileProcessorTests`(9)：真实临时目录 + 真实 MIME 嗅探；空文件静默跳过、BOM 剥离、多文件拼接、
+  缺失文件 `exit(1)`、相对路径按注入 cwd 解析、PNG 附件 + 空 `<file>` 锚点、关掉自动缩放仍出附件。
+- `CliAuthCheckTests`(7) / `CliProjectTrustUiTests`(9)。
+
+**验证**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；`Pi.CodingAgent.Tests` **4163 / 0 失败**（1m31s）、
+`Pi.Tui.Tests` **23874 / 0 失败**（14s）。
+
+### 4g-1b 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C288 | **`ProjectTrustContext.ui` 收窄为 `IProjectTrustUiContext`** | TS 是 `Pick<ExtensionUIContext, "select" \| "confirm" \| "input" \| "notify">`。端口新增该四成员接口并让 `IExtensionUIContext : IProjectTrustUiContext`（继承而非复制声明），于是启动期信任上下文只实现四个成员，不必为另外 21 个写空实现。既有实现类无需改动（它们本就实现这四个）。契约测试 `ExtensionContexts_SurfaceMatchesTsMethodList` 相应改为对 `IExtensionUIContext` 展开基接口成员——**其余接口不展开**：`IExtensionToolContext` 虽继承 `IExtensionContext`，但 TS 里是两个独立接口 |
+| C289 | **`AuthCheck` 静态类改名 `ProviderAuthCheck`** | `Pi.Ai.Auth` 已有 `AuthCheck` 记录（`checkAuth` 的返回值），同名会让每个调用点都要写别名 |
+| C290 | **`FileProcessor` 的 `process.exit` / `process.cwd` 可注入** | `ProcessFileOptions.Exit`（默认 `Environment.Exit`）/ `.Cwd`（默认 `CurrentDirectory`），与 `RpcMode` 的既有做法一致；否则两条 `exit(1)` 分支无法测试。目录按 `stat().size === 0` 处理（对齐 Windows 上 TS 的跳过行为；TS 在 Linux 上会 EISDIR 崩） |
+| C291 | **`toFixed(1)` → `ToString("0.0", InvariantCulture)`** | `1_250_000 → "1.3M"` 两侧一致（ECMAScript 取较大 n，.NET 中点远离零）。数字格式一律 InvariantCulture，否则德语等区域会打出 `1,3M` |
+| C292 | **`ListModels` 拆出 `RenderTable` 纯函数** | TS 把「排序 + 排版 + 打印」混在一个函数里，测试只能抓 stdout；拆开后 IO 只剩 `Console.WriteLine` 一层，表格可逐行对拍 |
+| C293 | **`ProjectTrustUi.Confirm` 不写 `?? false`** | 无约束泛型的 `T?` 对 `bool` 就是 `bool`，`ShowStartupSelectorAsync<bool>` 取消时返回 `default(bool)`，与 TS 的 `?? false` 同值；写 `??` 反而编译不过（CS0019） |
+
+## 4g-1c 实验性子命令框架（cli/experimental/*）
+
+TS 五个文件共 **504 行**（`command.ts` 225 / `command-options.ts` 106 / `commands/client.ts` 91 /
+`commands/server.ts` 66 / `cli.ts` 16），C# 落 `src/Pi.CodingAgent/Cli/Experimental/`：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/command.ts` | 225 | `Experimental/Command.cs` | `ICommandInvocation` / `CommandOption<T>` + `CommandOptions` 三个工厂 / `IParsedCommandInput` / 三个结果联合 / `Command<TInvocation, TContext>`（`Parse` / `ExecuteAsync` / `ParseOptions`） |
+| `experimental/command-options.ts` | 106 | `Experimental/ExperimentalCommandOptions.cs` | `AuthInput` / `TransportAddress` / 两个 auth 选项 / `ConnectOption`（含 WHATWG URL 复刻）/ `ParseAuth` / `UnsupportedOptions` |
+| `experimental/commands/server.ts` | 66 | `Experimental/ServerCommand.cs` | `ServerCommand` + `IServerCommandContext` + `ServerCommandDefinition.Create()` |
+| `experimental/commands/client.ts` | 91 | `Experimental/ClientCommand.cs` | `ClientCommand` + `IClientCommandContext` + `ClientCommandDefinition.Create()`（含 prompt 判定） |
+| `experimental/cli.ts` | 16 | `Experimental/ExperimentalCli.cs` | `ExperimentalCommandGroup` / `IExperimentalCliContext` / `ExperimentalCli.Create()` |
+
+**`parseTransportAddress` 是逐条照抄 WHATWG URL 行为，不是「差不多」**：C# 没有 WHATWG URL，
+`System.Uri` 对非特殊 scheme（`unix:` / `radius:`）的规范化规则不同，直接用会让 TS 的
+`url.href !== value` / `value !== \`radius://${hostname}${pathname}\`` 这两条「逐字相等」判定失真。
+端口改为自己拆 scheme/authority/path，并用 `EncodePathLikeWhatwg`（path percent-encode set + 非 ASCII）
+复刻 href 对比，用 `TryDecodeUriComponent`（`%XX` 必须是两位十六进制、解出字节按严格 UTF-8 解码）
+复刻 `decodeURIComponent` 的抛错语义。**28 条地址语料与 TS 实现逐条一致**（含 `unix:////` 拒绝、
+`unix:///tmp/a b.sock` 与 `unix:///tmp/ä.sock` 因需重新编码而拒绝、`unix:///tmp/%zz.sock` 因解码失败拒绝、
+`RADIUS://…` 因大小写规范化而拒绝、`radius://…/` 允许但 `radius://…/x` 拒绝）。
+
+**一致性检查发现的 TS 真实行为（全部用测试钉住）**：
+
+1. **未注册的选项不是报错，而是把**「**从当前位置起的全部参数**」塞进 `remainingArgs` 并停止解析
+   （`--` 同样，且**含 `--` 本身**）——所以 `client -- --model` 的 prompt 是 `--model`。
+2. **开关型选项带 `=value` 报「does not take a value」，但不消费下一个参数**；取值型选项取到空串
+   （`--connect=` 或下一个参数是空串）报「requires a value」，**下一个参数已被消费**。
+3. **`--provider` 无 `--model` 的错误在 auth 错误之后、`unsupportedOptions` 之前**——`errors` 的
+   排列顺序就是 TS 的拼接顺序，多个错误可同时出现。
+4. **client 的 prompt 只认「恰好一个 token」**：`remainingArgs` 首项是 `--` 时后面即使以 `-` 开头
+   也照收；否则该 token 必须以非 `-` 开头且非空串。
+
+**测试（+62 例）**：`CliExperimentalCommandTests` 对齐 `test/experimental-cli-command.test.ts` 全部用例
+（server/client 配置解析、四种 session 选择、prompt、auth 两种来源、17 条拒绝表、无子命令错误、
+不支持选项的精确错误表），另补 28 条地址语料与 4 条框架行为（repeatable 顺序、`--` 落尾、
+未知选项落尾、重复注册抛错）。
+
+### 4g-1c 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C294 | **结果联合收敛到 `ICommandInvocation`** | TS 的 `CommandParseResult<TInvocation>` / `CommandExecutionResult<TInvocation>` 的 `command` 是子命令**联合类型**；C# 统一为 `ICommandInvocation`，调用方按 `Command` 名转型。`CommandBuildResult<TInvocation>` 仍保留泛型（builder 的产出是有类型的） |
+| C295 | **`Command<TOwn, TContext, TInvocation>` 收成两参数** | 第三个类型参数在 TS 里只用于让 `.command(...)` 返回「并集」类型；C# 的 `RegisterCommand` 返回自身，并集由 `ICommandInvocation` 承载 |
+| C296 | **`.command()` 改名 `RegisterCommand`** | C# 禁止成员名与封闭类型同名（CS0542） |
+| C297 | **`CliContext` 交叉类型 → 接口继承** | `IExperimentalCliContext : IServerCommandContext, IClientCommandContext`；子命令注册时按各自接口向下转型（TS 是 `as TSubcommandContext`） |
+| C298 | **`parse` 的类型擦除用 `object?`** | TS 注册表存 `CommandOption<unknown>`；C# 用 `ICommandOption.ParseValue(string) → CommandOptionParseResult<object?>`，取值时由泛型 `Value/Values` 还原。`Value<T>` 在缺省时返回 `default`（引用类型 null、`bool` false），与 TS `undefined` 的用法等价（flag 只可能是 `true`） |
+| C299 | **`Pi.CodingAgent` 新增 `Pi.Protocol` 项目引用** | `--server-id` 的校验要复用 `ServerIds.IsServerId`（UUIDv4 小写正则），避免在 CLI 里复制一份。`Pi.Protocol` 只依赖 `Pi.Chord`（已是 Pi.CodingAgent 的依赖），无环 |
+| C300 | **命名空间 `Cli.Experimental` 会遮蔽类型 `Core.Experimental`** | 子命名空间 `Experimental` 在同程序集内优先于 `using Pi.CodingAgent.Core` 引入的类型名，故 `StartupUi.ShouldRunFirstTimeSetup` 里改写成全限定 `Pi.CodingAgent.Core.Experimental.AreExperimentalFeaturesEnabled()` |
