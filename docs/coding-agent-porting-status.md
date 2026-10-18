@@ -6158,3 +6158,58 @@ provider 与注入凭据存储。
 
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3215 / 0 失败**。
+
+## 4f-4m-5c 余量：/share·/bug 全链 + bug-report 收集/上传（2026-10-18，`4b9180d`）
+
+**范围**：`modes/interactive/session-share.ts`(217) + `modes/interactive/bug-report.ts`(298) +
+`cli/auth-command.ts` L120-126 + core 侧 `collectBugReportMetadata`/`collectBugReportDiagnostics`/
+`bugReportFiles`/`bugReportArchiveFileName`/`uploadBugReport` 高保真重写。
+
+**落地内容**：
+- `InteractiveMode.Share.cs`（新建 ~320 行）：`HandleShareCommandAsync`（mkdtemp → export →
+  `gh auth status` 检查 → exportToHtml → gist → cleanup，三层 try 的失败文案逐字对齐）；
+  `CreateShareTrailingEntries`（`Session.Agent.Tools` + `Session.SystemPrompt`，id =
+  `Guid.NewGuid().ToString("N")[..8]` 对齐 `crypto.randomUUID().slice(0,8)`，parentId null
+  显式 `Add`）；`TryShareViaRadiusAsync`（`ModelRuntimeAuthOverrides { MinOAuthValidityMs = 5min }`，
+  URL `/v1/artifacts?visibility=organization&title=Pi%20session`，`Uri.EscapeDataString`，
+  `json?.error || statusText || status` 三级文案，四段 abort 检查）；`ShareViaGistAsync`
+  （`ChildProcess.SpawnProcess("gh", ...)` + `WaitAsync()` + stdout/stderr 读取，gist id =
+  `split('/').pop()`）；`RestoreShareEditor`（**不** requestRender，与 bug 流不同）。
+- `InteractiveMode.Bug.cs`（新建 ~385 行）：`ReportBugAsync`（consent → 可选摘要 →
+  上传/zip；`IsOfflineEnv` 拦截 upload）；`PromptForBugOptionsAsync` 四提示组件链；
+  `BuildBugBundle`（metadata + diagnostics + sessionJsonl via `SessionExport.SerializeSessionBranch`）；
+  `UploadBugReportAsync`（Radius token 解析 + 失败回退选择器）；`ExportBugZipAsync`
+  （`Directory.GetCurrentDirectory()` 落盘）；`RecordBugReportInSession`（hint null 显式 Add；
+  path 仅 zip 分支；`CrashCount > 0` → `CrashLog.Clear()`）；TCS 化的 `InputBugTextAsync` /
+  `ChooseBugOptionAsync` / `ShowBugLoader` / `ShowBugOverlay` / `RestoreBugEditor`。
+- `AuthCredentials.cs`（新建）：`GetAuthCredential`——apiKey 优先（空串按 falsy 落空），
+  Authorization 头回退（大小写不敏感匹配，首个命中），`^Bearer\s+(.+)\z`（`\z` 对齐 JS `$`）。
+- `BugReportGenerate.cs` + `AgentSessionBugReport.cs`（新建）：`SummarizeForBugReportAsync`
+  包装（复用 `GetSummarizationRequestAuthAsync` + `Agent.StreamFunction` + retry 策略）。
+
+**一致性检查发现并修掉的两处既有移植缺陷（均非漂移）**：
+1. **隐私泄漏**：`BugReport` 的 settings 序列化缺 `PropertyNamingPolicy = CamelCase`
+   （`SettingsManager.DtoOptions` 有），`redactSettings` 按 `trackingId`/`deviceId` 摘键
+   **实际未生效**——两个跟踪 id 以 PascalCase 漏进报表。已补策略；`ReportJson` 转 internal
+   供测试按产物同一组选项断言信封形状。
+2. **线格式**：`BugReportUpload` 多部分字段名误用 `"files"`（TS `body.append(file.name, blob,
+   file.name)`），已改为 `file.Name` 并按序列化后的正文钉住（.NET 对合法 token 不加引号，
+   RFC 2183 与 TS 的带引号形式等价）。另修 upload URL（TS 自引入起即 `/v1/bug-reports`）。
+
+**测试（+33 例）**：`AuthCredentialsTests` 9 例（apiKey 优先/空串落空/Bearer 头/无头/
+非 Bearer 值/大小写）；`BugReportCollectTests` 12 例（metadata 信封·cwd 省略·设置脱敏；
+diagnostics 失败轮次收录·notified 剥离；条件文件清单；归档名；upload URL；upload 快路径
+字段名/无 token/失败文案 description→error→statusText 三级回退）；`ExportHtmlBugReportTests`
+脱敏全面重写为 TS 对拍期望值（`<redacted>`·userinfo·嵌套 scheme·`isSensitiveKey` 理论 14 例
+含 `privateKey`→false，对拍脚本 `tools/bug-report-redaction-reference.mjs` 34 组）；
+`/bug` 全链路冒烟 1 例（编辑器输入 → 两选择器 → zip 落盘内容断言 → 崩溃日志读写与清除 →
+`pi.bug-report` 会话条目 → 状态文案）。新增 1 个测试缝（`ExportSessionForShareForTests`）。
+
+**事故记录**：`/bug` 冒烟用例首版把 CrashLog 的 agent-dir 环境变量名写成 `PI_AGENT_DIR`
+（实际为 `PI_CODING_AGENT_DIR`，见 `Config.EnvAgentDir`），读写并 `Clear` 了真实的
+`~/.pi/agent/crashes.json`（内容为历史测试残留）。已改用 `Config.EnvAgentDir` 常量并在用例
+内断言默认路径落在临时目录。教训：`CrashLog.Read`/`Clear` 走**全局** env 而非会话 agentDir，
+凡测试触及默认路径处都需显式改环境变量。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3261 / 0 失败**（`InteractiveModeTests` 106/106）。
