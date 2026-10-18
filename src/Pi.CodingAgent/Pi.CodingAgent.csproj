@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/coding-agent: the interactive coding agent CLI (sessions, tools, skills,
        themes, RPC mode). See docs/porting-status.md for the per-subphase progress. -->
+  <PropertyGroup>
+    <!-- 4f-5：RPC/print/json 线路的 JsonStringifyEncoder（复刻 JSON.stringify 的转义）
+         需要实现 TextEncoder 的指针式抽象成员。仅此一处使用。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Pi.CodingAgent.Tests" />
   </ItemGroup>

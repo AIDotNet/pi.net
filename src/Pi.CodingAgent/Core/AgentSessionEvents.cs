@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Pi.Agent.Types;
 using Pi.Ai.Types;
 
@@ -19,9 +20,41 @@ namespace Pi.CodingAgent.Core;
 /// 会话级事件。对应 TS <c>AgentSessionEvent</c> 联合（核心 AgentEvent 形状 + 会话自有事件）。
 /// 判别字符串与 TS 的 <c>type</c> 逐字一致。
 /// </summary>
+/// <remarks>
+/// 多态序列化（4f-5：RPC/print/json 线路需要把事件写成 JSON 行）：
+/// 判别串由 <c>[JsonPolymorphic]</c> 元数据承载，与各变体的
+/// <see cref="Type"/> 常量一一对应；因此 <see cref="Type"/> 本身必须
+/// <c>[JsonIgnore]</c>——STJ 不允许判别式属性名与普通属性重名
+/// （见 <c>JsonSerializer</c> 的冲突检查）。
+/// </remarks>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(AgentSessionEvent.AgentStartEvent), "agent_start")]
+[JsonDerivedType(typeof(AgentSessionEvent.AgentEndEvent), "agent_end")]
+[JsonDerivedType(typeof(AgentSessionEvent.TurnStartEvent), "turn_start")]
+[JsonDerivedType(typeof(AgentSessionEvent.TurnEndEvent), "turn_end")]
+[JsonDerivedType(typeof(AgentSessionEvent.MessageStartEvent), "message_start")]
+[JsonDerivedType(typeof(AgentSessionEvent.MessageUpdateEvent), "message_update")]
+[JsonDerivedType(typeof(AgentSessionEvent.MessageEndEvent), "message_end")]
+[JsonDerivedType(typeof(AgentSessionEvent.ToolExecutionStartEvent), "tool_execution_start")]
+[JsonDerivedType(typeof(AgentSessionEvent.ToolExecutionUpdateEvent), "tool_execution_update")]
+[JsonDerivedType(typeof(AgentSessionEvent.ToolExecutionEndEvent), "tool_execution_end")]
+[JsonDerivedType(typeof(AgentSessionEvent.AgentSettledEvent), "agent_settled")]
+[JsonDerivedType(typeof(AgentSessionEvent.QueueUpdateEvent), "queue_update")]
+[JsonDerivedType(typeof(AgentSessionEvent.CompactionStartEvent), "compaction_start")]
+[JsonDerivedType(typeof(AgentSessionEvent.EntryAppendedEvent), "entry_appended")]
+[JsonDerivedType(typeof(AgentSessionEvent.SessionInfoChangedEvent), "session_info_changed")]
+[JsonDerivedType(typeof(AgentSessionEvent.ThinkingLevelChangedEvent), "thinking_level_changed")]
+[JsonDerivedType(typeof(AgentSessionEvent.CompactionEndEvent), "compaction_end")]
+[JsonDerivedType(typeof(AgentSessionEvent.AutoRetryStartEvent), "auto_retry_start")]
+[JsonDerivedType(typeof(AgentSessionEvent.AutoRetryEndEvent), "auto_retry_end")]
+[JsonDerivedType(typeof(AgentSessionEvent.SummarizationRetryScheduledEvent), "summarization_retry_scheduled")]
+[JsonDerivedType(typeof(AgentSessionEvent.SummarizationRetryAttemptStartEvent), "summarization_retry_attempt_start")]
+[JsonDerivedType(typeof(AgentSessionEvent.SummarizationRetryFinishedEvent), "summarization_retry_finished")]
+[JsonDerivedType(typeof(AgentSessionEvent.BashExecutionUpdateEvent), "bash_execution_update")]
 public abstract record AgentSessionEvent
 {
-    /// <summary>TS 的判别串（如 <c>"message_start"</c>）。</summary>
+    /// <summary>TS 的判别串（如 <c>"message_start"</c>）。JSON 线路上由多态判别式承载，故忽略本属性。</summary>
+    [JsonIgnore]
     public abstract string Type { get; }
 
     // -------------------------------------------------------------------------

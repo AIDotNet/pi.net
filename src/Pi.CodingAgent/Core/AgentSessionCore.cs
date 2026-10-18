@@ -191,6 +191,17 @@ public partial class AgentSession
     }
 
     /// <summary>
+    /// 实例入口：聚合当前会话条目的统计。对应 TS <c>session.getSessionStats()</c>
+    /// （4f-5 的 RPC <c>get_session_stats</c> 命令经此进入）。
+    /// </summary>
+    public SessionStats GetSessionStats()
+        => GetSessionStats(
+            SessionManager.GetEntries(),
+            SessionManager.GetSessionFile(),
+            SessionManager.GetSessionId(),
+            GetContextUsage());
+
+    /// <summary>
     /// 对应 TS <c>getContextUsage</c>。压缩之后最后一条助手 usage 反映的是压缩**前**的上下文规模，
     /// 故只信任「最近一次压缩之后」的助手 usage；没有这样的助手时 token 数未知。
     /// </summary>

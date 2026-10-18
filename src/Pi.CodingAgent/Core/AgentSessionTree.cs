@@ -1,5 +1,7 @@
 using Pi.Ai.Types;
 using Pi.Ai.Utils;
+using Pi.CodingAgent.Core.Extensions;
+using Pi.CodingAgent.Modes.Interactive;
 
 namespace Pi.CodingAgent.Core;
 
@@ -280,5 +282,54 @@ public partial class AgentSession
         }
 
         return null;
+    }
+}
+
+public partial class AgentSession
+{
+    /// <summary>
+    /// 导出会话为 HTML 并返回落盘路径。对应 TS <c>exportToHtml(outputPath?, options?)</c>
+    /// （agent-session.ts 的导出入口；4f-5 的 RPC <c>export_html</c> 命令经此进入）。
+    /// </summary>
+    /// <remarks>
+    /// 主题名解析走 <see cref="ResolveExportThemeName"/>（显式名优先，其次设置里的，
+    /// 都查不到走默认导出色）；自定义工具的 HTML 渲染由扩展 runner 的
+    /// <c>resolveToolRenderers</c> 提供（TS 的 <c>createToolHtmlRenderer</c>）。
+    /// </remarks>
+    public Task<string> ExportToHtmlAsync(string? outputPath = null, string? themeName = null)
+    {
+        var resolvedTheme = ResolveExportThemeName(
+            themeName,
+            SettingsManager.GetTheme(),
+            candidate => ThemeRuntime.GetThemeByName(candidate) is not null);
+
+        var toolRenderer = ToolHtmlRendererFactory.Create(new ToolHtmlRendererDeps
+        {
+            // TS: `resolveToolRenderers(name, () => this.getToolDefinition(name))`——
+            // 扩展的 toolRenderers 解析器按加载顺序链在前，base 取注册表里的工具定义；
+            // getToolDefinition 返回的 ToolDefinition 结构上就是 ToolRenderers 的超集，
+            // C# 需显式摘出渲染三元组。
+            GetToolRenderers = name => ExtensionRunner.ResolveToolRenderers(name, () =>
+            {
+                var definition = GetToolDefinition(name);
+                return definition is null
+                    ? null
+                    : new ToolRenderers
+                    {
+                        RenderShell = definition.RenderShell,
+                        RenderCall = definition.RenderCall,
+                        RenderResult = definition.RenderResult,
+                    };
+            }),
+            Theme = ThemeRuntime.Current,
+            Cwd = SessionManager.GetCwd(),
+        });
+
+        return Task.FromResult(ExportHtml.ExportSessionToHtml(SessionManager, new ExportHtmlOptions
+        {
+            OutputPath = outputPath,
+            ThemeName = resolvedTheme,
+            ToolRenderer = toolRenderer,
+        }));
     }
 }

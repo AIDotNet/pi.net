@@ -265,4 +265,10 @@ public partial class AgentSession
 
     /// <summary>TS <c>get autoCompactionEnabled()</c>。</summary>
     public bool AutoCompactionEnabled => SettingsManager.GetCompactionEnabled();
+
+    /// <summary>TS <c>setAutoRetryEnabled(enabled)</c>（agent-session.ts L3823）。</summary>
+    public void SetAutoRetryEnabled(bool enabled) => SettingsManager.SetRetryEnabled(enabled);
+
+    /// <summary>TS <c>get autoRetryEnabled()</c>（L3818）。</summary>
+    public bool AutoRetryEnabled => SettingsManager.GetRetryEnabled();
 }
