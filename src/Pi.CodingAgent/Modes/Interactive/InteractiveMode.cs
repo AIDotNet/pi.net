@@ -84,10 +84,7 @@ public sealed record InteractiveModeOptions
 /// </summary>
 public partial class InteractiveMode
 {
-    // The TS field block (L451-585) is ported verbatim in one place. Not every field is read by the
-    // members that exist so far - the 4f-4m slices light them up one by one - so the unused-field
-    // diagnostics are suppressed for this block until the class assembly completes.
-#pragma warning disable CS0169, CS0414, CS0649
+    // The TS field block (L451-585) is ported verbatim in one place.
     private readonly AgentSessionRuntime _runtimeHost;
     private TuiBase _renderer;
     private readonly ITui _ui;
@@ -1210,6 +1207,114 @@ public partial class InteractiveMode
         {
             ShowStatus(message);
         }
+    }
+
+    /// <summary>
+    /// TS <c>showExtensionCustom</c> (L2946-3010)：挂载扩展自产组件（同步或异步工厂），
+    /// 完成后归还编辑器。overlay 分支走 TUI 的覆盖层，否则占位编辑器容器。
+    /// </summary>
+    /// <remarks>
+    /// TS 的工厂返回 <c>Component | Promise&lt;Component&gt;</c> 联合，端口按工厂形态拆成
+    /// <see cref="ShowExtensionCustomAsync{T}(Func{ITui, Theme, Core.KeybindingsManager, Action{T}, Task{IComponent}}, ExtensionCustomOptions?)"/>
+    /// 与同步半支（<c>IExtensionUIContext.Custom</c> 经 Task.FromResult 复用同一实现）。
+    /// </remarks>
+    internal async Task<T> ShowExtensionCustomAsync<T>(
+        Func<ITui, Theme, Core.KeybindingsManager, Action<T>, Task<IComponent>> factory,
+        ExtensionCustomOptions? options = null)
+    {
+        var savedText = _editor.GetText();
+        var isOverlay = options?.Overlay ?? false;
+
+        void RestoreEditor()
+        {
+            _editorContainer.Clear();
+            _editorContainer.AddChild(_editor);
+            _editor.SetText(savedText);
+            _ui.SetFocus(_editor);
+            _ui.RequestRender();
+        }
+
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closed = false;
+        IComponent? component = null;
+
+        void Close(T result)
+        {
+            if (closed)
+            {
+                return;
+            }
+
+            closed = true;
+            if (isOverlay)
+            {
+                _ui.HideOverlay();
+            }
+            else
+            {
+                RestoreEditor();
+            }
+
+            // Note: both branches above already call requestRender
+            completion.TrySetResult(result);
+            try
+            {
+                switch (component)
+                {
+                    case IDisposable disposable:
+                        disposable.Dispose();
+                        break;
+                }
+            }
+            catch
+            {
+                // ignore dispose errors
+            }
+        }
+
+        try
+        {
+            component = await factory(_ui, ThemeRuntime.Current, _keybindings, Close).ConfigureAwait(true);
+            if (closed)
+            {
+                return await completion.Task.ConfigureAwait(true);
+            }
+
+            if (isOverlay)
+            {
+                // Resolve overlay options - TS allows a static value or a factory for dynamic updates.
+                var overlayOptions = options?.OverlayOptions;
+                var handle = _ui.ShowOverlay(component, overlayOptions);
+                // Expose handle to caller for visibility control. The C# OverlayHandle is still a
+                // placeholder (see Extensions/Types/Placeholders.cs), so nothing transfers yet.
+                options?.OnHandle?.Invoke(new OverlayHandle());
+                _ = handle;
+            }
+            else
+            {
+                DisposeActiveSelector();
+                _editorContainer.Clear();
+                _editorContainer.AddChild(component);
+                _ui.SetFocus(component);
+                _ui.RequestRender();
+            }
+        }
+        catch (Exception)
+        {
+            if (closed)
+            {
+                return await completion.Task.ConfigureAwait(true);
+            }
+
+            if (!isOverlay)
+            {
+                RestoreEditor();
+            }
+
+            throw;
+        }
+
+        return await completion.Task.ConfigureAwait(true);
     }
 
     // ---------------------------------------------------------------- custom editor (L2855-2930)

@@ -15,7 +15,7 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 /// Component that renders a custom message entry from extensions. Uses distinct styling to
 /// differentiate from user messages. Port of <c>CustomMessageComponent</c>.
 /// </summary>
-public sealed class CustomMessageComponent : Container
+public sealed class CustomMessageComponent : Container, IOutputPadSettable
 {
     private readonly CustomMessage _message;
     private readonly MessageRenderer? _customRenderer;

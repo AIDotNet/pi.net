@@ -20,7 +20,7 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 /// <see cref="Theme"/> singleton maps to <see cref="ThemeRuntime.Current"/> (TS
 /// <c>theme</c> from <c>theme.ts</c>).
 /// </remarks>
-public sealed class AssistantMessageComponent : Container
+public sealed class AssistantMessageComponent : Container, IOutputPadSettable
 {
     private const string Osc133ZoneStart = "\x1b]133;A\x07";
     private const string Osc133ZoneEnd = "\x1b]133;B\x07";

@@ -2215,6 +2215,219 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         }
     }
 
+    // ==================================================================
+    // 4f-4m-6：提交 if-chain（TS setupEditorSubmitHandler L3179-3375）
+    // ==================================================================
+
+    [Fact]
+    public async Task SubmitChain_RoutesSlashCommandsAndClearsTheEditorAfterTheHandler()
+    {
+        var mode = await CreateModeAsync();
+        mode.InstallSubmitHandlerForTests();
+
+        mode.DefaultEditorForTests.SetText("/debug");
+        mode.DefaultEditorForTests.OnSubmit!.Invoke("/debug");
+
+        // /debug 是同步分支：处理器先跑、再清编辑器（TS 同序）。
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("✓ Debug log written", rendered);
+        Assert.Equal("", mode.DefaultEditorForTests.GetText());
+    }
+
+    [Fact]
+    public async Task SubmitChain_SettingsMountsTheSettingsSelector()
+    {
+        var mode = await CreateModeAsync();
+        mode.InstallSubmitHandlerForTests();
+
+        mode.DefaultEditorForTests.SetText("/settings");
+        mode.DefaultEditorForTests.OnSubmit!.Invoke("/settings");
+
+        Assert.IsType<SettingsSelectorComponent>(mode.EditorContainerChildrenForTests[^1]);
+        Assert.Equal("", mode.DefaultEditorForTests.GetText());
+        mode.DisposeActiveSelector();
+    }
+
+    [Fact]
+    public async Task SubmitChain_ScopedModelsMountsTheScopedModelsSelector()
+    {
+        // 刷新桩：避免用例碰真实网络（与 ModelSelectorTests 同款缝）。
+        ModelCatalogRefresh.RefreshOverride = (_, _) => Task.FromResult(ModelsRefreshResult.Empty);
+        try
+        {
+            var mode = await CreateModeAsync();
+            mode.InstallSubmitHandlerForTests();
+
+            mode.DefaultEditorForTests.SetText("/scoped-models");
+            mode.DefaultEditorForTests.OnSubmit!.Invoke("/scoped-models");
+
+            Assert.IsType<ScopedModelsSelectorComponent>(mode.EditorContainerChildrenForTests[^1]);
+            Assert.Equal("", mode.DefaultEditorForTests.GetText());
+            mode.DisposeActiveSelector();
+        }
+        finally
+        {
+            ModelCatalogRefresh.RefreshOverride = null;
+        }
+    }
+
+    [Fact]
+    public async Task SubmitChain_ModelWithoutArgumentMountsTheModelSelector()
+    {
+        var mode = await CreateModeAsync();
+        mode.InstallSubmitHandlerForTests();
+
+        mode.DefaultEditorForTests.SetText("/model");
+        mode.DefaultEditorForTests.OnSubmit!.Invoke("/model");
+
+        Assert.IsType<ModelSelectorComponent>(mode.EditorContainerChildrenForTests[^1]);
+        Assert.Equal("", mode.DefaultEditorForTests.GetText());
+        mode.DisposeActiveSelector();
+    }
+
+    [Fact]
+    public async Task SubmitChain_ThinkingWithAnUnknownLevelShowsTheError()
+    {
+        var mode = await CreateModeAsync();
+        mode.InstallSubmitHandlerForTests();
+
+        mode.DefaultEditorForTests.SetText("/thinking bogus");
+        mode.DefaultEditorForTests.OnSubmit!.Invoke("/thinking bogus");
+
+        var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
+        Assert.Contains("Unknown thinking level", rendered);
+        Assert.Equal("", mode.DefaultEditorForTests.GetText());
+    }
+
+    [Fact]
+    public async Task SubmitChain_EmptySubmitIsIgnored()
+    {
+        var mode = await CreateModeAsync();
+        mode.InstallSubmitHandlerForTests();
+
+        mode.DefaultEditorForTests.SetText("   ");
+        mode.DefaultEditorForTests.OnSubmit!.Invoke("   ");
+
+        // 空提交不清编辑器、不路由（TS `text = text.trim(); if (!text) return`）。
+        Assert.Equal("   ", mode.DefaultEditorForTests.GetText());
+        Assert.Empty(mode.ChatChildrenForTests);
+    }
+
+    [Fact]
+    public async Task SubmitChain_PlainMessageReachesTheInputCallback()
+    {
+        var mode = await CreateModeAsync();
+        mode.InstallSubmitHandlerForTests();
+
+        // 正常提交路径：先进 _pendingUserInputs 或 onInputCallback，再入历史。
+        // 注意 TS 的该分支不清编辑器——编辑器自己在 OnSubmit 前清零（端口同构，
+        // 见 Editor.HandleEnter 的 _state 复位），用例直调 OnSubmit 故文本原样。
+        var input = mode.GetUserInputAsync();
+        mode.DefaultEditorForTests.SetText("hello there");
+        mode.DefaultEditorForTests.OnSubmit!.Invoke("hello there");
+
+        Assert.Equal("hello there", await input);
+    }
+
+    [Fact]
+    public async Task SubmitChain_BareBangFallsThroughToNormalSubmission()
+    {
+        var mode = await CreateModeAsync();
+        mode.InstallSubmitHandlerForTests();
+
+        // 空命令的 `!` 不是 bash 行（TS 同款特例：if (command) 才进 bash 分支）。
+        var input = mode.GetUserInputAsync();
+        mode.DefaultEditorForTests.SetText("!");
+        mode.DefaultEditorForTests.OnSubmit!.Invoke("!");
+
+        Assert.Equal("!", await input);
+    }
+
+    [Fact]
+    public async Task SubmitChain_BangRunsTheCommandAndKeepsTheText()
+    {
+        var mode = await CreateModeAsync();
+        mode.InstallSubmitHandlerForTests();
+
+        // bash 分支不清编辑器（TS 无 setText("")）——命令结果进 chat。
+        mode.DefaultEditorForTests.SetText("!echo hi");
+        mode.DefaultEditorForTests.OnSubmit!.Invoke("!echo hi");
+
+        await WaitUntilAsync(
+            () => mode.ChatChildrenForTests.Any(child =>
+                AnsiText.StripAnsi(string.Join("\n", child.Render(80))).Contains("hi")),
+            "bash output never rendered");
+        Assert.Equal("!echo hi", mode.DefaultEditorForTests.GetText());
+    }
+
+    /// <summary>等待断言成立（流程的 continuation 跑在线程池上）。</summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, string failure, int timeoutMs = 5000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (true)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            Assert.True(DateTime.UtcNow < deadline, failure);
+            await Task.Delay(10);
+        }
+    }
+
+    // ==================================================================
+    // 4f-4m-6：扩展自产组件（TS showExtensionCustom L2946-3010）
+    // ==================================================================
+
+    [Fact]
+    public async Task ShowExtensionCustomAsync_MountsTheComponentAndResolvesOnDone()
+    {
+        var mode = await CreateModeAsync();
+        mode.DefaultEditorForTests.SetText("draft");
+
+        Action<string>? done = null;
+        var mount = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, complete) =>
+            {
+                done = complete;
+                var component = new Container();
+                component.AddChild(new Pi.Tui.Components.Text("custom panel", 1, 0));
+                return Task.FromResult<IComponent>(component);
+            });
+
+        // 组件占位编辑器容器，焦点交给它。
+        await WaitUntilAsync(
+            () => mode.EditorContainerChildrenForTests.Count > 0
+                && mode.EditorContainerChildrenForTests[^1] is not Pi.CodingAgent.Modes.Interactive.Components.CustomEditor,
+            "custom component never mounted");
+        var mounted = mode.EditorContainerChildrenForTests[^1];
+        Assert.Contains("custom panel", AnsiText.StripAnsi(string.Join("\n", mounted.Render(80))));
+
+        Assert.NotNull(done);
+        done!("picked");
+
+        Assert.Equal("picked", await mount);
+        // 编辑器归还，草草案文恢复（TS restoreEditor 的 setText(savedText)）。
+        Assert.Same(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+        Assert.Equal("draft", mode.EditorForTests.GetText());
+    }
+
+    [Fact]
+    public async Task ShowExtensionCustomAsync_FactoryFailureRestoresTheEditorAndRejects()
+    {
+        var mode = await CreateModeAsync();
+        mode.DefaultEditorForTests.SetText("draft");
+
+        var mount = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, _) => throw new InvalidOperationException("factory blew up"));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => mount);
+        Assert.Equal("factory blew up", error.Message);
+        Assert.Same(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+        Assert.Equal("draft", mode.EditorForTests.GetText());
+    }
+
     private static string RenderChat(InteractiveMode mode, int width) =>
         string.Join("\n", mode.ChatChildrenForTests.Select(child => string.Join("\n", child.Render(width))));
 }

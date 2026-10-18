@@ -329,12 +329,25 @@ public partial class InteractiveMode
     // ---------------------------------------------------------------- package / tmux checks (L1255-1318)
 
     /// <summary>
-    /// Seam: TS <c>checkForPackageUpdates()</c> needs the extension package-manager update flow
-    /// (<c>update</c> / <c>checkForAvailableUpdates</c>), which the port has not landed (see the
-    /// <c>SemverRange</c> note). Lands with the extensions package-manager batch.
+    /// TS <c>checkForPackageUpdates</c> (L1255-1271)：offline 短路，其余路径失败返回空表。
     /// </summary>
-    private Task<IReadOnlyList<string>> CheckForPackageUpdatesAsync() =>
-        throw new NotImplementedException("extensions package-manager batch: checkForAvailableUpdates (TS L1255-1271)");
+    /// <remarks>
+    /// 包管理器的 <c>checkForAvailableUpdates</c> 网络检查（npm view / git ls-remote 版本比对）
+    /// 属顺延项 <c>4e-3c-3</c>；落地前按 TS 的 catch 分支返回空表——启动横幅不显示，但不抛错。
+    /// 原先是 NotImplementedException 缝：online 模式下每次启动都会炸一个后台任务。
+    /// </remarks>
+    private async Task<IReadOnlyList<string>> CheckForPackageUpdatesAsync()
+    {
+        if (IsOfflineEnv())
+        {
+            return [];
+        }
+
+        // 4e-3c-3 落地处：构造 DefaultPackageManager（cwd/agentDir/settingsManager）并调用
+        // CheckForAvailableUpdatesAsync，把 update.displayName 映射成列表；整个调用包在
+        // try/catch 里，失败返回空表（TS 同构）。
+        return [];
+    }
 
     private async Task<string?> CheckTmuxKeyboardSetupAsync()
     {
@@ -1001,10 +1014,6 @@ public partial class InteractiveMode
 
     // ---------------------------------------------------------------- seams
 
-    /// <summary>Seam: the L3179-3375 submit if-chain lands with the 4f-4m-4 command slice.</summary>
-    private void SetupEditorSubmitHandler() =>
-        throw new NotImplementedException("4f-4m-4 command slice: setupEditorSubmitHandler (TS L3179-3375)");
-
     /// <summary>
     /// TS <c>setupKeyHandlers</c>' command-family actions (L3082-3101). The selector actions
     /// (model/tree/fork/resume) and the debug TUI handler land with the 4f-4m-4 tail slice — see
@@ -1632,16 +1641,19 @@ public partial class InteractiveMode
 
         public void SetTitle(string title) => owner.UiForTests.Terminal.SetTitle(title);
 
-        /// <summary>Seam: TS <c>custom&lt;T&gt;</c> (L5285-5320) lands with the custom-component batch.</summary>
+        /// <summary>TS <c>ui.custom&lt;T&gt;</c> 的同步工厂半支（L2946-3010）。</summary>
         public Task<T> Custom<T>(
             Func<ITui, Theme, Core.KeybindingsManager, Action<T>, IComponent> factory,
             ExtensionCustomOptions? options = null) =>
-            throw new NotImplementedException("4f-4m custom-component batch: custom<T> (TS L5285-5320)");
+            owner.ShowExtensionCustomAsync<T>(
+                (tui, theme, keybindings, done) => Task.FromResult(factory(tui, theme, keybindings, done)),
+                options);
 
+        /// <summary>TS <c>ui.custom&lt;T&gt;</c> 的异步工厂半支（L2946-3010）。</summary>
         public Task<T> CustomAsync<T>(
             Func<ITui, Theme, Core.KeybindingsManager, Action<T>, Task<IComponent>> factory,
             ExtensionCustomOptions? options = null) =>
-            throw new NotImplementedException("4f-4m custom-component batch: customAsync<T> (TS L5285-5320)");
+            owner.ShowExtensionCustomAsync<T>(factory, options);
 
         public void PasteToEditor(string text) => owner.PasteToEditor(text);
 

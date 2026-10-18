@@ -12,7 +12,7 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 /// Component for displaying bash command execution with streaming output
 /// (TS <c>BashExecutionComponent</c>).
 /// </summary>
-public sealed partial class BashExecutionComponent : Container
+public sealed partial class BashExecutionComponent : Container, IOutputPadSettable
 {
     /// <summary>Preview line limit when not expanded (matches tool execution behavior).</summary>
     private const int PreviewLines = 20;

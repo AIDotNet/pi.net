@@ -8,6 +8,11 @@
 // keeps the closure and calls the per-command handlers.
 // ============================================================================
 
+using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Modes.Interactive.Components;
+using Pi.Tui;
+using Pi.Tui.Components;
+
 namespace Pi.CodingAgent.Modes.Interactive;
 
 /// <summary>The built-in commands the submit handler routes to. TS <c>/command</c> branches.</summary>
@@ -168,5 +173,224 @@ public static class InteractiveModeSubmit
     {
         var spaceIndex = text.IndexOf(' ');
         return spaceIndex == -1 ? text[1..] : text[1..spaceIndex];
+    }
+}
+
+public partial class InteractiveMode
+{
+    /// <summary>
+    /// TS <c>setupEditorSubmitHandler</c> (L3179-3375)：提交 if-chain 的闭包本体。
+    /// </summary>
+    /// <remarks>
+    /// 分支顺序、各分支清空编辑器的时机（await 前后）、bash 的 <c>isBashMode</c> 复位时机都按 TS
+    /// 逐条对齐：编辑器多数在调用处理器**之前**清空，export/import/share/copy/name/session/
+    /// changelog/hotkeys/fork/tree/trust/logout/debug/armin/demented/resume 则在**之后**。
+    /// 路由判定走 <see cref="InteractiveModeSubmit.Route"/>（表驱动，单测覆盖），此处只做分派。
+    /// </remarks>
+    private void SetupEditorSubmitHandler()
+    {
+        _defaultEditor.OnSubmit = text =>
+        {
+            _ = HandleSubmitAsync(text);
+        };
+    }
+
+    /// <summary>Test seam: install the submit handler without running the full init.</summary>
+    internal void InstallSubmitHandlerForTests() => SetupEditorSubmitHandler();
+
+    private async Task HandleSubmitAsync(string rawText)
+    {
+        var text = rawText.Trim();
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        var route = InteractiveModeSubmit.Route(text);
+        if (route is not null)
+        {
+            await DispatchCommandAsync(route).ConfigureAwait(true);
+            return;
+        }
+
+        // Handle bash command (! for normal, !! for excluded from context)
+        var (bashCommand, bashExcluded) = InteractiveModeSubmit.ParseBashCommand(text);
+        if (bashCommand is not null)
+        {
+            if (Session.IsBashRunning)
+            {
+                ShowWarning(InteractiveModeSubmit.BashBusyWarning);
+                _editor.SetText(text);
+                return;
+            }
+
+            _editor.AddToHistory(text);
+            await HandleBashCommandAsync(bashCommand, bashExcluded).ConfigureAwait(true);
+            _isBashMode = false;
+            UpdateEditorBorderColor();
+            return;
+        }
+
+        // Queue input during compaction (extension commands execute immediately)
+        if (Session.IsCompacting)
+        {
+            if (IsExtensionCommand(text))
+            {
+                _editor.AddToHistory(text);
+                _editor.SetText("");
+                await Session.PromptAsync(text).ConfigureAwait(true);
+            }
+            else
+            {
+                QueueCompactionMessage(text, "steer");
+            }
+
+            return;
+        }
+
+        // If streaming, use prompt() with steer behavior
+        if (Session.IsStreaming)
+        {
+            _editor.AddToHistory(text);
+            _editor.SetText("");
+            await Session.PromptAsync(text, new PromptOptions { StreamingBehavior = "steer" }).ConfigureAwait(true);
+            UpdatePendingMessagesDisplay();
+            _ui.RequestRender();
+            return;
+        }
+
+        // Normal message submission
+        // First, move any pending bash components to chat
+        FlushPendingBashComponents();
+
+        if (_onInputCallback is not null)
+        {
+            _onInputCallback(text);
+        }
+        else
+        {
+            _pendingUserInputs.Add(text);
+        }
+
+        _editor.AddToHistory(text);
+    }
+
+    /// <summary>TS if-chain 的逐命令分派；清空编辑器的时机按 TS 原样保留。</summary>
+    private async Task DispatchCommandAsync(SubmitRoute route)
+    {
+        var text = route.FullText;
+        switch (route.Command)
+        {
+            case SubmitCommand.Settings:
+                ShowSettingsSelector();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.ScopedModels:
+                _editor.SetText("");
+                ShowModelsSelector();
+                return;
+            case SubmitCommand.Model:
+                _editor.SetText("");
+                await HandleModelCommandAsync(route.Argument).ConfigureAwait(true);
+                return;
+            case SubmitCommand.Thinking:
+                _editor.SetText("");
+                HandleThinkingCommand(route.Argument);
+                return;
+            case SubmitCommand.Export:
+                await HandleExportCommandAsync(text).ConfigureAwait(true);
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Import:
+                await HandleImportCommandAsync(text).ConfigureAwait(true);
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Share:
+                await HandleShareCommandAsync().ConfigureAwait(true);
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Bug:
+                _editor.SetText("");
+                await HandleBugCommandAsync(route.Argument).ConfigureAwait(true);
+                return;
+            case SubmitCommand.Copy:
+                await HandleCopyCommandAsync().ConfigureAwait(true);
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Name:
+                HandleNameCommand(text);
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Session:
+                HandleSessionCommand();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Changelog:
+                HandleChangelogCommand();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Hotkeys:
+                HandleHotkeysCommand();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Fork:
+                ShowUserMessageSelector();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Clone:
+                _editor.SetText("");
+                await HandleCloneCommandAsync().ConfigureAwait(true);
+                return;
+            case SubmitCommand.Tree:
+                ShowTreeSelector();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Trust:
+                ShowTrustSelector();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Login:
+                _editor.SetText("");
+                await HandleLoginCommandAsync(route.Argument).ConfigureAwait(true);
+                return;
+            case SubmitCommand.Logout:
+                HandleLogoutCommand();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.New:
+                _editor.SetText("");
+                await HandleClearCommandAsync().ConfigureAwait(true);
+                return;
+            case SubmitCommand.Compact:
+                _editor.SetText("");
+                await HandleCompactCommandAsync(route.Argument).ConfigureAwait(true);
+                return;
+            case SubmitCommand.Reload:
+                _editor.SetText("");
+                await HandleReloadCommandAsync().ConfigureAwait(true);
+                return;
+            case SubmitCommand.Debug:
+                HandleDebugCommand();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.ArminSaysHi:
+                HandleArminSaysHi();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.DementedElves:
+                HandleDementedDelves();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Resume:
+                ShowSessionSelector();
+                _editor.SetText("");
+                return;
+            case SubmitCommand.Quit:
+                _editor.SetText("");
+                _ = ShutdownAsync();
+                return;
+            default:
+                return;
+        }
     }
 }

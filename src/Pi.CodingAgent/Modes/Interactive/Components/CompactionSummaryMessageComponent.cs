@@ -14,7 +14,7 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 /// Uses same background color as custom messages for visual consistency.
 /// Port of <c>CompactionSummaryMessageComponent</c>.
 /// </summary>
-public sealed class CompactionSummaryMessageComponent : Box
+public sealed class CompactionSummaryMessageComponent : Box, IOutputPadSettable
 {
     private bool _expanded;
     private readonly CompactionSummaryMessage _message;

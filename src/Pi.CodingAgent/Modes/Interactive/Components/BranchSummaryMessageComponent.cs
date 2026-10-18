@@ -14,7 +14,7 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 /// Uses same background color as custom messages for visual consistency.
 /// Port of <c>BranchSummaryMessageComponent</c>.
 /// </summary>
-public sealed class BranchSummaryMessageComponent : Box
+public sealed class BranchSummaryMessageComponent : Box, IOutputPadSettable
 {
     private bool _expanded;
     private readonly BranchSummaryMessage _message;

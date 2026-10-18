@@ -11,7 +11,7 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 /// (TS <c>CustomEntryComponent</c>). The host owns transcript spacing; renderer
 /// output should provide only its content.
 /// </summary>
-public sealed class CustomEntryComponent : Container
+public sealed class CustomEntryComponent : Container, IOutputPadSettable
 {
     private readonly CustomEntry _entry;
     private readonly EntryRenderer _renderer;

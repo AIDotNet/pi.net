@@ -14,7 +14,7 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 /// Only renders the skill block itself - user message is rendered separately.
 /// Port of <c>SkillInvocationMessageComponent</c>.
 /// </summary>
-public sealed class SkillInvocationMessageComponent : Box
+public sealed class SkillInvocationMessageComponent : Box, IOutputPadSettable
 {
     private bool _expanded;
     private readonly Core.ParsedSkillBlock _skillBlock;
