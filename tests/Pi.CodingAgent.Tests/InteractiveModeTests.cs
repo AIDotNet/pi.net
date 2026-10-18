@@ -12,6 +12,7 @@
 // (test-only seam, see InteractiveMode.cs).
 // ============================================================================
 
+using System.Text.Json;
 using Pi.Agent.Types;
 using Pi.Ai.Auth;
 using Pi.Ai.Models;
@@ -84,6 +85,143 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
             });
     }
 
+    /// <summary>带交互式 login 的 api-key 认证桩（驱动 <c>showApiKeyLoginDialog</c> 分支的判别）。</summary>
+    private sealed class StubLoginableApiKeyAuth : IApiKeyAuth
+    {
+        public string Name => "stub-api-key-login";
+
+        public bool HasLogin => true;
+
+        public Task<Credential.ApiKey> LoginAsync(
+            ProviderAuthInteraction interaction, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("These tests mount the dialog but never run the flow.");
+
+        public Task<AuthResult?> ResolveAsync(
+            Credential.ApiKey? credential, IAuthContext ctx, CancellationToken cancellationToken = default)
+            => Task.FromResult<AuthResult?>(new AuthResult
+            {
+                Auth = new ModelAuth { ApiKey = credential?.Key ?? "stub-key" },
+                Source = "stub-env",
+            });
+    }
+
+    /// <summary>OAuth 认证桩：选择器只读元数据，登录流程本身不在这些用例中执行。</summary>
+    private sealed class StubOAuthAuth(string? loginLabel = null) : IOAuthAuth
+    {
+        public string Name => "stub-oauth";
+
+        public bool IsSubscription => false;
+
+        public string? LoginLabel => loginLabel;
+
+        public Task<Credential.OAuth> LoginAsync(
+            ProviderAuthInteraction interaction,
+            LoginOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("These tests mount the dialog but never run the flow.");
+
+        public Task<Credential.OAuth> RefreshAsync(
+            Credential.OAuth credential, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ModelAuth> ToAuthAsync(
+            Credential.OAuth credential, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>同时提供 OAuth 与 api-key 登录的 provider（驱动 auth-type 选择器的二义分支）。</summary>
+    private sealed class DualAuthProvider : IProvider
+    {
+        public ModelSpec Model { get; } = new()
+        {
+            Id = "dual-chat",
+            Name = "dual-chat",
+            Api = "stub-api",
+            Provider = "dual",
+            BaseUrl = "https://dual.invalid",
+            Type = ModelType.Chat,
+            Input = [ModelInput.Text],
+            Cost = new ModelCostRates(0, 0, 0, 0),
+            ContextWindow = 1_000,
+            MaxTokens = 100,
+        };
+
+        public string Id => "dual";
+
+        public string Name => "Dual";
+
+        public string? BaseUrl => null;
+
+        public ProviderAuth? Auth => new()
+        {
+            OAuth = new StubOAuthAuth(),
+            ApiKey = new StubLoginableApiKeyAuth(),
+        };
+
+        public IReadOnlyList<ModelSpec> GetModels() => [Model];
+
+        public IReadOnlyList<ModelSpec> GetAllModels() => [Model];
+
+        public IAssistantMessageEventStream Stream(
+            ModelSpec model, IReadOnlyList<ChatMessage> context, IReadOnlyDictionary<string, object?>? options = null)
+            => throw new NotSupportedException();
+
+        public IAssistantMessageEventStream StreamSimple(
+            ModelSpec model, IReadOnlyList<ChatMessage> context, IReadOnlyDictionary<string, object?>? options = null)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// id 可命中默认模型表（或 llama 分支）的 provider；其 api-key 解析成功即「已配置」，
+    /// 模型因此进入 available 快照——<c>completeProviderAuthentication</c> 的选型分支依赖这一点。
+    /// </summary>
+    private sealed class NamedModelProvider(string providerId, string modelId) : IProvider
+    {
+        public ModelSpec Model { get; } = new()
+        {
+            Id = modelId,
+            Name = modelId,
+            Api = "stub-api",
+            Provider = providerId,
+            BaseUrl = "https://named.invalid",
+            Type = ModelType.Chat,
+            Input = [ModelInput.Text],
+            Cost = new ModelCostRates(0, 0, 0, 0),
+            ContextWindow = 1_000,
+            MaxTokens = 100,
+        };
+
+        public string Id => providerId;
+
+        public string Name => providerId;
+
+        public string? BaseUrl => null;
+
+        public ProviderAuth? Auth => new() { ApiKey = new StubApiKeyAuth() };
+
+        public IReadOnlyList<ModelSpec> GetModels() => [Model];
+
+        public IReadOnlyList<ModelSpec> GetAllModels() => [Model];
+
+        public IAssistantMessageEventStream Stream(
+            ModelSpec model, IReadOnlyList<ChatMessage> context, IReadOnlyDictionary<string, object?>? options = null)
+            => throw new NotSupportedException();
+
+        public IAssistantMessageEventStream StreamSimple(
+            ModelSpec model, IReadOnlyList<ChatMessage> context, IReadOnlyDictionary<string, object?>? options = null)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>TS 的 unknown 占位模型：三个字段字面量都是 "unknown"。</summary>
+    private static ModelSpec UnknownModel() => new()
+    {
+        Id = "unknown",
+        Name = "unknown",
+        Api = "unknown",
+        Provider = "unknown",
+        BaseUrl = "https://unknown.invalid",
+    };
+
     /// <summary>以一条终态消息立即结束流。</summary>
     private sealed class RecordingProvider : IProvider
     {
@@ -137,19 +275,38 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         }
     }
 
-    private async Task<AgentSessionRuntime> CreateHostAsync()
+    private async Task<AgentSessionRuntime> CreateHostAsync(
+        params IProvider[] extraProviders)
+    {
+        return await CreateHostAsyncCore(extraProviders, credentials: null, includeStubProvider: true);
+    }
+
+    private async Task<AgentSessionRuntime> CreateHostAsyncCore(
+        IReadOnlyList<IProvider> extraProviders,
+        InMemoryCredentialStore? credentials,
+        bool includeStubProvider)
     {
         var provider = new RecordingProvider();
+        var store = credentials ?? new InMemoryCredentialStore();
         var runtime = await ModelRuntime.CreateAsync(new CreateModelRuntimeOptions
         {
-            Credentials = new InMemoryCredentialStore(),
+            Credentials = store,
             ModelsPathDisabled = true,
             ModelsStore = new InMemoryCodingAgentModelsStore(),
             RefreshOnCreate = false,
             Env = name => name == "PI_OFFLINE" ? "1" : null,
             AuthContext = new StubAuthContext(name => name == "PI_OFFLINE" ? "1" : null),
         });
-        runtime.RegisterNativeProvider(provider);
+        if (includeStubProvider)
+        {
+            runtime.RegisterNativeProvider(provider);
+        }
+
+        foreach (var extra in extraProviders)
+        {
+            runtime.RegisterNativeProvider(extra);
+        }
+
         if (runtime.PendingBackgroundRefresh is { } pending)
         {
             await pending;
@@ -1693,6 +1850,187 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         mode.AddAutocompleteProvider(current => current);
 
         Assert.Single(mode.AutocompleteProviderWrappersForTests);
+    }
+
+    // ==================================================================
+    // 4f-4m-5b：登录认证族（TS L5767-6397）
+    // ==================================================================
+
+    [Fact]
+    public async Task LoginWithoutProviderRefOpensTheAuthTypeSelector()
+    {
+        var mode = await CreateModeAsync();
+
+        await mode.HandleLoginCommandAsync(null);
+
+        // Radius 是内建 provider（All.BuiltinProviders 之一），顶层入口因此带上 Radius 直入项，
+        // 挂载的是 CreateLoginMenuSelector 产出的 RadiusLoginMenuComponent。
+        var selector = Assert.IsType<RadiusLoginMenuComponent>(mode.EditorContainerChildrenForTests[^1]);
+        var rendered = AnsiText.StripAnsi(string.Join("\n", selector.Render(120)));
+        Assert.Contains("Select authentication method:", rendered);
+        Assert.Contains("Sign in with an account", rendered);
+        Assert.Contains("Sign in with an API key", rendered);
+        Assert.Contains("Sign in with Radius", rendered);
+        mode.DisposeActiveSelector();
+    }
+
+    [Fact]
+    public async Task LoginAlwaysHasMethodsBecauseBuiltinsCarryAuth()
+    {
+        // "No login methods available." 分支在移植语义下不可达：ModelRuntime 恒注册内建
+        // provider（anthropic/openai/radius… 均带 auth），getLoginProviderOptions 不会为空。
+        // 本用例钉住实际路径——连 stub 都不注册时选择器依然挂起。
+        var host = await CreateHostAsyncCore([], credentials: null, includeStubProvider: false);
+        var mode = await CreateModeAsync(host: host);
+
+        await mode.HandleLoginCommandAsync(null);
+
+        Assert.IsType<RadiusLoginMenuComponent>(mode.EditorContainerChildrenForTests[^1]);
+        mode.DisposeActiveSelector();
+    }
+
+    [Fact]
+    public async Task LoginWithAKnownProviderIdShowsTheAmbientDialog()
+    {
+        var mode = await CreateModeAsync();
+
+        // stub 的 api-key 认证没有 login（纯环境源）→ startProviderLogin 走 ambient 分支。
+        await mode.HandleLoginCommandAsync("stub");
+
+        var dialog = Assert.IsType<LoginDialogComponent>(mode.EditorContainerChildrenForTests[^1]);
+        var rendered = AnsiText.StripAnsi(string.Join("\n", dialog.Render(120)));
+        Assert.Contains("stub-api-key is configured outside", rendered);
+    }
+
+    [Fact]
+    public async Task LoginWithAnUnknownProviderRefOpensTheProviderSelector()
+    {
+        var mode = await CreateModeAsync();
+
+        await mode.HandleLoginCommandAsync("no-such-provider");
+
+        var selector = Assert.IsType<OAuthSelectorComponent>(mode.EditorContainerChildrenForTests[^1]);
+        var rendered = AnsiText.StripAnsi(string.Join("\n", selector.Render(120)));
+        Assert.Contains("Select provider to configure:", rendered);
+        mode.DisposeActiveSelector();
+    }
+
+    [Fact]
+    public async Task LoginWithAnAmbiguousProviderRefOpensTheAuthTypeSelectorForThatProvider()
+    {
+        var host = await CreateHostAsync(new DualAuthProvider());
+        var mode = await CreateModeAsync(host: host);
+
+        // "dual" 同时命中 OAuth 与 api-key 两种方式，但 provider id 唯一 →
+        // showLoginAuthTypeSelector(providerOptions)：标题带 provider 名，且不提供 Radius 直入项。
+        await mode.HandleLoginCommandAsync("dual");
+
+        var selector = Assert.IsType<ExtensionSelectorComponent>(mode.EditorContainerChildrenForTests[^1]);
+        var rendered = AnsiText.StripAnsi(string.Join("\n", selector.Render(120)));
+        Assert.Contains("Select authentication method for Dual:", rendered);
+        Assert.Contains("Sign in with an account", rendered);
+        Assert.Contains("Sign in with an API key", rendered);
+        Assert.DoesNotContain("Sign in with Radius", rendered);
+        mode.DisposeActiveSelector();
+    }
+
+    [Fact]
+    public async Task LogoutWithAStoredCredentialOpensTheLogoutSelector()
+    {
+        var store = new InMemoryCredentialStore();
+        await store.ModifyAsync(
+            "stub",
+            _ => Task.FromResult<Credential?>(new Credential.ApiKey("k")),
+            CancellationToken.None);
+        var host = await CreateHostAsyncCore([], store, includeStubProvider: true);
+        var mode = await CreateModeAsync(host: host);
+
+        await mode.HandleLogoutCommandForTestsAsync();
+
+        var selector = Assert.IsType<OAuthSelectorComponent>(mode.EditorContainerChildrenForTests[^1]);
+        var rendered = AnsiText.StripAnsi(string.Join("\n", selector.Render(120)));
+        Assert.Contains("Select provider to logout:", rendered);
+        Assert.Contains("Stub", rendered);
+        mode.DisposeActiveSelector();
+    }
+
+    [Fact]
+    public async Task LogoutWithoutStoredCredentialsShowsTheStatus()
+    {
+        var mode = await CreateModeAsync();
+
+        await mode.HandleLogoutCommandForTestsAsync();
+
+        var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
+        Assert.Contains("No stored credentials to remove", rendered);
+    }
+
+    [Fact]
+    public async Task CompleteProviderAuthenticationSelectsTheProviderDefaultModel()
+    {
+        var host = await CreateHostAsync(new NamedModelProvider("anthropic", "claude-opus-4-8"));
+        var mode = await CreateModeAsync(host: host);
+
+        await mode.CompleteProviderAuthenticationForTestsAsync(
+            "anthropic", "Anthropic", CredentialKind.OAuth, UnknownModel());
+
+        // previousModel 是 unknown 占位 → 选默认模型并 persist；defaultModelPerProvider["anthropic"]
+        // = "claude-opus-4-8"，该模型在 available 快照中（provider 已配置）。
+        Assert.Equal("claude-opus-4-8", host.Session.Model?.Id);
+        var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
+        Assert.Contains("Logged in to Anthropic. Selected claude-opus-4-8. Credentials saved to", rendered);
+    }
+
+    [Fact]
+    public async Task CompleteProviderAuthenticationForLlamaCppShowsTheGuidance()
+    {
+        var host = await CreateHostAsync(new NamedModelProvider("llama.cpp", "some-gguf"));
+        var mode = await CreateModeAsync(host: host);
+
+        await mode.CompleteProviderAuthenticationForTestsAsync(
+            "llama.cpp", "llama.cpp", CredentialKind.ApiKey, UnknownModel());
+
+        // llama.cpp 分支优先于默认模型表：有已加载模型时的指引文案；且不改动当前模型。
+        var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
+        Assert.Contains("Use /model to select a loaded llama.cpp model", rendered);
+        Assert.Equal("stub-chat", host.Session.Model?.Id);
+    }
+
+    [Fact]
+    public async Task OfferRadiusMcpServerSkipsWhenTheLoginIsAlreadyConfigured()
+    {
+        var mode = await CreateModeAsync();
+        File.WriteAllText(
+            Path.Combine(_agentDir, "mcp.json"),
+            $"{{\"mcpServers\":{{\"radius\":{{\"url\":\"{Radius.McpUrl}\",\"auth\":{{\"provider\":\"radius\"}}}}}}}}");
+
+        mode.OfferRadiusMcpServerForTests("radius", "Radius");
+
+        Assert.DoesNotContain(mode.EditorContainerChildrenForTests, child => child is ExtensionSelectorComponent);
+    }
+
+    [Fact]
+    public async Task OfferRadiusMcpServerAddsTheServerWhenMissing()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.OfferRadiusMcpServerForTests("radius", "Radius");
+
+        var selector = Assert.IsType<ExtensionSelectorComponent>(mode.EditorContainerChildrenForTests[^1]);
+        var rendered = AnsiText.StripAnsi(string.Join("\n", selector.Render(120)));
+        Assert.Contains("Configure Radius MCP in", rendered);
+
+        selector.HandleInput("\n"); // 默认选中第一项 "Yes"
+
+        var mcpPath = Path.Combine(_agentDir, "mcp.json");
+        Assert.True(File.Exists(mcpPath));
+        using var document = JsonDocument.Parse(File.ReadAllText(mcpPath));
+        var server = document.RootElement.GetProperty("mcpServers").GetProperty("radius");
+        Assert.Equal(Radius.McpUrl, server.GetProperty("url").GetString());
+        Assert.Equal("radius", server.GetProperty("auth").GetProperty("provider").GetString());
+        // `auth` 取代 MCP OAuth 登录：写入时删除 oauth 键。
+        Assert.False(server.TryGetProperty("oauth", out _));
+        mode.DisposeActiveSelector();
     }
 
     private static string RenderChat(InteractiveMode mode, int width) =>

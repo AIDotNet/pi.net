@@ -4,6 +4,7 @@
 // Upstream has no test file for these; the vectors are derived from the TS bodies.
 // ============================================================================
 
+using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Modes.Interactive;
 using Xunit;
@@ -12,7 +13,16 @@ namespace Pi.CodingAgent.Tests;
 
 public sealed class InteractiveModeRenderTests
 {
-    private static Model Model(string provider, string id, string api) => new(id, "Some Model", api, provider);
+    // The leaf takes the port's session model type (ModelSpec); TS passes Model<any>.
+    private static ModelSpec Model(string provider, string id, string api) =>
+        new()
+        {
+            Id = id,
+            Name = "Some Model",
+            Api = api,
+            Provider = provider,
+            BaseUrl = "https://example.invalid",
+        };
 
     // ---------------------------------------------------------------- unknown model
 

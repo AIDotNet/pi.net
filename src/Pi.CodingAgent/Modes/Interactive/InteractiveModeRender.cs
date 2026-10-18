@@ -9,6 +9,7 @@
 // ============================================================================
 
 using System.Text;
+using Pi.Ai.Models;
 using Pi.Ai.Types;
 
 namespace Pi.CodingAgent.Modes.Interactive;
@@ -40,7 +41,11 @@ public static class InteractiveModeRender
     /// TS <c>isUnknownModel</c>: the placeholder model every field of which is literally
     /// <c>"unknown"</c>. Used to decide whether a warning about the model makes sense.
     /// </summary>
-    public static bool IsUnknownModel(Model? model) =>
+    /// <remarks>
+    /// TS takes the session's <c>Model&lt;any&gt;</c>; the port's session model is
+    /// <see cref="ModelSpec"/> (the same provider/id/api fields), so the leaf is widened to it.
+    /// </remarks>
+    public static bool IsUnknownModel(ModelSpec? model) =>
         model is not null && model.Provider == "unknown" && model.Id == "unknown" && model.Api == "unknown";
 
     /// <summary>
