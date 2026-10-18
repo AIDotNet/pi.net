@@ -74,40 +74,7 @@ internal abstract class ServiceWireAdapter : IReadOnlyDictionary<string, object>
             ?? throw new InvalidOperationException($"Replicated state {name} exposes no internals"));
 
     /// <summary>The delivery context the provider appends to every call.</summary>
-    protected static Pi.Chord.Context.Context ContextOf(object?[] args) => (Pi.Chord.Context.Context)args[^1]!;
-
-    // ---------------------------------------------------------------- wire value readers
-
-    /// <summary>A required wire string.</summary>
-    protected static string Text(object? value) => value as string
-        ?? throw new ArgumentException($"Expected a string argument, got {Describe(value)}");
-
-    /// <summary>An optional wire string (TS <c>string | null</c>).</summary>
-    protected static string? OptionalText(object? value) => value switch
-    {
-        null => null,
-        string text => text,
-        _ => throw new ArgumentException($"Expected a string or null argument, got {Describe(value)}"),
-    };
-
-    /// <summary>A wire object read as <typeparamref name="T"/> (TS destructures the argument).</summary>
-    protected static T Read<T>(object? value) where T : class
-    {
-        if (value is not IReadOnlyDictionary<string, object?> fields)
-        {
-            throw new ArgumentException($"Expected an object argument, got {Describe(value)}");
-        }
-
-        return ServiceWireValues.FromFields<T>(fields);
-    }
-
-    private static string Describe(object? value) => value switch
-    {
-        null => "null",
-        string text => $"the string \"{text}\"",
-        bool flag => $"the boolean {flag}",
-        _ => value.GetType().Name,
-    };
+    protected static Pi.Chord.Context.Context ContextOf(object?[] args) => ServiceWireValues.ContextOf(args);
 }
 
 /// <summary>
@@ -141,6 +108,14 @@ internal static class ServiceWireValues
     /// <summary>TS <c>AgentCompactionRequest</c>.</summary>
     public static AgentCompactionRequest CompactionRequest(IReadOnlyDictionary<string, object?> fields)
         => new(OptionalText(fields, "customInstructions"));
+
+    /// <summary>TS the inline request of <c>prepareSession</c>.</summary>
+    public static PrepareSessionRequest PrepareSessionRequest(IReadOnlyDictionary<string, object?> fields)
+        => new(Field(fields, "sessionId"), OptionalTextList(fields, "packagePaths"));
+
+    /// <summary>TS <c>SessionCreateOptions</c>: <c>id</c> is optional, so a missing key is null.</summary>
+    public static SessionCreateOptions SessionCreateOptions(IReadOnlyDictionary<string, object?> fields)
+        => new(OptionalText(fields, "id"));
 
     // ---------------------------------------------------------------- writers
 
@@ -192,6 +167,61 @@ internal static class ServiceWireValues
         _ => "not_found",
     };
 
+    /// <summary>
+    /// TS <c>SessionSummary</c>: the address fields first, then <c>createdAt</c> (the order the
+    /// interface declares them in).
+    /// </summary>
+    public static Dictionary<string, object?> SessionSummary(SessionSummary summary) => new()
+    {
+        ["serverId"] = summary.ServerId,
+        ["sessionId"] = summary.SessionId,
+        ["createdAt"] = summary.CreatedAt,
+    };
+
+    /// <summary>TS the inline answer of <c>prepareSession</c>.</summary>
+    public static Dictionary<string, object?> PrepareSessionAnswer(
+        IReadOnlyList<string> packagePaths, object? presentationPlugins) => new()
+    {
+        ["packagePaths"] = packagePaths.ToList<object?>(),
+        ["presentationPlugins"] = presentationPlugins,
+    };
+
+    // ---------------------------------------------------------------- shared readers
+
+    /// <summary>A required wire string.</summary>
+    public static string Text(object? value) => value as string
+        ?? throw new ArgumentException($"Expected a string argument, got {Describe(value)}");
+
+    /// <summary>An optional wire string (TS <c>string | null</c>).</summary>
+    public static string? OptionalText(object? value) => value switch
+    {
+        null => null,
+        string text => text,
+        _ => throw new ArgumentException($"Expected a string or null argument, got {Describe(value)}"),
+    };
+
+    /// <summary>A wire object read as <typeparamref name="T"/> (TS destructures the argument).</summary>
+    public static T Read<T>(object? value) where T : class
+    {
+        if (value is not IReadOnlyDictionary<string, object?> fields)
+        {
+            throw new ArgumentException($"Expected an object argument, got {Describe(value)}");
+        }
+
+        return FromFields<T>(fields);
+    }
+
+    /// <summary>The delivery context the provider appends to every call.</summary>
+    public static Pi.Chord.Context.Context ContextOf(object?[] args) => (Pi.Chord.Context.Context)args[^1]!;
+
+    private static string Describe(object? value) => value switch
+    {
+        null => "null",
+        string text => $"the string \"{text}\"",
+        bool flag => $"the boolean {flag}",
+        _ => value.GetType().Name,
+    };
+
     // ---------------------------------------------------------------- plumbing
 
     /// <summary>Dispatch a wire object to the typed reader for <typeparamref name="T"/>.</summary>
@@ -206,6 +236,8 @@ internal static class ServiceWireValues
             nameof(ModelRef) => ModelRef(fields),
             nameof(AgentPromptRequest) => PromptRequest(fields),
             nameof(AgentCompactionRequest) => CompactionRequest(fields),
+            nameof(PrepareSessionRequest) => PrepareSessionRequest(fields),
+            nameof(SessionCreateOptions) => SessionCreateOptions(fields),
             _ => throw new ArgumentException($"No wire reader for {typeof(T).Name}"),
         };
         return (T)typed!;
@@ -224,6 +256,18 @@ internal static class ServiceWireValues
         if (!fields.TryGetValue(key, out var value) || value is null) return null;
         return value as IReadOnlyList<object?>
             ?? throw new ArgumentException($"Field \"{key}\" must be an array or null");
+    }
+
+    private static IReadOnlyList<string>? OptionalTextList(IReadOnlyDictionary<string, object?> fields, string key)
+    {
+        if (!fields.TryGetValue(key, out var value) || value is null) return null;
+        if (value is not IReadOnlyList<object?> list)
+        {
+            throw new ArgumentException($"Field \"{key}\" must be an array or null");
+        }
+
+        return list.Select(item => item as string
+            ?? throw new ArgumentException($"Field \"{key}\" must contain only strings")).ToList();
     }
 
     private static IReadOnlyDictionary<string, object?> Fields(object? value)

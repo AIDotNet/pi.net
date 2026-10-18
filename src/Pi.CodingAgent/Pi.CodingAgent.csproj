@@ -17,6 +17,8 @@
     <ProjectReference Include="..\Pi.Durable\Pi.Durable.csproj" />
     <ProjectReference Include="..\Pi.Mcp\Pi.Mcp.csproj" />
     <ProjectReference Include="..\Pi.Protocol\Pi.Protocol.csproj" />
+    <ProjectReference Include="..\Pi.Client\Pi.Client.csproj" />
+    <ProjectReference Include="..\Pi.Server\Pi.Server.csproj" />
     <ProjectReference Include="..\Pi.Tui\Pi.Tui.csproj" />
   </ItemGroup>
   <ItemGroup>

@@ -248,13 +248,13 @@ public static class ModelsProvider
         private Task<object?> RefreshWire(object?[] args) => VoidWire(RefreshAsync(ContextOf(args)));
 
         private Task<object?> SelectWire(object?[] args)
-            => VoidWire(SelectAsync(Read<ModelRef>(args[0]), ContextOf(args)));
+            => VoidWire(SelectAsync(ServiceWireValues.Read<ModelRef>(args[0]), ContextOf(args)));
 
         private async Task<object?> SelectThinkingWire(object?[] args)
         {
             // TS sends the level as its literal.
-            var level = ThinkingLevelText.Parse(Text(args[0]))
-                ?? throw new ArgumentException($"Unknown thinking level: {Text(args[0])}");
+            var level = ThinkingLevelText.Parse(ServiceWireValues.Text(args[0]))
+                ?? throw new ArgumentException($"Unknown thinking level: {ServiceWireValues.Text(args[0])}");
             await SelectThinkingAsync(level, ContextOf(args)).ConfigureAwait(false);
             return null;
         }

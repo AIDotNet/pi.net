@@ -94,17 +94,17 @@ public static class AgentControllerProvider
         ];
 
         private Task<object?> PromptWire(object?[] args)
-            => OperationWire(PromptAsync(Read<AgentPromptRequest>(args[0]), ContextOf(args)));
+            => OperationWire(PromptAsync(ServiceWireValues.Read<AgentPromptRequest>(args[0]), ContextOf(args)));
 
         private Task<object?> SteerWire(object?[] args)
-            => QueueWire(SteerAsync(Read<AgentPromptRequest>(args[0]), ContextOf(args)));
+            => QueueWire(SteerAsync(ServiceWireValues.Read<AgentPromptRequest>(args[0]), ContextOf(args)));
 
         private Task<object?> FollowUpWire(object?[] args)
-            => QueueWire(FollowUpAsync(Read<AgentPromptRequest>(args[0]), ContextOf(args)));
+            => QueueWire(FollowUpAsync(ServiceWireValues.Read<AgentPromptRequest>(args[0]), ContextOf(args)));
 
         private async Task<object?> CancelQueuedWire(object?[] args)
             => ServiceWireValues.CancelOutcome(
-                await CancelQueuedAsync(Text(args[0]), ContextOf(args)).ConfigureAwait(false));
+                await CancelQueuedAsync(ServiceWireValues.Text(args[0]), ContextOf(args)).ConfigureAwait(false));
 
         private async Task<object?> AbortWire(object?[] args)
         {
@@ -113,11 +113,11 @@ public static class AgentControllerProvider
         }
 
         private Task<object?> CompactWire(object?[] args)
-            => OperationWire(CompactAsync(Read<AgentCompactionRequest>(args[0]), ContextOf(args)));
+            => OperationWire(CompactAsync(ServiceWireValues.Read<AgentCompactionRequest>(args[0]), ContextOf(args)));
 
         private async Task<object?> WaitForPromptWire(object?[] args)
         {
-            var result = await WaitForPromptAsync(Text(args[0]), ContextOf(args)).ConfigureAwait(false);
+            var result = await WaitForPromptAsync(ServiceWireValues.Text(args[0]), ContextOf(args)).ConfigureAwait(false);
             return result switch
             {
                 AgentPromptResult.Done done => ServiceWireValues.PromptResult("done", done.Text, null),
