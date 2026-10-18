@@ -2,9 +2,9 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`cc5bcaa`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → **4g-3b-1 `cc5bcaa`**）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`70c9e9f`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → 4g-3b-1 `cc5bcaa` → **4g-3b-2 `70c9e9f`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C316`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C318`）。
 
 ---
 
@@ -58,7 +58,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | 子批 | 范围 | 行数 | 状态 |
 | --- | --- | --- | --- |
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
-| **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（见 0.19，+25 例）；provider 层待做 |
+| **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）；余 5 文件 |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | |
 | 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
@@ -333,6 +333,35 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
   `SessionCreateOptions.Id` 缺省为 null、两个可选 `Description`、`PrepareSessionRequest.PackagePaths` 可为 null。
 - 全量 **4379/0**（1m54s）；构建 0 警告 0 错误。差异编号推进到 **C316**。
 - **4g-3b-1 收口。** 下一批 **4g-3b-2**：`services/*` 的 provider 半边（7 文件 1,215 行）。
+
+### 0.20 4g-3b-2 收口记录（2026-10-18，`70c9e9f`）——provider 前半
+
+- **范围**：provider 半边的前两个（110 行）——`transcript-provider.ts`(15) →
+  `Services/TranscriptProvider.cs`，`agent-controller-provider.ts`(95) →
+  `Services/AgentControllerProvider.cs`。余 5 个文件（`connection.ts` 399 / `server.ts` 151 /
+  `worker.ts` 157 / `models-provider.ts` 173 / `slash-commands-provider.ts` 225 = 1,105 行）留下一批。
+- **durable API 映射核对（agent-controller 的全部依赖）**：`conversation.submit` →
+  `IConversation.SubmitAsync(SubmissionDraft.Input, Context)`；`conversation.compact` →
+  `IConversation.CompactAsync(string? instructions, Context)`（返回 `TaskId<CompactionResult>`）；
+  `conversation.abort` → `AbortAsync(Context, ConversationAbortOptions?)`；
+  `harness.abortSubmission(id, context, conversationId)` → `IHarness.AbortSubmissionAsync`；
+  `harness.submission(id, context)` → `IHarness.SubmissionAsync`；
+  `submission.wait(context)` → `ISubmission.WaitAsync` → `SettledSubmissionRecord.Record`
+  （终态在 `SubmissionRecord.InputRecord.Status`）；`harness.commit(tx => tx.entry(answer))` →
+  `CommitAsync(tx => tx.GetEntryAsync(id))`。
+- **waitForPrompt 的三分支**：`status === "unanswered"` → `Unanswered(reason)`；
+  `type === "input" && answer` 存在 → commit 读回该条目，取 `Model[0]`，**只拼 assistant 消息的 text 块**；
+  answer 缺省 → `Done("")`。三条都用测试钉住（上一批的 record 断言覆盖枚举映射）。
+- **三处 C# 表达差异**：① TS 的 `defineFacet({id, setup})` 工厂 → C# 实现 `IFacet`
+  （`Id` + `Setup`）（C317）；② TS 的 `submit` 接受 `string | Content[]`，C# 草稿恒为块表，
+  纯消息规整成单个 `TextContent`（C318）；③ `parseSubmissionId` 除正则外再加
+  `MAX_SAFE_INTEGER` 上界（TS 的 `Number.isSafeInteger` 会拒绝 2^53+1）。
+- **TranscriptProvider 未单测的判定依据**：15 行纯装配，逻辑全在 chord（`IFacetEnvironment`）与
+  durable（`ViewStateAsync`）侧且均已测试；要单测它需要一个 70+ 成员的 `IConversation` 假实现，
+  收益不足。后续 client/server 集成测试会覆盖该 facet 的接线。
+- 全量 **4400/0**（1m59s）；构建 0 警告 0 错误。差异编号推进到 **C318**。
+- **4g-3b-2 收口。** 下一批 **4g-3b-3**：`connection.ts`(399) / `server.ts`(151) /
+  `worker.ts`(157) / `models-provider.ts`(173) / `slash-commands-provider.ts`(225)。
 
 ---
 

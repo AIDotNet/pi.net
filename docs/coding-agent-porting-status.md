@@ -6685,3 +6685,40 @@ TS 七个文件共 **205 行**，C# 落 `src/Pi.CodingAgent/Experimental/Service
 | C314 | **接口可选方法 → 可空委托属性** | TS 的 `getArgumentCompletions?(…)` 是可选成员。C# 接口不能声明可选方法，故为 `Func<string, Task<IReadOnlyList<SlashCommandCompletion>?>>? GetArgumentCompletions`。TS 允许同步或 Promise 返回，C# 一律 `Task`，同步实现返回已完成任务 |
 | C315 | **匿名联合拆成 record 变体** | `refresh: { status: "idle" \| "refreshing" \| "done" } \| { status: "warning"; errors }` 拆成 `ModelsRefreshState.Idle` / `.Refreshing` / `.Done` / `.Warning(Errors)` 四个 record，payload 类型安全 |
 | C316 | **chord 的 `JsonValue` → `object?`** | TS 的 `JsonValue` 是递归联合类型；C# 的 chord 用 CLR 值树（`Dictionary<string, object?>` / `List<object?>` / 标量），`Json.IsJsonValue` 判定。故 `prepareSession` / `reload` 的返回类型是 `object?`。跨进程时调用方需自行转成值树（`Pi.Client.ToWireCall` 的既有做法） |
+
+## 4g-3b-2 provider 前半（transcript-provider / agent-controller-provider）
+
+TS 两个文件共 **110 行**，C# 落 `src/Pi.CodingAgent/Experimental/Services/`：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `services/transcript-provider.ts` | 15 | `Services/TranscriptProvider.cs` | `CreateTranscriptServiceFacetAsync` + 私有 `TranscriptFacet` / `TranscriptService` |
+| `services/agent-controller-provider.ts` | 95 | `Services/AgentControllerProvider.cs` | `Create` + `Controller`（七方法）+ `ParseSubmissionId` / `ToInput` / `ToAgentError` 三个内部叶子 |
+
+**durable API 映射**：`conversation.submit` → `IConversation.SubmitAsync(SubmissionDraft.Input, Context)`；
+`conversation.compact` → `IConversation.CompactAsync(string?, Context)`（返回 `TaskId<CompactionResult>`）；
+`conversation.abort` → `AbortAsync(Context, ConversationAbortOptions?)`；
+`harness.abortSubmission` → `IHarness.AbortSubmissionAsync`；`harness.submission` → `IHarness.SubmissionAsync`；
+`submission.wait` → `ISubmission.WaitAsync` → `SettledSubmissionRecord.Record`
+（终态在 `SubmissionRecord.InputRecord.Status`）；`harness.commit(tx => tx.entry(answer))` →
+`CommitAsync(tx => tx.GetEntryAsync(id))`。
+
+**waitForPrompt 三分支**：`status === "unanswered"` → `Unanswered(reason)`；
+`type === "input" && answer` 存在 → commit 读回条目、取 `Model[0]`、**只拼 assistant 的 text 块**；
+answer 缺省 → `Done("")`。
+
+**TranscriptProvider 未单测的判定**：15 行纯装配，逻辑在 chord（`IFacetEnvironment`）与 durable
+（`ViewStateAsync`）侧且均已测试；单测它需要 70+ 成员的 `IConversation` 假实现，收益不足。
+后续 client/server 集成测试覆盖该 facet 的接线。
+
+**测试（+21 例）**：`AgentControllerProviderTests` —— 18 条提交 id 语料（`0` / `01` / `-1` /
+`1.5` / `1e3` / 带空格 / `MAX_SAFE_INTEGER` 边界 / 超 `long`）、`toInput` 三态
+（无图片 / 空图片数组 / 有图片且消息在前）、`toAgentError` 两条（busy / operation_failed）。
+
+### 4g-3b-2 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C317 | **`defineFacet({id, setup})` 工厂 → 实现 `IFacet`** | TS 用工厂闭包描述 facet；C# 的 `IFacet` 是 `Id` + `Setup(IFacetEnvironment)`。facet 类私有化，只暴露 `CreateTranscriptServiceFacetAsync`。`env.own(() => state.dispose())` → `environment.Own(() => { state.Dispose(); return Task.CompletedTask; })` |
+| C318 | **`submit` 的 `string \| Content[]` → 恒为块表** | TS 的 `UserInput` 允许裸字符串（纯消息快捷方式）；C# 的 `SubmissionDraft.Input.Content` 是 `IReadOnlyList<ContentBlock>`，纯消息规整成单个 `TextContent`。语义等价（durable 层本来就把字符串规整成 text block） |
+| C319 | **`toAgentError` 只区分 `ConversationBusy`** | TS 的 `error instanceof Error ? error.message : String(error)` 要处理非 Error 抛值；C# 的 throw 只接受异常对象，故统一取 `error.Message`（与 TS 在 Error 情形下的输出逐字一致） |
