@@ -359,9 +359,36 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
 - **TranscriptProvider 未单测的判定依据**：15 行纯装配，逻辑全在 chord（`IFacetEnvironment`）与
   durable（`ViewStateAsync`）侧且均已测试；要单测它需要一个 70+ 成员的 `IConversation` 假实现，
   收益不足。后续 client/server 集成测试会覆盖该 facet 的接线。
-- 全量 **4400/0**（1m59s）；构建 0 警告 0 错误。差异编号推进到 **C318**。
+- 全量 **4400/0**（1m59s）；构建 0 警告 0 错误。差异编号推进到 **C319**。
 - **4g-3b-2 收口。** 下一批 **4g-3b-3**：`connection.ts`(399) / `server.ts`(151) /
   `worker.ts`(157) / `models-provider.ts`(173) / `slash-commands-provider.ts`(225)。
+
+### 0.21 4g-3b-3 勘察记录（2026-10-18，未动工）——provider 后半的依赖映射
+
+- **范围**：5 个文件 1,105 行。逐文件核对 TS 依赖与 C# 对应件，**全部就位，无新增外部依赖**：
+
+| TS 文件 | 行 | 依赖的 C# 对应件 | 状态 |
+| --- | --- | --- | --- |
+| `services/connection.ts` | 399 | `Api.CreateRemoteServiceBinding` + `RemoteServiceBinding`（`Use`/`Observe`/`ReadyAsync`/`RebindAsync`）、`Api.ReplicatedState<T>` → `MutableReplicatedState<T>`、`Context.Background`（`BACKGROUND_CONTEXT`）、`Pi.Client.ClientServiceTransport.Create(client, Func<RpcTarget?>)` | 就位 |
+| `services/server.ts` | 151 | `RemoteServiceProvider` + `RemoteServiceEndpoint.Create`、`Pi.Server.IRoutedServerServiceAttachment` / `IRoutedServerServiceHost` | 就位 |
+| `services/worker.ts` | 157 | 同批已落地的 `AgentControllerProvider` + 本批的 `models-provider` / `plugins` / `transcript-provider` | 就位 |
+| `services/models-provider.ts` | 173 | `IModels` 契约 + `ModelRuntime` / `SettingsManager`（Pi.CodingAgent 内） | 就位 |
+| `services/slash-commands-provider.ts` | 225 | `ISlashCommands` / `IAgentController` / `IModels` / `IPresentationPlugins` / `ISessionPlugins` 契约 | 就位 |
+
+- **动工前必须解决的一处模型差异（已定位）**：C# 的 `IRemoteServices` 接口只有
+  `ReadyAsync(CancellationToken)` + `UseRaw(string)`，**没有** TS `RemoteServices` 的
+  `use<T>` / `observe<T>` / `serviceReady` / `updateBound` / `dispose`——这些成员在 C# 里存在于
+  `RemoteServiceBinding` 具体类上，而非接口上。因此 TS 的 `RoutedServiceBinding`
+  （「实现 `RemoteServices` 并转发」）在 C# 侧要改写成：**实现 `IRemoteServices`（`ReadyAsync` /
+  `UseRaw` 转发），同时把 `Use<T>` / `Observe<T>` / `RebindAsync` / `DisposeAsync` 作为自己的
+  公共成员暴露**，供 presentation 侧直接持有（`FacetKernel` 只走 `UseRaw`，不受影响）。
+- **另两处已知差异**：① TS 的 `ready(context)` / `serviceReady(context)` / `updateBound(bound, context)`
+  在 C# 侧是 `ReadyAsync(CancellationToken)` / `RebindAsync(bool, Context)`——上下文传递方式不同，
+  调用方需把 `Context` 的取消令牌取出；② TS 的 `Promise.allSettled` + 单错原样抛/多错 `AggregateError`
+  在 C# 侧用 `Task.WhenAll` + 手工收集异常（`AggregateException`）。
+- **4g-3b-3 开工顺序建议**：`models-provider`（依赖最少，可先跑通 `IModels` 的复制态）→
+  `slash-commands-provider` → `worker`（把三个 provider 组装成 facet）→ `server`（host 侧）→
+  `connection`（presentation 侧，体量最大且依赖 client 传输）。
 
 ---
 
