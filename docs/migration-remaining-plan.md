@@ -59,7 +59,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | --- | --- | --- | --- |
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
 | **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）+ 末段 ✅ `8500da8`（0.23）；余 `server.ts` / `connection.ts` |
-| 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | |
+| 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | 🟡 `plugins/*` ✅ `b1b4b80`（0.25）；余 `coordinator.ts` / `coordinator-entry.ts` |
 | 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
 | 4g-3f | `durable/*`（9 文件） | ~1,440 | |
@@ -451,6 +451,29 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
   `session-worker-manager.ts` 848 / `session-worker.ts` 840 / `client-runtime.ts` 230 / `client.ts` 86 / `source-resolver.ts` 86 /
   `commands.ts` 98 / `radius-auth.ts` 67 / `radius-relay.ts` 724 / `client-tui.ts` 809 / `client-tui-chat.ts` 228）、
   `durable/*`（7 文件 1,350 行）、`vacation/*`（6 文件 1,325 行）、`plugins/*`（2 文件 226 行）。
+
+### 0.25 4g-3c-2 插件包管线（`b1b4b80`，2026-10-18）
+
+- **范围**：`plugins/package.ts`(171) + `plugins/bundled.ts`(55) = 226 行。测试 **+38 例**（`PluginPackagesTests` 27 /
+  `PluginBundlesTests` 11）；全量 **4537/0**（1m55s）。`plugins/plugin.ts`(16) 判定为纯 re-export barrel 不移植（C336，
+  其导出已由 `Pi.CodingAgent.Experimental.Services.*` 承载；它原属 4g-3h 平台缺口判定批，结论在此记录）。
+- **profile 读写保真**：读校验穷尽（未知键 / 版本非数字 1 / server 级出现 `sessionPath` / session 级不匹配 /
+  `packagePaths` 形状 / server 级空数组），写逐字复刻 `JSON.stringify(…, null, 2) + "\n"`（两空格、LF、尾换行、键序
+  version → sessionPath → packagePaths、Unix 0600 仅创建时）。`JsonValue` 的 kind 检查先于 `TryGetValue`——
+  STJ 的 `TryGetValue<T>` 跨类型会抛而不是返回 false（如 bool → int），与 TS 的 `!==` 全落「Invalid」分支不等价。
+- **Node 路径语义两处补齐**：① `resolve` 剥尾部分隔符（`Path.GetFullPath` 不剥，根路径除外）——直接影响
+  `pluginBuildDirectoryName` 的哈希输入与 profile 里存的路径；② `basename` 剥尾斜杠。六个名字用例用 Node 实跑对拍全中。
+- **`createServerPluginPackage`**：TS 每次 `build()` 经 `buildTail.then(...)` 串行，尾任务吞失败；C# 同构
+  （`ContinueWith(...).Unwrap()` + `IgnoreAsync`）。只发布 tui 条目：清单无 `tui` 返回空数组。
+- **bundled 的 optional loader**：TS 在 load 时先读清单、无 `session` 条目返回空 facet 集；C# 同构。
+  注意 `combineFacetLoaders` 聚合出的 `LoadedFacets.Facets` 是**快照**，dispose 只清内层（TS 侧是 `Object.freeze`
+  快照，同样不清）——测试断言按此真实语义写，勿按「dispose 后集合为空」的直觉写。
+- **external 解析（C335）**：TS 把 `@earendil-works/pi-coding-agent/experimental/plugin` 解析成宿主包 `../plugin.js` 的
+  URL；C# 无 JS 模块图，改解析为承载插件 API 的 `Pi.CodingAgent` 程序集位置；默认 `UnsupportedFacetModuleHost`
+  仍拒绝执行 JS bundle（C# 扩展走 AssemblyLoadContext）。
+- **4g-3c 剩余**：`coordinator.ts`(612) + `coordinator-entry.ts`(10)；此后 **4g-3d** 顶层装配（`server.ts` 770 /
+  `session-worker-manager.ts` 848 / `session-worker.ts` 840 / `radius-relay.ts` 724 / `radius-auth.ts` 67 / `commands.ts` 98 /
+  `cli.ts` 12）、`durable/*`（7 文件 1,350 行）、`vacation/*`（6 文件 1,325 行）。
 
 ---
 

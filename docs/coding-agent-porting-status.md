@@ -6801,3 +6801,35 @@ TS `worker.ts`(157) + TS 无对应文件的 `Services/ServiceWire.cs`：
 | C331 | **`Client` 在本命名空间内解析到命名空间** | `using Pi.Client;` 后 `Client` 优先匹配命名空间 `Pi.Client`；类型须别名（`ServiceClient`） |
 | C332 | **`Service<T>` 在 `Pi.Chord.Facets`** | 与 `RemoteServiceProvider`/`ServiceWire`（`Pi.Chord.Services`）不同命名空间；`ProviderDefinition` 用于构造 provider 目录 |
 | C333 | **尾链用异步助手而非 `ContinueWith` 回调** | 单参 lambda 会命中 `ContinueWith(Action<Task,object?>, …)` 重载造成歧义；`IgnoreAsync` / `WatchAsync` 两个助手分别表达「吞掉失败的尾」与「定居后分流」 |
+
+## 4g-3c-2 插件包管线（plugins/package.ts / plugins/bundled.ts）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `plugins/package.ts` | 171 | `Experimental/Plugins/PluginPackages.cs` | profile 的读/写/删（server 级 + session 级）、路径规范化、构建目录命名、`createServerPluginPackage` 尾链构建 |
+| `plugins/bundled.ts` | 55 | `Experimental/Plugins/PluginBundles.cs` | session 侧 optional facet loader、presentation 侧 artifact 数据与加载器、external 解析 |
+
+**profile 文件的保真度**：读是穷尽校验（未知键 / 版本非数字 1 / server 级出现 `sessionPath` / session 级 `sessionPath` 不匹配 /
+`packagePaths` 非数组或含空串 / server 级空数组），任一不满足抛 `Invalid experimental plugin package profile <path>`；
+文件不存在（含父目录不存在）返回 null。写是 `JSON.stringify(…, null, 2) + "\n"` 的逐字复刻：两空格缩进、LF、尾换行、
+键序 version → sessionPath → packagePaths，Unix 0600 **仅在创建时**设置（TS 的 `writeFile` mode 语义）。
+
+**路径语义对齐 Node**：`Path.GetFullPath` 会保留尾部分隔符而 Node `resolve` 会剥掉（根路径除外），故 `ResolvePath` 先
+规范化再剥尾（`C:/` 这类根不剥）；`pluginBuildDirectoryName` 的 basename 同样先 `TrimEnd`（Node `basename` 剥尾斜杠）。
+sha256 取十六进制前 12 / 24 位（`createHash("sha256").digest("hex").slice(0, n)`）。
+
+**`createServerPluginPackage` 的构建尾链**：`buildTail.then(op)` + `tail = op.then(noop, noop)`——前一次构建失败不阻塞
+下一次；每次 `build()` 打包全部约定 entry，仅当清单含 `tui` 条目时读回该 artifact，否则返回空数组（缺 tui 的包不拖垮整代）。
+
+**bundled 两侧的形状**：session 侧 `CreateSessionPluginFacetLoader` 对每个 manifest 包一层 optional loader——
+每次 load 先读清单，没有 `session` 条目就返回空 facet 集（而非像 chord 加载器那样抛错）；presentation 侧
+`CreatePresentationFacetData` 把 artifact 序列化成 `{presentationFacetBundles: [...]}`（camelCase、丢 null），
+`CreatePresentationFacetLoaders` 按同一键取回并逐条建 artifact loader（键缺失 → 空；显式 null 或非数组 → 抛错）。
+
+### 4g-3c-2 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C334 | **打包器由调用方注入 `IFacetEntryBundler`** | TS 的 `bundleFacetPackage` 内置 esbuild；.NET 无 JS 打包器，`CreateServerPluginPackage` 收注入的 entry bundler 转交 `Pi.Chord.Bundler.BundleFacetPackageAsync`（测试用写真实产物的假 bundler 端到端验证） |
+| C335 | **`resolvePluginExternal` 映射到承载插件 API 的程序集** | TS 把 `@earendil-works/pi-coding-agent/experimental/plugin` 解析为宿主包内 `../plugin.js` 的 URL；C# 无 JS 模块图（扩展走 AssemblyLoadContext），故解析为该 specifier 对应的 `Pi.CodingAgent` 程序集位置，默认 `UnsupportedFacetModuleHost` 仍拒绝执行 JS bundle |
+| C336 | **`plugin.ts` 是不移植的纯 re-export barrel** | 其六个导出（`AgentController` / `PresentationUI` / `SlashCommands` 及相关类型）已由 `Pi.CodingAgent.Experimental.Services.*` 承载；C# 侧它对应的「模块」即 C335 中解析到的程序集 |
