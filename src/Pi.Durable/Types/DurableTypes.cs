@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Pi.Chord.Delta;
+using Pi.Chord.Services;
 
 namespace Pi.Durable.Types;
 
@@ -752,6 +753,14 @@ public sealed class DocumentState<T> : IDisposable where T : class
 
     /// <summary>当前值快照（未物化时为 null）。</summary>
     public IReadOnlyDictionary<string, object?>? Value => _inner.Value;
+
+    /// <summary>
+    /// 订阅值变更；注册即投递一帧 hydrate（当前值）。对应 TS <c>DocumentState&lt;T&gt; =
+    /// AttachedReplicatedState&lt;Readonly&lt;T&gt; | null&gt;</c> 的 <c>subscribe</c>（TS 返回取消订阅函数，C# 返回
+    /// <see cref="IDisposable"/>）。
+    /// </summary>
+    public IDisposable Subscribe(StateListener<IReadOnlyDictionary<string, object?>?> listener)
+        => _inner.Subscribe(listener);
 
     /// <inheritdoc />
     public void Dispose() => _inner.Dispose();

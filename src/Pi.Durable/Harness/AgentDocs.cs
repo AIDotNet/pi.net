@@ -136,7 +136,7 @@ public static class AgentDocs
             doc.Delete(Key("model"));
         }
 
-        if (change.ThinkingLevel is { } level) doc.Set(Key("thinkingLevel"), CamelCase(level.ToString()));
+        if (change.ThinkingLevel is { } level) doc.Set(Key("thinkingLevel"), ThinkingLevelText.ToText(level));
         else if (change.ClearThinkingLevel) doc.Delete(Key("thinkingLevel"));
 
         if (change.ClearExtensions) doc.Delete(Key("extensions"));
@@ -179,9 +179,6 @@ public static class AgentDocs
     }
 
     private static Path Key(string name) => Path.Root.Append(Seg.Key(name));
-
-    private static string CamelCase(string value)
-        => char.ToLowerInvariant(value[0]) + value[1..];
 
     private static List<object?> Names(IReadOnlyList<IExtension> items)
         => items.Select(item => (object?)item.Name).ToList();
