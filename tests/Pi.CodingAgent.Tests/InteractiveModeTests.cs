@@ -12,7 +12,9 @@
 // (test-only seam, see InteractiveMode.cs).
 // ============================================================================
 
+using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Pi.Agent.Types;
 using Pi.Ai.Auth;
 using Pi.Ai.Models;
@@ -2031,6 +2033,186 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         // `auth` 取代 MCP OAuth 登录：写入时删除 oauth 键。
         Assert.False(server.TryGetProperty("oauth", out _));
         mode.DisposeActiveSelector();
+    }
+
+    // ==================================================================
+    // 4f-4m-5c 余量：/share（session-share.ts）
+    // ==================================================================
+
+    [Fact]
+    public async Task ExportSessionForShareAppendsTheShareTrailingEntry()
+    {
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello world");
+        var mode = await CreateModeAsync(host: host);
+
+        var filePath = mode.ExportSessionForShareForTests();
+        try
+        {
+            var lines = File.ReadAllLines(filePath);
+            var last = JsonDocument.Parse(lines[^1]).RootElement;
+            Assert.Equal("custom", last.GetProperty("type").GetString());
+            Assert.Equal("pi.share", last.GetProperty("customType").GetString());
+            // TS crypto.randomUUID().slice(0, 8)：8 位小写十六进制。
+            Assert.Matches("^[0-9a-f]{8}$", last.GetProperty("id").GetString()!);
+            Assert.False(string.IsNullOrEmpty(last.GetProperty("timestamp").GetString()));
+
+            var data = last.GetProperty("data");
+            Assert.Equal(host.Session.SystemPrompt, data.GetProperty("systemPrompt").GetString());
+            var tools = data.GetProperty("tools").EnumerateArray().ToList();
+            Assert.NotEmpty(tools);
+            foreach (var tool in tools)
+            {
+                Assert.False(string.IsNullOrEmpty(tool.GetProperty("name").GetString()));
+                Assert.IsType<JsonElement>(tool.GetProperty("parameters"));
+            }
+
+            // parentId 指向分支最后一条条目（TS 由 export 回调带入）。
+            var branchLast = JsonDocument.Parse(lines[^2]).RootElement;
+            Assert.Equal(branchLast.GetProperty("id").GetString(), last.GetProperty("parentId").GetString());
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    // ==================================================================
+    // 4f-4m-5c 余量：/bug 全链路（TS modes/interactive/bug-report.ts）
+    // ==================================================================
+
+    [Fact]
+    public async Task BugCommandExportsAZipThroughTheWholePromptChain()
+    {
+        // CrashLog 的读写走 Config.GetAgentDir()（全局 PI_CODING_AGENT_DIR），不随会话的
+        // agentDir；这里把它指到临时目录，避免碰真实的崩溃日志（Read + CrashCount>0 时的 Clear）。
+        var crashDir = Path.Combine(Path.GetTempPath(), "pi-bug-crash-" + Guid.NewGuid().ToString("N"));
+        var previousAgentDir = Environment.GetEnvironmentVariable(Config.EnvAgentDir);
+        Environment.SetEnvironmentVariable(Config.EnvAgentDir, crashDir);
+        var host = await CreateHostAsync();
+        try
+        {
+            // 钉住隔离：默认崩溃日志路径必须落在临时目录里（曾有把环境变量名写成
+            // PI_AGENT_DIR、误读并 Clear 真实崩溃日志的事故）。
+            Assert.StartsWith(crashDir, CrashLog.DefaultPath(), StringComparison.Ordinal);
+            await host.Session.PromptAsync("hello world");
+            var mode = await CreateModeAsync(host: host);
+
+            // 预置一条未通知的崩溃记录：报表的 diagnostics 应带上它（notified 被摘除），
+            // 导出后 CrashLog.Clear() 应把日志清空。
+            var crashPath = CrashLog.DefaultPath();
+            Assert.NotNull(CrashLog.Record(new CrashInput
+            {
+                Kind = CrashKind.UncaughtException,
+                Error = new InvalidOperationException("kaput"),
+                Cwd = _cwd,
+            }, crashPath));
+
+            var before = Directory.GetFiles(Directory.GetCurrentDirectory(), "pi-bug-report-*.zip");
+
+            var task = mode.HandleBugCommandAsync(null);
+
+            // 1) 免责声明 + hint 输入框；提交 "it broke"。
+            var editor = await WaitForOverlayAsync<ExtensionEditorComponent>(mode);
+            var rendered = AnsiText.StripAnsi(string.Join("\n", editor.Render(120)));
+            Assert.Contains("Report a bug", rendered);
+            Assert.Contains("What went wrong?", rendered);
+            foreach (var character in "it broke")
+            {
+                editor.HandleInput(character.ToString());
+            }
+
+            editor.HandleInput("\r");
+
+            // 2) transcript 选择：默认第一项 "Yes, include the transcript"。
+            var transcript = await WaitForOverlayAsync<ExtensionSelectorComponent>(mode);
+            var transcriptRendered = AnsiText.StripAnsi(string.Join("\n", transcript.Render(120)));
+            Assert.Contains("Include the session transcript?", transcriptRendered);
+            Assert.Contains("Yes, include the transcript", transcriptRendered);
+            transcript.HandleInput("\n");
+
+            // 3) delivery 选择：下移到 "Export as Zip"（includeSession=true 时没有 summary 选择器）。
+            var delivery = await WaitForOverlayAsync<ExtensionSelectorComponent>(
+                mode, selector => !ReferenceEquals(selector, transcript));
+            var deliveryRendered = AnsiText.StripAnsi(string.Join("\n", delivery.Render(120)));
+            Assert.Contains("Upload Report", deliveryRendered);
+            Assert.Contains("Export as Zip", deliveryRendered);
+            delivery.HandleInput("j");
+            delivery.HandleInput("\n");
+
+            await task;
+
+            var after = Directory.GetFiles(Directory.GetCurrentDirectory(), "pi-bug-report-*.zip");
+            var created = Assert.Single(after.Except(before));
+            try
+            {
+                using var archive = ZipFile.OpenRead(created);
+                Assert.Contains(archive.Entries, entry => entry.FullName == "report.json");
+                Assert.Contains(archive.Entries, entry => entry.FullName == "diagnostics.json");
+                Assert.Contains(archive.Entries, entry => entry.FullName == "session.jsonl");
+                Assert.DoesNotContain(archive.Entries, entry => entry.FullName == "summary.md");
+
+                using var reader = new StreamReader(archive.GetEntry("diagnostics.json")!.Open());
+                var diagnostics = JsonDocument.Parse(reader.ReadToEnd()).RootElement;
+                var crash = Assert.Single(diagnostics.GetProperty("crashes").EnumerateArray());
+                Assert.False(crash.TryGetProperty("notified", out _));
+                Assert.Equal("kaput", crash.GetProperty("message").GetString());
+
+                using var reportReader = new StreamReader(archive.GetEntry("report.json")!.Open());
+                var report = JsonDocument.Parse(reportReader.ReadToEnd()).RootElement;
+                Assert.Equal("it broke", report.GetProperty("hint").GetString());
+                Assert.True(report.GetProperty("session").GetProperty("included").GetBoolean());
+            }
+            finally
+            {
+                File.Delete(created);
+            }
+
+            // 4) 崩溃日志被清空（CrashCount > 0 → CrashLog.Clear()）。
+            Assert.False(File.Exists(crashPath));
+
+            // 5) 会话里落下 pi.bug-report 条目：delivery=zip、带 path 与 trim 后的 hint。
+            var custom = host.Session.SessionManager.GetEntries().OfType<CustomEntry>().LastOrDefault();
+            Assert.NotNull(custom);
+            Assert.Equal("pi.bug-report", custom.CustomType);
+            var data = (JsonObject)custom.Data!;
+            Assert.Equal("zip", data["delivery"]!.GetValue<string>());
+            Assert.Equal(created, data["path"]!.GetValue<string>());
+            Assert.Equal("it broke", data["hint"]!.GetValue<string>());
+            Assert.True(data["sessionIncluded"]!.GetValue<bool>());
+
+            var last = mode.ChatChildrenForTests[^1];
+            Assert.Contains("Bug report exported to:", AnsiText.StripAnsi(string.Join("\n", last.Render(80))));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(Config.EnvAgentDir, previousAgentDir);
+            if (Directory.Exists(crashDir))
+            {
+                Directory.Delete(crashDir, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>等待指定类型的覆盖组件挂进编辑器容器（流程的 continuation 跑在线程池上）。</summary>
+    private static async Task<T> WaitForOverlayAsync<T>(
+        InteractiveMode mode, Func<T, bool>? predicate = null) where T : class
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            var children = mode.EditorContainerChildrenForTests;
+            for (var index = children.Count - 1; index >= 0; index--)
+            {
+                if (children[index] is T match && (predicate is null || predicate(match)))
+                {
+                    return match;
+                }
+            }
+
+            Assert.True(DateTime.UtcNow < deadline, $"timed out waiting for {typeof(T).Name} to mount");
+            await Task.Delay(10);
+        }
     }
 
     private static string RenderChat(InteractiveMode mode, int width) =>

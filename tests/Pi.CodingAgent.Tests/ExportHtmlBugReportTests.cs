@@ -144,6 +144,7 @@ public sealed class ExportHtmlBugReportTests
     }
 
     // ---- bug-report redaction ---------------------------------------------
+    // 期望值由 tools/bug-report-redaction-reference.mjs（TS 原函数逐字抄录）对拍得出。
 
     [Fact]
     public void RedactUrl_LeavesOrdinaryUrlsUnchanged()
@@ -151,17 +152,91 @@ public sealed class ExportHtmlBugReportTests
 
     [Fact]
     public void RedactUrl_RedactsSecretQueryParams()
+        // TS 的 searchParams.set 对值做百分号编码。
         => Assert.Equal(
-            "https://api.example.com/v1?api_key=***&q=ok",
+            "https://api.example.com/v1?api_key=%3Credacted%3E&q=ok",
             BugReport.RedactUrl("https://api.example.com/v1?api_key=secret&q=ok"));
+
+    [Fact]
+    public void RedactUrl_StripsUserInfo()
+        => Assert.Equal("https://example.com/path?x=1", BugReport.RedactUrl("https://user:pass@example.com/path?x=1"));
+
+    [Fact]
+    public void RedactUrl_KeepsTheTrailingSlashWhenStrippingUserInfo()
+        => Assert.Equal("https://example.com/", BugReport.RedactUrl("https://tok@example.com/"));
+
+    [Fact]
+    public void RedactUrl_HandlesTheNestedSchemeForm()
+        => Assert.Equal(
+            "proxy:https://example.com/x?token=%3Credacted%3E&q=1",
+            BugReport.RedactUrl("proxy:https://user:pass@example.com/x?token=t&q=1"));
+
+    [Fact]
+    public void RedactUrl_MatchesCamelCaseQueryKeys()
+        => Assert.Equal(
+            "https://x.test/?apiKey=%3Credacted%3E&keep=1",
+            BugReport.RedactUrl("https://x.test/?apiKey=abc&keep=1"));
+
+    [Fact]
+    public void RedactUrl_LeavesNonUrlsAlone()
+        => Assert.Equal("not a url", BugReport.RedactUrl("not a url"));
+
+    [Fact]
+    public void RedactUrl_RedactsEverySecretQueryParam()
+        => Assert.Equal(
+            "https://x.test/?token=%3Credacted%3E&secret=%3Credacted%3E&password=%3Credacted%3E&q=1",
+            BugReport.RedactUrl("https://x.test/?token=a&secret=b&password=c&q=1"));
+
+    [Fact]
+    public void RedactUrl_LeavesNonSecretKeysThatStartWithASecretWord()
+        => Assert.Equal("https://x.test/?tokenizer=abc", BugReport.RedactUrl("https://x.test/?tokenizer=abc"));
+
+    [Theory]
+    [InlineData("apiKey", true)]
+    [InlineData("x-api-key", true)]
+    [InlineData("apikey", true)]
+    [InlineData("API_KEY", true)]
+    [InlineData("accessToken", true)]
+    [InlineData("refreshToken", true)]
+    [InlineData("passwd", true)]
+    [InlineData("cookie", true)]
+    [InlineData("authorization", true)]
+    [InlineData("my-token-value", true)]
+    [InlineData("tokenizer", false)]
+    [InlineData("secretx", false)]
+    [InlineData("privateKey", false)]   // TS 的 SENSITIVE_KEY 没有裸 "key"
+    [InlineData("model", false)]
+    public void IsSensitiveKey_MatchesTheTsRegex(string key, bool expected)
+        => Assert.Equal(expected, BugReport.IsSensitiveKey(key));
 
     [Fact]
     public void RedactJsonValue_RedactsSecretKeysAndNestedUrls()
     {
         var node = JsonNode.Parse("""{"apiKey":"sk-live","url":"https://x.test?token=abc","keep":1}""")!;
         var redacted = BugReport.RedactJsonValue(node)!.AsObject();
-        Assert.Equal("***", redacted["apiKey"]!.GetValue<string>());
-        Assert.Equal("https://x.test?token=***", redacted["url"]!.GetValue<string>());
+        Assert.Equal("<redacted>", redacted["apiKey"]!.GetValue<string>());
+        Assert.Equal("https://x.test/?token=%3Credacted%3E", redacted["url"]!.GetValue<string>());
         Assert.Equal(1, redacted["keep"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void RedactJsonValue_WalksNestedObjectsAndArrays()
+    {
+        var node = JsonNode.Parse("""{"a":{"api_key":"k","nested":[{"token":"t","ok":"https://y.test"}]}}""")!;
+        var redacted = BugReport.RedactJsonValue(node)!.AsObject();
+        var inner = redacted["a"]!.AsObject();
+        Assert.Equal("<redacted>", inner["api_key"]!.GetValue<string>());
+        var item = inner["nested"]!.AsArray()[0]!.AsObject();
+        Assert.Equal("<redacted>", item["token"]!.GetValue<string>());
+        Assert.Equal("https://y.test", item["ok"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void RedactJsonValue_KeepsNullValues()
+    {
+        var node = JsonNode.Parse("""{"token":null,"other":"x"}""")!;
+        var redacted = BugReport.RedactJsonValue(node)!.AsObject();
+        Assert.Null(redacted["token"]);
+        Assert.Equal("x", redacted["other"]!.GetValue<string>());
     }
 }
