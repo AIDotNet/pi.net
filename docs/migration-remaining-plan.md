@@ -2,7 +2,7 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`ca4b2a0`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → 4g-3b-1 `cc5bcaa` → 4g-3b-2 `70c9e9f` → **4g-3b-3 `ca4b2a0`**）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`8500da8`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → 4g-3b-1 `cc5bcaa` → 4g-3b-2 `70c9e9f` → 4g-3b-3 `ca4b2a0` → **4g-3b-4 `8500da8`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
 > 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C318`）。
 
@@ -58,7 +58,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | 子批 | 范围 | 行数 | 状态 |
 | --- | --- | --- | --- |
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
-| **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）；余 3 文件 |
+| **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）+ 末段 ✅ `8500da8`（0.23）；余 `server.ts` / `connection.ts` |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | |
 | 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
@@ -399,6 +399,31 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
 - **`env.use` → `Require` + `Use` 拆分**：built-in facet 依赖六个服务，TS 在 `setup` 里直接 `env.use(...)`；C# 的 `IFacetEnvironment.Use` 要求装配后才能调用，故 `Setup` 里 `Require` 六个、`OnActivate` 里 `Use` 六个。
 - **Pi.Durable 两处修正**：① `DocumentState<T>` 补 `Subscribe`——TS 的 `DocumentState<T>` 是 `AttachedReplicatedState` 的别名（带 `subscribe`），C# 包装类只留了 `Value`/`Dispose`，models-provider 的 `agent.subscribe(...)` 无处可去；② `AgentDocs.ApplyChange` 的 `thinkingLevel` 从 `CamelCase(level.ToString())` 改为 `ThinkingLevelText.ToText(level)`（C320）——前者把 `XHigh` 存成 `"xHigh"`，TS 恒存 `"xhigh"`；C# 侧大小写不敏感解析所以行为不坏，但落盘文本与 TS 不一致。
 - **4g-3b-3 至此完成 3/5**。余 `worker.ts`(157) / `server.ts`(151) / `connection.ts`(399)。
+
+### 0.23 4g-3b-4 provider 末段 + 服务线成员层（`8500da8`，2026-10-18）
+
+- **范围**：`worker.ts`(157) + 新增 `Services/ServiceWire.cs`（TS 无对应文件，是 C# 侧的线成员层）。测试 **+6 例**（`SessionWorkerProviderTests`）；`Pi.Chord.Tests` 93/0、`Pi.Durable.Tests` 339/0（其中 1 例首次运行偶发失败、重跑通过，属已知时序敏感族）。
+- **本批最重要的发现：C# chord 的远程发布只接受「成员字典」**。TS 的 `env.provide(Service, plainObject)` 由 chord 的
+  `classifyRemoteServiceImplementation` 自动把对象的自有属性分类成线成员（函数→方法，复制态→状态，属性名即线成员名）。
+  C# 的 `AssembleProviders.IsPublishable` 只认 `IReadOnlyDictionary<string, object>`，因此**类型化服务实现无法被远程发布**，
+  `FacetHost.Services` 在没有可发布供给时直接抛 "Facet service provider is not assembled"——worker.ts 整条链因此跑不通。
+- **解决方案（C325）**：服务实现改为**双身份**——派生 `ServiceWireAdapter`（线成员字典，`WireMembers()` 覆写给出成员）+ 实现服务接口
+  （类型化本地视图）。`environment.Use(Models.Service)` 仍拿得到 `IModels`（槽里绑的就是同一个对象），远程发布看到的是成员字典。
+  成员名用 TS 属性名（`cycleThinking` / `getThinkingLevels` / `select` / `selectThinking` / `prompt` / `steer` / `followUp` /
+  `cancelQueued` / `abort` / `compact` / `waitForPrompt` / `reload` / `state`），DTO 读/写在 `ServiceWireValues` 里按
+  `JSON.stringify` 的键序逐字对应（`accepted`→`operationId`→`error`、`accepted`→`entryId`→`error`、`status`→`text`→`reason`）。
+- **顺带修掉 chord 的一处保真度缺陷（C324）**：`RemoteServiceProvider.Invoke` 原本 `await Task.FromResult(method.Invoke(args))`，
+  成员若返回 `Task` 会把 **Task 对象本身**当结果返回（TS 是 `await Reflect.apply(...)`，允许成员返回 Promise）。本层服务方法全是异步，
+  不修则全线不可用。现按 `Task<object?>` 优先、其余 `Task` 形状反射取 `Result` 展开。
+- **worker 的装配顺序**（TS 同序）：两个 runtime facet（`@pi/agent-controller-runtime` / `@pi/session-plugins-runtime`，
+  后者的 `reload` 初始是拒绝桩 "Session plugins are not ready"，装配完成后由 worker 换成尾链实现）→ models facet → transcript facet
+  → `createStaticFacetLoader(...).load()` → plugin loader 首次 load → `createFacetHost`（失败时反序清理，单错原样抛/多错 AggregateException）
+  → reload 尾链（`reloadTail.then(...)`，失败也吞进尾链保证串行）→ 按 scope 建端点（key = `serverConnectionId attachmentId`）。
+- **`Invoke` 的返回值**：TS 的 endpoint.invoke 内部处理控制调用（catalogue/subscribe/unsubscribe），C# 的
+  `RemoteServiceEndpoint.InvokeAsync` 同样内部处理并返回 `(IsControl, Result)`，worker 直接返回 `Result`——与 TS 的
+  `JsonValue | undefined` 观察行为一致（unsubscribe 对应 null）。
+- **4g-3b 至此全部收口**（14 文件全部落地）。下一阶段 **4g-3c**：`coordinator.ts`(?) / `server.ts`(151) / `connection.ts`(399) /
+  `plugins/*`，届时 `connection.ts` 的 `RoutedServiceBinding` 改写方案以 0.21 节记录为准。
 
 ---
 

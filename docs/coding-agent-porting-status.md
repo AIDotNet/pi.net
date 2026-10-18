@@ -6750,3 +6750,30 @@ TS 两个文件共 **398 行**，C# 落 `src/Pi.CodingAgent/Experimental/Service
 | C321 | **`publish` 遍历实时集合而非快照** | TS 的 `#listeners` 是 `Set`，`for...of` 边遍历边删：先到的监听器退订后到者，后到者不被访问。C# 用「快照 + 跳过已不在集合者」复刻（实测 JS Set 两种删除形态后写入测试） |
 | C322 | **`THINKING_DESCRIPTIONS` 用 switch 而非字典** | 表驱动常量按 `ThinkingLevel` 枚举穷尽，编译期保证无缺项；TS 侧是 `Record<ModelThinkingLevel, string>` |
 | C323 | **`SlashCommandContribution` 的可选成员 → 可空属性** | `description?` / `argumentHint?` / `getArgumentCompletions?` 在 C# 接口里是可空属性（实现方返回 `null`）；`Object.freeze({...command})` 的浅拷贝无语义对应物——C# 贡献按约定不可变 |
+
+## 4g-3b-4 provider 末段 + 服务线成员层（worker / ServiceWire）
+
+TS `worker.ts`(157) + TS 无对应文件的 `Services/ServiceWire.cs`：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `services/worker.ts` | 157 | `Services/SessionWorkerProvider.cs` | `SessionWorkerOptions` / `WorkerServiceScope` / `SessionWorkerServices` / `CreateSessionWorkerServicesAsync` + 两个 runtime facet + `SessionPluginsState`（可换的 reload 钩子） |
+| ——（chord 隐式完成） | —— | `Services/ServiceWire.cs` | `ServiceWireAdapter` 基类 + `ServiceWireValues`（DTO 线形状读/写） |
+
+** chord 远程发布的成员字典约束（C325）**：TS 的 `classifyRemoteServiceImplementation` 自动分类普通对象的自有属性；C# 只发布
+`IReadOnlyDictionary<string, object>`（值必须是 `Func<object?[], object?>` 或 `IReplicatedStateInternals`）。故四个服务的实现类
+同时实现服务接口与成员字典：本地 `Use<T>` 拿类型化视图，远程发布拿线成员。
+
+**线成员名与 DTO 形状**（均与 TS 属性名 / `JSON.stringify` 键序逐字一致）：`state` / `cycleThinking` / `getThinkingLevels` /
+`refresh` / `select` / `selectThinking`；`prompt` / `steer` / `followUp` / `cancelQueued` / `abort` / `compact` /
+`waitForPrompt`；`reload`。三个回复联合都写成**三键全带**的对象（`error`/`reason` 为 null 时也写 `null`），与 TS 的类型定义一致。
+
+### 4g-3b-4 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C324 | **chord 的远程方法调用补 Task 展开** | TS `await Reflect.apply(member.method, …)` 允许成员返回 Promise；C# 原实现把 `Task` 对象本身当结果返回，异步方法成员全线不可用。现按 `Task<object?>` 优先、其余 `Task` 形状反射取 `Result` |
+| C325 | **服务实现是「类型化视图 + 线成员字典」双身份** | TS 的普通对象由 chord 自动分类；C# 需要显式成员字典。实现类派生 `ServiceWireAdapter`（`WireMembers()` 覆写）并实现服务接口，一个对象两种角色 |
+| C326 | **`SessionPlugins` 的 reload 钩子用可换委托承载** | TS 重新赋值闭包变量 `reloadPlugins`；C# 用 `SessionPluginsState.Reload` 属性，初值为拒绝桩 "Session plugins are not ready" |
+| C327 | **目录在 provider 侧是 CLR 条目、过线才是 JSON** | `RemoteServiceEndpoint.InvokeAsync` 直接返回 `_provider.Catalogue`（`IReadOnlyList<ServiceCatalogueEntry>`）；`ServiceWire.ParseServiceCatalogue` 读的是传输序列化后的值树。测试据此分侧断言 |
+| C328 | **未知服务的异常是 chord `RemoteServiceError`** | TS 抛 chord 的 `RemoteServiceError`（`service_not_allowed`）；C# 同类型，非 `InvalidOperationException` |
