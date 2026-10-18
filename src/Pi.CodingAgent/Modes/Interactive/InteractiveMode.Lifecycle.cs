@@ -34,6 +34,7 @@ using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Core.Extensions.Types;
 using Pi.CodingAgent.Modes.Interactive.Components;
+using Pi.CodingAgent.Utils.Image;
 using Pi.CodingAgent.Utils;
 using Pi.Tui;
 using Pi.Tui.Components;
@@ -907,12 +908,69 @@ public partial class InteractiveMode
     }
 
     /// <summary>
-    /// Seam: TS <c>handleClipboardPaste</c> (L3132-3172) needs the editor's optional cursor APIs
-    /// (<c>getCursor?</c> / <c>insertTextAtCursor?</c>), which the editor port has not exposed yet.
-    /// Lands with the 4f-4m-4 input batch.
+    /// TS <c>handleClipboardPaste</c> (L3132-3172): clipboard file paths (quoted in bash mode),
+    /// then an image written to a temp file, then plain text — inserted at the cursor with
+    /// separator-aware spacing.
     /// </summary>
-    private Task HandleClipboardPasteAsync() =>
-        throw new NotImplementedException("4f-4m-4 input batch: handleClipboardPaste (TS L3132-3172)");
+    private async Task HandleClipboardPasteAsync()
+    {
+        try
+        {
+            var filePaths = await Clipboard.ReadClipboardFilePathsAsync().ConfigureAwait(true);
+            if (filePaths is not null)
+            {
+                if (filePaths.Any(filePath => ControlCharacterRegex().IsMatch(filePath)))
+                {
+                    throw new InvalidOperationException("Clipboard file path contains control characters");
+                }
+
+                var paths = _isBashMode
+                    ? string.Join(" ", filePaths.Select(InteractiveModeSupport.QuoteIfNeeded))
+                    : string.Join("\n", filePaths);
+                var cursor = _editor.GetCursor();
+                var currentLine = _editor.GetText().Split('\n');
+                var line = cursor.Line < currentLine.Length ? currentLine[cursor.Line] : "";
+                var characterBeforeCursor = cursor.Col > 0 && cursor.Col <= line.Length ? line[cursor.Col - 1].ToString() : "";
+                var characterAfterCursor = cursor.Col < line.Length ? line[cursor.Col].ToString() : "";
+                var leadingSpace = characterBeforeCursor.Length > 0 && !WhitespaceRegex().IsMatch(characterBeforeCursor) ? " " : "";
+                var trailingSpace = characterAfterCursor.Length > 0 && !WhitespaceRegex().IsMatch(characterAfterCursor) ? " " : "";
+                _editor.InsertTextAtCursor($"{leadingSpace}{paths}{trailingSpace}");
+                _ui.RequestRender();
+                return;
+            }
+
+            var image = await ClipboardImageApi.ReadClipboardImageAsync().ConfigureAwait(true);
+            if (image is not null)
+            {
+                var tmpDir = Path.GetTempPath();
+                var ext = ClipboardImageApi.ExtensionForImageMimeType(image.MimeType) ?? "png";
+                var fileName = $"pi-clipboard-{Guid.NewGuid():D}.{ext}";
+                var filePath = Path.Combine(tmpDir, fileName);
+                File.WriteAllBytes(filePath, image.Bytes);
+
+                _editor.InsertTextAtCursor(filePath);
+                _ui.RequestRender();
+                return;
+            }
+
+            var text = await Clipboard.ReadClipboardTextAsync().ConfigureAwait(true);
+            if (!string.IsNullOrEmpty(text))
+            {
+                _editor.InsertTextAtCursor(text);
+                _ui.RequestRender();
+            }
+        }
+        catch (Exception error)
+        {
+            ShowError($"Failed to paste from clipboard: {error.Message}");
+        }
+    }
+
+    [GeneratedRegex(@"\p{Cc}")]
+    private static partial Regex ControlCharacterRegex();
+
+    [GeneratedRegex(@"\s")]
+    private static partial Regex WhitespaceRegex();
 
     // ---------------------------------------------------------------- clipboard (L3118-3172)
 
@@ -1252,13 +1310,14 @@ public partial class InteractiveMode
     }
 
     /// <summary>TS <c>handleResumeSession</c> (L5730-5765).</summary>
-    internal async Task<bool> HandleResumeSessionAsync(string sessionPath)
+    internal async Task<bool> HandleResumeSessionAsync(string sessionPath, SwitchSessionOptions? options = null)
     {
         ClearStatusIndicator();
         try
         {
             var result = await _runtimeHost.SwitchSessionAsync(sessionPath, new SwitchSessionRuntimeOptions
             {
+                WithSession = options?.WithSession,
                 ProjectTrustContextFactory = CreateProjectTrustContext,
             }).ConfigureAwait(true);
             if (result.Cancelled)
@@ -1281,6 +1340,7 @@ public partial class InteractiveMode
             var result = await _runtimeHost.SwitchSessionAsync(sessionPath, new SwitchSessionRuntimeOptions
             {
                 CwdOverride = selectedCwd,
+                WithSession = options?.WithSession,
                 ProjectTrustContextFactory = CreateProjectTrustContext,
             }).ConfigureAwait(true);
             if (result.Cancelled)
@@ -1337,9 +1397,12 @@ public partial class InteractiveMode
 
     internal string GetEditorText() => _editor.GetText();
 
-    /// <summary>Seam: the autocomplete stack lands with the 4f-4m-5 closeout (TS addAutocompleteProvider).</summary>
-    internal void AddAutocompleteProvider(AutocompleteProviderFactory factory) =>
-        throw new NotImplementedException("4f-4m-5 closeout: addAutocompleteProvider (autocomplete assembly)");
+    /// <summary>TS <c>ui.addAutocompleteProvider</c> (L2650-2653): register a wrapper and rebuild.</summary>
+    internal void AddAutocompleteProvider(AutocompleteProviderFactory factory)
+    {
+        _autocompleteProviderWrappers.Add(factory);
+        SetupAutocompleteProvider();
+    }
 
     // ---------------------------------------------------------------- tree selector (L5538-5685)
 
@@ -1523,9 +1586,12 @@ public partial class InteractiveMode
         }
     }
 
-    /// <summary>Seam: pasteToEditor needs the editor's optional cursor APIs (4f-4m-4 input batch).</summary>
+    /// <summary>
+    /// TS <c>ui.pasteToEditor</c> (L2646): feed the text through the editor as a bracketed paste,
+    /// exactly what the right-click paste path does.
+    /// </summary>
     internal void PasteToEditor(string text) =>
-        throw new NotImplementedException("4f-4m-4 input batch: pasteToEditor (editor cursor APIs)");
+        _editor.HandleInput($"\x1b[200~{text}\x1b[201~");
 
     /// <summary>The interactive-mode UI surface handed to extensions and the trust flow.</summary>
     private sealed class ExtensionUIContextImplementation(InteractiveMode owner) : IExtensionUIContext
@@ -1591,19 +1657,16 @@ public partial class InteractiveMode
 
         public void SetEditorComponent(EditorFactory? factory) => owner.SetCustomEditorComponent(factory);
 
-        /// <summary>Seam: the stored custom-editor factory accessor lands with the 4f-4m-5 closeout.</summary>
-        public EditorFactory? GetEditorComponent() =>
-            throw new NotImplementedException("4f-4m-5 closeout: getEditorComponent (custom editor factory storage)");
+        /// <summary>TS <c>ui.getEditorComponent</c> (L2655): the stored custom-editor factory.</summary>
+        public EditorFactory? GetEditorComponent() => owner._editorComponentFactory;
 
         public Theme Theme => ThemeRuntime.Current;
 
-        /// <summary>Seam: the theme listing lands with the settings/theme batch (TS getAllThemes).</summary>
-        public IReadOnlyList<ThemeInfo> GetAllThemes() =>
-            throw new NotImplementedException("4f-4m theme batch: getAllThemes (resource loader themes)");
+        /// <summary>TS <c>ui.getAllThemes</c> (L2659): the registered themes with their paths.</summary>
+        public IReadOnlyList<ThemeInfo> GetAllThemes() => ThemeRuntime.GetAvailableThemesWithPaths();
 
-        /// <summary>Seam: theme loading by name lands with the settings/theme batch (TS getTheme).</summary>
-        public Theme? GetTheme(string name) =>
-            throw new NotImplementedException("4f-4m theme batch: getTheme (resource loader themes)");
+        /// <summary>TS <c>ui.getTheme</c> (L2660): load a registered theme by name.</summary>
+        public Theme? GetTheme(string name) => ThemeRuntime.GetThemeByName(name);
 
         public SetThemeResult SetTheme(string name)
         {

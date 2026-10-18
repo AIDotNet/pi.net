@@ -649,9 +649,10 @@ public partial class AgentSession
             }
         }
 
-        // 缝：loader 的 systemPrompt / appendSystemPrompt 发现随 loader 批次落地（见 remarks）。
-        const string? loaderSystemPrompt = null;
-        const string appendSystemPrompt = "";
+        // TS loader 的 systemPrompt / appendSystemPrompt 发现（SYSTEM.md / APPEND_SYSTEM.md，
+        // 项目级受信任门控）随本批落地：内容经 CustomPrompt / AppendSystemPrompt 进入
+        // system-prompt 装配，来源路径由 loader 的 SystemPromptSourcePath /
+        // AppendSystemPromptSourcePaths 承载（loaded-resources 展示用）。
         var loadedSkills = _resourceLoader.Skills;
         var loadedContextFiles = _resourceLoader.AgentsFiles;
 
@@ -660,8 +661,8 @@ public partial class AgentSession
             Cwd = _cwd,
             Skills = loadedSkills,
             ContextFiles = loadedContextFiles,
-            CustomPrompt = loaderSystemPrompt,
-            AppendSystemPrompt = appendSystemPrompt,
+            CustomPrompt = _resourceLoader.SystemPrompt,
+            AppendSystemPrompt = string.Join("\n\n", _resourceLoader.AppendSystemPrompt),
             SelectedTools = validToolNames,
             HiddenTools = [.. _hiddenDeclarations],
             ToolSnippets = toolSnippets,

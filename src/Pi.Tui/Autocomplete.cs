@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using Pi.Tui.Components;
 
 namespace Pi.Tui;
 
@@ -84,8 +85,10 @@ public sealed class ItemCommand : AutocompleteCommand
     internal override Func<string, Task<IReadOnlyList<AutocompleteItem>?>>? CommandArgumentCompletions => null;
 }
 
-/// <summary>Port of <c>autocomplete.ts</c>: slash-command and file-path completion.</summary>
-public sealed class CombinedAutocompleteProvider
+/// <summary>
+/// Port of <c>autocomplete.ts</c>: slash-command and file-path completion.
+/// </summary>
+public sealed class CombinedAutocompleteProvider : IAutocompleteProvider
 {
     private static readonly HashSet<char> PathDelimiters = [' ', '\t', '"', '\'', '='];
 
@@ -109,6 +112,13 @@ public sealed class CombinedAutocompleteProvider
         _basePath = basePath;
         _fdPath = fdPath;
     }
+
+    /// <summary>
+    /// TS leaves <c>triggerCharacters</c> undefined on this class; the editor then keeps its own
+    /// defaults (the wrappers' union is applied by the caller, as in TS
+    /// <c>setupAutocompleteProvider</c>).
+    /// </summary>
+    public IReadOnlyList<string>? TriggerCharacters => null;
 
     /// <summary>
     /// Test seam replacing the <c>fd</c> child process (the sandbox equivalent of the harness's

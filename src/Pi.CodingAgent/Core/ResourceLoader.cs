@@ -145,9 +145,18 @@ public sealed class DefaultResourceLoader
 
     public IReadOnlyList<Skill> Skills { get; private set; } = [];
 
+    /// <summary>TS <c>getSkills().diagnostics</c>。</summary>
+    public IReadOnlyList<ResourceDiagnostic> SkillDiagnostics => _skillDiagnostics;
+
     public IReadOnlyList<PromptTemplate> Prompts { get; private set; } = [];
 
+    /// <summary>TS <c>getPrompts().diagnostics</c>。</summary>
+    public IReadOnlyList<ResourceDiagnostic> PromptDiagnostics => _promptDiagnostics;
+
     public IReadOnlyList<LoadedTheme> Themes { get; private set; } = [];
+
+    /// <summary>TS <c>getThemes().diagnostics</c>。</summary>
+    public IReadOnlyList<ResourceDiagnostic> ThemeDiagnostics => _themeDiagnostics;
 
     public IReadOnlyList<ContextFile> AgentsFiles { get; private set; } = [];
 
@@ -304,7 +313,109 @@ public sealed class DefaultResourceLoader
         diagnostics.AddRange(_themeDiagnostics);
 
         AgentsFiles = _noContextFiles ? [] : LoadProjectContextFiles(_cwd, _agentDir);
+        LoadSystemPromptSources();
         Diagnostics = diagnostics;
+    }
+
+    // ---------------------------------------------------------------- system prompt sources
+
+    /// <summary>
+    /// TS <c>resourceLoader.systemPrompt</c>: the resolved custom system prompt content, or
+    /// <c>null</c> when no SYSTEM.md was discovered (the built-in default applies).
+    /// </summary>
+    public string? SystemPrompt { get; private set; }
+
+    /// <summary>
+    /// TS <c>getSystemPromptSource()</c>: the discovered SYSTEM.md path (resolved absolute), or
+    /// <c>null</c> when none exists. Used by the loaded-resources listing.
+    /// </summary>
+    public string? SystemPromptSourcePath { get; private set; }
+
+    /// <summary>TS <c>resourceLoader.appendSystemPrompt</c>: the resolved append fragments.</summary>
+    public IReadOnlyList<string> AppendSystemPrompt { get; private set; } = [];
+
+    /// <summary>TS <c>getAppendSystemPromptSources()</c>: the discovered APPEND_SYSTEM.md paths.</summary>
+    public IReadOnlyList<string> AppendSystemPromptSourcePaths { get; private set; } = [];
+
+    /// <summary>
+    /// TS <c>discoverSystemPromptFile</c> (L1209-1221): project SYSTEM.md only when the project is
+    /// trusted, then the global one.
+    /// </summary>
+    private string? DiscoverSystemPromptFile()
+    {
+        var projectPath = Path.Combine(_cwd, Config.ConfigDirName, "SYSTEM.md");
+        if (_settings.IsProjectTrusted() && File.Exists(projectPath))
+        {
+            return projectPath;
+        }
+
+        var globalPath = Path.Combine(_agentDir, "SYSTEM.md");
+        return File.Exists(globalPath) ? globalPath : null;
+    }
+
+    /// <summary>TS <c>discoverAppendSystemPromptFile</c> (L1223-1235): same trust gate, APPEND_SYSTEM.md.</summary>
+    private string? DiscoverAppendSystemPromptFile()
+    {
+        var projectPath = Path.Combine(_cwd, Config.ConfigDirName, "APPEND_SYSTEM.md");
+        if (_settings.IsProjectTrusted() && File.Exists(projectPath))
+        {
+            return projectPath;
+        }
+
+        var globalPath = Path.Combine(_agentDir, "APPEND_SYSTEM.md");
+        return File.Exists(globalPath) ? globalPath : null;
+    }
+
+    /// <summary>TS <c>resolvePromptInput</c> (L167-184): read the file (BOM-stripped) or pass the text through.</summary>
+    private static string? ResolvePromptInput(string? input, string description)
+    {
+        if (string.IsNullOrEmpty(input))
+        {
+            return null;
+        }
+
+        if (File.Exists(input))
+        {
+            try
+            {
+                return Text.StripBom(File.ReadAllText(input));
+            }
+            catch (Exception error)
+            {
+                Console.WriteLine($"Warning: Could not read {description} file {input}: {error.Message}");
+                return input;
+            }
+        }
+
+        return input;
+    }
+
+    /// <summary>
+    /// TS loader's system-prompt block (L653-679). Design note: the TS loader options carry explicit
+    /// <c>systemPrompt</c> / <c>appendSystemPrompt</c> sources plus override hooks (used by tests and
+    /// the SDK, which passes an empty string); the port's loader has no such parameters, so only the
+    /// discovery path is modelled — the SDK's empty-string source resolves to no custom prompt,
+    /// which is what discovery produces when no SYSTEM.md exists (registered difference).
+    /// </summary>
+    private void LoadSystemPromptSources()
+    {
+        var systemPromptSource = DiscoverSystemPromptFile();
+        SystemPrompt = ResolvePromptInput(systemPromptSource, "system prompt");
+        SystemPromptSourcePath = systemPromptSource is not null && File.Exists(systemPromptSource)
+            ? Paths.ResolvePath(systemPromptSource)
+            : null;
+
+        var appendSource = DiscoverAppendSystemPromptFile();
+        var appendSources = appendSource is null ? [] : new[] { appendSource };
+        AppendSystemPrompt = appendSources
+            .Select(source => ResolvePromptInput(source, "append system prompt"))
+            .Where(content => content is not null)
+            .Select(content => content!)
+            .ToList();
+        AppendSystemPromptSourcePaths = appendSources
+            .Where(source => File.Exists(source))
+            .Select(source => Paths.ResolvePath(source))
+            .ToList();
     }
 
     /// <summary>

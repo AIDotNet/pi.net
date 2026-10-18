@@ -13,6 +13,21 @@ public sealed record BashExecutorOptions
     public CancellationToken CancellationToken { get; init; }
 }
 
+/// <summary>
+/// <see cref="AgentSession.ExecuteBashAsync"/> 的选项。对应 TS <c>executeBash</c> 的内联 options。
+/// </summary>
+public sealed record ExecuteBashOptions
+{
+    /// <summary>true 时该结果不进 LLM 上下文（<c>!!</c> 前缀）。</summary>
+    public bool? ExcludeFromContext { get; init; }
+
+    /// <summary>流式更新事件的 id（TS <c>id?</c>）。</summary>
+    public string? Id { get; init; }
+
+    /// <summary>自定义执行操作（SSH、容器等）。缺省走本地 shell。</summary>
+    public IBashToolOperations? Operations { get; init; }
+}
+
 /// <summary>对应 TS <c>BashResult</c>。</summary>
 public sealed record BashResult
 {

@@ -1305,4 +1305,396 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
             mode.DisposeActiveSelector();
         }
     }
+
+    // ==================================================================
+    // 4f-4m-5a：命令族前半（thinking / model / clone / trust）
+    // ==================================================================
+
+    [Fact]
+    public async Task HandleThinkingCommandWithoutArgumentMountsTheSelector()
+    {
+        var mode = await CreateModeAsync();
+        try
+        {
+            mode.HandleThinkingCommand(null);
+
+            Assert.IsType<ThinkingSelectorComponent>(mode.EditorContainerChildrenForTests[0]);
+        }
+        finally
+        {
+            mode.DisposeActiveSelector();
+        }
+    }
+
+    [Fact]
+    public async Task HandleThinkingCommandWithUnknownLevelListsTheAvailableLevels()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleThinkingCommand("bogus");
+
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("Unknown thinking level \"bogus\"", rendered);
+        // 可用等级清单来自 session.getAvailableThinkingLevels()（stub 模型 reasoning=true → 全档）。
+        Assert.Contains("Available levels:", rendered);
+    }
+
+    [Fact]
+    public async Task HandleThinkingCommandWithValidLevelSetsTheLevelAndWritesTheStatus()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+
+        mode.HandleThinkingCommand("high");
+
+        Assert.Equal(Pi.Ai.Types.ThinkingLevel.High, host.Session.ThinkingLevel);
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("Thinking level: high", rendered);
+    }
+
+    [Fact]
+    public async Task HandleThinkingCommandTrimsAndMatchesCaseInsensitively()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+
+        mode.HandleThinkingCommand("  HIGH  ");
+
+        Assert.Equal(Pi.Ai.Types.ThinkingLevel.High, host.Session.ThinkingLevel);
+        // 非 persist：状态文案不带 Default 前缀。
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("Thinking level: high", rendered);
+        Assert.DoesNotContain("Default thinking level", rendered);
+    }
+
+    [Fact]
+    public async Task HandleModelCommandWithoutArgumentMountsTheSelector()
+    {
+        var mode = await CreateModeAsync();
+        try
+        {
+            await mode.HandleModelCommandAsync(null);
+
+            Assert.IsType<ModelSelectorComponent>(mode.EditorContainerChildrenForTests[0]);
+        }
+        finally
+        {
+            mode.DisposeActiveSelector();
+        }
+    }
+
+    [Fact]
+    public async Task HandleModelCommandWithExactReferenceSelectsTheModelWithoutRefreshing()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+
+        await mode.HandleModelCommandAsync("stub/stub-chat");
+
+        Assert.Equal("stub-chat", host.Session.Model?.Id);
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("Model: stub-chat", rendered);
+    }
+
+    [Fact]
+    public async Task HandleModelCommandWithoutExactMatchOpensTheSelectorWithTheSearchTerm()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+        // scoped 非空时 findExactModelMatch 只查 scoped 快照、不触发目录刷新（TS 同款短路）。
+        host.Session.SetScopedModels([new ScopedModel { Model = host.Session.Model! }]);
+        try
+        {
+            await mode.HandleModelCommandAsync("no-such-model");
+
+            var selector = Assert.IsType<ModelSelectorComponent>(mode.EditorContainerChildrenForTests[0]);
+            Assert.Equal("no-such-model", selector.GetSearchInput().GetValue());
+        }
+        finally
+        {
+            mode.DisposeActiveSelector();
+        }
+    }
+
+    [Fact]
+    public async Task ShowTrustSelectorMountsTheSelectorWithTheSavedDecision()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.ShowTrustSelector();
+
+        var selector = Assert.IsType<TrustSelectorComponent>(mode.EditorContainerChildrenForTests[0]);
+        _ = selector;
+        mode.DisposeActiveSelector();
+    }
+
+    // 「Nothing to clone yet」分支需要 sessionManager 无任何条目（getLeafId() 为 null）。
+    // 本夹具的会话在创建时即记录了模型选择条目，故 leafId 恒非空——与 TS 侧同一夹具语义相同：
+    // fork(position:"at") 走到 isPersisted 分支，而会话文件尚未落盘（首条 user/assistant
+    // 消息才触发 Persist），抛 "This session has not been saved yet..." 被 handleCloneCommand
+    // 的 catch 收成 showError。空清单分支在移植语义下不可达，此处钉住实际路径。
+    [Fact]
+    public async Task HandleCloneCommandWithoutASavedSessionFileShowsTheError()
+    {
+        var mode = await CreateModeAsync();
+
+        await mode.HandleCloneCommandAsync();
+
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("This session has not been saved yet", rendered);
+    }
+
+    [Fact]
+    public async Task HandleCloneCommandForksAtTheLeafAndClearsTheEditor()
+    {
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello world");
+        var mode = await CreateModeAsync(host: host);
+        var beforeSession = host.Session;
+        mode.EditorForTests.SetText("draft");
+
+        await mode.HandleCloneCommandAsync();
+
+        Assert.NotSame(beforeSession, host.Session);
+        Assert.Empty(mode.EditorForTests.GetText());
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("Cloned to new session", rendered);
+    }
+    // ==================================================================
+    // 4f-4m-5c：命令族后半（export/import/session/changelog/hotkeys/
+    // armin/demented/bash/compact/reload + 启动通知与剪贴板）
+    // ==================================================================
+
+    [Fact]
+    public async Task HandleExportCommandWritesTheJsonlFile()
+    {
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello world");
+        var mode = await CreateModeAsync(host: host);
+        var output = Path.Combine(_root, "export.jsonl");
+
+        await mode.HandleExportCommandAsync("/export " + output);
+
+        Assert.True(File.Exists(output));
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("Session exported to:", rendered);
+    }
+
+    [Fact]
+    public async Task HandleExportCommandDefaultsToHtmlWithoutTheJsonlSuffix()
+    {
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello world");
+        var mode = await CreateModeAsync(host: host);
+        var output = Path.Combine(_root, "export.html");
+
+        await mode.HandleExportCommandAsync("/export " + output);
+
+        Assert.True(File.Exists(output));
+        Assert.Contains("<html", File.ReadAllText(output).ToLowerInvariant());
+    }
+
+    [Fact]
+    public async Task HandleImportCommandWithoutAPathShowsTheUsageError()
+    {
+        var mode = await CreateModeAsync();
+
+        await mode.HandleImportCommandAsync("/import");
+
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(80)));
+        Assert.Contains("Usage: /import <path.jsonl>", rendered);
+    }
+
+    [Fact]
+    public async Task HandleSessionCommandRendersTheSessionInfoDocument()
+    {
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello world");
+        var mode = await CreateModeAsync(host: host);
+
+        mode.HandleSessionCommand();
+
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(120)));
+        Assert.Contains("Session Info", rendered);
+        Assert.Contains("Messages", rendered);
+        Assert.Contains("Tokens", rendered);
+        Assert.Contains("Cache Warming", rendered);
+    }
+
+    [Fact]
+    public async Task HandleChangelogCommandRendersTheNoEntriesNotice()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleChangelogCommand();
+
+        var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
+        Assert.Contains("No changelog entries found", rendered);
+    }
+
+    [Fact]
+    public async Task HandleHotkeysCommandRendersTheShortcutTables()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleHotkeysCommand();
+
+        var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
+        // Markdown 渲染会吃掉 `**` 加粗标记，故断言渲染后的纯文本（与 1053 行同款模式）。
+        Assert.Contains("Keyboard Shortcuts", rendered);
+        Assert.Contains("Navigation", rendered);
+        Assert.Contains("Editing", rendered);
+        Assert.Contains("Move cursor / browse history", rendered);
+        Assert.Contains("Send message", rendered);
+    }
+
+    [Fact]
+    public async Task HandleArminSaysHiMountsTheArminComponent()
+    {
+        // TS playArmin3d 在 alt-screen（fullscreen）下返回 true——3D 彩蛋已异步拉起，
+        // 不再挂内联组件；只有常规模式才会走 ArminComponent 回退分支（easter-egg-3d.lazy.ts L8-17）。
+        var mode = await CreateModeAsync(o => o with { TuiMode = TuiMode.Regular });
+
+        mode.HandleArminSaysHi();
+
+        Assert.IsType<ArminComponent>(mode.ChatChildrenForTests[^1]);
+    }
+
+    [Fact]
+    public async Task HandleDementedDelvesMountsTheAnnouncementComponent()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.HandleDementedDelves();
+
+        Assert.IsType<EarendilAnnouncementComponent>(mode.ChatChildrenForTests[^1]);
+    }
+
+    [Fact]
+    public async Task HandleBashCommandRunsTheCommandAndRecordsTheResult()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+
+        // TS 参照测试（interactive-mode.test.ts 的 ! 命令用例）同样只跑 `echo hi`；这里不再加
+        // Windows 专属的 `cmd /c echo hi` 变体——本机 Bash 工具沙箱会挂起 cmd.exe 的派生态
+        // （安全层把系统程序解析到 WSL 路径并拦截），导致该用例无限期挂起；经 PowerShell 工具
+        // 验证原实现可通过，故统一用 bash 内建 echo，覆盖的执行路径完全相同。
+        await mode.HandleBashCommandAsync("echo hi");
+
+        var component = mode.ChatChildrenForTests.OfType<BashExecutionComponent>().Last();
+        var rendered = AnsiText.StripAnsi(string.Join("\n", component.Render(100)));
+        Assert.Contains("hi", rendered);
+        Assert.Contains(
+            host.Session.SessionManager.GetEntries(),
+            e => e is SessionMessageEntry { Message: Pi.CodingAgent.Core.BashExecutionMessage });
+    }
+
+    [Fact]
+    public async Task HandleBashCommandWithTheBangBangPrefixExcludesTheResultFromContext()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+
+        await mode.HandleBashCommandAsync("echo hi", excludeFromContext: true);
+
+        var entry = host.Session.SessionManager.GetEntries()
+            .OfType<SessionMessageEntry>()
+            .Select(e => e.Message)
+            .OfType<Pi.CodingAgent.Core.BashExecutionMessage>()
+            .Last();
+        Assert.True(entry.ExcludeFromContext);
+    }
+
+    [Fact]
+    public async Task HandleCompactCommandEmitsTheCompactionLifecycleEvents()
+    {
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello world");
+        var mode = await CreateModeAsync(host: host);
+        var events = new List<string>();
+        using var subscription = host.Session.Subscribe(e => events.Add(e.GetType().Name));
+
+        await mode.HandleCompactCommandAsync();
+
+        Assert.Contains("CompactionStartEvent", events);
+        Assert.Contains("CompactionEndEvent", events);
+    }
+
+    [Fact]
+    public async Task HandleReloadCommandShowsTheReloadedStatus()
+    {
+        var mode = await CreateModeAsync();
+
+        await mode.HandleReloadCommandAsync();
+
+        var rendered = AnsiText.StripAnsi(string.Join("\n", mode.ChatChildrenForTests[^1].Render(120)));
+        Assert.Contains("Reloaded keybindings, extensions, skills, prompts, themes, and context files", rendered);
+        Assert.Same(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+    }
+
+    [Fact]
+    public async Task ShowLoadedResourcesForceRendersWithoutThrowing()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.ShowLoadedResources(new LoadedResourcesOptions { Force = true });
+
+        // 夹具禁用了 skills/prompts/themes/context-files，故只剩诊断块（也可能为空）——
+        // 关键是容器被清空重渲且不抛错。
+        _ = mode.LoadedResourcesContainerChildrenForTests;
+    }
+
+    [Fact]
+    public async Task ShowStartupNoticesIfNeededRendersTheCollapsedChangelog()
+    {
+        var host = await CreateHostAsync();
+        host.Session.SettingsManager.SetCollapseChangelog(true);
+        var mode = await CreateModeAsync(host: host);
+        mode.ChangelogMarkdownForTests = "## 1.2.3\n\n- something";
+
+        mode.ShowStartupNoticesIfNeeded();
+
+        // TS  condensed 分支（interactive-mode.ts L850-854）：`## x.y.z` 标题提版本，
+        // 文案为 "Updated to v{version}. Use /changelog to view full changelog."。
+        var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
+        Assert.Contains("Updated to v1.2.3", rendered);
+        Assert.Contains("/changelog", rendered);
+    }
+
+    [Fact]
+    public async Task ShowStartupNoticesIfNeededIsIdempotent()
+    {
+        var mode = await CreateModeAsync();
+        mode.ChangelogMarkdownForTests = "## 1.2.3\n\n- something";
+
+        mode.ShowStartupNoticesIfNeeded();
+        var countAfterFirst = mode.ChatChildrenForTests.Count;
+        mode.ShowStartupNoticesIfNeeded();
+
+        Assert.Equal(countAfterFirst, mode.ChatChildrenForTests.Count);
+    }
+
+    [Fact]
+    public async Task PasteToEditorFeedsTheTextThroughABracketedPaste()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.PasteToEditor("pasted");
+
+        Assert.Contains("pasted", mode.EditorForTests.GetText());
+    }
+
+    [Fact]
+    public async Task AddAutocompleteProviderWrapsTheCurrentProvider()
+    {
+        var mode = await CreateModeAsync();
+
+        mode.AddAutocompleteProvider(current => current);
+
+        Assert.Single(mode.AutocompleteProviderWrappersForTests);
+    }
+
+    private static string RenderChat(InteractiveMode mode, int width) =>
+        string.Join("\n", mode.ChatChildrenForTests.Select(child => string.Join("\n", child.Render(width))));
 }

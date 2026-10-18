@@ -7,6 +7,7 @@ using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Ai.Utils;
 using Pi.CodingAgent.Core.Extensions;
+using Pi.CodingAgent.Core.Tools;
 using Pi.CodingAgent.Core.Extensions.Types;
 using Pi.CodingAgent.Utils.Image;
 using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
@@ -1211,6 +1212,74 @@ public partial class AgentSession
 
     /// <summary>TS <c>isBashRunning</c>：是否有进行中的 <c>!</c> 命令（4f-4m-3 生命周期批补的只读访问器）。</summary>
     public bool IsBashRunning => _bashAbortControllers.Count > 0;
+
+    /// <summary>TS <c>executeBash</c>（L3840-3875）：跑一条 <c>!</c> 命令并记录结果。</summary>
+    public async Task<BashResult> ExecuteBashAsync(
+        string command,
+        Action<string>? onChunk = null,
+        ExecuteBashOptions? options = null)
+    {
+        var abortController = new CancellationTokenSource();
+        _bashAbortControllers.Add(abortController);
+
+        // Apply command prefix if configured (e.g., "shopt -s expand_aliases" for alias support)
+        var prefix = SettingsManager.GetShellCommandPrefix();
+        var shellPath = SettingsManager.GetShellPath();
+        var resolvedCommand = string.IsNullOrEmpty(prefix) ? command : $"{prefix}\n{command}";
+
+        try
+        {
+            var result = await BashExecutor.ExecuteBashWithOperationsAsync(
+                resolvedCommand,
+                SessionManager.GetCwd(),
+                options?.Operations ?? BashTool.CreateLocalBashOperations(shellPath),
+                new BashExecutorOptions
+                {
+                    OnChunk = delta =>
+                    {
+                        onChunk?.Invoke(delta);
+                        Emit(new AgentSessionEvent.BashExecutionUpdateEvent(options?.Id, delta));
+                    },
+                    CancellationToken = abortController.Token,
+                }).ConfigureAwait(false);
+
+            RecordBashResult(command, result, options);
+            return result;
+        }
+        finally
+        {
+            _bashAbortControllers.Remove(abortController);
+            abortController.Dispose();
+        }
+    }
+
+    /// <summary>TS <c>recordBashResult</c>（L3878-3902）：把 bash 结果写进会话历史。</summary>
+    public void RecordBashResult(string command, BashResult result, ExecuteBashOptions? options = null)
+    {
+        var bashMessage = new BashExecutionMessage(
+            command,
+            result.Output,
+            result.ExitCode,
+            result.Cancelled,
+            result.Truncated,
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+        {
+            FullOutputPath = result.FullOutputPath,
+            ExcludeFromContext = options?.ExcludeFromContext,
+        };
+
+        // If agent is streaming, defer adding to avoid breaking tool_use/tool_result ordering
+        if (IsStreaming)
+        {
+            // Queue for later - will be flushed on agent_end
+            _pendingBashMessages.Add(bashMessage);
+        }
+        else
+        {
+            SessionManager.AppendMessage(bashMessage);
+            RefreshFinalizedContext();
+        }
+    }
 
     /// <summary>TS <c>_flushPendingBashMessages()</c>（TS 3924-3932）。</summary>
     private void FlushPendingBashMessages()

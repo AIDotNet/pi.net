@@ -213,7 +213,9 @@ public partial class InteractiveMode
 
     private InteractiveModeOptions _options;
     private readonly Action _onRightClickPaste;
-    private readonly string? _autoTrustOnReloadCwd;
+    // TS reassigns `autoTrustOnReloadCwd = undefined` once the implicit trust is saved
+    // (maybeSaveImplicitProjectTrustAfterReload), so the field is mutable in the port too.
+    private string? _autoTrustOnReloadCwd;
 
     // Constructed at the very end of the constructor (TS order), but the rebind callback registered
     // above captures it; `null!` satisfies the nullable flow analysis for that closure.
@@ -278,6 +280,21 @@ public partial class InteractiveMode
     internal IReadOnlyList<IComponent> WidgetContainerBelowChildrenForTests => _widgetContainerBelow.Children;
     internal ExtensionSelectorComponent? ExtensionSelectorForTests => _extensionSelector;
     internal FooterDataProvider FooterDataProviderForTests => _footerDataProvider;
+
+    /// <summary>Test seam: the registered autocomplete wrapper factories.</summary>
+    internal IReadOnlyList<AutocompleteProviderFactory> AutocompleteProviderWrappersForTests => _autocompleteProviderWrappers;
+
+    /// <summary>Test seam: the loaded-resources container children.</summary>
+    internal IReadOnlyList<IComponent> LoadedResourcesContainerChildrenForTests => _loadedResourcesContainer.Children;
+
+    /// <summary>
+    /// Test seam: the staged changelog markdown (normally staged by <see cref="InitAsync"/>).
+    /// TS keeps this as a plain field the constructor path fills in.
+    /// </summary>
+    internal string? ChangelogMarkdownForTests
+    {
+        set => _changelogMarkdown = value;
+    }
 
     public InteractiveMode(AgentSessionRuntime runtimeHost, InteractiveModeOptions? options = null)
     {
@@ -642,10 +659,6 @@ public partial class InteractiveMode
         UpdateEditorBorderColor();
         UpdateTerminalTitle();
     }
-
-    /// <summary>Seam: the extension binding body lands with the 4f-4m extension slice (TS L1963-2052).</summary>
-    private Task BindCurrentSessionExtensionsAsync() =>
-        throw new NotImplementedException("4f-4m extension slice: bindCurrentSessionExtensions (TS L1963-2052)");
 
     // ---------------------------------------------------------------- status indicators (L2291-2384)
 
@@ -1363,13 +1376,6 @@ public partial class InteractiveMode
 
         SetHiddenThinkingLabel();
     }
-
-    /// <summary>
-    /// Seam: the autocomplete assembly lands with the 4f-4m autocomplete slice
-    /// (TS createBaseAutocompleteProvider L718-817 + setupAutocompleteProvider L818-835).
-    /// </summary>
-    private void SetupAutocompleteProvider() =>
-        throw new NotImplementedException("4f-4m autocomplete slice: setupAutocompleteProvider (TS L818-835)");
 
     // ---------------------------------------------------------------- view state leaves (L4536-4600)
 
