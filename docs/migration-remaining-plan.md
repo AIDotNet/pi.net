@@ -1,10 +1,69 @@
 # coding-agent 剩余迁移：现状分析、迁移清单与分阶段计划
 
-> 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口）
-> 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d26`（= 当前检出）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`413718a`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a`）
+> 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
+> 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`9b9d67e`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e`）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C215`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C272`）。
+
+---
+
+## 零·补、2026-10-18 修订：剩余工作全量重清点（S6 计划）
+
+### 0.6 动工前核对（约定执行）
+
+参照检出实测 `eb326d265`，与台账记录一致，**无新增漂移**（`eb326d265..HEAD` = 0）。
+目标仓库工作区干净，HEAD `59c0850`；`dotnet build Pi.slnx -m:1` 实测 **0 警告 0 错误**。
+
+### 0.7 剩余清单（按当前检出逐文件核对，取代 2.2 节的旧快照）
+
+**4f-4m 收尾**（`interactive-mode.ts` 剩余成员，缝 3 处 + 命令族 16 个 + 两个未移植模块）：
+
+| 块 | TS 位置 | 内容 | 依赖 |
+| --- | --- | --- | --- |
+| 命令族前半 | L5124-5536 | `handleThinkingCommand`/`selectThinkingLevel`/`showThinkingSelector`、`handleModelCommand`/`findExactModelMatch`、`handleCloneCommand`、`showTrustSelector`、`maybeSaveImplicitProjectTrustAfterReload` | ThinkingSelector/TrustSelector 组件已就绪；`session.setThinkingLevel`/`setModel` 已有 |
+| 登录认证族 | L5767-6397 | `getLoginProviderOptions`/`getLogoutProviderOptions`/`findLoginProviderOptions`/`handleLoginCommand`/`startProviderLogin`/`showLoginAuthTypeSelector`/`showLoginProviderSelector`/`showOAuthSelector`/`completeProviderAuthentication`/`showAmbientAuthDialog`/`showApiKeyLoginDialog`/`showAuthSelect`/`showAuthPrompt`/`notifyAuthDialog`/`loginProvider`/`showLoginDialog`/`offerRadiusMcpServer` | OAuthSelector/LoginDialog/ExtensionSelector/ExtensionEditor 组件已就绪；ModelRuntime 登录 API 已有 |
+| 命令族后半 | L6403-7061 | `handleReloadCommand`/`handleExportCommand`/`handleImportCommand`/`handleShareCommand`/`handleBugCommand`/`handleSessionCommand`/`handleChangelogCommand`/`handleHotkeysCommand`/`handleArminSaysHi`/`handleDementedDelves`/`handleBashCommand`/`handleCompactCommand` | `session-share.ts`(217) 与 `bug-report.ts`(298) 交互流**未移植**；`AgentSession.compact` 公共入口（agent-session.ts L2763-2895）**未移植**；core 侧 `collectBugReportMetadata`/`collectBugReportDiagnostics`/`summarizeForBugReport` **未移植**（静态半边已在） |
+| 提交 if-chain | L3179-3378 | `setupEditorSubmitHandler`（26 个命令分支 + bash 分支 + 压缩/流式排队） | 命令族全部就绪后落地 |
+| 剪贴板粘贴 | L3132-3172 | `handleClipboardPaste` | 需编辑器 `getCursor`/`insertTextAtCursor` 可选 API |
+| autocomplete 组装 | L718-835 | `createBaseAutocompleteProvider` + `setupAutocompleteProvider` | 4f-4e 静态叶子已就绪；`CombinedAutocompleteProvider` 在 Pi.Tui |
+
+> **台账旧记载修正**：`/help` `/tools` `/extensions` `/terminal-setup` `/models` 五个命令在
+> **当前检出中不存在**（全网检索确认），旧台账「命令族缺口」一节列出它们有误——以当前检出为准，
+> 实际剩余命令以上表为准。
+
+**4f-5**（~2,043 行 TS）：`modes/rpc/rpc-types.ts`(303) / `rpc/jsonl.ts`(58) /
+`rpc/rpc-client.ts`(617) / `rpc/rpc-mode.ts`(819) / `print-mode.ts`(169) /
+`json-event.ts`(61) / `modes/index.ts`(16)。
+
+**4g**（~13,600 行 TS）：`4g-1` `cli/*`（12 文件 1,455 行）+ `cli/experimental/*`（504 行）；
+`4g-2` `main.ts`(999) / `index.ts`(494) / `package-manager-cli.ts`(1,141) / `cli.ts`(6) /
+`rpc-entry.ts`(13)；`4g-3` `experimental/*`（46 文件 9,950 行，依赖已移植的
+Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61) + `client/*`(1)。
+
+**P7 evals**（~1,300 行，未建项目）。
+
+**顺延项**（不阻塞主链，随收尾阶段处理）：P4b-7 `McpManagerView`/`showMcpManager`、
+P4c llama `ui.ts` 的 `LlamaView`/`HuggingFaceSearch`/`showLlamaUi`（依赖均已满足）、
+4e-3c-3 package-manager update/网络检查（`CheckForPackageUpdatesAsync` 已知缺口，
+主入口路径按 offline 分支返回空表不抛错）。
+
+### 0.8 S6 阶段计划（4f-4m 收尾）
+
+| 阶段 | 范围 | 验收标准 |
+| --- | --- | --- |
+| **4f-4m-5a** | 命令族前半（thinking/model/clone/trust） | ✅ `9b9d67e`（与 5c 同批提交）；`InteractiveModeTests` 94/94、全量 3204/0 |
+| **4f-4m-5b** | 登录认证族（login/logout 全链，约 630 行 TS） | 同上；含 Radius MCP offer 与 15s 超时语义。**进行中**：API 核对完毕（ModelRuntime 登录四件套 / LoginDialogComponent / OAuthSelector / ExtensionSelector / McpConfig / CreateLoginMenuSelector / AuthResult 均已就绪），缺口为 `getAuthCredential`（TS `cli/auth-command.ts` L120-126，session-share/bug-report/登录族三处共用） |
+| **4f-4m-5c** | 命令族后半 + `session-share.ts` + `bug-report.ts` 交互流 + `AgentSession.compact` 公共入口 | 🟡 命令族后半 9 个处理器 ✅（export/import/session/changelog/hotkeys/armin/demented/bash/compact，`9b9d67e`）；**余量**：`handleShareCommand` + `session-share.ts`(217)、`handleBugCommand` + `bug-report.ts`(298) + core 侧 `collectBugReportMetadata`/`collectBugReportDiagnostics`/`AgentSession.summarizeForBugReport`、`AgentSession` 公共 compact 入口（TS L2763-2895） |
+| **4f-4m-6** | 提交 if-chain + `handleClipboardPaste`（✅ 已随 `9b9d67e` 提前落地）+ autocomplete 组装（✅ 同批落地）+ **清零剩余缝**（`setupEditorSubmitHandler`、`custom<T>`/`customAsync<T>`、`checkForAvailableUpdates`）+ 摘字段块 pragma | 同上；`InteractiveMode` 类装配正式收口 |
+
+### 0.9 5a/5c 收口记录（2026-10-18，`9b9d67e`）
+
+- 提前落地两件原属 4f-4m-6 的前置件：autocomplete 组装与 `bindCurrentSessionExtensions`（fork/reload 路径被这两处缝阻断，不先落地则 5a 的 clone 用例无法验证）。
+- 顺延项落地：ResourceLoader 的 system-prompt 来源发现（SYSTEM.md / APPEND_SYSTEM.md，项目级受信任门控）接线进 `AgentSessionBuild`。
+- 三处用例修正的判定依据（均回查 TS 原文）：`playArmin3d` 在 alt-screen 下返回 true 故 fullscreen 不挂内联组件；Markdown 渲染消耗 `**` 故 hotkeys 断言渲染后纯文本；`collapseChangelog` 默认 false 故 condensed 分支需显式开启设置。
+- 环境备注：Windows `cmd /c echo hi` 用例在本机 Bash 工具沙箱下挂起（安全层把派生态解析到 WSL 路径并拦截），PowerShell 工具下实测 1.97s 通过；统一改用 bash 内建 `echo hi`（TS 参照测试同款）。
+- 基线核对：参照检出经 `git pull` 前进至 `eb326d265`（0.5 节「退回 `428a12bc7`」为过渡态，reflog 可见多次 ff pull）；`428a12bc7..HEAD` 触及 coding-agent 的 9 个提交与 0.1 表一致，无新增未对账漂移。
 
 ---
 
@@ -546,6 +605,7 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 | 2026-10-18 | **4f-4m-4-尾批-后段** | **会话 navigateTree 编排落地**（agent-session.ts L3963-4155，4e-3e-9h 顺延的最后一块会话 API）：AgentSession.NavigateTreeAsync + NavigateTreeResult + NavigateTreeSessionOptions——守卫 / 同叶 no-op / CollectEntriesForBranchSummary / TreePreparation + session_before_tree（取消·供摘要·覆盖经既有叶件合并）/ 默认摘要器（GenerateBranchSummaryAsync + 重试策略四元组转 RetryPolicy + 三重试事件）/ **叶子与回填走 4e-3e-9h 既有 ResolveTreeNavigationLeaf 叶件** / 摘要三分支（BranchWithSummary·ResetLeaf·Branch）/ RefreshFinalizedContext·RestoreToolsFromTranscript / session_tree 事件 / finally 清理。**零新增判定**——编排只是串接既有叶件。showTreeSelector 的依赖障碍已全部清除，随下一批接线 | 本批提交 | `InteractiveModeTests` 全类 **64 / 0**（+2：同叶 no-op / 用户消息导航回填）；`Pi.CodingAgent.Tests` 全量 **3174 / 0 失败**；构建 0 警告 0 错误 |
 | 2026-10-18 | **4f-4m-4-尾批-收尾** | showTreeSelector（GetTree 空清单状态——新会话 GetTree 恒含根节点，空状态文案移植语义下不可达，注释记录；TreeSelectorComponent 装配 + 标签编辑 + OnCopy；onSelect 回调：同叶 no-op → 「Summarize branch?」三选（SkipPrompt 门控 + Esc 重开 + 自定义提示词回环）→ 流式中断 → 压缩拦截 → 摘要期 escape 换防 + BranchSummaryStatusIndicator → NavigateTreeAsync → aborted 重开 / cancelled 状态 / 成功清空重渲 + 编辑器回填 + FlushCompactionQueue）+ 双击 escape 真实现（"tree" → 树选择器 / "fork" → fork 选择器）。**退役 2 缝：SetupTreeKeyHandlers / ShowDoubleEscapeSelector——setupKeyHandlers 全部动作真实接线完毕**。4f-4m 余：提交 if-chain + handleClipboardPaste + autocomplete | 本批提交 | `InteractiveModeTests` 全类 **65 / 0**（+1）；`Pi.CodingAgent.Tests` 全量 **3175 / 0 失败**（复跑；首跑 ModelSelectorTests 单次时序 Flake，单独 5/5 与复跑均绿，非本批引入）；构建 0 警告 0 错误 |
 | 2026-10-18 | **命令族增量：/name** | handleNameCommand（L6641-6664）：空参显示当前会话名（无名时 Usage 警告）→ `SetSessionName` + 归一化警告（JSON.stringify 双引号原样）→「Session name set」。`Session.SetSessionName` 已有（4e 批）。命令族剩余：handleCompactCommand（**缺口确认 + 勘察完成**：TS `session.compact()` 在 agent-session.ts **L2763-2890**——abort → compaction_start → GetCompactionSettings(model ref) → prepareCompaction → session_before_compact（取消/供摘要）→ `_runDefaultCompaction`（已有 C# 私有件）→ appendCompaction → session_compact → compaction_end；C# 侧全部子件已在（GetCompactionSettings/RunDefaultCompaction/AppendCompaction/BuildSessionProjection/EstimateMessagesTokens/ClearManualCompactionState），只缺公共编排本体；该命令随会话 compact 入口批落地）/ handleBugCommand（缺口：reportBug 模块）/ handleExportCommand·handleImportCommand·handleHelpCommand·handleToolsCommand·handleExtensionsCommand·handleTerminalSetupCommand·handleTrustCommand·handleLogoutCommand·handleLoginCommand·handleReloadCommand·handleSessionCommand·handleNewCommand·handleModelsCommand | 本批提交 | `InteractiveModeTests` 全类 **67 / 0**（+2）；`Pi.CodingAgent.Tests` 全量 **3177 / 0 失败**；构建 0 警告 0 错误 |
+| 2026-10-18 | **4f-4m-5a/5c** | 命令族前半 5 个处理器（thinking/model/clone/trust/reload）+ 后半 9 个（export/import/session/changelog/hotkeys/armin/demented/bash/compact）+ **提前落地两件 4f-4m-6 前置件**（autocomplete 组装：createBaseAutocompleteProvider/setupAutocompleteProvider/TriggerCharacterOverrideProvider/getLoginProviderOptions；bindCurrentSessionExtensions 全量 6 成员 + showLoadedResources 四节四类诊断 + showStartupNoticesIfNeeded + setupExtensionShortcuts/ShortcutExtensionContext 17 成员）+ handleClipboardPasteAsync 全量实现（退役 3 缝）。**Core 侧**：ResourceLoader system-prompt 来源发现（SYSTEM.md/APPEND_SYSTEM.md + 项目受信任门控，接线进 AgentSessionBuild——顺延项落地）+ AgentSession.ExecuteBashAsync/RecordBashResult（abort 注册/shell prefix/bash_execution_update/流式延迟入队）+ BashExecutor.ExecuteBashOptions。测试 +26 例（94/94），修正 3 处用例（armin fullscreen 语义/hotkeys 渲染后文本/collapseChangelog 门控），Windows cmd 变体因沙箱挂起改 bash 内建 echo。命令族余：login/logout 族（5b）+ share/bug 两模块 + compact 公共入口 | `9b9d67e`（已推送） | `InteractiveModeTests` 全类 **94 / 0**（+27）；`Pi.CodingAgent.Tests` 全量 **3204 / 0 失败**；构建 0 警告 0 错误 |
 
 > **R2 漂移对账（S0–S4）与 S3c 已全部完成。** `packages/ai` 已无已知缺口。
 > **4f-3d 选择器组 21/21 全部收口**（Batch C + D + E + F-1～F-5，含 external-editor）。

@@ -6057,3 +6057,55 @@ handleResumeSession 不测（致命路径 Exit(1)）。
 **验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
 **3175 / 0 失败**（复跑；首跑 `ModelSelectorTests.InitialSearchThatMatchesNothing…` 单次时序
 Flake，单独运行 5/5 与复跑均绿——与既有 TestOrder 类 Flake 同型，非本批引入）。
+
+## 4f-4m-5a/5c：命令族前半后半 + autocomplete 组装 + 扩展绑定（2026-10-18，`9b9d67e`）
+
+**范围**：`interactive-mode.ts` 命令族 14 个处理器 + autocomplete 组装（L718-835）+
+`bindCurrentSessionExtensions`（L1963-2052）+ `handleClipboardPasteAsync`（L3132-3172）+
+Core 侧 `executeBash`/`recordBashResult`（agent-session.ts L3840-3902）+
+ResourceLoader system-prompt 来源发现（顺延项）。
+
+**落地内容**：
+- **`InteractiveMode.Commands.cs`（新建，~700 行）**：前半 `HandleThinkingCommandAsync`/
+  `SelectThinkingLevel`/`ShowThinkingSelector`、`HandleModelCommandAsync`/
+  `FindExactModelMatchAsync`（15s 超时：`System.Threading.Timer` + volatile 标志，对齐 TS
+  `AbortSignal.timeout`）、`MaybeSaveImplicitProjectTrustAfterReload`/`ShowTrustSelector`、
+  `HandleCloneCommandAsync`、`HandleReloadCommandAsync`（reloadBox 装配 + dismiss + 状态文案）；
+  后半 `HandleExportCommandAsync`/`HandleImportCommandAsync`/`HandleSessionCommand`（Session Info
+  文档，期望值按 TS 手算——`JsNumber.ToLocaleString`/`ToFixed`）/`HandleChangelogCommand`/
+  `HandleHotkeysCommand`/`HandleArminSaysHi`/`HandleDementedDelves`/`HandleBashCommandAsync`/
+  `HandleCompactCommandAsync` + `BashTruncation` 助手（TS 两字段强转 `TruncationResult` 的惰性默认值复刻）。
+- **`InteractiveMode.Autocomplete.cs`（新建）**：`GetLoginProviderOptions(CredentialKind?)`+
+  `CreateBaseAutocompleteProvider`（switch 表达式在对象初始值器内设 `GetArgumentCompletions`，
+  规避 `SlashCommand` init-only，CS8852）+ `SetupAutocompleteProvider` +
+  `TriggerCharacterOverrideProvider` 装饰器（TS 把 wrapper 链 `triggerCharacters` 并集写到最终
+  provider）+ model/thinking/login 三族参数补全。
+- **`InteractiveMode.Bind.cs`（新建，~500 行）**：`BindCurrentSessionExtensionsAsync`
+  （UiContext/Mode/AbortHandler/CommandContextActions 六成员/ShutdownHandler/OnError）+
+  `ShowLoadedResources`（Context/Skills/Prompts/Extensions 四节 + 四类诊断块）+
+  `ShowStartupNoticesIfNeeded`（internal 测试缝）+ `SetupExtensionShortcuts`
+  （`ShortcutExtensionContext` 实现 `IExtensionContext` 全 17 成员）+ `ShowExtensionError`。
+- **Lifecycle**：`HandleClipboardPasteAsync` 全量实现（文件路径/图片/文本三路 + 光标间距逻辑 +
+  `\p{Cc}` 控制字符校验）；`AddAutocompleteProvider`/`GetEditorComponent`/`GetAllThemes`/`GetTheme`
+  四缝替换为真实实现；`HandleResumeSessionAsync` 增加 `SwitchSessionOptions?` 形参。
+- **Core**：`ResourceLoader` 新增 system-prompt 来源发现（`SystemPrompt`/`SystemPromptSourcePath`/
+  `AppendSystemPrompt`/`AppendSystemPromptSourcePaths` + `DiscoverSystemPromptFile`——项目 SYSTEM.md
+  受信任门控 → 全局）与 Skill/Prompt/Theme 诊断公开访问器；`AgentSessionBuild` 接线
+  `CustomPrompt`/`AppendSystemPrompt`（TS agent-session.ts:1710 同款，`string.Join("\n\n", …)`）；
+  `AgentSessionInstallers` 新增 `ExecuteBashAsync`（abort controller 注册、shell prefix、
+  `bash_execution_update` 事件、finally 注销）与 `RecordBashResult`（流式中延迟入队）；
+  `BashExecutor` 新增 `ExecuteBashOptions` 记录（ExcludeFromContext/Id/Operations）。
+- **Pi.Tui**：`CombinedAutocompleteProvider` 实现 `IAutocompleteProvider`，
+  `TriggerCharacters` 为 null（TS 该类不定义 triggerCharacters）。
+- **退役 3 缝**（SetupAutocompleteProvider / BindCurrentSessionExtensionsAsync /
+  HandleClipboardPasteAsync）；`_autoTrustOnReloadCwd` 改可变（TS 赋 undefined）。
+
+**测试（+27 例，`InteractiveModeTests` 94/94）**：5a 10 例 + 5c 16 例 + 既有修正。
+三处用例修正均回查 TS 原文：`playArmin3d` 在 alt-screen 下返回 true（fullscreen 不挂内联
+`ArminComponent`，常规模式才走回退分支）；hotkeys 断言改为渲染后纯文本（Markdown 消耗 `**`）；
+changelog condensed 分支需显式 `SetCollapseChangelog(true)`（默认 false 走 What's New 分支）。
+Windows `cmd /c echo hi` 变体在本机 Bash 工具沙箱下挂起（安全层把派生态解析到 WSL 路径并拦截，
+CPU 冻结实测），PowerShell 工具下 1.97s 通过——改用 bash 内建 `echo hi`（TS 参照测试同款）。
+
+**验证**：`dotnet build Pi.slnx -m:1` **0 警告 0 错误**；`Pi.CodingAgent.Tests` 全量
+**3204 / 0 失败**。
