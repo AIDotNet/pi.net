@@ -317,7 +317,7 @@ public class ExtensionContractTests
             "setEditorText", "getEditorText", "editor", "addAutocompleteProvider", "setEditorComponent",
             "getEditorComponent", "theme", "getAllThemes", "getTheme", "setTheme", "getToolsExpanded",
             "setToolsExpanded"),
-            PublicMemberNames(typeof(IExtensionUIContext)));
+            PublicMemberNames(typeof(IExtensionUIContext), includeInheritedInterfaces: true));
 
         Assert.Equal(Expected("tools", "executeTool"), PublicMemberNames(typeof(IExtensionToolContext)));
 
@@ -351,12 +351,31 @@ public class ExtensionContractTests
 
     /// <summary>Distinct public method/property names, PascalCased and ordered.</summary>
     private static List<string> PublicMemberNames(Type type)
-        => type.GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy)
+        => PublicMemberNames(type, includeInheritedInterfaces: false);
+
+    /// <summary>
+    /// <paramref name="includeInheritedInterfaces"/> 为真时把基接口成员也展开——用于
+    /// <see cref="IExtensionUIContext"/>：它的 <c>select/confirm/input/notify</c> 四个成员被移到
+    /// <see cref="IProjectTrustUiContext"/>（对齐 TS 的 <c>Pick&lt;…&gt;</c>），但 TS 的 surface 仍算它们。
+    /// 其余接口不能一概展开：<see cref="IExtensionToolContext"/> 继承 <see cref="IExtensionContext"/>，
+    /// 但 TS 里那是两个独立接口，展开会把 <c>abort</c> 之类混进来。
+    /// </summary>
+    private static List<string> PublicMemberNames(Type type, bool includeInheritedInterfaces)
+    {
+        var surfaces = new List<Type> { type };
+        if (includeInheritedInterfaces)
+        {
+            surfaces.AddRange(type.GetInterfaces());
+        }
+
+        return surfaces
+            .SelectMany(t => t.GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy))
             .Where(m => m is MethodInfo { IsSpecialName: false } or PropertyInfo)
             .Select(m => m.Name)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
+    }
 
     /// <summary>TS camelCase names → PascalCase, ordered.</summary>
     private static List<string> Expected(params string[] tsNames)

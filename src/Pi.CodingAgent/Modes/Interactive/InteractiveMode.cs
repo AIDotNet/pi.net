@@ -368,7 +368,11 @@ public partial class InteractiveMode
         });
     }
 
-    private static Pi.Tui.CapabilityOverrides ToTuiCapabilityOverrides(TerminalCapabilityOverrides overrides) =>
+    /// <summary>
+    /// Settings 层的 <see cref="TerminalCapabilityOverrides"/> → Pi.Tui 的能力覆盖记录。
+    /// 4g-1 起由 <c>Cli.StartupUi</c> 共用（启动期 TUI 也要装同一份覆盖），故从 private 提到 internal。
+    /// </summary>
+    internal static Pi.Tui.CapabilityOverrides ToTuiCapabilityOverrides(TerminalCapabilityOverrides overrides) =>
         new()
         {
             Images = overrides.ImagesSpecified ? overrides.Images : null,

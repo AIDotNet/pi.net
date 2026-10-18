@@ -1064,7 +1064,11 @@ public sealed record ProjectTrustContext
 
     public required bool HasUI { get; init; }
 
-    public required IExtensionUIContext Ui { get; init; }
+    /// <summary>
+    /// TS <c>Pick&lt;ExtensionUIContext, "select" | "confirm" | "input" | "notify"&gt;</c> — a four-member
+    /// slice, not the full UI context.
+    /// </summary>
+    public required IProjectTrustUiContext Ui { get; init; }
 }
 
 /// <summary>TS <c>ProjectTrustHandler</c>.</summary>

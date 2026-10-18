@@ -124,10 +124,16 @@ public sealed record ExtensionCustomOptions
 }
 
 /// <summary>
-/// UI context for extensions to request interactive UI. TS <c>ExtensionUIContext</c>.
-/// Each mode (interactive, RPC, print) provides its own implementation.
+/// The four members TS exposes to project-trust handlers via
+/// <c>Pick&lt;ExtensionUIContext, "select" | "confirm" | "input" | "notify"&gt;</c>.
 /// </summary>
-public interface IExtensionUIContext
+/// <remarks>
+/// TS narrows the trust context's UI with <c>Pick</c> instead of handing over the whole
+/// <c>ExtensionUIContext</c>; the port mirrors that so the startup trust prompt can implement four
+/// members instead of all twenty-five. <see cref="IExtensionUIContext"/> extends this, so any full
+/// UI context still satisfies <see cref="ProjectTrustContext.Ui"/>.
+/// </remarks>
+public interface IProjectTrustUiContext
 {
     /// <summary>Show a selector and return the user's choice.</summary>
     Task<string?> Select(string title, IReadOnlyList<string> options, ExtensionUIDialogOptions? opts = null);
@@ -140,7 +146,14 @@ public interface IExtensionUIContext
 
     /// <summary>Show a notification to the user.</summary>
     void Notify(string message, string? type = null);
+}
 
+/// <summary>
+/// UI context for extensions to request interactive UI. TS <c>ExtensionUIContext</c>.
+/// Each mode (interactive, RPC, print) provides its own implementation.
+/// </summary>
+public interface IExtensionUIContext : IProjectTrustUiContext
+{
     /// <summary>Listen to raw terminal input (interactive mode only). Returns an unsubscribe function.</summary>
     Action OnTerminalInput(TerminalInputHandler handler);
 
