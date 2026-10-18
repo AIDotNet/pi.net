@@ -6967,3 +6967,42 @@ catch）；重复 ID / 非二进制数据 / 坏控制消息 → 4000 协议错�
 - **顺带修 flaky**：`CoordinatorTests.SendAndBroadcast_ReachThePeers` 的跨连接观察顺序竞态
   （旧代码 3 跑 2 挂）：共享观察列表会把 peer-2 的广播和 peer-1 的点对点发送混排。改为按通道
   分离观察，只断言连接内顺序（点对点先于广播——同连接有序才有保证）。
+
+## 4g-3d-3a Session Worker 协议核心（session-worker.ts 前半）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/session-worker.ts`（协议半） | ~415 | `Experimental/SessionWorkerProtocol.cs` | 线协议语法 + `WorkerLifecycle` + 辅助函数 |
+
+**线协议语法**（typebox → 记录 + 校验器）：`SessionWorkerMetadata` / `SessionWorkerOptions` /
+`WorkerOperationScope`（TS 里是 `WorkerServiceScope` 的别名，C# 直接用已移植类型）/
+`ServiceCall` / `WorkerOperationRequest` / `WorkerOperationResponse`（两成员联合）/
+`SessionWorkerCommand`（五成员联合）/ `SessionWorkerEvent`（六成员联合）/ `CoordinatorInput`
+（四成员联合）。**逐 schema 复刻严格度**：`StrictObject` 拒未知键；普通 `Type.Object`
+忽略未知键；`Type.Optional` 允许缺失但**拒绝显式 null**；`Type.Literal` 精确匹配；
+`Type.Integer` 要求整数且过下限；`Type.Number` 任意 JSON 数字。
+**WorkerLifecycle**：初始需求宽限（首个 demand 前不倒）、孤儿需求宽限（掉线后需求保留
+一个宽限）、退休占用（请求/Harness 活动持锁）、`reconcile` 五条件全清才退休且只退一次；
+`serverConnected` 清新一代的孤儿定时器，`serverDisconnected` 给无定时器的需求武装 orphan
+定时器；`close` 清全部定时器与需求。
+
+### 4g-3d-3a 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C355 | **显式 JSON null 与键缺失在 STJ 里同形** | `JsonNode.Parse` 把对象里的 `null` 也变成 C# null，与「键缺失」无法用引用区分；typebox 的 `Type.Optional`（缺失合法、null 非法）靠 `ContainsKey` + `IsExplicitNull` 复刻。TS/JS 里 `undefined` 与 `null` 本就可区分 |
+| C356 | **定时器语义按 Node「已入队仍执行」建模** | TS 的 `clearTimeout` 只阻止未触发定时器；C# 的 `CancellationTokenSource` 取消后，已排队的延续**仍会执行**——用 `task.IsCanceled` 跳过即可保持同语义。`Reconcile` 内的 `onRetire` 在锁内同步调用（锁可重入），与 TS 同步路径一致 |
+| C357 | **`LifecycleDelay` 超 int 上限时钳位** | TS 直接把安全整数交给 `setTimeout`；.NET 毫秒参数是 int，超过 `int.MaxValue` 的安全整数钳到 `int.MaxValue`（真实环境只会是小值） |
+
+### 4g-3d-3a 测试方法论
+
+- **校验器测试逐条对着 schema 写**：每个 schema 一条「合法 + 各非法形状」用例，特别是
+  宽松/严格对象的未知键差异、Optional 的 null 拒绝、Integer 的 `0`/`1.5` 边界。
+- **WorkerLifecycle 用可注入宽限**（构造函数传入，不走 env 覆盖），测试用 10-40ms 真实定时器，
+  轮询等待退休/未退休；`close` 后宽限内不得退休。
+- **踩坑**：① 原始字符串字面量 `shutdown` 的内容是 `shutdown`（4 引号定界）而非
+  `"shutdown"`——要 JSON 字符串得用普通转义字符串；② `Assert.Equal(1, list.Count)` 触发
+  xUnit2013，改 `Assert.Single`。
+- **顺带修 flaky**：`McpExtensionTests.McpCommand_CompletionsFollowTheArgumentGrammar`
+  在满负载下把 `connecting…` 当成 `connected · 1 tool` 断言——等待条件补上「描述以
+  connected 开头」。

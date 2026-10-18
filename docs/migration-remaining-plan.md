@@ -60,7 +60,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
 | **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）+ 末段 ✅ `8500da8`（0.23）；余 `server.ts` / `connection.ts` |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | 🟡 `plugins/*` ✅ `b1b4b80`（0.25）；余 `coordinator.ts` / `coordinator-entry.ts` |
-| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 全文 ✅ `1602814`/`6422a37`（0.28/0.29）；余 `session-worker*.ts` + `server.ts`/`commands.ts`/`cli.ts` |
+| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 全文 ✅ `1602814`/`6422a37`（0.28/0.29）+ `session-worker.ts` 协议半 ✅ `106978b`（0.30）；余 `session-worker.ts` 入口半 + `session-worker-manager.ts` + `server.ts`/`commands.ts`/`cli.ts` |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
 | 4g-3f | `durable/*`（9 文件） | ~1,440 | |
 | 4g-3g | `vacation/*`（6 文件） | ~1,305 | |
@@ -1105,3 +1105,16 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
   `server.ts`(770) + `commands.ts`(98) + `cli.ts`(12)。`server.ts` 的前 126 行（目录/锁/默认 ID）
   自包含，`activateServer` / `startForegroundServer` 依赖 worker manager，故排在其后；
   `--internal-role coordinator` 分发（C337）随 `cli.ts` 落地。
+
+### 0.30 4g-3d-3a Session Worker 协议核心（`106978b`，2026-10-19）
+
+- **范围**：`session-worker.ts`(840) 前半 ~415 行（线协议语法 + `WorkerLifecycle` + 辅助）。
+  测试 **+31 例**；全量 **4697/0**（2m10s）。
+- **typebox 严格度逐 schema 复刻**：StrictObject 拒未知键、普通 Type.Object 忽略、Optional
+  允许缺失但拒绝显式 null、Literal 精确匹配、Integer 过下限。C355 记录了 STJ 的坑：
+  `JsonNode.Parse` 把显式 null 与键缺失都变成 C# null，只能靠 `ContainsKey` 区分。
+- **4g-3d-3b**（入口半，~425 行）：`connectControl`/`readCommands`/JSON 行分帧/`writeJsonLine`、
+  `closeResources`、`run(options, createHarness)` 编排、`runSessionWorkerWithHarness` 参数校验。
+  依赖面已确认齐备：`CoordinatorSocket`（4g-3c）、`NodeLock`（core）、`SessionWorkerServices`
+  （4g-3b）、`IHarness.TaskGraphAsync`/`Resume`（Pi.Durable）、`AttachedReplicatedState`。
+  `createCodingAgentHarness` 依赖的 `durable/harness-setup.ts` 尚未移植，随 3b 评估是否需要先补。
