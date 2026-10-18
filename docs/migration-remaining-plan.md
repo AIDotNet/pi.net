@@ -60,7 +60,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
 | **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）+ 末段 ✅ `8500da8`（0.23）；余 `server.ts` / `connection.ts` |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | 🟡 `plugins/*` ✅ `b1b4b80`（0.25）；余 `coordinator.ts` / `coordinator-entry.ts` |
-| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 协议核心 ✅ `1602814`（0.28）；余 `radius-relay.ts` 主/客户端类 + `session-worker*.ts` + `server.ts`/`commands.ts`/`cli.ts` |
+| 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 全文 ✅ `1602814`/`6422a37`（0.28/0.29）；余 `session-worker*.ts` + `server.ts`/`commands.ts`/`cli.ts` |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
 | 4g-3f | `durable/*`（9 文件） | ~1,440 | |
 | 4g-3g | `vacation/*`（6 文件） | ~1,305 | |
@@ -1083,3 +1083,25 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **踩坑**（C349）：`Task.ContinueWith` 不传播 antecedent 异常（实测延续任务仍 RanToCompletion），TS 的 `operation.finally(...)` 会保留拒绝，改用 async + try/finally。同一处被测试抓出的保真偏差：字符串发送必须保持文本帧（我的初版把它扬成 UTF-8 字节）。
 - **测试设计故事**：厂函数里同步 raise 事件会挂死（OpenAsync 订阅在工厂调用之后才挂）——改为调用后 raise（OpenAsync 同步预运行到第一个 await，订阅时点确定），与真实浏览器事件循环误带顺序一致。假 socket 的两个控制流程（等 FirstSend 信号）也是为止 ContinueWith 调度竞态。
 - **4g-3d-2b**：`RadiusRelayHost`（运行循环 + 重连退避 + 连接表）、`createRadiusClientTransportFactory`、`RadiusClientByteTransport`、`RelayServerByteConnection`（直接实现 C# `IByteConnection`）、`RadiusClientReconnect`（依赖 Pi.Client 的 Client 事件面）。
+
+### 0.29 4g-3d-2b Radius 中继主/客户端（`6422a37`，2026-10-19）
+
+- **范围**：`radius-relay.ts` 后半 ~390 行（主机 / 客户端传输 / 重连 / 服务端字节连接）+ TS
+  `defaultWebSocketFactory` 的 .NET 对应物 `ClientWebSocketRelaySocket`。测试 **+38 例**
+  （host 14 / client transport 9 / reconnect 9 / 适配器集成 6）；全量 **4666/0**（2m16s）。
+- **`radius-relay.ts`(724) 至此全部落地**（0.28 协议核心 + 0.29 会话半）。
+- **适配器集成测试**：测试项目无 ASP.NET Core WebSocket 宿主，手写 `MiniWebSocketServer`
+  （TcpListener + RFC 6455 握手/帧编解码）做真实往返：子协议与 bearer 头、文本/二进制、
+  分片重组、close 码/原因、连接被拒。`ClientWebSocket.ConnectAsync` 只吃 ws://——生产路径
+  经 `WebSocketUrl` 转换后本就是 ws/wss，scheme 守卫放在适配器构造器（等价 undici 构造函数
+  抛 SyntaxError）。
+- **踩坑**：① 假 socket 的 `Close` 必须异步派发 Closed（浏览器语义），同步派发会让协议错误
+  路径的终态归属反转；② 订阅前 raise 的事件按浏览器语义丢失——host 测试先等 `Serving` 探测；
+  ③ `TcpListener` 未 Start 就 Accept 会以竞态形式随机挂死；④ `Socket.Close(0)` 的 RST 时序
+  不确定，拒绝类失败改用无监听端口。
+- **顺带修 flaky**：`CoordinatorTests.SendAndBroadcast_ReachThePeers` 跨连接观察顺序竞态
+  （旧代码 3 跑 2 挂）——按通道分离观察列表，只断言连接内顺序。
+- **4g-3d 后续**：`session-worker-manager.ts`(848) + `session-worker.ts`(840) →
+  `server.ts`(770) + `commands.ts`(98) + `cli.ts`(12)。`server.ts` 的前 126 行（目录/锁/默认 ID）
+  自包含，`activateServer` / `startForegroundServer` 依赖 worker manager，故排在其后；
+  `--internal-role coordinator` 分发（C337）随 `cli.ts` 落地。

@@ -6920,3 +6920,50 @@ failed")` 再 reject；`webSocketError` 优先非空（trim 后）的 error.mess
 | C347 | **`DelayAsync` 的 `unref` 参数被接受但忽略** | Node timer 的 unref 语义（不阻止进程退出）在 .NET 无对应物——后台 Task 本就不阻止退出 |
 | C348 | **`ToError` 对非 Exception/string/null 输入用 `ToString()`** | TS 的 `String(obj)` 产出 "[object Object]"；真实调用点只传 Exception 或字符串，该分支不可达，故不做完整 String() 语义 |
 | C349 | **写器待发字节的释放用 try/finally，不用 `ContinueWith` 计数** | `Task.ContinueWith` **不**把 antecedent 的异常传播进延续任务（实测：antecedent 抛错后延续任务仍 RanToCompletion，异常被静默吞掉）——TS 的 `operation.finally(...)` 保留拒绝语义，必须用 async + try/finally 复刻。同一处还复刻了 TS 的另两个细节：字符串发送保持文本帧（不转字节），ArrayBuffer 输入先复制再入队 |
+
+## 4g-3d-2b Radius 中继主/客户端（radius-relay.ts 后半）
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/radius-relay.ts`（会话半） | ~390 | `Experimental/RadiusRelayHost.cs` | `RelayServerByteConnection` / `RadiusRelayHost` / `RadiusRelayClients` / `RadiusClientByteTransport` / `RadiusClientReconnect` |
+| `defaultWebSocketFactory`（undici） | 5 | `RadiusRelayProtocol.cs` → `ClientWebSocketRelaySocket` | 生产 WebSocket：子协议 + bearer 头、分片重组、close 码/原因映射、写失败走 error 事件 |
+
+**主机**：`start`/`close` 幂等；运行循环（auth optional → `not_authenticated` 30s 退避 → 握手 →
+`connected` → serve；serve 结束且未关闭即抛 "disconnected" 进入 1s 翻倍至 30s 上限的重试）；
+serve 订阅 message/close/error 且**终态只认第一次**（`terminal` 守卫）；`connection_open` 建
+`RelayServerByteConnection`（accept 同步关闭 → 回 1012），数据帧按连接 ID 路由，未知 ID 回
+`connection_close(1000)`，ping 回 pong（**pong 发送失败** → 4001 关连接，其余 detach 发送无
+catch）；重复 ID / 非二进制数据 / 坏控制消息 → 4000 协议错误关连接并结束 serve；掉线按有无错误
+分流 `onError`/`onClose`。
+**客户端**：`CreateTransportFactory`（auth **required**）→ client 子协议握手 →
+`RadiusClientByteTransport`；非二进制入站 → 4001 + onError；`Close(1000, "Pi client closed")`
+幂等（markClosed 先解订阅再关 socket）。
+**重连**：断线 → 1s 退避重连 → 重附上次 session；detach 仅在 connected 时清空 desired；
+失败且客户端仍 connected 先 `disconnect(errorMessage)` 再退避；dispose 退订 + 取消 + 断开 +
+等在跑循环；循环槽位跑完自释放（后续断线可再起）。
+
+### 4g-3d-2b 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C350 | **`BufferedAmount` 恒为 0** | `ClientWebSocket` 无发送缓冲深度属性；其 `SendAsync` 自身即背压（完成才返回），故写器的 drain 循环在 .NET 永不等候（TS 由 undici 的 `bufferedAmount` 驱动同一循环） |
+| C351 | **非 ws/wss scheme 在构造器抛 `ArgumentException`** | undici 从构造函数抛 SyntaxError；`ClientWebSocket.ConnectAsync` 只吃 ws/wss（http:// 会在其中失败，而那时 OpenAsync 还没挂上监听，事件必丢）。构造器抛出可让失败从工厂冒出，与 TS 等价 |
+| C352 | **适配器 `Close` 吞掉关闭异常** | undici 的 close() 在握手未完成时可抛；.NET 经任务返回。`RadiusRelaySockets.Close` 的 try/catch 与之等价；client transport 的未守卫 close 在 TS 会向上传播，此处静默（void 关闭 API 的 .NET 惯例） |
+| C353 | **连接表全部访问走短临界区** | TS 单线程无锁；.NET 的 `CloseAsync` 可与 pump 并发，故 `_connections` 的每次访问都加 `_connectionsGate`，临界区内既无 await 也无回调（accept 在锁外） |
+| C354 | **`IRadiusReconnectClient` 接口收敛重连依赖** | TS 用 `Pick<Client, 7 个成员>`；C# 收成同名接口（`Client` 逐成员满足，server.ts 接线在 4g-3d-4）。另：TS 客户端传输调用点的 `chunk.slice().buffer` 冗余复制被写器内部复制覆盖，故省略 |
+
+### 4g-3d-2b 测试方法论
+
+- **假 socket 的 `Close` 异步派发 Closed**：浏览器从事件循环派发 close，从不在 close() 内同步触发。
+  同步派发会让错误路径的终态归属反转（协议错误场景下 serve 会以 close 错误而非原错误拒绝）。
+- **`Serving` 订阅探测**：在订阅前 raise 的事件按浏览器语义丢失——host 测试先等
+  message/close/error 三个订阅就位再派发。
+- **MiniWebSocketServer**：测试项目无 ASP.NET Core WebSocket 宿主，手写 `TcpListener` + RFC 6455
+  握手/帧编解码（mask 解除、分片、close 回传）做适配器集成测试（6 例全绿）。
+- **踩坑**：① `ClientWebSocket.ConnectAsync` 只接受 ws://；② `TcpListener` 未 `Start()` 就
+  `AcceptTcpClientAsync()` 会抛（曾以竞态形式随机挂死）；③ `ConcurrentQueue` 无索引器；
+  ④ TCS 复用导致第二条消息拿到第一条（改 `SubscribeOnce`）；⑤ `Socket.Close(0)` 的 RST 时序
+  不确定（同代码一次 reject 一次挂起）——拒绝类失败改用「无监听端口」的 ConnectionRefused。
+- **顺带修 flaky**：`CoordinatorTests.SendAndBroadcast_ReachThePeers` 的跨连接观察顺序竞态
+  （旧代码 3 跑 2 挂）：共享观察列表会把 peer-2 的广播和 peer-1 的点对点发送混排。改为按通道
+  分离观察，只断言连接内顺序（点对点先于广播——同连接有序才有保证）。
