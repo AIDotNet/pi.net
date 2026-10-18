@@ -7096,3 +7096,22 @@ provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（e
   偶发把 accent 断言成默认色（期望 `#111111`，实得 `#800080`）——该类共享 `ThemeRuntime` 静态态
   与固定 sleep（100ms 防抖 + 250ms 等待），单跑全绿、满负载偶发。与 4g-3d 各批无关，待 TUI
   主题测试基础设施隔离化时一并处理。
+
+## 4g-3d-4a 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C363 | **worker 的 subscribe 响应走每订阅有序编码流（`ServiceUpdateStream`）** | TS 的 provider 内部持有 wire 编码器状态：快照 ops 在订阅时即产出（`#snapshotInstance` 建 `[["r", value]]`），且事件循环保证编码顺序；C# 的 chord provider 发已解码记录、且在任意线程发布，故 worker 每订阅持一个 `ServiceStateEncoder`，快照与更新经尾链串行（编码与发送原子——批内 op 可引用前批定义的 path id，到达顺序必须等于编码顺序）。订阅在调用前占位，保证快照先于调用期间发布的更新（TS 的快照 ops 天然在前） |
+| C364 | **manager 每订阅镜像 `ServiceStateDecoder` 并由快照响应注册** | TS 的 worker→manager 通道传**已解码** ops（`parseServiceProviderUpdate` 是纯校验+cast，无状态）；C# 传 wire ops（path id/短形式），manager 每订阅持镜像解码器，`InvokeServiceAsync` 在响应成功后用 `ParseWireServiceSubscriptionSnapshot` + `DecodeSnapshot` 注册成员——否则首个 state update 的 `_codecs.Get` 抛 "Unknown service state" 被静默丢弃。TS 无此步 |
+| C365 | **协议值树边界（`ServiceWire.ToValue`）** | C# 的 chord endpoint 答已解码记录，而协议层（CBOR / JSON 行）只说值树：catalogue、subscribe 快照、更新都以 wire 值树过界（记录载荷经 camelCase JSON 归一——线上 JSON 本就是 camelCase 键）。TS 无此边界（JSON 即值树）。此前 `Server.cs` 把 wire 记录直接塞 `ResponseOk`/`ServiceEvent`，CBOR 编码器对 record 直接抛 "Unsupported CBOR value type" |
+| C366 | **worker 控制写串行化** | Node 的 `socket.write` 内部排队；C# 的 `CoordinatorSocket.WriteLineAsync` 不内部串行，而 worker 的 publish 是 fire-and-forget（`Emit` 同步调用）、operation response 是 awaited——并发写可能交织字节。`CoordinatorWorkerControl.SendAsync` 加尾链，恢复 Node 的写顺序语义 |
+| C367 | **服务调用 args 过界为 CLR 值树** | TS 的 `JSON.parse` 直接给值树；C# 的 `TryParseServiceCall` 原样保留 `JsonNode` args，endpoint 的控制调用解码（`args[2] is "singleton"` 等 string 模式）与 wire adapter（读 dictionary）全部失配——**被 e2e 抓出的真 bug**：任何 subscribe 都落到 `provider.Invoke` 报 "service_not_allowed"。现由 `SessionWorkerProtocol.ClrValue` 归一（manager 的 `ToClrValue` 同源复用） |
+| C368 | **op 载荷 camelCase 序列化** | TS 的状态值即 camelCase JSON；C# 的已解码记录经默认 STJ 是 PascalCase（`Conversation`/`Entries`/`Docs`）。`OpsJson` 显式 camelCase（值树成员的键不受影响） |
+
+### 4g-3d-4a 测试方法论
+
+- **e2e 是协议 bug 的唯一试金石**：C367（args 不过界）与 C363（快照线型）都只有真机装配能抓到——单类测试用的是同进程字面量，绕过了 JSON 过界。e2e 因此扩到 subscribe + 会话变更发布 update，并断言视图键为 camelCase。
+- **三元表达式自然类型坑第二次踩到**：`JsonTree` 的 `TryGetValue<long> ? integer : ... GetValue<double>()` 自然类型是 double，整数被悄悄放宽（`Assert.IsType<long>` 抓到）。改为 `NumberValue` 语句式返回（与 C358 的 `NumberField` 同型）。
+- **manager 测试用可注入毫秒级真超时替代 fake timers**：`SessionWorkerManagerOptions`（Demand/Shutdown/Startup/Discovery ms）让 TS 的 `vi.useFakeTimers()` 三例（补偿、kill、有界关闭）以真实定时器复现，kill 经 `killWorker` 缝记录 pid。
+- **wire 测试数据必须用 long 字面量**：进程内 JSON 的 int backing 过不了 wire parser 的 `(long)` 硬转（`JsonTree`/`ClrValue` 归一为 long，但解析器输入侧仍按线上形状给 long）。
+- **并行跑多个测试套件会诱发负载敏感 flake**：本轮全量与 chord/server/durable 套件并行时 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath` 偶发（"No matching models" 未渲染），单跑与独占重跑均绿（4731/0）。与既有 `ThemeRuntimeTests` flake 同类，记入观测名单。

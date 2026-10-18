@@ -1167,3 +1167,28 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **4g-3d 后续**：`session-worker-manager.ts`(848) + `server.ts`(770) + `commands.ts`(98) +
   `cli.ts`(12)（4g-3d-4）；`durable/*` 9 文件（4g-3f，含 harness-setup.ts/prompt.ts）之后补
   `createCodingAgentHarness`；Pi.Durable sqlite 存储需单独排期。
+
+### 0.33 4g-3d-4a Session Worker Manager（`ee4cedc`，2026-10-19）
+
+- **范围**：`session-worker-manager.ts`(848 行) 整体移植（`SessionWorkerManager.cs`，~1,100 行），
+  含 `WorkerTimeouts`、`ISessionWorkerCoordinator`（TS `Pick` 六成员）、可注入 spawner/killer/
+  超时缝。测试对齐 TS 套件 9 例（adopt、插件选择冲突、demand 超时补偿、不可调和时 kill、
+  Harness 驱动有界关闭、operation 关联、身份不匹配、null scope、detach 拒挂起操作）+ 1 例
+  订阅快照/更新路由。新增 `SessionWorkerManagerTests`(10)、`ServiceWireToValueTests`(6)、server↔client
+  真实 socket 订阅往返 1 例；worker e2e 扩到 subscribe + 会话变更发布 update。
+- **顺带修四个真 bug（一致性核对 + e2e 抓出）**：① worker 的 subscribe 响应直接序列化已解码
+  记录（`IsJsonValue` 拒 record、形状 PascalCase）→ 每订阅有序编码流 `ServiceUpdateStream`
+  （C363）；② manager 的 `service_update` 把 JsonNode 喂给只读值树的 wire parser，更新全丢，
+  且误用已解码 op 校验（拒 path id）→ wire 解析 + 快照注册解码器（C364）；③ 协议层 CBOR 编不了
+  wire 记录 → `ServiceWire.ToValue` 值树边界（C365，含直连附件与 worker 的 catalogue）；
+  ④ worker 的调用 args 停留在 JsonNode，控制调用解码永不命中（e2e 首跑即炸）→
+  `SessionWorkerProtocol.ClrValue`（C367）。另：控制写串行化（C366）、op 载荷 camelCase（C368）。
+- **测试总量**：coding-agent 4731/0（2m19s，+11）；chord 99/0（+6）、server 28、durable 339、
+  protocol 14、ai 359、tui 23874、mcp 35、telemetry 12、codemode 40 全绿。
+- **负载敏感 flake 观测**：与 chord/server/durable 套件并行全量时 `ModelSelectorTests.
+  InitialSearchThatMatchesNothingShowsTheNoResultsPath` 偶发，独占重跑绿——记入观测名单
+  （与 `ThemeRuntimeTests` 同类）。
+- **4g-3d 后续**：4g-3d-4b `server.ts`(770)；4g-3d-4c `commands.ts`(98) + `cli.ts`(12)
+  （含 C337 的 `--internal-role coordinator`，以及 C365 的 server 侧装配：直连附件已回归值树契约，
+  wiring 落地时直接可用）；4g-3f `durable/*` 9 文件后补 `createCodingAgentHarness` +
+  `runSessionWorkerProcess`；Pi.Durable sqlite 存储单独排期。
