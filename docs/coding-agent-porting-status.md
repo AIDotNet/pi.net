@@ -6646,3 +6646,42 @@ delete 幂等、角色读取/消费/未知值抛错、控制行的 UTF-8 字节�
 | C310 | **`isDirectInternalProcessEntry` 不移植** | 它回答「这个模块是被直接执行还是被 import」，只有 TS 模块同时也是脚本时才需要这个判断；.NET 没有模块加载等价物。属宿主差异，不是功能缺口 |
 | C311 | **所有缩进序列化必须显式 `NewLine = "\n"`** | .NET 9+ 的 `JsonSerializerOptions.NewLine` 默认是 `Environment.NewLine`，Windows 下写 CRLF；TS 的 `JSON.stringify` 恒写 `"\n"`。本批修正 14 处既有缺陷（settings/auth/crashes/models/trust/mcp×3/migrations/工具渲染/校验消息/chord bundle/MCP 内容/会话目录） |
 | C312 | **同名的 using 别名对命名空间遮蔽无效** | `using Experimental = Pi.CodingAgent.Core.Experimental;` 不能让 `Experimental.X` 解析到类型——简单名称解析时外层命名空间成员（`Pi.CodingAgent.Experimental`）优先于 using 别名。只能用全限定名，或改用不同名字的别名（`CoreExperimental`） |
+
+## 4g-3b-1 服务契约层（experimental/services/* 的契约半边）
+
+TS 七个文件共 **205 行**，C# 落 `src/Pi.CodingAgent/Experimental/Services/`：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `services/agent-controller.ts` | 57 | `Services/AgentController.cs` | `AgentPromptImage` / `AgentPromptRequest` / `AgentOperationError` / `AgentOperationResponse` / `AgentQueueResponse` / `AgentPromptResult` / `AgentCompactionRequest` / `AgentCancelOutcome` / `IAgentController` |
+| `services/models.ts` | 35 | `Services/Models.cs` | `ModelRef` / `ModelSummary` / `ModelsRefreshState`（四变体）/ `ModelsCatalogState` / `ModelsConfigurationState` / `ModelsState` / `IModels` |
+| `services/sessions.ts` | 35 | `Services/Sessions.cs` | `SessionAddress` / `SessionSummary` / `SessionCreateOptions` / `SessionDirectoryState` / `ISessionDirectory` / `ISessionManagement` |
+| `services/slash-commands.ts` | 30 | `Services/SlashCommands.cs` | `SlashCommandCompletion` / `ISlashCommandContribution` / `ISlashCommands` |
+| `services/presentation-ui.ts` | 20 | `Services/PresentationUI.cs` | `PresentationSelectItem` / `IPresentationUI` |
+| `services/plugins.ts` | 19 | `Services/Plugins.cs` | `PrepareSessionRequest` / `IPresentationPlugins` / `ISessionPlugins` |
+| `services/transcript.ts` | 9 | `Services/Transcript.cs` | `ITranscript`（`IReplicatedState<ConversationView>`） |
+
+**依赖映射**：TS `defineService<T>(id, {local})` → `Api.DefineService<T>(id, local)`
+（`Service<T>` 在 `Pi.Chord.Facets`，`Api` 在 `Pi.Chord`）；`ReplicatedState<T>` → `IReplicatedState<T>`
+（`Pi.Chord.Services`）；`ConversationView` → `Pi.Durable.Harness`；`ModelThinkingLevel` →
+`Pi.Ai.Types.ThinkingLevel`；`ServerId` → 校验过的 `string`（`ServerIds.IsServerId`）。
+
+**九个服务与 local 标志**：`pi.agent-controller` / `pi.models` / `pi.presentation-plugins` /
+`pi.session-plugins` / `pi.session-directory` / `pi.session-management` / `pi.transcript` 是路由服务；
+`pi.local.presentation-ui` 与 `pi.local.slash-commands` 是 `local: true`（只在持有终端的进程内解析）。
+
+**测试（+25 例）**：`ExperimentalServicesTests` —— 九个服务 id 与 `local` 标志逐条断言、id 唯一性、
+两个回复联合的 `IsAccepted`/`Error` 语义、共享基类可承载两者、`AgentPromptResult` 两变体、
+`AgentPromptImage.Type` 恒 `"image"`、`ModelSummary` 继承 `ModelRef` 但 record 相等性要求同类型
+（与 TS 的结构比较一致——字段不同即不等）、四态 `refresh`、`ModelsState` 允许未选模型、
+`SessionSummary` 继承地址、`SessionCreateOptions.Id` 缺省 null、两个可选 `Description`、
+`PrepareSessionRequest.PackagePaths` 可为 null。
+
+### 4g-3b-1 设计差异
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C313 | **`AgentSubmissionResponse` 共享基类** | TS 的 `SlashCommandRunResult = AgentOperationResponse \| AgentQueueResponse \| undefined` 是两个判别联合再并上 undefined。C# 加抽象基类 `AgentSubmissionResponse`（`IsAccepted` / `Error`），两个联合各自继承它，`null` 表示 TS 的 `undefined`。基类属性叫 `IsAccepted` 而非 `Accepted`：嵌套 record `AgentOperationResponse.Accepted` 与同名属性会 CS0102 |
+| C314 | **接口可选方法 → 可空委托属性** | TS 的 `getArgumentCompletions?(…)` 是可选成员。C# 接口不能声明可选方法，故为 `Func<string, Task<IReadOnlyList<SlashCommandCompletion>?>>? GetArgumentCompletions`。TS 允许同步或 Promise 返回，C# 一律 `Task`，同步实现返回已完成任务 |
+| C315 | **匿名联合拆成 record 变体** | `refresh: { status: "idle" \| "refreshing" \| "done" } \| { status: "warning"; errors }` 拆成 `ModelsRefreshState.Idle` / `.Refreshing` / `.Done` / `.Warning(Errors)` 四个 record，payload 类型安全 |
+| C316 | **chord 的 `JsonValue` → `object?`** | TS 的 `JsonValue` 是递归联合类型；C# 的 chord 用 CLR 值树（`Dictionary<string, object?>` / `List<object?>` / 标量），`Json.IsJsonValue` 判定。故 `prepareSession` / `reload` 的返回类型是 `object?`。跨进程时调用方需自行转成值树（`Pi.Client.ToWireCall` 的既有做法） |

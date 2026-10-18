@@ -2,9 +2,9 @@
 
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
-> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`1b4be2c`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → **4g-3a `1b4be2c`**）
+> 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`cc5bcaa`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → **4g-3b-1 `cc5bcaa`**）
 > 本文是**执行台账**：每完成一个阶段在此更新「进度台账」小节。逐文件的移植进度与设计差异
-> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C312`）。
+> 仍以 [coding-agent-porting-status.md](coding-agent-porting-status.md) 为准（差异编号 `C##` 已用到 `C316`）。
 
 ---
 
@@ -58,7 +58,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | 子批 | 范围 | 行数 | 状态 |
 | --- | --- | --- | --- |
 | **4g-3a** | `session-catalog.ts`(87) + `process.ts`(106) | 193 | ✅ `1b4be2c`（见 0.18，+58 例） |
-| 4g-3b | `services/*`（14 文件，chord 服务契约与 provider） | ~1,150 | 下一步 |
+| **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（见 0.19，+25 例）；provider 层待做 |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | |
 | 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
@@ -304,6 +304,35 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
   角色读写/消费/未知值抛错、控制行 UTF-8 字节计数（`"中"` = 6 字节）。
 - 全量 **4354/0**（1m53s）；构建 0 警告 0 错误。差异编号推进到 **C312**。
 - **4g-3a 收口。** 下一批 **4g-3b**：`services/*`（14 文件 ~1,150 行，chord 服务契约与 provider）。
+
+### 0.19 4g-3b-1 收口记录（2026-10-18，`cc5bcaa`）——七个 chord 服务契约
+
+- **范围**：`experimental/services/*` 的**契约半边**（7 文件 205 行）——
+  `agent-controller.ts`(57) / `presentation-ui.ts`(20) / `slash-commands.ts`(30) /
+  `models.ts`(35) / `plugins.ts`(19) / `sessions.ts`(35) / `transcript.ts`(9)。
+  provider 半边（`connection.ts` 399 / `server.ts` 151 / `worker.ts` 157 /
+  `agent-controller-provider.ts` 95 / `models-provider.ts` 173 /
+  `slash-commands-provider.ts` 225 / `transcript-provider.ts` 15 = 1,215 行）留下一批。
+- **依赖核对**：`Pi.Chord` 的 `Api.DefineService<T>(id, local)` / `Service<T>`（`Pi.Chord.Facets`）/
+  `IReplicatedState<T>` 与 TS 的 `defineService` / `ReplicatedState<T>` 一一对应；
+  `ConversationView` 取 `Pi.Durable.Harness`，`ThinkingLevel` 取 `Pi.Ai.Types`（TS `ModelThinkingLevel`），
+  `ServerId` 在 C# 侧是校验过的 `string`。`Pi.CodingAgent` 已引用 Chord/Durable/Protocol/Ai，无需新增。
+- **四条 C# 表达差异**（都是类型系统差异，不是行为差异）：① TS 的
+  `SlashCommandRunResult = AgentOperationResponse | AgentQueueResponse | undefined` 是两个联合的并集，
+  C# 加共享抽象基类 `AgentSubmissionResponse`（带 `IsAccepted`/`Error`）+ `null` 表达（C313）；
+  ② 接口的可选方法 `getArgumentCompletions?` → 可空委托属性（C314）；③ `refresh` 的匿名联合
+  `{status:"idle"|"refreshing"|"done"} | {status:"warning"; errors}` → 四个 record 变体（C315）；
+  ④ chord 的 `JsonValue` 在 C# 侧是 CLR 值树（`Dictionary`/`List`/标量），故 `object?`（C316）。
+- **命名冲突**：`AgentOperationResponse.Accepted` 这个嵌套 record 与基类属性 `Accepted` 同名会
+  CS0102，故基类属性改叫 `IsAccepted`（语义不变，调用方读 `IsAccepted`）。
+- **测试 +25 例**（`ExperimentalServicesTests`）：九个服务 id 与 `local` 标志（`pi.local.*` 两个
+  是 local）、id 唯一性、两个回复联合的 `IsAccepted`/`Error` 语义、共享基类可承载两者、
+  `AgentPromptResult` 两变体、`AgentPromptImage.Type` 恒 `"image"`、
+  `ModelSummary` 继承 `ModelRef` 但 record 相等性要求同类型（与 TS 结构比较一致，因为字段不同）、
+  四态 `refresh`、`ModelsState` 允许未选模型、`SessionSummary` 继承地址、
+  `SessionCreateOptions.Id` 缺省为 null、两个可选 `Description`、`PrepareSessionRequest.PackagePaths` 可为 null。
+- 全量 **4379/0**（1m54s）；构建 0 警告 0 错误。差异编号推进到 **C316**。
+- **4g-3b-1 收口。** 下一批 **4g-3b-2**：`services/*` 的 provider 半边（7 文件 1,215 行）。
 
 ---
 
