@@ -44,9 +44,16 @@ public static class TranscriptProvider
         }
     }
 
-    /// <summary>Read-only view over the attached state.</summary>
-    private sealed class TranscriptService(AttachedReplicatedState<ConversationView> state) : ITranscript
+    /// <summary>
+    /// Read-only view over the attached state. The transcript service is state-only, so its wire shape
+    /// is the single <c>state</c> member TS exposes (C325).
+    /// </summary>
+    private sealed class TranscriptService(AttachedReplicatedState<ConversationView> state)
+        : ServiceWireAdapter, ITranscript
     {
+        protected override IEnumerable<KeyValuePair<string, object>> WireMembers()
+            => [new("state", state)];
+
         public IReplicatedState<ConversationView> State => state;
     }
 }

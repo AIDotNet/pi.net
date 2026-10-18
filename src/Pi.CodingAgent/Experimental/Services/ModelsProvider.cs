@@ -213,14 +213,58 @@ public static class ModelsProvider
         }
     }
 
-    /// <summary>The <see cref="IModels"/> implementation over one conversation's agent document.</summary>
+    /// <summary>
+    /// The <see cref="IModels"/> implementation over one conversation's agent document. Like every
+    /// service in this layer it is both the typed local view and the wire member dictionary (C325);
+    /// the member names are the TS property names.
+    /// </summary>
     private sealed class ModelsService(
         IConversation conversation,
         DocumentState<Dictionary<string, object?>> agent,
         ModelRuntime? modelRuntime,
         SettingsManager? settingsManager,
-        Func<ModelsState, MutableReplicatedState<ModelsState>> createState) : IModels
+        Func<ModelsState, MutableReplicatedState<ModelsState>> createState)
+        : ServiceWireAdapter, IModels
     {
+        protected override IEnumerable<KeyValuePair<string, object>> WireMembers() =>
+        [
+            State("state", _state),
+            Method("cycleThinking", CycleThinkingWire),
+            Method("getThinkingLevels", GetThinkingLevelsWire),
+            Method("refresh", RefreshWire),
+            Method("select", SelectWire),
+            Method("selectThinking", SelectThinkingWire),
+        ];
+
+        private Task<object?> CycleThinkingWire(object?[] args)
+            => VoidWire(CycleThinkingAsync(ContextOf(args)));
+
+        private async Task<object?> GetThinkingLevelsWire(object?[] args)
+        {
+            var levels = await GetThinkingLevelsAsync(ContextOf(args)).ConfigureAwait(false);
+            return ServiceWireValues.ThinkingLevels(levels);
+        }
+
+        private Task<object?> RefreshWire(object?[] args) => VoidWire(RefreshAsync(ContextOf(args)));
+
+        private Task<object?> SelectWire(object?[] args)
+            => VoidWire(SelectAsync(Read<ModelRef>(args[0]), ContextOf(args)));
+
+        private async Task<object?> SelectThinkingWire(object?[] args)
+        {
+            // TS sends the level as its literal.
+            var level = ThinkingLevelText.Parse(Text(args[0]))
+                ?? throw new ArgumentException($"Unknown thinking level: {Text(args[0])}");
+            await SelectThinkingAsync(level, ContextOf(args)).ConfigureAwait(false);
+            return null;
+        }
+
+        private static async Task<object?> VoidWire(Task call)
+        {
+            await call.ConfigureAwait(false);
+            return null;
+        }
+
         private readonly MutableReplicatedState<ModelsState> _state = createState(new ModelsState(
             new ModelsCatalogState(0, []),
             ConfigurationOf(null),

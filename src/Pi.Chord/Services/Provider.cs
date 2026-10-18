@@ -224,7 +224,22 @@ public sealed class RemoteServiceProvider
             throw new RemoteServiceError("service_member_mismatch",
                 $"Remote service member {call.ServiceId}.{call.Member} is not a method");
         var arguments = call.Args.Append<object?>(context).ToArray();
-        return await Task.FromResult(method.Invoke(arguments)).ConfigureAwait(false);
+        var result = method.Invoke(arguments);
+        // TS awaits the method's return (`await Reflect.apply(...)`), so a member may answer with a
+        // promise. The port's convention is `Task<object?>`; any other Task shape is unwrapped by
+        // reflection so a `Task<string>` answer still reaches the caller as its value.
+        if (result is Task<object?> typed)
+        {
+            return await typed.ConfigureAwait(false);
+        }
+
+        if (result is Task untyped)
+        {
+            await untyped.ConfigureAwait(false);
+            return untyped.GetType().GetProperty("Result")?.GetValue(untyped);
+        }
+
+        return result;
     }
 
     /// <summary>订阅服务状态流。对应 TS <c>subscribe</c>。</summary>

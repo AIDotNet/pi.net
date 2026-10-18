@@ -74,8 +74,77 @@ public static class AgentControllerProvider
         _ => new AgentOperationError("operation_failed", error.Message),
     };
 
-    private sealed class Controller(IHarness harness, IConversation conversation) : IAgentController
+    /// <summary>
+    /// The controller is both the typed local view and the wire member dictionary: TS hands chord a
+    /// plain object and lets it classify the properties; the C# port needs the members spelled out
+    /// (C325). Member names are the TS property names.
+    /// </summary>
+    private sealed class Controller(IHarness harness, IConversation conversation)
+        : ServiceWireAdapter, IAgentController
     {
+        protected override IEnumerable<KeyValuePair<string, object>> WireMembers() =>
+        [
+            Method("prompt", PromptWire),
+            Method("steer", SteerWire),
+            Method("followUp", FollowUpWire),
+            Method("cancelQueued", CancelQueuedWire),
+            Method("abort", AbortWire),
+            Method("compact", CompactWire),
+            Method("waitForPrompt", WaitForPromptWire),
+        ];
+
+        private Task<object?> PromptWire(object?[] args)
+            => OperationWire(PromptAsync(Read<AgentPromptRequest>(args[0]), ContextOf(args)));
+
+        private Task<object?> SteerWire(object?[] args)
+            => QueueWire(SteerAsync(Read<AgentPromptRequest>(args[0]), ContextOf(args)));
+
+        private Task<object?> FollowUpWire(object?[] args)
+            => QueueWire(FollowUpAsync(Read<AgentPromptRequest>(args[0]), ContextOf(args)));
+
+        private async Task<object?> CancelQueuedWire(object?[] args)
+            => ServiceWireValues.CancelOutcome(
+                await CancelQueuedAsync(Text(args[0]), ContextOf(args)).ConfigureAwait(false));
+
+        private async Task<object?> AbortWire(object?[] args)
+        {
+            await AbortAsync(ContextOf(args)).ConfigureAwait(false);
+            return null;
+        }
+
+        private Task<object?> CompactWire(object?[] args)
+            => OperationWire(CompactAsync(Read<AgentCompactionRequest>(args[0]), ContextOf(args)));
+
+        private async Task<object?> WaitForPromptWire(object?[] args)
+        {
+            var result = await WaitForPromptAsync(Text(args[0]), ContextOf(args)).ConfigureAwait(false);
+            return result switch
+            {
+                AgentPromptResult.Done done => ServiceWireValues.PromptResult("done", done.Text, null),
+                AgentPromptResult.Unanswered unanswered =>
+                    ServiceWireValues.PromptResult("unanswered", null, unanswered.Reason),
+                _ => throw new InvalidOperationException($"Unknown prompt result: {result.GetType().Name}"),
+            };
+        }
+
+        private static async Task<object?> OperationWire(Task<AgentOperationResponse> call)
+        {
+            var response = await call.ConfigureAwait(false);
+            return ServiceWireValues.OperationResponse(
+                response.IsAccepted,
+                (response as AgentOperationResponse.Accepted)?.OperationId,
+                response.Error);
+        }
+
+        private static async Task<object?> QueueWire(Task<AgentQueueResponse> call)
+        {
+            var response = await call.ConfigureAwait(false);
+            return ServiceWireValues.QueueResponse(
+                response.IsAccepted,
+                (response as AgentQueueResponse.Accepted)?.EntryId,
+                response.Error);
+        }
+
         public async Task<AgentOperationResponse> PromptAsync(AgentPromptRequest request, Context context)
         {
             try
