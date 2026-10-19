@@ -152,6 +152,16 @@ public sealed class CustomEntryComponentTests : SelectorTestFixture
 public sealed class EarendilAnnouncementComponentTests : SelectorTestFixture
 {
     [Fact]
+    public void LoadsTheBundledAnnouncementImage()
+    {
+        var imagePath = Config.GetBundledInteractiveAssetPath("clankolas.png");
+        Assert.True(File.Exists(imagePath), imagePath);
+
+        var component = new EarendilAnnouncementComponent();
+        Assert.Contains(component.Children, child => child is Image);
+    }
+
+    [Fact]
     public void RendersTitleAndBlogLink_InsideAccentBorders()
     {
         var component = new EarendilAnnouncementComponent();

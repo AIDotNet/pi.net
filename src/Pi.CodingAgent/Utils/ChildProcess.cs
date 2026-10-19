@@ -215,6 +215,28 @@ public static class ChildProcess
     /// </remarks>
     public static Task<int?> WaitForChildProcessAsync(ChildProcessHandle child) => child.WaitAsync();
 
+    internal static async Task WaitForStdioIdleAsync(
+        Task streamsEnded,
+        Func<long> lastDataTime,
+        Func<long> nowMs,
+        Func<int, Task> delay)
+    {
+        while (!streamsEnded.IsCompleted)
+        {
+            var remaining = ExitStdioGraceMs - (nowMs() - lastDataTime());
+            if (remaining <= 0)
+            {
+                break;
+            }
+
+            var finished = await Task.WhenAny(streamsEnded, delay((int)remaining)).ConfigureAwait(false);
+            if (finished == streamsEnded)
+            {
+                break;
+            }
+        }
+    }
+
     /// <summary>Build the start info, applying Windows shim resolution and Unix detachment.</summary>
     internal static ProcessStartInfo BuildStartInfo(
         string command,
@@ -727,21 +749,11 @@ public sealed class ChildProcessHandle : IDisposable
 
         var exitCode = await _exit.Task.ConfigureAwait(false);
         var bothEnded = Task.WhenAll(_stdoutEnded.Task, _stderrEnded.Task);
-
-        while (!bothEnded.IsCompleted)
-        {
-            var remaining = ChildProcess.ExitStdioGraceMs - (NowMs() - Interlocked.Read(ref _lastDataMs));
-            if (remaining <= 0)
-            {
-                break;
-            }
-
-            var finished = await Task.WhenAny(bothEnded, Task.Delay((int)remaining)).ConfigureAwait(false);
-            if (finished == bothEnded)
-            {
-                break;
-            }
-        }
+        await ChildProcess.WaitForStdioIdleAsync(
+            bothEnded,
+            () => Interlocked.Read(ref _lastDataMs),
+            static () => NowMs(),
+            static milliseconds => Task.Delay(milliseconds)).ConfigureAwait(false);
 
         DestroyStreams();
         return exitCode;

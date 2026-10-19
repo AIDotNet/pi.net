@@ -52,7 +52,7 @@ public static class UnixTransport
         {
             names = Directory.GetFiles(options.Directory);
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException) when (!File.Exists(options.Directory))
         {
             return [];
         }
@@ -181,8 +181,7 @@ public static class UnixTransport
             await client.ConnectAsync().WaitAsync(timeout.Token).ConfigureAwait(false);
             return route;
         }
-        catch (Exception error) when (error is OperationCanceledException or ProtocolValidationError
-            or DisconnectedError or ServerError or SocketException or IOException)
+        catch (Exception error) when (IsIgnorableProbeError(error))
         {
             // 缺失/被拒的 socket 是陈旧或正在关闭；协议失败说明端点不是它宣称的服务器。
             return null;
@@ -192,6 +191,28 @@ public static class UnixTransport
             await client.DisposeAsync().ConfigureAwait(false);
             probeSocket?.Dispose();
         }
+    }
+
+    private static bool IsIgnorableProbeError(Exception error)
+    {
+        if (error is OperationCanceledException or ProtocolValidationError) return true;
+        if (error is ServerError serverError) return serverError.Code == "version";
+        if (error is DisconnectedError disconnected)
+        {
+            return disconnected.InnerException is null || IsIgnorableProbeError(disconnected.InnerException);
+        }
+        if (error is SocketException socketError)
+        {
+            return socketError.SocketErrorCode is SocketError.AddressNotAvailable
+                or SocketError.ConnectionRefused
+                or SocketError.ConnectionReset
+                or SocketError.ConnectionAborted
+                or SocketError.Shutdown
+                or SocketError.TimedOut
+                or SocketError.NotSocket
+                or SocketError.OperationAborted;
+        }
+        return error.InnerException is not null && IsIgnorableProbeError(error.InnerException);
     }
 
     /// <summary>Unix 域套接字字节传输。对应 TS <c>UnixByteTransport</c>。</summary>
@@ -239,17 +260,19 @@ public static class UnixTransport
 
         public Task SendAsync(byte[] chunk)
         {
+            ArgumentNullException.ThrowIfNull(chunk);
+            var bytes = chunk.ToArray();
             lock (_gate)
             {
                 if (_closed) return Task.FromException(new InvalidOperationException("Unix transport is closed"));
-                if (_pendingBytes + chunk.Length > _maxPendingBytes)
+                if (_pendingBytes + bytes.Length > _maxPendingBytes)
                 {
                     return Task.FromException(
                         new InvalidOperationException("Unix transport exceeded its pending byte limit"));
                 }
-                _pendingBytes += chunk.Length;
+                _pendingBytes += bytes.Length;
                 var previous = _writeTail;
-                var write = WriteAfterAsync(previous, chunk);
+                var write = WriteAfterAsync(previous, bytes);
                 _writeTail = write.ContinueWith(_ => { }, CancellationToken.None,
                     TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                 return write;
@@ -272,7 +295,14 @@ public static class UnixTransport
                 {
                     if (_closed) throw new InvalidOperationException("Unix transport is closed");
                 }
-                await _socket.SendAsync(chunk, SocketFlags.None).ConfigureAwait(false);
+                var offset = 0;
+                while (offset < chunk.Length)
+                {
+                    var sent = await _socket.SendAsync(chunk.AsMemory(offset), SocketFlags.None)
+                        .ConfigureAwait(false);
+                    if (sent == 0) throw new DisconnectedError("Unix transport closed during write");
+                    offset += sent;
+                }
             }
             finally
             {

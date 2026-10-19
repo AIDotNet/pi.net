@@ -100,6 +100,9 @@ internal sealed record ConfigSeams
     /// <summary>Override for <see cref="Config.GetThemesDir()"/>.</summary>
     public string? ThemesDir { get; init; }
 
+    /// <summary>Override for <see cref="Config.GetInteractiveAssetsDir()"/>.</summary>
+    public string? InteractiveAssetsDir { get; init; }
+
     /// <summary>Override for <see cref="Config.GetCustomThemesDir()"/>.</summary>
     public string? CustomThemesDir { get; init; }
 }
@@ -806,7 +809,21 @@ public static partial class Config
     /// <summary>The directory holding the built-in interactive assets.</summary>
     public static string GetInteractiveAssetsDir() => GetInteractiveAssetsDir(null);
 
-    internal static string GetInteractiveAssetsDir(ConfigSeams? seams) => AssetDir(seams, "assets", "modes", "interactive", "assets");
+    internal static string GetInteractiveAssetsDir(ConfigSeams? seams)
+    {
+        if (!string.IsNullOrEmpty(seams?.InteractiveAssetsDir))
+        {
+            return seams.InteractiveAssetsDir;
+        }
+
+        var bundled = Path.Combine(AppContext.BaseDirectory, "Assets", "assets");
+        if (Directory.Exists(bundled) && File.Exists(Path.Combine(bundled, "clankolas.png")))
+        {
+            return bundled;
+        }
+
+        return AssetDir(seams, "assets", "modes", "interactive", "assets");
+    }
 
     /// <summary>The path of a bundled interactive asset.</summary>
     public static string GetBundledInteractiveAssetPath(string name) => GetBundledInteractiveAssetPath(name, null);

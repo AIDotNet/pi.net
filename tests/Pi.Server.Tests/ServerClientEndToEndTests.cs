@@ -1,3 +1,4 @@
+using System.Net.Sockets;
 using Pi.Chord.Context;
 using Pi.Chord.Services;
 using Pi.Client;
@@ -110,6 +111,13 @@ public class ServerClientEndToEndTests
     private static string TempSocketPath()
         => Path.Combine(Path.GetTempPath(), $"pi-{Guid.NewGuid():N}"[..11] + ".sock");
 
+    private static string TempSocketDirectory()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"pd-{Guid.NewGuid():N}"[..11]);
+        Directory.CreateDirectory(directory);
+        return directory;
+    }
+
     private static ClientOptions ClientOptionsFor(string path, string serverId = ServerId) => new()
     {
         ServerId = serverId,
@@ -185,6 +193,168 @@ public class ServerClientEndToEndTests
         {
             await server.CloseAsync();
             if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task SendsLargeRequestFramesWithoutTruncation()
+    {
+        var path = TempSocketPath();
+        var server = new Server<Metadata>(new EchoHost(), new ServerOptions
+        {
+            Listeners = [new UnixListener(new UnixListenerOptions { Path = path })],
+            ServerId = ServerId,
+        });
+        try
+        {
+            await server.StartAsync();
+            await using var client = new Pi.Client.Client(ClientOptionsFor(path));
+            await client.ConnectAsync();
+
+            var payload = new string('x', 4 * 1024 * 1024);
+            var result = await AwaitWithTimeoutAsync(
+                client.RequestAsync(new RpcTarget.ServerTarget(ServerId),
+                    new ServiceCall("echoer", "echo", [payload])),
+                15_000);
+            Assert.Equal("echoer.echo:1", result);
+        }
+        finally
+        {
+            await server.CloseAsync();
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task DiscoveryReturnsEmptyForMissingDirectoryButPropagatesOtherFilesystemErrors()
+    {
+        var missingDirectory = Path.Combine(Path.GetTempPath(), $"pd-{Guid.NewGuid():N}"[..11]);
+        var missingRoutes = await UnixTransport.DiscoverUnixServersAsync(new DiscoverUnixServersOptions
+        {
+            Directory = missingDirectory,
+        });
+        Assert.Empty(missingRoutes);
+
+        var file = Path.Combine(Path.GetTempPath(), $"pd-{Guid.NewGuid():N}"[..11]);
+        File.WriteAllText(file, "not a directory");
+        try
+        {
+            await Assert.ThrowsAnyAsync<IOException>(async () =>
+                await UnixTransport.DiscoverUnixServersAsync(new DiscoverUnixServersOptions { Directory = file }));
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public async Task DiscoveryTimesOutUnresponsiveSocketsWithoutDeletingThem()
+    {
+        var directory = TempSocketDirectory();
+        var path = Path.Combine(directory, $"{ServerId}.sock");
+        var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        Socket? peer = null;
+        try
+        {
+            listener.Bind(new UnixDomainSocketEndPoint(path));
+            listener.Listen(1);
+            var accept = listener.AcceptAsync();
+            var discovery = UnixTransport.DiscoverUnixServersAsync(new DiscoverUnixServersOptions
+            {
+                Directory = directory,
+                TimeoutMs = 50,
+            });
+            peer = await accept.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Empty(await discovery.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.True(File.Exists(path));
+        }
+        finally
+        {
+            peer?.Dispose();
+            listener.Dispose();
+            if (File.Exists(path)) File.Delete(path);
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DiscoveryIgnoresServerIdMismatches()
+    {
+        const string reportedServerId = "11111111-1111-4111-8111-111111111111";
+        var directory = TempSocketDirectory();
+        var path = Path.Combine(directory, $"{ServerId}.sock");
+        var server = new Server<Metadata>(new EchoHost(), new ServerOptions
+        {
+            Listeners = [new UnixListener(new UnixListenerOptions { Path = path })],
+            ServerId = reportedServerId,
+        });
+        try
+        {
+            await server.StartAsync();
+            var routes = await UnixTransport.DiscoverUnixServersAsync(new DiscoverUnixServersOptions
+            {
+                Directory = directory,
+            });
+            Assert.Empty(routes);
+        }
+        finally
+        {
+            await server.CloseAsync();
+            if (File.Exists(path)) File.Delete(path);
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DiscoverySuppressesVersionErrorsButPropagatesOtherHandshakeErrors()
+    {
+        Assert.Empty(await DiscoverWithHelloErrorAsync("version"));
+        var error = await Assert.ThrowsAsync<Pi.Client.ServerError>(async () =>
+            await DiscoverWithHelloErrorAsync("invalid_request"));
+        Assert.Equal("invalid_request", error.Code);
+    }
+
+    private static async Task<IReadOnlyList<UnixServerRoute>> DiscoverWithHelloErrorAsync(string code)
+    {
+        var directory = TempSocketDirectory();
+        var path = Path.Combine(directory, $"{ServerId}.sock");
+        var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        Socket? peer = null;
+        try
+        {
+            listener.Bind(new UnixDomainSocketEndPoint(path));
+            listener.Listen(1);
+            var accept = listener.AcceptAsync();
+            var discovery = UnixTransport.DiscoverUnixServersAsync(new DiscoverUnixServersOptions
+            {
+                Directory = directory,
+                TimeoutMs = 5_000,
+            });
+            peer = await accept.WaitAsync(TimeSpan.FromSeconds(5));
+
+            var decoder = new ProtocolCodec.ClientMessageDecoder();
+            var buffer = new byte[4096];
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var helloReceived = false;
+            while (!helloReceived)
+            {
+                var read = await peer.ReceiveAsync(buffer.AsMemory(), SocketFlags.None, timeout.Token);
+                if (read == 0) throw new IOException("Unix client closed before sending hello");
+                helloReceived = decoder.Push(buffer[..read]).Any(message => message is ClientMessage.Hello);
+            }
+
+            var response = ProtocolCodec.EncodeServerMessage(
+                new ServerMessage.HelloError(new ProtocolError(code, $"Synthetic {code}")));
+            await peer.SendAsync(response.AsMemory(), SocketFlags.None, timeout.Token);
+            return await discovery.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            peer?.Dispose();
+            listener.Dispose();
+            if (File.Exists(path)) File.Delete(path);
+            Directory.Delete(directory, recursive: true);
         }
     }
 
