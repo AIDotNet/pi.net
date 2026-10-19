@@ -17,6 +17,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Pi.CodingAgent.Utils;
+using Pi.Server;
 
 namespace Pi.CodingAgent.Experimental;
 
@@ -31,7 +32,8 @@ namespace Pi.CodingAgent.Experimental;
 /// </param>
 /// <param name="Cwd">The working directory the Session's agent runs in.</param>
 /// <param name="Path">The Session directory. Workers lock it and own the storage inside it.</param>
-public sealed record SessionCatalogMetadata(string Id, double CreatedAt, string Cwd, string Path);
+public sealed record SessionCatalogMetadata(string Id, double CreatedAt, string Cwd, string Path)
+    : ISessionMetadata;
 
 /// <summary>Options of <see cref="SessionCatalog.CreateSessionAsync"/>.</summary>
 public sealed record SessionCatalogCreateOptions

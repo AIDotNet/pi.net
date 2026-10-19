@@ -36,7 +36,7 @@ public sealed record CoordinatorConnectionOptions(
     string? ServerConnectionId = null);
 
 /// <summary>The server-side endpoint of the coordinator's message router. TS <c>CoordinatorConnection</c>.</summary>
-public sealed class CoordinatorConnection
+public sealed class CoordinatorConnection : ISessionWorkerCoordinator
 {
     private readonly Lock _gate = new();
     private readonly HashSet<string> _peerIds = [];

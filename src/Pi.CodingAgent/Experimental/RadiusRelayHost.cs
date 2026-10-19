@@ -224,8 +224,14 @@ public sealed class RadiusRelayHost
             }
             catch (Exception error)
             {
-                RadiusRelaySockets.Close(socket, RadiusRelay.LocalProtocolErrorCloseCode, "Radius relay protocol error");
+                // TS issues the close first and then calls finish, but Node's event loop guarantees
+                // the synchronous finish wins the terminal slot over the close event it queues.
+                // .NET delivers a socket's close from another thread, so the port settles the serve
+                // first and closes afterwards: the original error is the one the retry loop reports,
+                // whatever the delivery timing. (The reordering was a real flake under full-suite
+                // load — the close event could win the slot between the two statements.)
                 Finish(RadiusRelaySockets.ToError(error));
+                RadiusRelaySockets.Close(socket, RadiusRelay.LocalProtocolErrorCloseCode, "Radius relay protocol error");
             }
         }
 

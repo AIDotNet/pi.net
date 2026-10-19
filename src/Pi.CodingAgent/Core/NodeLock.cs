@@ -56,15 +56,25 @@ public static class NodeLock
     /// Acquire the lock asynchronously with the exponential backoff and stale takeover the auth store uses.
     /// The returned delegate releases the lock.
     /// </summary>
+    /// <param name="maxWaitMs">
+    /// Total wait before the lock is reported as held (proper-lockfile's <c>retries.maxRetryTime</c>).
+    /// Defaults to <paramref name="staleMs"/>, the behaviour the earlier call sites rely on.
+    /// </param>
+    /// <param name="fixedRetryMs">
+    /// A constant retry delay instead of the exponential backoff (proper-lockfile's
+    /// <c>minTimeout == maxTimeout</c> with <c>factor: 1</c>).
+    /// </param>
     public static async Task<Func<Task>> AcquireAsync(
         string path,
         CancellationToken cancellationToken,
         Action<Exception>? onCompromised = null,
         int staleMs = 30_000,
-        int maxDelayMs = 2_000)
+        int maxDelayMs = 2_000,
+        int? maxWaitMs = null,
+        int? fixedRetryMs = null)
     {
         var lockPath = path + ".lock";
-        var deadline = Environment.TickCount64 + staleMs;
+        var deadline = Environment.TickCount64 + (maxWaitMs ?? staleMs);
         var retry = 0;
         while (true)
         {
@@ -83,9 +93,18 @@ public static class NodeLock
             cancellationToken.ThrowIfCancellationRequested();
             var remainingMs = deadline - Environment.TickCount64;
             if (remainingMs <= 0) throw new LockHeldException(lockPath);
-            var baseDelayMs = Math.Min(10 * Math.Pow(2, retry), maxDelayMs / 2.0);
-            retry++;
-            var delayMs = (int)Math.Min(Math.Round(baseDelayMs * (1 + Random.Shared.NextDouble())), remainingMs);
+            int delayMs;
+            if (fixedRetryMs is int fixedMs)
+            {
+                delayMs = (int)Math.Min(fixedMs, remainingMs);
+            }
+            else
+            {
+                var baseDelayMs = Math.Min(10 * Math.Pow(2, retry), maxDelayMs / 2.0);
+                retry++;
+                delayMs = (int)Math.Min(Math.Round(baseDelayMs * (1 + Random.Shared.NextDouble())), remainingMs);
+            }
+
             await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
         }
     }
