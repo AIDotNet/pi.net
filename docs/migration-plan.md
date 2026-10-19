@@ -4,6 +4,8 @@
 > **参照基线 commit：`428a12bc7`（= `origin/main`，2026-10-06）。** 任何批次动工前先确认检出仍在此版本。
 > 目标仓库：`D:\AI\参考项目\pi.net`（.NET 10，11 个运行时项目 + 10 个测试项目）
 > 本文档在迁移期间持续更新；逐文件细节见 [porting-status.md](porting-status.md) 与 [tui-porting-status.md](tui-porting-status.md)。
+>
+> **当前执行状态以 [migration-execution-status.md](./migration-execution-status.md) 为准。** 本文的逐包统计与阶段表是较早的历史快照，其中 coding-agent 阶段和后续 SQLite/harness 缺口未同步；请勿据此判断当前完成度。
 
 ---
 
@@ -202,4 +204,3 @@
 |---|---|---|---|
 | `AgentSessionLeafTests.ParseSkillBlock_ExtractsNameLocationContentAndUserMessage` | `Assert.NotNull` 失败（返回 null） | **测试写法**：输入用 `"""` 原始字符串字面量，本机 CRLF 使其含 `\r\n`，而 TS/C# 的 `parseSkillBlock` 正则都是 `^<skill name="..." location="...">\n([\s\S]*?)\n</skill>...`，只认 `\n`。**实现与 TS 逐字一致，是忠实的。** | 改为显式 `\n` 拼接 |
 | `PackageManagerTests.AddSourceToSettings_PreservesFiltersWhenUpdatingObjectEntry` | `Dispose()` 里 `Directory.Delete` 抛 `UnauthorizedAccessException: Access to the path 'settings.json.lock' is denied` | **测试卫生**：`SettingsManager.Save()` 经 `EnqueueWrite` 异步落盘（与 TS 的 `enqueueWrite`/`flush` 同构），同步测试未 `FlushAsync()` 就删临时目录，与后台写入竞争 | 测试持有 `SettingsManager` 列表，`Dispose` 先 `FlushAsync()` 再删；并补捕 `UnauthorizedAccessException` |
-

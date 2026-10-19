@@ -1,5 +1,7 @@
 # 移植状态与设计说明
 
+> **当前完成度与剩余任务以 [migration-execution-status.md](./migration-execution-status.md) 为准。** 本文的逐包汇总是历史快照，部分 coding-agent、durable 与测试数量已过期。
+
 本文记录 Pi → .NET 10 的逐包移植进度、TS → C# 关键设计差异、CBOR 线上兼容要点与路线图。项目功能介绍见 [readme](../readme.md)。
 
 > 参照源码：`D:\AI\参考项目\pi`
