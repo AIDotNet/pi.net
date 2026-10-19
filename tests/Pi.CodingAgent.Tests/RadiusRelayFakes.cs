@@ -165,7 +165,7 @@ internal sealed class StubReconnectClient : IRadiusReconnectClient
         return () => _attachmentListeners.Remove(listener);
     }
 
-    public Task ReconnectAsync()
+    public Task<ServerMessage.Hello> ReconnectAsync()
     {
         ReconnectCalls++;
         if (ReconnectError is not null)
@@ -175,13 +175,13 @@ internal sealed class StubReconnectClient : IRadiusReconnectClient
                 _connected = true;
             }
 
-            return Task.FromException(ReconnectError);
+            return Task.FromException<ServerMessage.Hello>(ReconnectError);
         }
 
         _connected = true;
         ConnectionState = ClientConnectionState.Connected;
         RaiseClientConnectionState(ClientConnectionState.Connected);
-        return Task.CompletedTask;
+        return Task.FromResult<ServerMessage.Hello>(null!);
     }
 
     public void RaiseAttachment(RpcTarget.SessionTarget? attachment)

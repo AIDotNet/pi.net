@@ -114,8 +114,9 @@ public static class ExperimentalServerProvider
                     var answer = await options.PrepareSessionPluginsAsync(
                         request.SessionId, request.PackagePaths, ServiceWireValues.ContextOf(args)).ConfigureAwait(false);
                     preparedPluginPackagePaths = answer.PackagePaths;
-                    return (object?)ServiceWireValues.PrepareSessionAnswer(
-                        answer.PackagePaths, answer.PresentationPlugins);
+                    // TS returns `selected.presentationPlugins` — the presentation facet data itself,
+                    // not a wrapper around it (the package paths stay server-side bookkeeping).
+                    return answer.PresentationPlugins;
                 })),
                 ["reload"] = (Func<object?[], object?>)(args => Serialize<object?>(async () =>
                 {

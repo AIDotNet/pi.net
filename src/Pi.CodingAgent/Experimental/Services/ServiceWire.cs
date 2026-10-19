@@ -167,6 +167,127 @@ internal static class ServiceWireValues
         _ => "not_found",
     };
 
+    // ---------------------------------------------------------------- request writers
+    //
+    // The presentation side of the wire: TS's client passes plain objects that the provider's
+    // readers destructure, so the client writes the same key sets. `null` fields stay as null
+    // (TS's JSON.stringify drops only undefined).
+
+    /// <summary>TS <c>SessionCreateOptions</c>: a missing <c>id</c> reads back as null.</summary>
+    public static Dictionary<string, object?> SessionCreateOptions(SessionCreateOptions options) => new()
+    {
+        ["id"] = options.Id,
+    };
+
+    /// <summary>TS the inline request of <c>prepareSession</c>.</summary>
+    public static Dictionary<string, object?> PrepareSessionRequest(PrepareSessionRequest request) => new()
+    {
+        ["sessionId"] = request.SessionId,
+        ["packagePaths"] = request.PackagePaths?.ToList<object?>(),
+    };
+
+    /// <summary>TS <c>AgentPromptRequest</c>.</summary>
+    public static Dictionary<string, object?> PromptRequest(AgentPromptRequest request) => new()
+    {
+        ["message"] = request.Message,
+        ["images"] = request.Images?.Select(image => (object?)new Dictionary<string, object?>
+        {
+            // TS's AgentPromptImage pins the literal type first.
+            ["type"] = image.Type,
+            ["data"] = image.Data,
+            ["mimeType"] = image.MimeType,
+        }).ToList(),
+    };
+
+    /// <summary>TS <c>AgentCompactionRequest</c>.</summary>
+    public static Dictionary<string, object?> CompactionRequest(AgentCompactionRequest request) => new()
+    {
+        ["customInstructions"] = request.CustomInstructions,
+    };
+
+    /// <summary>TS <c>ModelRef</c>.</summary>
+    public static Dictionary<string, object?> ModelRef(ModelRef model) => new()
+    {
+        ["provider"] = model.Provider,
+        ["modelId"] = model.ModelId,
+    };
+
+    // ---------------------------------------------------------------- reply readers
+
+    /// <summary>TS <c>SessionSummary</c> as the wire answers it.</summary>
+    public static SessionSummary ReadSummary(object? value)
+    {
+        var fields = Fields(value);
+        return new SessionSummary(
+            Field(fields, "serverId"),
+            Field(fields, "sessionId"),
+            Number(fields, "createdAt"));
+    }
+
+    /// <summary>TS <c>AgentOperationResponse</c>: both variants carry all three keys.</summary>
+    public static AgentOperationResponse ReadOperationResponse(object? value)
+    {
+        var fields = Fields(value);
+        return Accepted(fields)
+            ? new AgentOperationResponse.Accepted(Field(fields, "operationId"))
+            : new AgentOperationResponse.Rejected(ReadError(fields));
+    }
+
+    /// <summary>TS <c>AgentQueueResponse</c>: both variants carry all three keys.</summary>
+    public static AgentQueueResponse ReadQueueResponse(object? value)
+    {
+        var fields = Fields(value);
+        return Accepted(fields)
+            ? new AgentQueueResponse.Accepted(Field(fields, "entryId"))
+            : new AgentQueueResponse.Rejected(ReadError(fields));
+    }
+
+    /// <summary>TS <c>AgentPromptResult</c>: both variants carry all three keys.</summary>
+    public static AgentPromptResult ReadPromptResult(object? value)
+    {
+        var fields = Fields(value);
+        return Field(fields, "status") == "done"
+            ? new AgentPromptResult.Done(Field(fields, "text"))
+            : new AgentPromptResult.Unanswered(Field(fields, "reason"));
+    }
+
+    /// <summary>TS the inline answer of <c>cancelQueued</c>: the outcome under its own key.</summary>
+    public static AgentCancelOutcome ReadCancelOutcome(object? value)
+    {
+        var fields = Fields(value);
+        return Field(fields, "outcome") switch
+        {
+            "cancelled" => AgentCancelOutcome.Cancelled,
+            "already_consumed" => AgentCancelOutcome.AlreadyConsumed,
+            _ => AgentCancelOutcome.NotFound,
+        };
+    }
+
+    /// <summary>TS the <c>ModelThinkingLevel[]</c> answer as their TS literals.</summary>
+    public static IReadOnlyList<ThinkingLevel> ReadThinkingLevels(object? value)
+    {
+        if (value is not IReadOnlyList<object?> list) throw BadReply("a thinking level list", value);
+        return list.Select(item => ThinkingLevelText.Parse(item as string)
+            ?? throw BadReply($"a thinking level, got {Describe(item)}", item)).ToList();
+    }
+
+    private static bool Accepted(IReadOnlyDictionary<string, object?> fields)
+        => fields.TryGetValue("accepted", out var flag) && flag is true;
+
+    private static AgentOperationError ReadError(IReadOnlyDictionary<string, object?> fields)
+    {
+        if (!fields.TryGetValue("error", out var error) || error is null)
+        {
+            throw BadReply("an error object", error);
+        }
+
+        var errorFields = Fields(error);
+        return new AgentOperationError(Field(errorFields, "code"), Field(errorFields, "message"));
+    }
+
+    private static ArgumentException BadReply(string expected, object? value)
+        => new ArgumentException($"Expected {expected} reply, got {Describe(value)}");
+
     /// <summary>
     /// TS <c>SessionSummary</c>: the address fields first, then <c>createdAt</c> (the order the
     /// interface declares them in).
@@ -178,19 +299,31 @@ internal static class ServiceWireValues
         ["createdAt"] = summary.CreatedAt,
     };
 
-    /// <summary>TS the inline answer of <c>prepareSession</c>.</summary>
-    public static Dictionary<string, object?> PrepareSessionAnswer(
-        IReadOnlyList<string> packagePaths, object? presentationPlugins) => new()
-    {
-        ["packagePaths"] = packagePaths.ToList<object?>(),
-        ["presentationPlugins"] = presentationPlugins,
-    };
-
     // ---------------------------------------------------------------- shared readers
-
     /// <summary>A required wire string.</summary>
     public static string Text(object? value) => value as string
         ?? throw new ArgumentException($"Expected a string argument, got {Describe(value)}");
+
+    /// <summary>
+    /// A required wire number. TS's <c>createdAt</c> is a double, but the wire normalizes integral
+    /// payloads to longs (see <see cref="Pi.Chord.Services.ServiceWire"/>'s payload rules), so both
+    /// forms are accepted.
+    /// </summary>
+    public static double Number(IReadOnlyDictionary<string, object?> fields, string key)
+    {
+        if (!fields.TryGetValue(key, out var value))
+        {
+            throw new ArgumentException($"Missing number field \"{key}\"");
+        }
+
+        return value switch
+        {
+            double number => number,
+            long integer => integer,
+            int small => small,
+            _ => throw new ArgumentException($"Field \"{key}\" must be a number"),
+        };
+    }
 
     /// <summary>An optional wire string (TS <c>string | null</c>).</summary>
     public static string? OptionalText(object? value) => value switch

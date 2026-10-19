@@ -8,8 +8,12 @@ namespace Pi.Durable.Harness;
 /// 文档值树是严格 JSON（Dictionary / List / 基元）；这些辅助把树转换为 pi-ai 的类型化
 /// 记录（经 System.Text.Json 的多态 wire 形状，round-trip 稳定），供 inbox 等把
 /// 排队 JSON 载荷落到 transcript 时使用。
+/// <para>
+/// 同时是 experimental 演示侧（client-runtime 的 `Transcript` 适配器等）的 wire 解码入口：
+/// 那里拿到的是 chord 复制状态的值树（C365/C368 的 camelCase 形状），按同一约定还原类型。
+/// </para>
 /// </summary>
-internal static class JsonTrees
+public static class JsonTrees
 {
     // camelCase 命名策略对齐 TS wire 形状（"text"/"role"/"stopReason"…）；大小写不敏感使
     // PascalCase（STJ 默认形状）与 camelCase 树均可反序列化。显式 [JsonPropertyName] 不受影响。

@@ -108,9 +108,9 @@ public class ExperimentalServerProviderTests
                 ["packagePaths"] = new List<object?> { "/pkg/a", "/pkg/b" },
             }]));
 
-        var answer = Assert.IsType<Dictionary<string, object?>>(prepared);
-        Assert.Equal(new List<object?> { "/pkg/a", "/pkg/b" }, answer["packagePaths"]);
-        Assert.Equal("plugins", answer["presentationPlugins"]);
+        // TS answers with `selected.presentationPlugins` — the presentation facet data itself;
+        // the package paths the selection resolved to stay server-side bookkeeping.
+        Assert.Equal("plugins", prepared);
         Assert.Equal(["prepare:s1"], host.Log);
 
         // The reload answers with the presentation-side plugins for the remembered package paths.

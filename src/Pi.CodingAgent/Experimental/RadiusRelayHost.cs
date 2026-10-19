@@ -551,7 +551,9 @@ public sealed class RadiusClientByteTransport : IByteTransport
 
 /// <summary>
 /// The slice of the client <see cref="RadiusClientReconnect"/> drives. Port of the TS
-/// <c>RadiusReconnectClient</c> pick; <see cref="Client"/> satisfies it member for member.
+/// <c>RadiusReconnectClient</c> pick; <see cref="Client"/> carries every member, but C# is nominally
+/// typed — unlike TS's structural Pick, a class only satisfies an interface it declares — so
+/// <see cref="ClientRuntimes"/> wraps it in a forwarding adapter.
 /// </summary>
 public interface IRadiusReconnectClient
 {
@@ -567,7 +569,7 @@ public interface IRadiusReconnectClient
 
     Unsubscribe OnAttachmentChange(AttachmentChangeListener listener);
 
-    Task ReconnectAsync();
+    Task<ServerMessage.Hello> ReconnectAsync();
 }
 
 /// <summary>

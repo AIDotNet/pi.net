@@ -103,8 +103,12 @@ public static class AgentControllerProvider
             => QueueWire(FollowUpAsync(ServiceWireValues.Read<AgentPromptRequest>(args[0]), ContextOf(args)));
 
         private async Task<object?> CancelQueuedWire(object?[] args)
-            => ServiceWireValues.CancelOutcome(
-                await CancelQueuedAsync(ServiceWireValues.Text(args[0]), ContextOf(args)).ConfigureAwait(false));
+        {
+            var outcome = await CancelQueuedAsync(ServiceWireValues.Text(args[0]), ContextOf(args))
+                .ConfigureAwait(false);
+            // TS answers `{ outcome }` — the outcome under its own key, not a bare string.
+            return new Dictionary<string, object?> { ["outcome"] = ServiceWireValues.CancelOutcome(outcome) };
+        }
 
         private async Task<object?> AbortWire(object?[] args)
         {
