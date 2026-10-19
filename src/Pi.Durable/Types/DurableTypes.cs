@@ -10,6 +10,7 @@ namespace Pi.Durable.Types;
 /// <see cref="object?""/>：null / bool / double / string / <see cref="IReadOnlyList{T}"/> /
 /// 本类型）。可变场景用 <see cref="Dictionary{TKey,TValue}"/>，公开 API 一律只读形状。
 /// </summary>
+[JsonConverter(typeof(CamelCaseEnumConverter<ConversationHistory>))]
 public enum ConversationHistory
 {
     /// <summary>只保留当前状态。对应 TS <c>history: "latest"</c>。</summary>
@@ -20,6 +21,7 @@ public enum ConversationHistory
 }
 
 /// <summary>分叉初始化来源。对应 TS <c>fork</c> 字段。</summary>
+[JsonConverter(typeof(CamelCaseEnumConverter<ConversationFork>))]
 public enum ConversationFork
 {
     /// <summary>从源当前状态初始化。</summary>
@@ -240,9 +242,18 @@ public sealed record Page<T>
     public IReadOnlyDictionary<string, object?>? Next { get; init; }
 }
 
+/// <summary>扫描结果的 ID 顺序。游标保留首次请求的顺序；对应 TS <c>ScanOrder</c>。</summary>
+public enum ScanOrder
+{
+    Ascending,
+    Descending,
+}
+
 /// <summary>后端 JSON 续扫游标。对应 TS <c>Cursor</c>。</summary>
 public sealed record ConversationQuery
 {
+    public ScanOrder? Order { get; init; }
+
     public ConversationId? OwnerConversationId { get; init; }
 
     public TaskId<object?>? OwnerTaskId { get; init; }
@@ -252,6 +263,9 @@ public sealed record ConversationQuery
 public sealed record EntryQuery
 {
     public required ConversationId ConversationId { get; init; }
+
+    /// <summary>缺省按最新优先（ID 降序）扫描。</summary>
+    public ScanOrder? Order { get; init; }
 
     /// <summary>可返回的最旧条目 ID。</summary>
     public EntryId? MinEntryId { get; init; }
@@ -263,6 +277,8 @@ public sealed record EntryQuery
 /// <summary>任务记录有序扫描的可选过滤器。对应 TS <c>TaskQuery</c>。</summary>
 public sealed record TaskQuery
 {
+    public ScanOrder? Order { get; init; }
+
     public ConversationId? ConversationId { get; init; }
 
     public string? Kind { get; init; }
@@ -277,6 +293,8 @@ public sealed record TaskQuery
 /// <summary>提交记录有序扫描的可选过滤器。对应 TS <c>SubmissionQuery</c>。</summary>
 public sealed record SubmissionQuery
 {
+    public ScanOrder? Order { get; init; }
+
     public ConversationId? ConversationId { get; init; }
 
     public SubmissionStatus? Status { get; init; }
@@ -396,7 +414,7 @@ public sealed class Entry<TData>
 }
 
 /// <summary>提交生命周期状态。对应 TS <c>SubmissionRecord["status"]</c>。</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<SubmissionStatus>))]
+[JsonConverter(typeof(CamelCaseEnumConverter<SubmissionStatus>))]
 public enum SubmissionStatus
 {
     /// <summary>已受理但尚未进入 transcript。</summary>
@@ -478,7 +496,7 @@ public sealed record TaskOutcomeError
 }
 
 /// <summary>任务终态原因。对应 TS <c>TaskOutcome&lt;R&gt;["status"]</c>。</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<TaskOutcomeStatus>))]
+[JsonConverter(typeof(CamelCaseEnumConverter<TaskOutcomeStatus>))]
 public enum TaskOutcomeStatus
 {
     /// <summary>正常完成。</summary>
@@ -510,7 +528,7 @@ public sealed record TaskOutcome
 }
 
 /// <summary>任务生命周期状态。对应 TS <c>TaskState&lt;S, R&gt;["status"]</c>。</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<TaskStatus>))]
+[JsonConverter(typeof(CamelCaseEnumConverter<TaskStatus>))]
 public enum TaskStatus
 {
     /// <summary>可被调度。</summary>
@@ -548,7 +566,7 @@ public sealed record TaskState
 }
 
 /// <summary>等待任务对待其等待任务的方式。对应 TS <c>JoinPolicy</c>。</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<JoinPolicy>))]
+[JsonConverter(typeof(CamelCaseEnumConverter<JoinPolicy>))]
 public enum JoinPolicy
 {
     /// <summary>任一失败即快速失败。</summary>

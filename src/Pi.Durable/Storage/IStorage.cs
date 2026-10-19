@@ -34,7 +34,7 @@ public interface IStorage
     /// <summary>按精确 ID 读对话。</summary>
     Task<ConversationRecord?> GetConversationAsync(ConversationId id);
 
-    /// <summary>按 ID 升序分页扫描对话。</summary>
+    /// <summary>按指定 ID 顺序分页扫描对话（缺省升序）。</summary>
     Task<Page<ConversationRecord>> ScanConversationsAsync(
         ConversationQuery? query, int limit, IReadOnlyDictionary<string, object?>? cursor = null);
 
@@ -50,21 +50,21 @@ public interface IStorage
     /// </summary>
     Task<EntryRecord?> FindLatestHeadMarkerAsync(ConversationId conversationId, EntryId? atOrBeforeEntryId);
 
-    /// <summary>按 ID 升序分页扫描对话可见条目（最新优先由调用方反转）。</summary>
+    /// <summary>按指定 ID 顺序分页扫描对话可见条目（缺省降序，即最新优先）。</summary>
     Task<Page<EntryRecord>> ScanEntriesAsync(
         EntryQuery query, int limit, IReadOnlyDictionary<string, object?>? cursor = null);
 
     /// <summary>按 ID 读任务的最近完整记录。</summary>
     Task<TaskRecord?> GetTaskAsync(TaskId<object?> id);
 
-    /// <summary>按 ID 升序分页扫描匹配全部过滤器的任务。</summary>
+    /// <summary>按指定 ID 顺序分页扫描匹配全部过滤器的任务（缺省升序）。</summary>
     Task<Page<TaskRecord>> ScanTasksAsync(
         TaskQuery? query, int limit, IReadOnlyDictionary<string, object?>? cursor = null);
 
     /// <summary>按 ID 读提交的最近完整记录。</summary>
     Task<SubmissionRecord?> GetSubmissionAsync(SubmissionId id);
 
-    /// <summary>按 ID 升序分页扫描匹配全部过滤器的提交。</summary>
+    /// <summary>按指定 ID 顺序分页扫描匹配全部过滤器的提交（缺省升序）。</summary>
     Task<Page<SubmissionRecord>> ScanSubmissionsAsync(
         SubmissionQuery? query, int limit, IReadOnlyDictionary<string, object?>? cursor = null);
 

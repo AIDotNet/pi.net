@@ -314,11 +314,16 @@ public sealed class MemoryStorage : IStorage
         lock (_gate)
         {
             AssertOpen();
-            var after = CursorAfter(cursor);
+            var start = StorageScan.Start(query?.Order, cursor, ScanOrder.Ascending);
             var values = new List<ConversationRecord>();
-            foreach (var record in _conversations.Values)
+            var records = start.Order == ScanOrder.Ascending
+                ? _conversations.Values.AsEnumerable()
+                : _conversations.Values.Reverse();
+            foreach (var record in records)
             {
-                if (after is { } afterId && record.Id.Value <= afterId) continue;
+                if (start.After is { } after
+                    && (start.Order == ScanOrder.Ascending ? record.Id.Value <= after : record.Id.Value >= after))
+                    continue;
                 if (query?.OwnerConversationId is { } ownerConversation
                     && record.Owner?.ConversationId.Value != ownerConversation.Value) continue;
                 if (query?.OwnerTaskId is { } ownerTask
@@ -326,7 +331,7 @@ public sealed class MemoryStorage : IStorage
                 values.Add(CloneConversation(record));
                 if (values.Count > limit) break;
             }
-            return Task.FromResult(Page(values, limit));
+            return Task.FromResult(StorageScan.CreatePage(values, limit, start.Order));
         }
     }
 
@@ -395,18 +400,23 @@ public sealed class MemoryStorage : IStorage
         lock (_gate)
         {
             AssertOpen();
-            var after = CursorAfter(cursor);
-            var maxEntryId = after is { } afterId
-                ? Math.Min(query.MaxEntryId?.Value ?? long.MaxValue, afterId - 1)
-                : query.MaxEntryId?.Value ?? long.MaxValue;
+            var start = StorageScan.Start(query.Order, cursor, ScanOrder.Descending);
             var minEntryId = query.MinEntryId?.Value ?? long.MinValue;
+            var maxEntryId = query.MaxEntryId?.Value ?? long.MaxValue;
+            if (start.After is { } after)
+            {
+                if (start.Order == ScanOrder.Ascending) minEntryId = Math.Max(minEntryId, after + 1);
+                else maxEntryId = Math.Min(maxEntryId, after - 1);
+            }
             var values = new List<EntryRecord>();
-            foreach (var entry in VisibleEntries(query.ConversationId.Value, minEntryId, maxEntryId))
+            var entries = VisibleEntries(query.ConversationId.Value, minEntryId, maxEntryId);
+            if (start.Order == ScanOrder.Ascending) entries = entries.Reverse();
+            foreach (var entry in entries)
             {
                 values.Add(CloneEntry(entry));
                 if (values.Count > limit) break;
             }
-            return Task.FromResult(Page(values, limit));
+            return Task.FromResult(StorageScan.CreatePage(values, limit, start.Order));
         }
     }
 
@@ -456,11 +466,16 @@ public sealed class MemoryStorage : IStorage
         lock (_gate)
         {
             AssertOpen();
-            var after = CursorAfter(cursor);
+            var start = StorageScan.Start(query?.Order, cursor, ScanOrder.Ascending);
             var values = new List<TaskRecord>();
-            foreach (var record in _tasks.Values)
+            var records = start.Order == ScanOrder.Ascending
+                ? _tasks.Values.AsEnumerable()
+                : _tasks.Values.Reverse();
+            foreach (var record in records)
             {
-                if (after is { } afterId && record.Id.Value <= afterId) continue;
+                if (start.After is { } after
+                    && (start.Order == ScanOrder.Ascending ? record.Id.Value <= after : record.Id.Value >= after))
+                    continue;
                 if (query?.ConversationId is { } conversation && record.ConversationId.Value != conversation.Value) continue;
                 if (query?.Kind is { } kind && record.Kind != kind) continue;
                 if (query?.Status is { } status && record.State.Status != status) continue;
@@ -469,7 +484,7 @@ public sealed class MemoryStorage : IStorage
                 values.Add(CloneTask(record));
                 if (values.Count > limit) break;
             }
-            return Task.FromResult(Page(values, limit));
+            return Task.FromResult(StorageScan.CreatePage(values, limit, start.Order));
         }
     }
 
@@ -493,17 +508,22 @@ public sealed class MemoryStorage : IStorage
         lock (_gate)
         {
             AssertOpen();
-            var after = CursorAfter(cursor);
+            var start = StorageScan.Start(query?.Order, cursor, ScanOrder.Ascending);
             var values = new List<SubmissionRecord>();
-            foreach (var record in _submissions.Values)
+            var records = start.Order == ScanOrder.Ascending
+                ? _submissions.Values.AsEnumerable()
+                : _submissions.Values.Reverse();
+            foreach (var record in records)
             {
-                if (after is { } afterId && record.Id.Value <= afterId) continue;
+                if (start.After is { } after
+                    && (start.Order == ScanOrder.Ascending ? record.Id.Value <= after : record.Id.Value >= after))
+                    continue;
                 if (query?.ConversationId is { } conversation && record.ConversationId.Value != conversation.Value) continue;
                 if (query?.Status is { } status && StatusOf(record) != status) continue;
                 values.Add(CloneSubmission(record));
                 if (values.Count > limit) break;
             }
-            return Task.FromResult(Page(values, limit));
+            return Task.FromResult(StorageScan.CreatePage(values, limit, start.Order));
         }
     }
 
@@ -570,7 +590,7 @@ public sealed class MemoryStorage : IStorage
         {
             AssertOpen();
             var ids = _documentIdsByScope.GetValueOrDefault(ScopeKey(query.Scope)) ?? [];
-            var after = CursorAfter(cursor);
+            var after = StorageScan.CursorAfter(cursor);
             var atSeq = query.At is DocumentPoint.AtSeq atPoint ? atPoint.Seq : (Seq?)null;
             var values = new List<DocumentRecord>();
             foreach (var id in ids)
@@ -582,7 +602,7 @@ public sealed class MemoryStorage : IStorage
                 values.Add(CloneDocumentRecord(record));
                 if (values.Count > limit) break;
             }
-            return Task.FromResult(Page(values, limit));
+            return Task.FromResult(StorageScan.CreatePage(values, limit));
         }
     }
 
@@ -1154,43 +1174,6 @@ public sealed class MemoryStorage : IStorage
 
     private static bool IsCurrentOnly(DocumentRecord record)
         => record.Scope is not DocumentScope.ConversationScope || record.History == Types.ConversationHistory.Latest;
-
-    private static long? CursorAfter(IReadOnlyDictionary<string, object?>? cursor)
-    {
-        if (cursor is null) return null;
-        if (!cursor.TryGetValue("after", out var after) || after is null)
-            throw new InvalidOperationException("Invalid storage cursor");
-        return after switch
-        {
-            double number when number == Math.Floor(number) => (long)number,
-            long number => number,
-            // 游标是后端持有的 JSON 状态；调用方可能经 JSON 往返后回传（TS conformance 有此用例）。
-            JsonElement element when element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out var parsed) => parsed,
-            _ => throw new InvalidOperationException("Invalid storage cursor"),
-        };
-    }
-
-    private static Page<T> Page<T>(IReadOnlyList<T> values, int limit)
-    {
-        var items = values.Take(limit).ToList();
-        if (values.Count <= limit) return new Page<T> { Items = items };
-        var lastId = LastIdOf(items[^1]);
-        return new Page<T>
-        {
-            Items = items,
-            Next = new Dictionary<string, object?> { ["after"] = (double)lastId },
-        };
-    }
-
-    private static long LastIdOf<T>(T value) => value switch
-    {
-        ConversationRecord conversation => conversation.Id.Value,
-        EntryRecord entry => entry.Id.Value,
-        TaskRecord task => task.Id.Value,
-        SubmissionRecord submission => submission.Id.Value,
-        DocumentRecord document => document.Id.Value,
-        _ => throw new InvalidOperationException($"Unsupported page item type {typeof(T).Name}"),
-    };
 
     private static void InsertSorted(List<long> ids, long id)
     {

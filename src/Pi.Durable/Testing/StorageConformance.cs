@@ -405,6 +405,96 @@ public static class StorageConformance
                 "Unknown conversation");
         });
 
+        AddCase("scans tables in either ID order and continues a cursor in its order", async storage =>
+        {
+            var rootId = await CreateRootAsync(storage);
+            var conversationIds = new List<ConversationId> { rootId };
+            var entryIds = new List<EntryId>();
+            var taskIds = new List<TaskId<object?>>();
+            var submissionIds = new List<SubmissionId>();
+            for (var index = 0; index < 3; index++)
+            {
+                var conversationId = await storage.MintIdAsync<ConversationId>();
+                var entryId = await storage.MintIdAsync<EntryId>();
+                var taskId = await storage.MintIdAsync<TaskId<object?>>();
+                var submissionId = await storage.MintIdAsync<SubmissionId>();
+                await storage.CommitAsync(
+                    [
+                        new StorageWrite.Conversation(new ConversationRecord { Id = conversationId }),
+                        new StorageWrite.Entry(Entry(entryId, rootId)),
+                        new StorageWrite.Task(PendingTask(taskId, rootId)),
+                        new StorageWrite.Submission(new SubmissionRecord.InputRecord
+                        {
+                            Id = submissionId,
+                            ConversationId = rootId,
+                            Status = SubmissionStatus.Queued,
+                        }),
+                    ]);
+                conversationIds.Add(conversationId);
+                entryIds.Add(entryId);
+                taskIds.Add(taskId);
+                submissionIds.Add(submissionId);
+            }
+
+            Task<Page<ConversationRecord>> ScanConversations(
+                ScanOrder? order, IReadOnlyDictionary<string, object?>? cursor) =>
+                storage.ScanConversationsAsync(new ConversationQuery { Order = order }, 2, cursor);
+            Task<Page<EntryRecord>> ScanEntries(
+                ScanOrder? order, IReadOnlyDictionary<string, object?>? cursor) =>
+                storage.ScanEntriesAsync(new EntryQuery { ConversationId = rootId, Order = order }, 2, cursor);
+            Task<Page<TaskRecord>> ScanTasks(
+                ScanOrder? order, IReadOnlyDictionary<string, object?>? cursor) =>
+                storage.ScanTasksAsync(new TaskQuery { Order = order }, 2, cursor);
+            Task<Page<SubmissionRecord>> ScanSubmissions(
+                ScanOrder? order, IReadOnlyDictionary<string, object?>? cursor) =>
+                storage.ScanSubmissionsAsync(new SubmissionQuery { Order = order }, 2, cursor);
+
+            async Task<List<long>> All<T>(
+                Func<ScanOrder?, IReadOnlyDictionary<string, object?>?, Task<Page<T>>> scan,
+                Func<T, long> id,
+                ScanOrder? order)
+            {
+                var values = new List<long>();
+                var page = await scan(order, null);
+                while (true)
+                {
+                    values.AddRange(page.Items.Select(id));
+                    if (page.Next is null) return values;
+                    page = await scan(null, RoundTripCursor(page.Next));
+                }
+            }
+
+            static List<long> Values<TId>(IEnumerable<TId> ids, Func<TId, long> value)
+                => ids.Select(value).ToList();
+
+            var conversationValues = Values(conversationIds, id => id.Value);
+            var entryValues = Values(entryIds, id => id.Value);
+            var taskValues = Values(taskIds, id => id.Value);
+            var submissionValues = Values(submissionIds, id => id.Value);
+            Assert.DeepEqual(assert, await All(ScanConversations, record => record.Id.Value, null), conversationValues);
+            Assert.DeepEqual(assert, await All(ScanConversations, record => record.Id.Value, ScanOrder.Ascending), conversationValues);
+            Assert.DeepEqual(assert, await All(ScanConversations, record => record.Id.Value, ScanOrder.Descending), conversationValues.AsEnumerable().Reverse().ToList());
+            Assert.DeepEqual(assert, await All(ScanEntries, record => record.Id.Value, null), entryValues.AsEnumerable().Reverse().ToList());
+            Assert.DeepEqual(assert, await All(ScanEntries, record => record.Id.Value, ScanOrder.Ascending), entryValues);
+            Assert.DeepEqual(assert, await All(ScanEntries, record => record.Id.Value, ScanOrder.Descending), entryValues.AsEnumerable().Reverse().ToList());
+            Assert.DeepEqual(assert, await All(ScanTasks, record => record.Id.Value, null), taskValues);
+            Assert.DeepEqual(assert, await All(ScanTasks, record => record.Id.Value, ScanOrder.Ascending), taskValues);
+            Assert.DeepEqual(assert, await All(ScanTasks, record => record.Id.Value, ScanOrder.Descending), taskValues.AsEnumerable().Reverse().ToList());
+            Assert.DeepEqual(assert, await All(ScanSubmissions, record => record.Id.Value, null), submissionValues);
+            Assert.DeepEqual(assert, await All(ScanSubmissions, record => record.Id.Value, ScanOrder.Ascending), submissionValues);
+            Assert.DeepEqual(assert, await All(ScanSubmissions, record => record.Id.Value, ScanOrder.Descending), submissionValues.AsEnumerable().Reverse().ToList());
+
+            var descending = await ScanEntries(ScanOrder.Descending, null);
+            var continued = await ScanEntries(null, RoundTripCursor(descending.Next!));
+            Assert.DeepEqual(
+                assert,
+                continued.Items.Select(entry => entry.Id.Value).ToList(),
+                entryValues.AsEnumerable().Reverse().Skip(2).Take(2).ToList());
+            await assert.Rejects(
+                () => ScanEntries(ScanOrder.Ascending, descending.Next),
+                "cursor");
+        });
+
         AddCase("replaces complete task records and pages filtered task scans", async storage =>
         {
             var rootId = await CreateRootAsync(storage);

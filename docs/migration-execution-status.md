@@ -50,8 +50,8 @@
 
 | 阶段 | 目标与文件范围 | 验收标准 | 状态 |
 |---|---|---|---|
-| **0. 基线与盘点** | 核对源/目标 commit、项目映射、旧台账与可复现基线；更新本文件及旧文档入口。 | 13 个目标项目/14 个源包的映射清楚；构建基线记录准确；工作区无临时调试改动。 | 盘点完成；计划页已建立，待提交。 |
-| **1. SQLite storage** | `Pi.Durable/Storage` 新增 SQLite schema/migration 与实现；`Pi.Durable.csproj` 添加 SQLite provider；新增 `Pi.Durable.Tests` SQLite/conformance 测试。 | schema migration 可重复/原子；事务失败可回滚；ID 全局冲突规则、排序/分页/cursor、fork 可见性、文档历史/当前点、重开恢复和 close 语义与 TS 一致；全部 storage conformance 通过；0 警告构建。 |
+| **0. 基线与盘点** | 核对源/目标 commit、项目映射、旧台账与可复现基线；更新本文件及旧文档入口。 | 13 个目标项目/14 个源包的映射清楚；构建基线记录准确；工作区无临时调试改动。 | 已完成并提交、推送（`47dcfe7`）。 |
+| **1. SQLite storage** | `Pi.Durable/Storage` 新增 SQLite schema/migration 与实现；`Pi.Durable.csproj` 添加 SQLite provider；新增 `Pi.Durable.Tests` SQLite/conformance 测试。 | schema migration 可重复/原子；事务失败可回滚；ID 全局冲突规则、排序/分页/cursor、fork 可见性、文档历史/当前点、重开恢复和 close 语义与 TS 一致；全部 storage conformance 通过；0 警告构建。 | 实现及阶段定点验收完成；提交与推送记录见执行记录。 |
 | **2. Harness setup 与 worker** | `Pi.CodingAgent/Experimental` 和 Durable harness 组装；SQLite-backed harness、`createCodingAgentHarness`、worker process spawn/role/shutdown/reopen。 | 真实子进程端到端覆盖 ready/demand/operation/shutdown；持久会话重开可恢复；取消、锁释放、超时和错误退出与 TS 一致；相关测试通过。 |
 | **3. Package manager/资源链** | `Core/PackageManager*`、`ResourceLoader`、CLI/settings/resource 装配及扩展告警。 | 更新检查/执行与 marker/ref 状态、告警排序/内容、额外路径解析和缺失路径错误均有 TS 对照测试；CLI `-e` 端到端通过。 |
 | **4. MCP/Llama UI** | `Extensions/Mcp`、`Extensions/Llama` 与必要的 Interactive 组件/注册点。 | 命令触发、视图生命周期、键盘交互、主题渲染、取消/错误路径覆盖；extension manager 默认行为与 TS 相同。 |
@@ -71,7 +71,8 @@
 
 - `dotnet build Pi.slnx -m:1 --no-restore`：本轮基线通过，0 警告、0 错误。
 - `dotnet test --solution` 在当前 SDK/Microsoft.Testing.Platform 配置下不能作为入口；本机可直接执行 `tests\<项目>\bin\Debug\net10.0\<项目>.exe` 并使用 MTP 的 `--filter-method`、`--filter-class` 等筛选参数。每阶段记录实际命令和结果。
-- 本轮 Durable `HarnessInspectTests.Inspect_DerivesEveryLiveTaskStateWithoutRunningTaskCode` 在完整执行并移除临时诊断后均单测通过（1/1）；先前满负载 Durable 测试曾挂起超过 10 分钟，故整套 Durable 仍未获稳定基线。
+- `Pi.Durable.Tests` 全量套件仍未稳定完成：本阶段执行达到 323 项通过、2 项跳过后，卡在 `HarnessInboxTests.PlacesAQueuedResetAfterTheAnswerAtTheFinalBoundary` 超过 15 分钟，随后手动停止；这不是通过记录，也未判定为环境限制。SQLite 专项及共享 storage conformance 定点测试均通过，详见阶段 1 执行记录。
+- `HarnessInspectTests.Inspect_DerivesEveryLiveTaskStateWithoutRunningTaskCode` 先前在完整执行并移除临时诊断后单测通过（1/1）；harness inbox 挂起应在 worker/harness 阶段继续定位。
 - 既有逐阶段记录报告 coding-agent 全量 4,797 项通过；本轮串行复测曾有 1 项失败，但 `UnknownFlagIsNotAnErrorOnItsOwn` 单测通过，失败详情未保留，需在最终审计时复跑并捕获完整报告。
 - AI Radius OAuth 的浏览器 loopback 用例可能在无头环境持续等待；本机 `HttpListener`/Unix socket 测试还受权限和路径长度影响。只有逐项复现并记录后，才能把它们列为环境限制。
 - 旧文档的 package 状态表和总测试数存在过期快照；本文件优先记录当前基线和逐阶段提交，历史记录不覆盖当前实测。
@@ -80,5 +81,6 @@
 
 | 阶段 | 结果 | 构建/测试 | 提交与推送 |
 |---|---|---|---|
-| 0. 基线与盘点 | 本轮完成盘点；确认 SQLite/harness setup 是阻塞缺口，并记录其余功能与测试缺口。 | solution build 通过；Durable inspect 定点测试通过；完整 Durable/全量 coding-agent 测试基线待复核。 | 待提交。 |
-| 1–9 | 尚未开始。 | — | — |
+| 0. 基线与盘点 | 完成源/目标仓库与项目映射盘点，建立剩余迁移优先级、阶段范围、验收标准和风险入口。 | solution build 基线通过；Durable inspect 定点测试通过。 | `47dcfe7 docs(plan): refresh migration status and remaining phases`，已推送 `origin/main`。 |
+| 1. SQLite storage | 补齐 SQLite schema/migration、事务执行器、持久化存储、扫描顺序/cursor 语义及 TypeScript JSON wire 兼容；增加重开、损坏数据、迁移失败回滚、历史点、current-only revision 回收与 WAL close 测试。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；`SqliteStorageTests`：8/8；`SqliteStorageConformanceTests.PassesStorageConformanceSuite`：23/23；`MemoryStorageConformanceTests.PassesStorageConformanceSuite`：23/23。全量 `Pi.Durable.Tests.exe` 达到 323 通过、2 跳过后在上述 harness inbox 用例挂起超过 15 分钟，已手动停止；阶段定点验收通过，但 Durable 全量套件仍待修复/复验。 | 本阶段代码与验收记录单独提交并推送；提交号见 Git 历史。 |
+| 2–9 | 尚未开始。 | — | — |
