@@ -13,6 +13,16 @@ namespace Pi.Durable.Harness;
 /// </summary>
 public sealed record ContextBounds(EntryRecord? Head, EntryId Tail);
 
+internal sealed record ConversationContextRange(
+    ContextBounds Bounds,
+    IReadOnlyList<EntryRecord> Entries,
+    ContextView View,
+    IReadOnlySet<EntryId> EditedTargets,
+    IReadOnlyList<ChatMessage> Settled,
+    IReadOnlyList<ChatMessage> Open);
+
+internal sealed record ConversationContextRead(ContextView View, ConversationContextRange? Range);
+
 /// <summary>
 /// 对话上下文的捕获与派生（对应 TS <c>harness/context.ts</c> 全量）：
 /// <see cref="CaptureContextBoundsAsync"/> 在 Session 线上两次 O(1) 读锁定范围；
@@ -71,31 +81,69 @@ public static class ConversationContext
     }
 
     /// <summary>
+    /// 调度器使用的增量上下文读取：相同 head 下只扫描缓存 tail 之后的新条目；回退的历史切点从缓存裁剪。
+    /// </summary>
+    internal static async Task<ConversationContextRead> ReadContextFromAsync(
+        DurableSession session, IStorage storage, ConversationId conversationId, Context context,
+        EntryId? at, ConversationContextRange? previous)
+    {
+        var bounds = await session.ReadOnLineAsync(
+            () => CaptureContextBoundsAsync(storage, conversationId, context, at)).ConfigureAwait(false);
+        if (bounds is null) return new(EmptyView(), null);
+
+        ConversationContextRange range;
+        if (previous is null || previous.Bounds.Head?.Id != bounds.Head?.Id)
+        {
+            range = DeriveRange(
+                bounds,
+                await ScanRangeAsync(storage, conversationId, bounds, context).ConfigureAwait(false));
+        }
+        else if (bounds.Tail == previous.Bounds.Tail)
+        {
+            range = previous;
+        }
+        else if (bounds.Tail.Value < previous.Bounds.Tail.Value)
+        {
+            range = DeriveRange(
+                bounds,
+                previous.Entries.Where(entry => entry.Id.Value <= bounds.Tail.Value).ToList());
+        }
+        else
+        {
+            var minEntryId = new EntryId(checked(previous.Bounds.Tail.Value + 1));
+            var added = await ScanRangeAsync(storage, new EntryQuery
+            {
+                ConversationId = conversationId,
+                MinEntryId = minEntryId,
+                MaxEntryId = bounds.Tail,
+            }, context).ConfigureAwait(false);
+            range = ExtendRange(previous, bounds, added);
+        }
+
+        return new(CloneView(range.View), range);
+    }
+
+    /// <summary>
     /// 在捕获的范围之内派生活动转录与模型上下文。对应 TS <c>deriveContext</c>。
     /// </summary>
     public static async Task<ContextView> DeriveContextAsync(
         IStorage storage, ConversationId conversationId, ContextBounds? bounds, Context context)
     {
-        if (bounds is null)
-        {
-            return new ContextView
-            {
-                Entries = [],
-                Contributions = [],
-                Messages = [],
-            };
-        }
+        if (bounds is null) return EmptyView();
+        return DeriveRange(
+            bounds,
+            await ScanRangeAsync(storage, conversationId, bounds, context).ConfigureAwait(false)).View;
+    }
 
-        var head = bounds.Head;
-        var range = await ScanRangeAsync(storage, conversationId, bounds, context).ConfigureAwait(false);
-        // 范围内每个条目的编辑都计入，包括 selectActive 丢弃的较旧 head 标记。
+    private static ConversationContextRange DeriveRange(
+        ContextBounds bounds, IReadOnlyList<EntryRecord> range)
+    {
         var edits = new Dictionary<EntryId, ContextEdit>();
         foreach (var entry in range)
         {
             if (entry.Edits is null) continue;
             foreach (var edit in entry.Edits)
             {
-                // 判别联合的 target 在变体上（Omit/Replace 的位置参数）。
                 edits[edit switch
                 {
                     ContextEdit.Omit omit => omit.Target,
@@ -105,35 +153,107 @@ public static class ConversationContext
             }
         }
 
-        var entries = SelectActive(head, range);
-        var contributions = new List<IReadOnlyList<ChatMessage>>();
-        foreach (var entry in entries)
+        var entries = SelectActive(bounds.Head, range.ToList());
+        var contributions = entries.Select(entry =>
+            Contribute(entry, edits.GetValueOrDefault(entry.Id))).ToList();
+        var (settled, open) = Settle([], contributions.SelectMany(items => items).ToList());
+        var messages = LeadWithSystem(settled.Concat(OrderToolResults(open)).ToList());
+        var view = new ContextView
         {
-            if (edits.TryGetValue(entry.Id, out var edit) && edit is ContextEdit.Omit)
-            {
-                contributions.Add([]);
-                continue;
-            }
-
-            var contributed = edit is ContextEdit.Replace replace
-                ? replace.Messages
-                : entry.Model ?? [];
-            var filtered = contributed
-                .Where(message => message is not AssistantMessage assistant
-                    || !ExcludedStopReasons.Contains(assistant.StopReason))
-                .ToList();
-            contributions.Add(filtered);
-        }
-
-        var messages = OrderToolResults(contributions.SelectMany(m => m).ToList());
-        return new ContextView
-        {
-            Head = head,
+            Head = bounds.Head,
             Entries = entries,
             Contributions = contributions,
             Messages = messages,
         };
+        return new ConversationContextRange(
+            bounds, range, view, edits.Keys.ToHashSet(), settled, open);
     }
+
+    private static ConversationContextRange ExtendRange(
+        ConversationContextRange previous, ContextBounds bounds, IReadOnlyList<EntryRecord> added)
+    {
+        var entries = previous.Entries.Concat(added).ToList();
+        if (added.Any(entry =>
+                entry.Edits is not null
+                || entry.Head is not null
+                || previous.EditedTargets.Contains(entry.Id)))
+        {
+            return DeriveRange(bounds, entries);
+        }
+
+        var contributions = added.Select(entry => Contribute(entry, null)).ToList();
+        var (settled, open) = Settle(
+            previous.Settled,
+            previous.Open.Concat(contributions.SelectMany(items => items)).ToList());
+        var view = new ContextView
+        {
+            Head = bounds.Head,
+            Entries = previous.View.Entries.Concat(added).ToList(),
+            Contributions = previous.View.Contributions.Concat(contributions).ToList(),
+            Messages = LeadWithSystem(settled.Concat(OrderToolResults(open)).ToList()),
+        };
+        return new ConversationContextRange(
+            bounds, entries, view, previous.EditedTargets, settled, open);
+    }
+
+    private static IReadOnlyList<ChatMessage> Contribute(EntryRecord entry, ContextEdit? edit)
+    {
+        if (edit is ContextEdit.Omit) return [];
+        var messages = edit is ContextEdit.Replace replace ? replace.Messages : entry.Model ?? [];
+        return messages
+            .Where(message => message is not AssistantMessage assistant
+                || !ExcludedStopReasons.Contains(assistant.StopReason))
+            .ToList();
+    }
+
+    private static (IReadOnlyList<ChatMessage> Settled, IReadOnlyList<ChatMessage> Open) Settle(
+        IReadOnlyList<ChatMessage> settled, IReadOnlyList<ChatMessage> open)
+    {
+        var lastAssistant = -1;
+        for (var index = open.Count - 1; index >= 0; index--)
+        {
+            if (open[index] is not AssistantMessage) continue;
+            lastAssistant = index;
+            break;
+        }
+
+        if (lastAssistant <= 0) return (settled, open);
+        return (
+            settled.Concat(OrderToolResults(open.Take(lastAssistant).ToList())).ToList(),
+            open.Skip(lastAssistant).ToList());
+    }
+
+    private static IReadOnlyList<ChatMessage> LeadWithSystem(IReadOnlyList<ChatMessage> messages)
+    {
+        var firstNonUser = 0;
+        while (firstNonUser < messages.Count && messages[firstNonUser] is UserMessage) firstNonUser++;
+        if (firstNonUser is 0 || firstNonUser >= messages.Count
+            || messages[firstNonUser] is not SystemMessage)
+        {
+            return messages;
+        }
+
+        return [
+            messages[firstNonUser],
+            .. messages.Take(firstNonUser),
+            .. messages.Skip(firstNonUser + 1),
+        ];
+    }
+
+    private static ContextView CloneView(ContextView view) => new()
+    {
+        Head = view.Head,
+        Entries = view.Entries.ToArray(),
+        Contributions = view.Contributions.Select(items => (IReadOnlyList<ChatMessage>)items.ToArray()).ToArray(),
+        Messages = view.Messages.ToArray(),
+    };
+
+    private static ContextView EmptyView() => new()
+    {
+        Entries = [],
+        Contributions = [],
+        Messages = [],
+    };
 
     /// <summary>捕获范围内的原始活动条目，不派生模型上下文。对应 TS <c>activeEntries</c>。</summary>
     public static async Task<IReadOnlyList<EntryRecord>> ActiveEntriesAsync(
@@ -146,23 +266,29 @@ public static class ConversationContext
     }
 
     /// <summary>从 head 标记的 head（或转录起点）到 tail 的可见条目，最旧在前。</summary>
-    private static async Task<List<EntryRecord>> ScanRangeAsync(
+    private static Task<List<EntryRecord>> ScanRangeAsync(
         IStorage storage, ConversationId conversationId, ContextBounds bounds, Context context)
     {
+        var query = bounds.Head is null
+            ? new EntryQuery { ConversationId = conversationId, MaxEntryId = bounds.Tail }
+            : new EntryQuery
+            {
+                ConversationId = conversationId,
+                MinEntryId = bounds.Head.Head!.Value,
+                MaxEntryId = bounds.Tail,
+            };
+        return ScanRangeAsync(storage, query, context);
+    }
+
+    private static async Task<List<EntryRecord>> ScanRangeAsync(
+        IStorage storage, EntryQuery query, Context context)
+    {
         _ = context;
-        var head = bounds.Head;
+        // 范围内每个条目的编辑都计入，包括 selectActive 丢弃的较旧 head 标记。
         var range = new List<EntryRecord>();
         IReadOnlyDictionary<string, object?>? cursor = null;
         do
         {
-            var query = head is null
-                ? new EntryQuery { ConversationId = conversationId, MaxEntryId = bounds.Tail }
-                : new EntryQuery
-                {
-                    ConversationId = conversationId,
-                    MinEntryId = head.Head!.Value,
-                    MaxEntryId = bounds.Tail,
-                };
             var page = await storage.ScanEntriesAsync(query, ScanPageSize, cursor).ConfigureAwait(false);
             range.AddRange(page.Items);
             cursor = page.Next;

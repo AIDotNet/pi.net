@@ -307,9 +307,15 @@ internal static class HarnessTestSupport
     internal sealed class FakeStep
     {
         private readonly Func<IReadOnlyList<ChatMessage>, CancellationToken, Task<AssistantMessage>> _resolve;
+        private readonly Func<int, CancellationToken, Task>? _afterTextDelta;
 
-        private FakeStep(Func<IReadOnlyList<ChatMessage>, CancellationToken, Task<AssistantMessage>> resolve)
-            => _resolve = resolve;
+        private FakeStep(
+            Func<IReadOnlyList<ChatMessage>, CancellationToken, Task<AssistantMessage>> resolve,
+            Func<int, CancellationToken, Task>? afterTextDelta = null)
+        {
+            _resolve = resolve;
+            _afterTextDelta = afterTextDelta;
+        }
 
         public static FakeStep Of(AssistantMessage message) => new((_, _) => Task.FromResult(message));
 
@@ -333,8 +339,28 @@ internal static class HarnessTestSupport
             return (step, reached.Task, () => gate.TrySetResult());
         }
 
+        public static (FakeStep Step, Task Reached, Action Release) GatedAfterTextDelta(
+            AssistantMessage message, int deltaCount)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(deltaCount);
+            var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var step = new FakeStep(
+                (_, _) => Task.FromResult(message),
+                async (index, signal) =>
+                {
+                    if (index != deltaCount - 1) return;
+                    reached.TrySetResult();
+                    await RaceAsync(gate.Task, signal).ConfigureAwait(false);
+                });
+            return (step, reached.Task, () => gate.TrySetResult());
+        }
+
         public Task<AssistantMessage> ResolveAsync(IReadOnlyList<ChatMessage> messages, CancellationToken signal)
             => _resolve(messages, signal);
+
+        public Task AfterTextDeltaAsync(int index, CancellationToken signal)
+            => _afterTextDelta?.Invoke(index, signal) ?? Task.CompletedTask;
     }
 
     /// <summary>
@@ -500,6 +526,7 @@ internal static class HarnessTestSupport
                     var partial = final with { Content = [new TextContent(built)] };
                     Partial = partial;
                     yield return new AssistantMessageEvent.TextDelta(0, text[index].ToString(), index, partial);
+                    await step.AfterTextDeltaAsync(index, cancellationToken).ConfigureAwait(false);
                     await Task.Yield();
                 }
 

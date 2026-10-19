@@ -40,6 +40,9 @@ public static class AgentDocs
         OutputIntervalMs = 100,
     };
 
+    /// <summary>TS <c>settings.contextRetentionMs</c> 的缺省值：十分钟。</summary>
+    public const double DefaultContextRetentionMs = 600_000;
+
     /// <summary>
     /// 内建 agent 文档；rewindable 使 fork 从其 fork 条目处的 agent 起步。
     /// </summary>
@@ -74,6 +77,7 @@ public static class AgentDocs
         ToolExecution = settings?.ToolExecution ?? ToolExecutionMode.Parallel,
         SteeringMode = settings?.SteeringMode ?? QueueMode.OneAtATime,
         FollowUpMode = settings?.FollowUpMode ?? QueueMode.OneAtATime,
+        ContextRetentionMs = settings?.ContextRetentionMs ?? DefaultContextRetentionMs,
     };
 
     // ─── 配置变更 ───────────────────────────────────────────────────────────

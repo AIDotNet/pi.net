@@ -84,6 +84,7 @@ public class HarnessDocsTests
         Assert.Equal(ToolExecutionMode.Parallel, settings.ToolExecution);
         Assert.Equal(QueueMode.OneAtATime, settings.SteeringMode);
         Assert.Equal(QueueMode.OneAtATime, settings.FollowUpMode);
+        Assert.Equal(AgentDocs.DefaultContextRetentionMs, settings.ContextRetentionMs);
         Assert.Null(settings.Extensions);
         Assert.NotNull(settings.Stream);
     }
@@ -95,6 +96,7 @@ public class HarnessDocsTests
         {
             ToolExecution = ToolExecutionMode.Sequential,
             SteeringMode = QueueMode.All,
+            ContextRetentionMs = 12_345,
             Retry = new ConversationRetryPolicy
             {
                 Enabled = false,
@@ -106,6 +108,7 @@ public class HarnessDocsTests
         Assert.Equal(ToolExecutionMode.Sequential, settings.ToolExecution);
         Assert.Equal(QueueMode.All, settings.SteeringMode);
         Assert.Equal(QueueMode.OneAtATime, settings.FollowUpMode);
+        Assert.Equal(12_345d, settings.ContextRetentionMs);
         Assert.False(settings.Retry.Enabled);
         Assert.Equal(9, settings.Retry.MaxRetries);
     }

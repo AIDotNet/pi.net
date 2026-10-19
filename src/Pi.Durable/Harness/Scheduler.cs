@@ -99,6 +99,13 @@ public sealed class TaskScheduler
 
     private readonly Dictionary<TaskId<object?>, TaskRecord> _live = [];
     private readonly Dictionary<TaskId<object?>, Invocation> _invocations = [];
+    private sealed record KeptContext(ConversationContextRange Range, long? IdleSince);
+
+    private readonly object _contextsGate = new();
+    private readonly Dictionary<ConversationId, KeptContext> _contexts = [];
+    private CancellationTokenSource? _contextExpiryCancellation;
+    private double? _contextExpiryAt;
+
     private readonly Waiters<TaskId<object?>, SettledTask> _taskWaiters = new();
 
     /// <summary>按对话组织的空闲等待者；<see cref="IdleKey.ConversationId"/> 为 null 时等待整个 Harness。</summary>
@@ -420,6 +427,7 @@ public sealed class TaskScheduler
         if (_cascadePending) ScheduleReconcile();
         if (!changed) return;
         ResolveIdleWaiters();
+        SettleContextCache();
         Kick();
     }
 
@@ -430,6 +438,139 @@ public sealed class TaskScheduler
             if (Idle(key.ConversationId)) _idleWaiters.Resolve(key, null);
         }
     }
+
+    private double ContextRetentionMs()
+    {
+        try
+        {
+            return _settings().ContextRetentionMs;
+        }
+        catch (Exception error)
+        {
+            _report(error);
+            return 0;
+        }
+    }
+
+    private void SettleContextCache()
+    {
+        lock (_contextsGate)
+        {
+            if (_closing) return;
+            var now = _now();
+            var retention = ContextRetentionMs();
+            foreach (var (conversationId, kept) in _contexts.ToArray())
+            {
+                if (kept.IdleSince is { } idleSince
+                    && (double)now - idleSince >= retention)
+                {
+                    _contexts.Remove(conversationId);
+                }
+                else if (!Idle(conversationId))
+                {
+                    _contexts[conversationId] = kept with { IdleSince = null };
+                }
+                else if (retention > 0)
+                {
+                    _contexts[conversationId] = kept with { IdleSince = kept.IdleSince ?? now };
+                }
+                else
+                {
+                    _contexts.Remove(conversationId);
+                }
+            }
+
+            ScheduleContextExpiryLocked();
+        }
+    }
+
+    private void ScheduleContextExpiryLocked()
+    {
+        var retention = ContextRetentionMs();
+        double? at = null;
+        if (retention > 0)
+        {
+            foreach (var kept in _contexts.Values)
+            {
+                if (kept.IdleSince is not { } idleSince) continue;
+                var deadline = AddRetention(idleSince, retention);
+                if (at is null || deadline < at.Value) at = deadline;
+            }
+        }
+
+        if (_contextExpiryCancellation is not null && _contextExpiryAt == at) return;
+        CancelContextExpiryLocked();
+        if (at is null || _closing) return;
+
+        var cancellation = new CancellationTokenSource();
+        _contextExpiryCancellation = cancellation;
+        _contextExpiryAt = at;
+        _ = Task.Run(() => ExpireContextCacheAsync(at.Value, cancellation));
+    }
+
+    private void CancelContextExpiryLocked()
+    {
+        var cancellation = _contextExpiryCancellation;
+        _contextExpiryCancellation = null;
+        _contextExpiryAt = null;
+        cancellation?.Cancel();
+    }
+
+    private async Task ExpireContextCacheAsync(double at, CancellationTokenSource cancellation)
+    {
+        var token = cancellation.Token;
+        try
+        {
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                var remaining = at - _now();
+                if (remaining <= 0) break;
+                var delay = (int)Math.Clamp(Math.Ceiling(remaining), 1, MaxTimerDelay);
+                await Task.Delay(delay, token).ConfigureAwait(false);
+            }
+
+            await _session.ReadOnLineAsync(() =>
+            {
+                if (_closing) return Task.FromResult(false);
+                lock (_contextsGate)
+                {
+                    if (!ReferenceEquals(_contextExpiryCancellation, cancellation))
+                        return Task.FromResult(false);
+                    _contextExpiryCancellation = null;
+                    _contextExpiryAt = null;
+                }
+
+                SettleContextCache();
+                return Task.FromResult(true);
+            }).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (InvalidOperationException) when (_closing)
+        {
+        }
+        catch (Exception error)
+        {
+            if (!_closing) _report(error);
+        }
+        finally
+        {
+            lock (_contextsGate)
+            {
+                if (ReferenceEquals(_contextExpiryCancellation, cancellation))
+                {
+                    _contextExpiryCancellation = null;
+                    _contextExpiryAt = null;
+                }
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private static double AddRetention(long idleSince, double retention) => idleSince + retention;
 
     // ─── 所有权 ─────────────────────────────────────────────────────────────
 
@@ -766,6 +907,12 @@ public sealed class TaskScheduler
     private void Seal()
     {
         _closing = true;
+        lock (_contextsGate)
+        {
+            _contexts.Clear();
+            CancelContextExpiryLocked();
+        }
+
         _unsubscribeRegistry.Dispose();
         var error = HarnessUtil.ClosedError();
         _taskWaiters.RejectAll(error);
@@ -1304,6 +1451,54 @@ public sealed class TaskScheduler
         return read();
     }
 
+    private async Task<ContextView> ReadRuntimeContextAsync(
+        Invocation invocation, ConversationId conversationId, Context context, EntryId? at)
+    {
+        ConversationContextRange? previous;
+        lock (_contextsGate) previous = _contexts.GetValueOrDefault(conversationId)?.Range;
+
+        var result = await ConversationContext.ReadContextFromAsync(
+            _session, _storage, conversationId, context, at, previous).ConfigureAwait(false);
+        if (result.Range is not { } range || _closing || invocation.Ended) return result.View;
+
+        try
+        {
+            await _session.ReadOnLineAsync(() =>
+            {
+                if (_closing || invocation.Ended) return Task.FromResult(false);
+                var idle = Idle(conversationId);
+                lock (_contextsGate)
+                {
+                    if (_closing || invocation.Ended) return Task.FromResult(false);
+                    var kept = _contexts.GetValueOrDefault(conversationId);
+                    if (kept is not null && kept.Range.Bounds.Tail.Value > range.Bounds.Tail.Value)
+                        return Task.FromResult(false);
+
+                    if (!idle)
+                    {
+                        _contexts[conversationId] = new KeptContext(range, null);
+                    }
+                    else if (ContextRetentionMs() > 0)
+                    {
+                        _contexts[conversationId] = new KeptContext(range, kept?.IdleSince ?? _now());
+                    }
+                    else
+                    {
+                        return Task.FromResult(false);
+                    }
+
+                    ScheduleContextExpiryLocked();
+                    return Task.FromResult(true);
+                }
+            }).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException) when (_closing)
+        {
+        }
+
+        return result.View;
+    }
+
     /// <summary>在线上重读任务并门控调用之后提交。</summary>
     private Task<T> GatedAsync<T>(
         Invocation invocation, Func<Transaction, TaskRecord, Task<T>> change, Context context)
@@ -1492,8 +1687,8 @@ public sealed class TaskScheduler
                 () => scheduler._storage.GetEntryAsync(invocation.ConversationId, id)));
 
         public Task<ContextView> ContextAsync(ConversationId conversationId, Context context, EntryId? at = null)
-            => scheduler.ReadAsync(invocation, () => ConversationContext.ReadContextAsync(
-                scheduler._session, scheduler._storage, conversationId, context, at));
+            => scheduler.ReadAsync(invocation, () => scheduler.ReadRuntimeContextAsync(
+                invocation, conversationId, context, at));
 
         public long Now()
         {

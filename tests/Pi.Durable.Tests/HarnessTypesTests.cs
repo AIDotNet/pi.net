@@ -123,6 +123,7 @@ public class HarnessTypesTests
             ToolExecution = ToolExecutionMode.Parallel,
             SteeringMode = QueueMode.OneAtATime,
             FollowUpMode = QueueMode.All,
+            ContextRetentionMs = AgentDocs.DefaultContextRetentionMs,
         };
         Assert.True(settings.Retry.Enabled);
         Assert.Equal(ToolExecutionMode.Parallel, settings.ToolExecution);

@@ -1,3 +1,5 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using Pi.Ai.Types;
 using Pi.Ai.Utils;
 using Pi.Chord.Context;
@@ -155,6 +157,11 @@ public static partial class Compaction
 
     /// <summary>序列化摘要来源保留的最长工具结果文本。</summary>
     private const int ToolResultMaxChars = 2000;
+
+    private static readonly JsonSerializerOptions ToolArgumentsJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     private const string SummaryPrefix =
         "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
@@ -679,8 +686,8 @@ public static partial class Compaction
                     var texts = assistant.Content.OfType<TextContent>().Select(block => block.Text).ToList();
                     var calls = assistant.ToolCalls.Select(call =>
                     {
-                        var args = System.Text.Json.JsonSerializer.Serialize(call.Arguments);
-                        return $"{call.Name}({args.TrimStart('{').TrimEnd('}')})";
+                        var args = ToolArgumentsText(call.Arguments);
+                        return $"{call.Name}({args})";
                     }).ToList();
                     if (thinking.Count > 0) parts.Add($"[Assistant thinking]: {string.Join("\n", thinking)}");
                     if (texts.Count > 0) parts.Add($"[Assistant]: {string.Join("\n", texts)}");
@@ -697,6 +704,18 @@ public static partial class Compaction
         }
 
         return string.Join("\n\n", parts);
+    }
+
+    private static string ToolArgumentsText(object? arguments)
+    {
+        var json = JsonSerializer.SerializeToElement(arguments, ToolArgumentsJsonOptions);
+        if (json.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Tool call arguments must be a JSON object.");
+        }
+
+        return string.Join(", ", json.EnumerateObject()
+            .Select(property => $"{property.Name}={property.Value.GetRawText()}"));
     }
 
     /// <summary>TS <c>harness/compaction.ts</c> 的 <c>contentText(content: string | blocks)</c> 联合入参。</summary>

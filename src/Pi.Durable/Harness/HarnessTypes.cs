@@ -690,6 +690,9 @@ public sealed record HarnessSettings
     public QueueMode? SteeringMode { get; init; }
 
     public QueueMode? FollowUpMode { get; init; }
+
+    /// <summary>空闲对话保留最近上下文读取的时长；0 表示进入空闲时立即丢弃。对应 TS <c>contextRetentionMs</c>。</summary>
+    public double? ContextRetentionMs { get; init; }
 }
 
 /// <summary>已解析设置：每个字段都有其内建默认值，对象字段合并。对应 TS <c>Settings</c>。</summary>
@@ -711,6 +714,9 @@ public sealed record Settings
     public required QueueMode SteeringMode { get; init; }
 
     public required QueueMode FollowUpMode { get; init; }
+
+    /// <summary>空闲对话缓存上下文读取的毫秒数。对应 TS <c>Settings.contextRetentionMs</c>。</summary>
+    public required double ContextRetentionMs { get; init; }
 }
 
 /// <summary><see cref="HarnessOptions.EnvFactory"/> 为其构建环境。对应 TS <c>EnvTarget</c>。</summary>

@@ -429,9 +429,9 @@ public sealed class HarnessInboxTests
             var entries = await HarnessTestSupport.AllEntriesAsync(root);
             var reset = entries.Single(entry => entry.Kind == "pi.reset");
             Assert.Equal(reset.Id, reset.Head);
-            // follow-up 的请求自重置处开始：先是 follow-up，然后是切割之后的完整系统基线。
+            // follow-up 的请求自重置处开始：切割之后的完整系统基线位于 follow-up 之前。
             Assert.Single(requests);
-            Assert.Equal(["user:f", "system:"], requests[0]);
+            Assert.Equal(["system:", "user:f"], requests[0]);
             Assert.Equal(2, provider.CallCount);
         }
         finally
