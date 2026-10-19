@@ -80,6 +80,7 @@
     <None Include="tool-renderers-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Pi.Cli\Pi.Cli.csproj" />
     <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" />
   </ItemGroup>
   <ItemGroup>

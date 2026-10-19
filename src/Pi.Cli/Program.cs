@@ -11,6 +11,7 @@
 // from its default exit hook — and turns it into a process exit code here.
 
 using Pi.CodingAgent.Cli;
+using Pi.CodingAgent.Experimental;
 
 namespace Pi.Cli;
 
@@ -19,10 +20,18 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        // C309/C337: a spawned internal process (coordinator / server / session-worker) runs its
+        // role before any CLI setup — TS gives each role its own entry script, which never calls
+        // setupCli, and the role tag is only ever set by a spawn.
+        var internalExit = await InternalProcessEntry.TryRunAsync(args).ConfigureAwait(false);
+        if (internalExit is not null) return internalExit.Value;
+
         CliSetup.SetupCli();
         return RpcEntry.IsRpcEntryRequested()
             ? await RpcEntry.RunAsync(args).ConfigureAwait(false)
-            : await RunAsync(args).ConfigureAwait(false);
+            : ExperimentalEntry.IsExperimentalEntryRequested()
+                ? await ExperimentalEntry.RunAsync(args).ConfigureAwait(false)
+                : await RunAsync(args).ConfigureAwait(false);
     }
 
     /// <summary>Shared by the plain CLI entry and <see cref="RpcEntry"/>.</summary>

@@ -1297,6 +1297,21 @@ public static class ExperimentalServer
     }
 
     /// <summary>
+    /// The server role's process entry: TS server.ts's bottom block consumes the role, requires it
+    /// to be the server one, and runs <see cref="RunServerProcessAsync"/>.
+    /// </summary>
+    public static async Task RunServerEntryAsync(IReadOnlyList<string> args)
+    {
+        var role = InternalProcess.ConsumeInternalProcessRole();
+        if (role != InternalProcessRole.Server)
+        {
+            throw new InvalidOperationException("Server entrypoint requires an internal server invocation");
+        }
+
+        await RunServerProcessAsync(args).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Run an automatically activated server until its client and Session demand disappears. TS
     /// <c>runServerProcess</c>.
     /// </summary>
