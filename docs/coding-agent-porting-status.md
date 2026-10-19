@@ -7114,6 +7114,8 @@ provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（e
 | C373 | **实验入口经 `PI_EXPERIMENTAL_ENTRY=1` 选择（沿用 RpcEntry 模式）** | TS 的 `experimental/cli.ts` 是独立开发入口（发布包只带稳定 `cli.ts`，#9132 边界）。C# 单可执行文件，故 `ExperimentalEntry.RunAsync` 公开、由 `Program.Main` 按 env 选择；边界语义不变——稳定入口从不分发 experimental 命令，实验入口在门控关闭时回退 `Main.MainAsync`（并接住 `MainExitException`，与 `Program.RunAsync` 的退出码约定一致，C303）。client 命令按 TS 用累积退出码立即结束，server 命令等 runtime 关闭后自然返回 |
 | C374 | **演示侧服务门面需显式客户端适配器（C# 无 Proxy）** | TS 的 `use(Service)` 返回 Proxy，结构上满足服务接口；C# chord 的远程服务是成员字典（`RemoteServiceFacade`），`UseAs<T>` 仅当 `T` 是字典视图时可用（既记差异）。故 `client-runtime` 的六个类型化门面（`ISessionDirectory`/`ISessionManagement`/`IPresentationPlugins`/`IModels`/`IAgentController`/`ITranscript`）由 `RemoteServiceClients` 显式适配：方法经 `RemoteServiceMember.CallAsync` 转发，状态成员经 `RemoteStateView<T>` 投影（值树 → 记录）。服务端 `ServiceWireAdapter`（C325）的镜像。附带修两个 wire 形状：`cancelQueued` 回 `{outcome}`（原为裸字符串）、`prepareSession` 直接回 facet 数据（原包了 `{packagePaths, presentationPlugins}`，TS 回 `selected.presentationPlugins`）。另：`Client` 不声明 `IRadiusReconnectClient`（C# 名义类型 vs TS 结构 Pick），由 `ClientRuntimes.ClientReconnect` 转发适配 |
 | C375 | **值树解码按 TS 形状逐字段读，不用反射** | 状态成员过界是 camelCase 值树（C365/C368），目录/模型/转录三个状态各自解码：`SessionDirectoryState`（revision + summaries，`createdAt` 兼容 long/double）、`ModelsState`（catalog/configuration/refresh 联合，thinkingLevel 经 `ThinkingLevelText.Parse`）、`ConversationView`（conversation/entries 经 `JsonTrees` 还原类型化记录，docs 保持值树——worker 发布的就是树）。loopback 传输交付同一形状，故一套解码两用。已知边界：带 `edits` 的条目在 STJ 下无法序列化（`ContextEdit` 抽象无判别器），与 worker→server 既有路径同限 |
+| C376 | **`FacetOptions.TypedServiceViews`：host 侧把适配器绑进单例槽（C374 的 host 半边）** | TS 的 `use(Service)` 返回结构满足消费者接口的 Proxy；C# 的远程服务是成员字典，故消费者声明的类型化契约要显式适配。`FacetKernel` 新增 `TypedServiceViews`（serviceId → `RemoteServiceFacade` 适配工厂）：`BindExternalServices` 对注册了视图的服务把 `view(remoteFacade)`（而非裸门面）绑进单例槽；源给出的不是 `RemoteServiceFacade`（自定义 `IRemoteServices` 实现）时保持原绑定。TUI host 注册七个视图（`RemoteServiceClients` 的六个 + `SessionPluginsClient`）。连带修正一处漏抄：`RemoteServiceProvider` 改为**无条件构造**（对齐 TS `#assembleProviders`——只提供本地服务的 host 也有一个空 provider，`FacetHost.Services` 始终可用；原 `if (remoteDefinitions.Count > 0)` 包裹会让纯本地 host 的 provider 为 null） |
+| C377 | **`prepareClientSession` 不 dispose 打开的服务组（C329 的推论）** | TS 在 `finally` 里 `Promise.allSettled(opened.map(({services}) => services.dispose(...)))`；C# 的 `IRemoteServices` 表面没有 dispose（C329），打开的服务组随其源的销毁而释放（`ActivateBuiltinClientServicesAsync` 同 pattern）。端口因此省略该 finally——若将来 `IRemoteServices` 补上 dispose，此处要补回对应终块 |
 
 ### 4g-3d-4a 测试方法论
 
@@ -7222,3 +7224,56 @@ facet 数据（对齐 TS 的 `selected.presentationPlugins`，原包了一层—
 （Models/AgentController/Transcript）的**水合**需要真 worker——server 侧任何 session 目标 RPC
 都会 spawn worker 进程（测试宿主即测试 exe，必然失败）。适配器本身经 loopback 覆盖；水合路径
 留给 4g-3f（`runSessionWorkerProcess` 接线后补 spawn 缝）。
+
+## 4e-3c-3 实验客户端 TUI（experimental/client-tui.ts + client-tui-chat.ts）
+
+TS 两个文件共 **1,037 行**，C# 落两处（新增）：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/client-tui.ts` | 809 | `Experimental/ClientTui.cs` | `ExperimentalClientTui`（chat viewport 布局 / `#rebuild` / 选择器（`#select`+`SelectList`）/ `#runPrompt`（slash 解析）/ `#submitPrompt`（live.run 判定 steer vs prompt）/ `#queueFollowUp` / `#interrupt` / 重连恢复（connection+attachment 双订阅、`#queueRecovery` 尾链）/ 幂等 `close`）+ `PresentationBridgeFacet`（process 级 `PresentationUI` + session 级三服务解析）+ `ClientTuiSession.prepareClientSession`（sessionId 命中 / continue·resume 取最新 / 新建三分支 + 插件包 `resolve` + attach + whenAttached）+ `ClientTuiRunner.runClientTui`（资源装载 → 主题注册 → runtime → fullscreen TUI → theme controller → finish/finally 链） |
+| `experimental/client-tui-chat.ts` | 228 | `Experimental/ClientTuiChat.cs` | `ExperimentalChatView`（转录卡片 / 流式 partial / 工具卡（`#tools`+`#cards`+`#streamingCalls` 三表）/ inbox 预览 / 状态行（retry·deferred·compaction·running tool·working））+ `ClientTuiChat.LiveOf` / `InboxItemsOf` + `ValueTreeArgs` / `ReplaceWhitespace`（JS `\s` 语义） |
+
+**配套改动**：`Experimental/Commands.cs` 的 TUI 半场默认接到
+`ClientTuiRunner.RunClientTuiAsync`（原占位抛 `InvalidOperationException`）；
+`Experimental/ClientRuntime.cs` 的 `OpenClientRuntimeOptions` 去掉 `sealed`
+（`RunClientTuiOptions` 要继承它，同 `ClientRuntimeServer` 不封印的理由）；
+`Pi.Chord/Facets/FacetKernel.cs` + `Facet.cs` 的 `TypedServiceViews`（C376）；
+`Pi.Durable/Harness/ConversationView.cs` 的 advance 基座修正（见下）。
+
+**Durable 侧抓到的真 bug（由 `ClientTuiTests` 的转录重发布路径暴露）**：
+`ConversationViews.Advance` 原先把文档 ops 应用到 `MountedDoc` 里存的**陈旧快照**，
+TS 是应用到 `mount.value`（其 `docs[kind]` 携带运行中的文档值）——同一文档早期提交
+写过的键会被丢（`pi.live` 的 `run` 先于 `generation` 写入时）。`MountedDoc` 随之瘦身为
+纯化身/版本标记（`{id, version}`），对齐 TS 的 `mount.docs`。修复后基座取
+`before.Docs`（视图自身累积的 docs）。
+
+**移植取舍**：
+
+- **视图文档按字段读而非 cast**（C375 延续）：`pi.live` / `pi.inbox` 过界是值树，
+  TS 用 `LiveState` / `InboxState` cast；C# 逐字段读（`Opt`/`Fields`/`Text`/`Number`），
+  流式 assistant partial 经 `JsonTrees.ToAssistantMessage` 投影。
+- **`!== undefined` 改为键存在性判定**：TS 判 `generation.retry !== undefined` /
+  `live.run !== undefined`；发布侧用「删键」清值，故键存在性是保形判定（已注释）。
+- **`prepareClientSession` 的 finally dispose 省略**（C377）。
+- **测试侧两处适配**：① 转录状态过 loopback 是值树，fixture 每次提交重发布视图树
+  （C365/C368）；② `/reload` 数据带空 artifact 列表——C# 插件宿主不执行 JS（C335），
+  计数与状态行仍走完整 reload 回路。
+
+**测试**：7 例（`ClientTuiTests`，移植 TS `experimental-client-tui.test.ts`）——
+三种命令形状的启动选择（新建 / continued 复用最新 / 插件包路径解析）、
+prompt 排队→应答→渲染、`/reload` 两半场（presentation + session）、radius 掉线→
+busy→重连恢复重开 lane、`/model` 与 `/thinking` 两个内建选择器、关闭后对外部发布静止；
+另三个 chord 侧用例（`RemoteSourceTests` +3：视图替换绑定 / 无视图绑原门面 /
+非门面目标保持原绑定）。全量 **4797/0**（coding-agent +7，chord 99→102）。
+
+**抓到并修掉一个测试侧真问题**：主 fixture 服务器写成 `Radius: false`，而 TS 对应
+fixture 是 `radius: true`——桥接 facet 只对 radius 服务器订阅 connection/attachment，
+重连整段因此观察不到任何发布，`WaitUntilAsync("retrying")` 10s 超时失败。改
+`Radius: true` 后 7/7 通过。
+
+**顺手对齐**：continue/resume 的排序键改用 `summary.serverId`（TS 是
+`left.summary.serverId`，原按 `server.serverId`——实运行时两者同值，按 TS 逐字对齐）。
+
+**未覆盖**：真终端 fullscreen 渲染与滚动、`/compact` 等其余内建命令的选择器走查、
+插件包真装载（C335）。

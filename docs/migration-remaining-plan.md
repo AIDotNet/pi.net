@@ -61,7 +61,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | **4g-3b** | `services/*`（14 文件）：契约 7 文件 + provider 7 文件 | ~1,420 | 🟡 契约层 ✅ `cc5bcaa`（0.19）+ provider 前半 ✅ `70c9e9f`（0.20）+ 中段 ✅ `ca4b2a0`（0.22）+ 末段 ✅ `8500da8`（0.23）；余 `server.ts` / `connection.ts` |
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | 🟡 `plugins/*` ✅ `b1b4b80`（0.25）；余 `coordinator.ts` / `coordinator-entry.ts` |
 | 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 全文 ✅ `1602814`/`6422a37`（0.28/0.29）+ `session-worker.ts` 协议半 ✅ `106978b`（0.30）+ 入口半 ✅ `00e5b14`/`262f413`（0.31/0.32，`createCodingAgentHarness` 暂缓见 C362）；余 `session-worker-manager.ts` + `server.ts`/`commands.ts`/`cli.ts` |
-| 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | |
+| 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | ✅ `6404bfc`（client-runtime，0.36）+ `02b2b33`（client，0.37）+ `ad84b5f`（TUI+chat，0.38，含 Chord `TypedServiceViews` C376 与 Durable advance 基座修正） |
 | 4g-3f | `durable/*`（9 文件） | ~1,440 | |
 | 4g-3g | `vacation/*`（6 文件） | ~1,305 | |
 | 4g-3h | `bun/*`(61) + `client/*`(1) + `plugin.ts`(16) + `source-resolver.ts`(86) | ~164 | 平台缺口判定批 |
@@ -1275,3 +1275,36 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
   `FacetKernel` 加远程服务类型化视图钩子（`FacetOptions.TypedServiceViews`：serviceId →
   `RemoteServiceFacade` 适配工厂），BuiltInFacet 与 presentation bridge 的 `env.Use(Models/
   AgentController/Transcript/…)` 才能拿到类型化门面。
+
+### 0.38 4e-3c-3 实验客户端 TUI（`ad84b5f`，2026-10-19）
+
+- **范围**：`experimental/client-tui.ts`(809) + `client-tui-chat.ts`(228) → 新增
+  `Experimental/ClientTui.cs`（~1,110 行）+ `Experimental/ClientTuiChat.cs`（~470 行）。
+  `ExperimentalClientTui` 全表面（chat viewport 布局、slash 选择器、prompt/steer/follow-up、
+  interrupt、connection+attachment 双订阅的重连恢复尾链、幂等 close）、
+  `prepareClientSession` 三分支（sessionId 命中 / continue·resume 最新 / 新建）+ 插件包
+  `resolve` + attach + whenAttached、`runClientTui` 装配链（资源装载 → 主题注册 → runtime →
+  fullscreen TUI → theme controller → finish/finally）。chat 视图驱动复制值树：entries 经
+  `RemoteServiceValues.DecodeView` 还原，`pi.live`/`pi.inbox` 逐字段读（C375 延续）。
+- **Chord**：`FacetOptions.TypedServiceViews`（C376）——C374 的 host 半边，
+  `BindExternalServices` 对注册视图的服务绑适配器而非裸门面；TUI host 注册七个视图
+  （`RemoteServiceClients` 六个 + `SessionPluginsClient`）。另修正一处漏抄：
+  `RemoteServiceProvider` 无条件构造（对齐 TS `#assembleProviders`，纯本地 host 也有空 provider）。
+- **Durable**：`ConversationViews.Advance` 的文档 ops 基座由 `MountedDoc` 陈旧快照改为
+  视图自身累积的 docs（TS 应用于 `mount.value`）——同文档早期提交写过的键不再被丢；
+  `MountedDoc` 瘦身为纯化身/版本标记。由 `ClientTuiTests` 转录重发布路径抓出。
+- **测试**：7 例（`ClientTuiTests`：三种命令形状的启动选择、prompt 排队→应答→渲染、
+  `/reload` 两半场、radius 掉线→重连恢复、`/model`+`/thinking` 选择器、关闭后静止）；
+  chord +3（`RemoteSourceTests`：视图替换 / 无视图原门面 / 非门面目标）。全量 **4797/0**
+  （coding-agent +7；chord 99→102；durable 339 不变——修正由 coding-agent 侧测试驱动，
+  durable 既有 14 例 view 测试仍全绿）。
+- **抓到并修掉一个测试侧真问题**：主 fixture `Radius: false`（TS 为 `radius: true`）——
+  桥接 facet 只对 radius 订阅 connection/attachment，重连整段无发布可观察，
+  `WaitUntilAsync("retrying")` 超时。改 `true` 后 7/7。
+- **顺手对齐**：continue/resume 排序键 `server.serverId` → `summary.serverId`（TS 用
+  `left.summary.serverId`；实运行时同值）。
+- **编号说明**：本「4e-3c-3」指 client-tui 阶段（0.36/0.37 节的「4e-3c 后续」所指）；
+  与顺延项表里 package-manager 的「4e-3c-3 update/网络检查」同名不同物，后者仍挂起。
+- **4e-3c 收口**：experimental 客户端四件套（runtime / command / TUI / chat）齐。
+  后续：4g-3f `durable/*` 9 文件（`createCodingAgentHarness` + `runSessionWorkerProcess`
+  spawn 缝，C362）、Pi.Durable sqlite 存储、4g-3g `vacation/*`。
