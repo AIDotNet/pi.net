@@ -4,6 +4,8 @@ A provider extension connects Pi to a model service that needs custom authentica
 
 Provider extensions run inside Pi and can inspect credentials, prompts, tool definitions, model responses, and usage. Treat them as trusted code and avoid logging secrets or provider payloads.
 
+For the .NET assembly entry contract and C# tool examples, see [.NET Extensions](dotnet-extensions.md). The code samples on this page are TypeScript-specific.
+
 ## Choose the smallest integration
 
 | Requirement | Use |

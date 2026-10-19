@@ -1,0 +1,8 @@
+.git
+.eval
+**/bin
+**/obj
+**/auth.json
+**/mcp-auth.json
+**/.env
+**/.env.*

@@ -33,3 +33,4 @@ gen.log
 push.log
 
 test-*.log
+.eval/

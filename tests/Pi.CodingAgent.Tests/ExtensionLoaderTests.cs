@@ -802,6 +802,22 @@ public class ExtensionLoaderTests : IDisposable
     }
 
     [Fact]
+    public void DiscoverExtensionsInDir_FindsNativeAssemblyFilesAndIndexAssemblies()
+    {
+        var dir = NewTempDir();
+        WriteFile(Path.Combine(dir, "direct.dll"));
+        WriteFile(Path.Combine(dir, "plugin", "index.dll"));
+
+        var discovered = ExtensionLoader.DiscoverExtensionsInDir(dir);
+
+        Assert.Contains(Path.Combine(dir, "direct.dll"), discovered);
+        Assert.Contains(Path.Combine(dir, "plugin", "index.dll"), discovered);
+        Assert.Equal(
+            [Path.Combine(dir, "plugin", "index.dll")],
+            ExtensionLoader.ResolveExtensionEntries(Path.Combine(dir, "plugin")));
+    }
+
+    [Fact]
     public void DiscoverExtensionsInDir_UsesPackageJsonManifest()
     {
         var dir = NewTempDir();

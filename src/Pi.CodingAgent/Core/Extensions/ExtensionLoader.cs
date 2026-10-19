@@ -306,11 +306,14 @@ public static class ExtensionLoader
     // ------------------------------------------------------------------ discovery
 
     private static bool IsExtensionFile(string name) =>
-        name.EndsWith(".ts", StringComparison.Ordinal) || name.EndsWith(".js", StringComparison.Ordinal);
+        name.EndsWith(".ts", StringComparison.Ordinal)
+        || name.EndsWith(".js", StringComparison.Ordinal)
+        || name.EndsWith(".dll", StringComparison.Ordinal);
 
     /// <summary>
     /// Resolve extension entry points from a directory: a package.json <c>pi.extensions</c> manifest
-    /// first, then <c>index.ts</c>, then <c>index.js</c>. Port of <c>resolveExtensionEntries</c>.
+    /// first, then <c>index.ts</c>, <c>index.js</c>, and <c>index.dll</c>. Port of
+    /// <c>resolveExtensionEntries</c>, including the native .NET assembly entry.
     /// </summary>
     internal static IReadOnlyList<string>? ResolveExtensionEntries(string dir)
     {
@@ -349,13 +352,19 @@ public static class ExtensionLoader
             return [indexJs];
         }
 
+        var indexDll = NodePath.Join(dir, "index.dll");
+        if (File.Exists(indexDll))
+        {
+            return [indexDll];
+        }
+
         return null;
     }
 
     /// <summary>
-    /// Discover extensions in a directory: direct <c>*.ts</c>/<c>*.js</c> files, and subdirectories
-    /// with an index file or a <c>pi</c> manifest. No recursion beyond one level. Port of
-    /// <c>discoverExtensionsInDir</c>.
+    /// Discover extensions in a directory: direct <c>*.ts</c>/<c>*.js</c>/<c>*.dll</c> files, and
+    /// subdirectories with an index file or a <c>pi</c> manifest. No recursion beyond one level.
+    /// Port of <c>discoverExtensionsInDir</c>.
     /// </summary>
     internal static IReadOnlyList<string> DiscoverExtensionsInDir(string dir)
     {
@@ -371,7 +380,7 @@ public static class ExtensionLoader
             {
                 var entryPath = NodePath.Join(dir, entry.Name);
 
-                // 1. Direct files: *.ts or *.js. Directory enumeration surfaces symlinks as the
+                // 1. Direct extension files. Directory enumeration surfaces symlinks as the
                 // FileInfo/DirectoryInfo of their target, which matches TS's isFile/isSymbolicLink
                 // and isDirectory/isSymbolicLink branches.
                 if (entry is not DirectoryInfo)

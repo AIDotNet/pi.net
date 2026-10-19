@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Pi.Evals</AssemblyName>
+    <RootNamespace>Pi.Evals</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pi.Evals.Tests" />
+    <ProjectReference Include="..\Pi.CodingAgent\Pi.CodingAgent.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Docker\Dockerfile">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+</Project>

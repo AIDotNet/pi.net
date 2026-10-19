@@ -1,0 +1,7 @@
+.git
+.eval
+**/bin
+**/obj
+node_modules
+packages
+tests

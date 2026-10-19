@@ -106,6 +106,10 @@
               "path": "extensions.md"
             },
             {
+              "title": "Build .NET Extensions",
+              "path": "dotnet-extensions.md"
+            },
+            {
               "title": "Add Custom Providers",
               "path": "custom-provider.md"
             },
