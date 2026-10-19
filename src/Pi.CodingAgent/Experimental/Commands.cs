@@ -6,8 +6,9 @@
 // Radius status line), `runClientCommand` (TUI vs headless decision plus the result printing), and
 // `runExperimentalCommand` (the gate, the option parser, and the error/exit-code contract).
 //
-// The client half runs through injected runners: `runClient` / `runClientTui` (client.ts and
-// client-tui.ts) land with 4e-3c, so the seam is the `ClientResult` union they answer with.
+// The headless client runs through the injected runner, which defaults to the real
+// `ExperimentalClient.RunClientAsync` (client.ts, 4e-3c-2); `runClientTui` (client-tui.ts) lands
+// with 4e-3c-3, so that seam still reports a clear error until then.
 //
 // Port differences:
 // - chalk's colour is the C# `Chalk.Red` (same FORCE_COLOR detection), which degrades to plain
@@ -191,8 +192,7 @@ public static class ExperimentalCommands
             return;
         }
 
-        var runClient = options?.RunClient
-            ?? throw new InvalidOperationException("The experimental client runtime is not wired into this build yet");
+        var runClient = options?.RunClient ?? (clientCommand => ExperimentalClient.RunClientAsync(clientCommand));
         var result = await runClient(command).ConfigureAwait(false);
         switch (result)
         {
