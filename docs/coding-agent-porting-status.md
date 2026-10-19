@@ -31,7 +31,7 @@
 | **4b** | 配置 / 信任 / 模型层：settings-manager、trust-manager、project-trust、auth-storage、model-config/registry/resolver、models-store、radius、virtual-models、mcp-servers、keybindings | 6,844（实测） | ✅ 16/16 文件（6,844 行）完成（2026-10-09）                                                                                                                                                      |
 | **4c** | 工具系统：`core/tools/*` + `core/tools/renderers/*`                                                                                                                    |    ~9,000 | ✅ 8/8 工具 + 6 个支撑文件完成（2026-10-09）；renderers 的 renderCall/renderResult 依赖 Theme，随 4f 落地                                                                                                  |
 | **4d** | 扩展系统：`core/extensions/*`（types / runner / loader）+ `extensions/*`（codemode / llama / mcp / tool-search）                                                           |   ~12,000 | ⏳ 4d-1 契约层 + 4d-2a 事件总线 + 4d-2b 加载器 + 4d-3 ALC 加载器与内置扩展注册 + 4d-4a/4b MCP 配置与工具适配 + 4d-5 codemode + 4d-6 tool-search + **4d-7a llama HTTP 层完成**（2026-10-10）；4d-4c/4d-4d、4d-7b llama 流式层待办 |
-| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a～9e 纯决策逻辑** + **4e-3e-9-0 基线对齐（参照检出落后 29 提交，端口混用两修订版，已按 origin/main 回审工具 allow/deny 与 MCP 注册）** + **4e-3e-9f 会话装配层叶子（services / runtime / sdk）** + **4e-3e-9g 扩展运行时（`ExtensionRunner`，并退役 3 组缝时代重复类型）**（2026-10-12）完成；余 4e-3e-9h。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）**以及 `AgentSessionServices` / `AgentSessionRuntime` / `createAgentSession` 的编排本体**的前置（`ExtensionRunner`）已满足，整体落到 4e-3e-9h。`update`/`hasAvailableUpdate` 未做。完整 `loadTheme` 顺延 4f |
+| **4e** | 会话与资源：agent-session、session-manager、resource-loader、package-manager、compaction、export-html、system-prompt、telemetry、sdk                                            |   ~20,000 | ⏳ 4e-1～4e-3e-8 + **4e-3e-9a～9e 纯决策逻辑** + **4e-3e-9-0 基线对齐（参照检出落后 29 提交，端口混用两修订版，已按 origin/main 回审工具 allow/deny 与 MCP 注册）** + **4e-3e-9f 会话装配层叶子（services / runtime / sdk）** + **4e-3e-9g 扩展运行时（`ExtensionRunner`，并退役 3 组缝时代重复类型）**（2026-10-12）完成；余 4e-3e-9h。`AgentSession` 实例层（构造器、6 个 installers、`_eventListeners`、四个 abort controller、`_pendingBashMessages`）**以及 `AgentSessionServices` / `AgentSessionRuntime` / `createAgentSession` 的编排本体**的前置（`ExtensionRunner`）已满足，整体落到 4e-3e-9h。Package manager 的 `update` / `checkForAvailableUpdates`、Git ref/marker 更新、临时 Git checkout 刷新、legacy npm/pnpm 全局路径回退、CLI `-e` 资源与扩展依赖告警已在迁移阶段 3 完成（`1d8e077`）。完整 `loadTheme` 顺延 4f |
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
@@ -2801,7 +2801,7 @@ settings→请求选项（超时/重试/sessionId/signal/`transformHeaders` 摘�
 | **C165** | `GlobSync` 只落调用点子集：未移植 `!` 取反、`nodir`/`onlyFiles`、`ignore` 列表、`follow:false`、绝对模式、`windowsPathsNoEscape` | `expandPackageGlob` 之后按隐藏段过滤，故 `dot` 在调用点不可观测；其余选项调用点从不传 |
 | **C166** | `SemverRange` 把 `loose` / `includePrerelease` 固定 `false`；`COMPARATORTRIM` 先试严格版本 | 唯一调用方从不传选项；分歧仅在 `> 01.2.3` 这类严格 `Comparator` 本就会拒绝的写法 |
 | **C167** | `GlobSync` 不跟随符号链接目录（上游默认跟随）；`Directory.Exists`/`File.Exists` 把悬空软链判为「既非文件也非目录」并跳过 | 与上游 `statSync` 抛错后 `continue` 同结果；包根含 `node_modules`，跟随软链有环风险 |
-| **C168** | `GetNpmInstallPath` 只返回 managed 安装路径；**未**复刻 TS 的 legacy 全局根回退（`npm root -g` / `pnpm list -g` 探测） | 该回退需要起子进程探测全局根，属 `4e-3c-3`（update/网络检查）的同伴；当前调用点只用于 managed 布局，回退不可观测 |
+| **C168（已由阶段 3 关闭）** | `GetNpmInstallPath` 最初只返回 managed 安装路径，未复刻 TS 的 legacy 全局根回退 | 已实现 `npm root -g` 与 `pnpm list -g --depth 0 --json` 回退；`PackageManagerUpdateTests` 覆盖两种布局。 |
 
 **已核实的真实缺陷（本批修复）**
 
@@ -2862,10 +2862,16 @@ settings→请求选项（超时/重试/sessionId/signal/`transformHeaders` 摘�
 `PackageManagerCollectorsTests` 16/16、`ResourceLoaderTests` 19/19；
 `Pi.CodingAgent.Tests` 全类 **1488 项 / 0 失败**。
 
-**待续（4e-3c-3）**：npm/git `update` / `checkForAvailableUpdates` 网络检查、`ensureGitRef` /
-update marker / `refreshTemporaryGitSource`、npm legacy 全局根回退（C168）、
-`collectExtensionPackageWarnings`（`PathMetadata.PackageRoot` 的唯一消费者）、
-`ResourceLoader` 的 `additionalExtensionPaths`（CLI `-e`）接线与其「路径不存在」错误上报。
+**已完成（4e-3c-3，迁移阶段 3，提交 `1d8e077`）**：实现 npm/git `update` 与
+`checkForAvailableUpdates`、npm semver/并发限制、Git 显式 ref 与 upstream/HEAD 同步、
+incomplete-marker 恢复/清理/依赖修复、临时 Git checkout 刷新、legacy npm/pnpm 全局路径回退、
+`collectExtensionPackageWarnings` 及 CLI `-e` 从参数解析到扩展/skills/prompts/themes 资源加载的接线。
+缺失的本地 `-e` 路径会生成 load error；交互启动时异步提示可更新包，失败不阻断启动。
+
+**阶段 3 验收**：完整 solution build 0 警告、0 错误；`PackageManagerTests` 24/24、
+`PackageManagerUpdateTests` 12/12、`ResourceLoaderTests` 24/24、`CliMainEndToEndTests` 13/13、
+`InteractiveModeStartupTests` 20/20。Git/npm 进程通过 fake command runner 验证，未执行 live registry /
+remote 更新；详细命令和提交记录见 [migration-execution-status.md](migration-execution-status.md)。
 
 ### 4e-3e-9 剩余
 
