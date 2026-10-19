@@ -1,5 +1,6 @@
 using Pi.CodingAgent.Cli;
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Core.Extensions;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;
@@ -82,12 +83,35 @@ public sealed class CliMainEndToEndTests : IDisposable
     }
 
     [Fact]
-    public async Task ExtensionsUpdateReportsThePortGapAndFails()
+    public async Task ExtensionsUpdateWithNoConfiguredPackagesSucceeds()
     {
-        var (code, _, error) = await RunAsync(["update", "--extensions"]);
+        var (code, output, error) = await RunAsync(["update", "--extensions"]);
 
-        Assert.Equal(1, code);
-        Assert.Contains("Updating installed packages is not supported", error, StringComparison.Ordinal);
+        Assert.Equal(0, code);
+        Assert.Contains("Updated packages", output, StringComparison.Ordinal);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task ExtensionOptionLoadsTheRequestedBuiltinBeforePrintingHelp()
+    {
+        var factoryLoaded = false;
+        var factory = new InlineExtension.Described(
+            "cli-e2e",
+            _ =>
+            {
+                factoryLoaded = true;
+                return Task.CompletedTask;
+            },
+            Builtin: true);
+
+        var (code, _, error) = await RunAsync(
+            ["-e", "builtin:cli-e2e", "--help"],
+            [factory]);
+
+        Assert.Equal(0, code);
+        Assert.True(factoryLoaded);
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -139,12 +163,15 @@ public sealed class CliMainEndToEndTests : IDisposable
         Assert.Contains("Missing remove source.", error, StringComparison.Ordinal);
     }
 
-    private async Task<(int Code, string Output, string Error)> RunAsync(string[] args)
+    private async Task<(int Code, string Output, string Error)> RunAsync(
+        string[] args,
+        IReadOnlyList<InlineExtension>? extensionFactories = null)
     {
         var output = new StringWriter();
         var error = new StringWriter();
         var options = new MainOptions
         {
+            ExtensionFactories = extensionFactories,
             Cwd = _root,
             AgentDir = Path.Combine(_root, "agent"),
             Out = output,

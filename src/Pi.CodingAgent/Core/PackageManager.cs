@@ -97,6 +97,9 @@ public sealed record ConfiguredPackage
     public string? InstalledPath { get; init; }
 }
 
+/// <summary>One available package update. Port of TS <c>PackageUpdate</c>.</summary>
+public sealed record PackageUpdate(string Source, string DisplayName, string Type, string Scope);
+
 /// <summary>What to do about a package source that is not installed. Port of TS <c>MissingSourceAction</c>.</summary>
 public static class MissingSourceAction
 {
@@ -122,6 +125,10 @@ public interface IPackageManager
         bool temporary = false,
         CancellationToken cancellationToken = default);
 
+    Task UpdateAsync(string? source = null, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<PackageUpdate>> CheckForAvailableUpdatesAsync(CancellationToken cancellationToken = default);
+
     IReadOnlyList<ConfiguredPackage> ListConfiguredPackages();
 
     string? GetInstalledPath(string source, string scope);
@@ -133,33 +140,60 @@ public interface IPackageManager
     void SetProgressCallback(Action<PackageProgressEvent>? callback);
 }
 
-/// <summary>Port of TS <c>ProgressEvent</c>, flattened to the two fields the port reports.</summary>
-public sealed record PackageProgressEvent(string Phase, string Message);
+/// <summary>Port of TS <c>ProgressEvent</c>.</summary>
+public sealed record PackageProgressEvent(string Type, string Action, string Source, string? Message = null);
+
+/// <summary>Working directory, timeout, and environment overlay for a package process.</summary>
+public sealed record PackageProcessOptions
+{
+    public string? WorkingDirectory { get; init; }
+
+    public int? TimeoutMs { get; init; }
+
+    public IReadOnlyDictionary<string, string?>? Env { get; init; }
+}
 
 /// <summary>npm/git 进程注入点。测试替换为假实现，避免真实网络。</summary>
 public interface IPackageCommandRunner
 {
-    Task<string> RunAsync(string command, IReadOnlyList<string> arguments, string? workingDirectory = null, CancellationToken cancellationToken = default);
+    Task<string> RunAsync(
+        string command,
+        IReadOnlyList<string> arguments,
+        PackageProcessOptions? options = null,
+        CancellationToken cancellationToken = default);
 }
 
-/// <summary>默认用 <see cref="ChildProcess.SpawnSync"/> 跑 npm/git。</summary>
+/// <summary>默认在线程池上用 <see cref="ChildProcess.SpawnSync"/> 跑 npm/git。</summary>
 public sealed class DefaultPackageCommandRunner : IPackageCommandRunner
 {
-    public Task<string> RunAsync(string command, IReadOnlyList<string> arguments, string? workingDirectory = null, CancellationToken cancellationToken = default)
+    public Task<string> RunAsync(
+        string command,
+        IReadOnlyList<string> arguments,
+        PackageProcessOptions? options = null,
+        CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var result = ChildProcess.SpawnSync(command, arguments, new SpawnSyncOptions { Cwd = workingDirectory });
-        if (result.Error is not null)
+        options ??= new PackageProcessOptions();
+        return Task.Run(() =>
         {
-            throw result.Error;
-        }
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = ChildProcess.SpawnSync(command, arguments, new SpawnSyncOptions
+            {
+                Cwd = options.WorkingDirectory,
+                TimeoutMs = options.TimeoutMs,
+                Env = options.Env,
+            });
+            if (result.Error is not null)
+            {
+                throw result.Error;
+            }
 
-        if (result.Status is not 0)
-        {
-            throw new InvalidOperationException($"{command} exited {result.Status}: {result.Stderr}");
-        }
+            if (result.Status is not 0)
+            {
+                throw new InvalidOperationException($"{command} exited {result.Status}: {result.Stderr}");
+            }
 
-        return Task.FromResult(result.Stdout);
+            return result.Stdout;
+        });
     }
 }
 
@@ -176,12 +210,11 @@ public sealed class DefaultPackageCommandRunner : IPackageCommandRunner
 /// 并给 <see cref="PathMetadata"/> 补上 <c>PackageRoot</c>。臆造的 settings 键同时删除。
 /// </para>
 /// <para>
-/// 仍未移植（顺延 4e-3c-3）：npm/git 的 <c>update</c> / <c>checkForAvailableUpdates</c> 网络检查、
-/// git 的 <c>ensureGitRef</c> / update marker / <c>refreshTemporaryGitSource</c>，
-/// 以及 npm 的 legacy 全局根回退（<c>npm root -g</c> / <c>pnpm list -g</c>）。
+/// npm/git 更新和可用更新检查由 <see cref="DefaultPackageManager.Updates"/> 实现；
+/// 该分部还保留 legacy 全局 npm/pnpm 安装路径回退。
 /// </para>
 /// </remarks>
-public sealed class DefaultPackageManager : IPackageManager
+public sealed partial class DefaultPackageManager : IPackageManager
 {
     private readonly SettingsManager _settings;
     private readonly string _cwd;
@@ -444,8 +477,12 @@ public sealed class DefaultPackageManager : IPackageManager
                     }
                 }
 
-                // TS additionally calls `refreshTemporaryGitSource` here for an unpinned temporary
-                // git source. Deferred with the rest of the git update machinery (4e-3c-3).
+                else if (resolvedScope == SourceScope.Temporary && !parsed.Pinned && !IsOfflineModeEnabled())
+                {
+                    await RefreshTemporaryGitSourceAsync(parsed, resolvedSource, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 metadata = metadata with { BaseDir = installedPath, PackageRoot = installedPath };
                 CollectPackageResources(installedPath, accumulator, filter, metadata);
             }
@@ -1189,7 +1226,6 @@ public sealed class DefaultPackageManager : IPackageManager
         }
 
         WritePackageNodes(local, current);
-        _progress?.Invoke(new PackageProgressEvent("settings", normalized));
         return true;
     }
 
@@ -1234,7 +1270,7 @@ public sealed class DefaultPackageManager : IPackageManager
     }
 
     // ========================================================================
-    // 安装 / 卸载（TS install / remove；网络与更新检查顺延 4e-3c-3）
+    // 安装 / 卸载
     // ========================================================================
 
     /// <summary>对应 TS <c>install</c>。</summary>
@@ -1242,13 +1278,20 @@ public sealed class DefaultPackageManager : IPackageManager
     {
         var parsed = ParseSource(source);
         AssertProjectTrustedForScope(scope);
-        _progress?.Invoke(new PackageProgressEvent("install", source));
-        return parsed.Type switch
+        return await WithProgressAsync("install", source, $"Installing {source}...", async () =>
         {
-            "npm" => await InstallNpmAsync(parsed, scope, cancellationToken).ConfigureAwait(false),
-            "git" => await InstallGitAsync(parsed, scope, cancellationToken).ConfigureAwait(false),
-            _ => InstallLocal(parsed),
-        };
+            if (parsed.Type == "npm")
+            {
+                return await InstallNpmAsync(parsed, scope, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (parsed.Type == "git")
+            {
+                return await InstallGitAsync(parsed, scope, cancellationToken).ConfigureAwait(false);
+            }
+
+            return InstallLocal(parsed);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>对应 TS <c>installAndPersist</c>。</summary>
@@ -1266,28 +1309,25 @@ public sealed class DefaultPackageManager : IPackageManager
         var scope = local ? SourceScope.Project : SourceScope.User;
         var parsed = ParseSource(source);
         AssertProjectTrustedForScope(scope);
-        if (parsed.Type == "npm")
+        return await WithProgressAsync("remove", source, $"Removing {source}...", async () =>
         {
-            var root = GetNpmInstallRoot(scope, temporary: false);
-            if (Directory.Exists(root))
+            if (parsed.Type == "npm")
             {
-                var npm = GetNpmInvocation();
-                await _runner.RunAsync(
-                    npm.Command,
-                    [.. npm.Args, "uninstall", parsed.Name ?? source, "--prefix", root, "--legacy-peer-deps"],
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                var root = GetNpmInstallRoot(scope, temporary: false);
+                if (Directory.Exists(root))
+                {
+                    await RunNpmCommandAsync(
+                        GetNpmUninstallArgs(parsed.Name ?? source, root),
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
             }
-        }
-        else if (parsed.Type == "git")
-        {
-            var dest = GetGitInstallPath(parsed, scope);
-            if (Directory.Exists(dest))
+            else if (parsed.Type == "git")
             {
-                Directory.Delete(dest, recursive: true);
+                await RemoveGitAsync(parsed, scope).ConfigureAwait(false);
             }
-        }
 
-        return RemoveSourceFromSettings(source, local);
+            return RemoveSourceFromSettings(source, local);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<string> InstallNpmAsync(ParsedPackageSource source, string scope, CancellationToken cancellationToken)
@@ -1295,10 +1335,8 @@ public sealed class DefaultPackageManager : IPackageManager
         var installRoot = GetNpmInstallRoot(scope, temporary: scope == SourceScope.Temporary);
         EnsureNpmProject(installRoot);
         var spec = source.Spec.Length > 0 ? source.Spec : source.Name ?? "";
-        var npm = GetNpmInvocation();
-        await _runner.RunAsync(
-            npm.Command,
-            [.. npm.Args, "install", spec, "--prefix", installRoot, "--legacy-peer-deps"],
+        await RunNpmCommandAsync(
+            GetNpmInstallArgs([spec], installRoot),
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return NodePath.Join(installRoot, "node_modules", source.Name ?? spec);
     }
@@ -1308,6 +1346,15 @@ public sealed class DefaultPackageManager : IPackageManager
         var dest = GetGitInstallPath(source, scope);
         if (Directory.Exists(dest))
         {
+            if (!string.IsNullOrEmpty(source.Ref))
+            {
+                await EnsureGitRefAsync(dest, ["fetch", "origin", source.Ref], "FETCH_HEAD", cancellationToken)
+                    .ConfigureAwait(false);
+                return dest;
+            }
+
+            var target = await GetLocalGitUpdateTargetAsync(dest, cancellationToken).ConfigureAwait(false);
+            await EnsureGitRefAsync(dest, target.FetchArgs, target.Ref, cancellationToken).ConfigureAwait(false);
             return dest;
         }
 
@@ -1318,11 +1365,34 @@ public sealed class DefaultPackageManager : IPackageManager
         }
 
         Directory.CreateDirectory(NodePath.Dirname(dest));
-        await _runner.RunAsync("git", ["clone", source.Locator, dest], cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-        if (!string.IsNullOrEmpty(source.Ref))
+        File.Delete(GetGitUpdateMarkerPath(dest));
+        try
         {
-            await _runner.RunAsync("git", ["checkout", source.Ref], dest, cancellationToken).ConfigureAwait(false);
+            await RunCommandAsync("git", ["clone", source.Locator, dest], cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(source.Ref))
+            {
+                await RunCommandAsync("git", ["checkout", source.Ref], dest, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            if (File.Exists(NodePath.Join(dest, "package.json")))
+            {
+                await RunNpmCommandAsync(
+                    GetGitDependencyInstallArgs(),
+                    dest,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            if (Directory.Exists(dest))
+            {
+                Directory.Delete(dest, recursive: true);
+            }
+
+            PruneEmptyGitParents(dest, gitRoot);
+            throw;
         }
 
         return dest;
@@ -1404,12 +1474,20 @@ public sealed class DefaultPackageManager : IPackageManager
     }
 
     /// <summary>
-    /// TS <c>getNpmInstallPath</c>. For a user-scope package TS falls back to the legacy global npm
-    /// root (or pnpm's global package path) when the managed path is absent; the port has neither
-    /// `npm root -g` nor `pnpm list -g`, so it always returns the managed path (difference C168).
+    /// TS <c>getNpmInstallPath</c>: user-scope packages fall back to the legacy global npm root
+    /// (or pnpm's global package path) when the managed path is absent.
     /// </summary>
     internal string GetNpmInstallPath(ParsedPackageSource source, string scope)
-        => GetManagedNpmInstallPath(source, scope);
+    {
+        var managedPath = GetManagedNpmInstallPath(source, scope);
+        if (scope != SourceScope.User || Directory.Exists(managedPath))
+        {
+            return managedPath;
+        }
+
+        var legacyPath = GetLegacyGlobalNpmInstallPath(source);
+        return legacyPath is not null && Directory.Exists(legacyPath) ? legacyPath : managedPath;
+    }
 
     /// <summary>TS <c>getGitInstallPath</c>.</summary>
     internal string GetGitInstallPath(ParsedPackageSource source, string scope)
@@ -1741,7 +1819,7 @@ public sealed class DefaultPackageManager : IPackageManager
                 _ => null,
             };
 
-    private static (string Name, string Version) ParseNpmSpec(string spec)
+    private static (string Name, string? Version) ParseNpmSpec(string spec)
     {
         if (spec.StartsWith('@'))
         {
@@ -1752,15 +1830,15 @@ public sealed class DefaultPackageManager : IPackageManager
                 return (spec[..at], spec[(at + 1)..]);
             }
 
-            return (spec, "latest");
+            return (spec, null);
         }
 
         var idx = spec.IndexOf('@');
-        return idx > 0 ? (spec[..idx], spec[(idx + 1)..]) : (spec, "latest");
+        return idx > 0 ? (spec[..idx], spec[(idx + 1)..]) : (spec, null);
     }
 
     /// <summary>TS <c>isExactNpmVersion</c>: <c>valid(version) !== null</c>.</summary>
-    private static bool IsExactNpmVersion(string version) => Semver.Valid(version) is not null;
+    private static bool IsExactNpmVersion(string? version) => Semver.Valid(version) is not null;
 
     private static JsonNode? ReplacePackageSource(JsonNode? existing, string source)
     {

@@ -554,9 +554,13 @@ public sealed class PackageManagerTests : IDisposable
     {
         public List<(string Command, IReadOnlyList<string> Arguments, string? Cwd)> Calls { get; } = [];
 
-        public Task<string> RunAsync(string command, IReadOnlyList<string> arguments, string? workingDirectory = null, CancellationToken cancellationToken = default)
+        public Task<string> RunAsync(
+            string command,
+            IReadOnlyList<string> arguments,
+            PackageProcessOptions? options = null,
+            CancellationToken cancellationToken = default)
         {
-            Calls.Add((command, [.. arguments], workingDirectory));
+            Calls.Add((command, [.. arguments], options?.WorkingDirectory));
             return Task.FromResult(string.Empty);
         }
     }

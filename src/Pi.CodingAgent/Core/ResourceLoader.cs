@@ -59,11 +59,7 @@ public sealed class DefaultResourceLoader
     private readonly IReadOnlyList<string> _additionalPromptPaths;
     private readonly IReadOnlyList<string> _additionalThemePaths;
 
-    /// <summary>
-    /// TS <c>additionalExtensionPaths</c>. Only the local-path existence check is modelled: resolving
-    /// package sources still needs <c>DefaultPackageManager.resolveExtensionSources</c>, which is the
-    /// recorded 4e-3e-9h-2b-2 blocker (see <c>ReloadAsync</c>).
-    /// </summary>
+    /// <summary>TS <c>additionalExtensionPaths</c>, resolved as temporary CLI package sources.</summary>
     private readonly IReadOnlyList<string> _additionalExtensionPaths;
 
     /// <summary>TS <c>systemPrompt</c>: an explicit system-prompt source, skipping discovery.</summary>
@@ -184,6 +180,11 @@ public sealed class DefaultResourceLoader
     /// <summary>对应 TS <c>getExtensions()</c>。</summary>
     public LoadExtensionsResult GetExtensions() => _extensionsResult;
 
+    /// <summary>TS package update notification query, delegated to the loader's package manager.</summary>
+    public Task<IReadOnlyList<PackageUpdate>> CheckForAvailableUpdatesAsync(
+        CancellationToken cancellationToken = default)
+        => _packages.CheckForAvailableUpdatesAsync(cancellationToken);
+
     /// <summary>对应 TS <c>loadProjectContextFiles</c>。</summary>
     public static IReadOnlyList<ContextFile> LoadProjectContextFiles(string cwd, string agentDir)
     {
@@ -249,6 +250,10 @@ public sealed class DefaultResourceLoader
         await _settings.ReloadAsync().ConfigureAwait(false);
 
         var resolved = await _packages.ResolveAsync(cancellationToken).ConfigureAwait(false);
+        var cliResolved = await _packages.ResolveExtensionSourcesAsync(
+            _additionalExtensionPaths,
+            temporary: true,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // TS rebuilds the provenance tables on every reload; post-reload passes (`extendResources`)
         // read them back, so they must stay on the instance.
@@ -282,15 +287,10 @@ public sealed class DefaultResourceLoader
             .Select(resource => MapSkillPath(resource, metadataByPath))
             .ToArray();
 
-        // CLI extension sources (`packageManager.resolveExtensionSources(additionalExtensionPaths, …)`)
-        // are blocked: the port's `DefaultPackageManager` does not resolve package sources at all
-        // (no `resolvePackageSources`), so `-e <pkg>` cannot be honoured yet. See porting-status
-        // "4e-3e-9h-2b-2 阻塞". Until then these four lists are empty, which is what TS produces when
-        // `additionalExtensionPaths` is empty.
-        string[] cliEnabledExtensions = [];
-        string[] cliEnabledSkills = [];
-        string[] cliEnabledPrompts = [];
-        string[] cliEnabledThemes = [];
+        var cliEnabledExtensions = GetEnabledPaths(cliResolved.Extensions);
+        var cliEnabledSkills = GetEnabledPaths(cliResolved.Skills);
+        var cliEnabledPrompts = GetEnabledPaths(cliResolved.Prompts);
+        var cliEnabledThemes = GetEnabledPaths(cliResolved.Themes);
 
         // Built-in extensions are filtered here (not in the loader) so `disabledBuiltinExtensions` can
         // veto them by bare name, e.g. `builtin:mcp` disabled as `mcp`.
@@ -302,12 +302,16 @@ public sealed class DefaultResourceLoader
                 || !_disabledBuiltinExtensions.Contains(path[SourceInfos.BuiltinPathPrefix.Length..]))
             .ToArray();
 
+        var packageWarnings = CollectExtensionPackageWarnings(extensionPaths, metadataByPath);
         var extensionsResult = await LoadFinalExtensionSetAsync(extensionPaths, preTrustExtensions)
             .ConfigureAwait(false);
+        extensionsResult = extensionsResult with
+        {
+            Warnings = MergeWarnings(extensionsResult.Warnings, packageWarnings),
+        };
 
         // TS L584-591: a local `-e <path>` that does not exist surfaces as a load error rather than
-        // being silently dropped. The package-source half of `additionalExtensionPaths` still needs
-        // `resolveExtensionSources` (4e-3e-9h-2b-2 blocker), so only local paths are checked here.
+        // being silently dropped.
         var missingExtensionPaths = new List<ExtensionLoadError>();
         foreach (var path in _additionalExtensionPaths)
         {
@@ -1026,19 +1030,40 @@ public sealed class DefaultResourceLoader
     private async Task<LoadExtensionsResult> LoadCurrentExtensionSetAsync(bool includeInlineFactories)
     {
         var resolved = await _packages.ResolveAsync().ConfigureAwait(false);
-        var enabledExtensions = resolved.Extensions
-            .Where(resource => resource.Enabled)
-            .Select(resource => resource.Path)
-            .ToArray();
+        var cliResolved = await _packages.ResolveExtensionSourcesAsync(
+            _additionalExtensionPaths,
+            temporary: true).ConfigureAwait(false);
+        var metadataByPath = new Dictionary<string, PathMetadata>(StringComparer.Ordinal);
 
-        // No CLI sources yet (see the blocker note in ReloadAsync), and `noExtensions` keeps only CLI.
-        var extensionPaths = (_noExtensions ? Array.Empty<string>() : enabledExtensions)
+        IReadOnlyList<ResolvedResource> GetEnabledResources(IReadOnlyList<ResolvedResource> resources)
+        {
+            foreach (var resource in resources)
+            {
+                metadataByPath.TryAdd(resource.Path, resource.Metadata);
+            }
+
+            return resources.Where(resource => resource.Enabled).ToArray();
+        }
+
+        IReadOnlyList<string> GetEnabledPaths(IReadOnlyList<ResolvedResource> resources) =>
+            GetEnabledResources(resources).Select(resource => resource.Path).ToArray();
+
+        var enabledExtensions = GetEnabledPaths(resolved.Extensions);
+        var cliEnabledExtensions = GetEnabledPaths(cliResolved.Extensions);
+        var extensionPaths = (_noExtensions
+                ? cliEnabledExtensions
+                : MergePaths(cliEnabledExtensions, enabledExtensions))
             .Where(path => !path.StartsWith(SourceInfos.BuiltinPathPrefix, StringComparison.Ordinal))
             .ToArray();
 
         var extensionsResult = await ExtensionLoader
             .LoadExtensionsCached(extensionPaths, _cwd, _eventBus)
             .ConfigureAwait(false);
+        var packageWarnings = CollectExtensionPackageWarnings(extensionPaths, metadataByPath);
+        extensionsResult = extensionsResult with
+        {
+            Warnings = MergeWarnings(extensionsResult.Warnings, packageWarnings),
+        };
 
         if (!includeInlineFactories)
         {
@@ -1298,8 +1323,73 @@ public sealed record ProjectTrustRequest(LoadExtensionsResult ExtensionsResult);
 /// </summary>
 internal static class ResourceLoaderExtensions
 {
+    private static readonly HashSet<string> HostProvidedExtensionPackages =
+    [
+        "@earendil-works/pi-agent-core",
+        "@earendil-works/pi-ai",
+        "@earendil-works/pi-coding-agent",
+        "@earendil-works/pi-tui",
+        "@mariozechner/pi-agent-core",
+        "@mariozechner/pi-ai",
+        "@mariozechner/pi-coding-agent",
+        "@mariozechner/pi-tui",
+        "@sinclair/typebox",
+        "typebox",
+    ];
+
     /// <summary>Prefix of inline extension paths, e.g. <c>&lt;inline:mcp&gt;</c>. TS inline literal.</summary>
     public const string InlinePathPrefix = "<inline:";
+
+    /// <summary>TS <c>collectExtensionPackageWarnings</c>.</summary>
+    public static IReadOnlyList<ExtensionLoadWarning> CollectExtensionPackageWarnings(
+        IReadOnlyList<string> extensionPaths,
+        IReadOnlyDictionary<string, PathMetadata> metadataByPath)
+    {
+        var warnings = new List<ExtensionLoadWarning>();
+        var seenPackageRoots = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var extensionPath in extensionPaths)
+        {
+            var packageRoot = metadataByPath.TryGetValue(extensionPath, out var metadata)
+                ? metadata.PackageRoot
+                : null;
+            if (packageRoot is null || !seenPackageRoots.Add(packageRoot))
+            {
+                continue;
+            }
+
+            var packageJsonPath = NodePath.Join(packageRoot, "package.json");
+            if (!File.Exists(packageJsonPath))
+            {
+                continue;
+            }
+
+            var manifest = JsonNode.Parse(Text.StripBom(File.ReadAllText(packageJsonPath)));
+            if (manifest is not JsonObject package
+                || package["dependencies"] is not JsonObject dependencies)
+            {
+                continue;
+            }
+
+            var hostDependencies = dependencies
+                .Select(dependency => dependency.Key)
+                .Where(HostProvidedExtensionPackages.Contains)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            if (hostDependencies.Length == 0)
+            {
+                continue;
+            }
+
+            warnings.Add(new ExtensionLoadWarning(
+                packageJsonPath,
+                "Host-provided extension packages must be declared in peerDependencies with a \"*\" range, "
+                + "not dependencies: "
+                + $"{string.Join(", ", hostDependencies)}. Installed copies can bypass the extension loader "
+                + "and create duplicate runtime modules."));
+        }
+
+        return warnings;
+    }
 
     /// <summary>
     /// TS <c>isBuiltinExtension</c>: a built-in extension is a described (non-function) inline entry

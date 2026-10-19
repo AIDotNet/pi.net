@@ -8,8 +8,6 @@
 // - `update --self` (npm / pnpm / managed-install self-update) is not ported: the .NET build is
 //   not an npm package, so there is nothing to reinstall. The branch keeps the target resolution
 //   and reports a precise diagnostic instead of silently doing nothing.
-// - `update --extensions` needs `DefaultPackageManager.update`, whose body is the npm/git network
-//   refresh deferred with 4e-3c-3. Same treatment: resolve the target, then report.
 // - `process.exit` / `process.cwd` are injectable (convention C290) so the exit branches are
 //   testable.
 
@@ -750,7 +748,7 @@ public static class PackageManagerCli
         var packageManager = new DefaultPackageManager(settingsManager, cwd, agentDir);
         packageManager.SetProgressCallback(evt =>
         {
-            if (evt.Phase == "start")
+            if (evt.Type == "start")
             {
                 output.Write(Chalk.Dim($"{evt.Message}\n"));
             }
@@ -839,17 +837,10 @@ public static class PackageManagerCli
                     var failed = false;
                     if (target.IncludesExtensions)
                     {
-                        // TS calls `packageManager.update(source)` here; its body is the npm/git network
-                        // refresh deferred with 4e-3c-3 (difference C302).
                         var updateSource = (target as UpdateTarget.Extensions)?.Source;
-                        error.WriteLine(Chalk.Red(
-                            "Updating installed packages is not supported by the .NET port yet."));
-                        error.WriteLine(Chalk.Dim(
-                            updateSource is null
-                                ? $"Reinstall the packages manually, or run {Config.AppName} remove/install."
-                                : $"Reinstall {updateSource} with {Config.AppName} remove {updateSource} "
-                                  + $"then {Config.AppName} install {updateSource}."));
-                        failed = true;
+                        await packageManager.UpdateAsync(updateSource).ConfigureAwait(false);
+                        output.WriteLine(Chalk.Green(
+                            updateSource is null ? "Updated packages" : $"Updated {updateSource}"));
                     }
 
                     if (target.IncludesSelf)

@@ -137,6 +137,83 @@ public sealed class ResourceLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task ReloadAsync_ResolvesResourcesFromAdditionalExtensionPackage()
+    {
+        var (cwd, agentDir) = NewProject("cli-package-resources");
+        var packageRoot = Path.Combine(_root, "cli-package-resources");
+        var skillPath = Path.Combine(packageRoot, "skills", "review", "SKILL.md");
+        var promptPath = Path.Combine(packageRoot, "prompts", "research.md");
+        var themePath = Path.Combine(packageRoot, "themes", "solar.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(skillPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(promptPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(themePath)!);
+        File.WriteAllText(Path.Combine(packageRoot, "package.json"), """{"name":"cli-resources"}""");
+        File.WriteAllText(skillPath, "---\nname: review\ndescription: Review source code\n---\nReview source code.");
+        File.WriteAllText(promptPath, "---\ndescription: research\n---\nResearch the topic.");
+        File.WriteAllText(themePath, """{"name":"solar"}""");
+
+        var settings = SettingsManager.Create(cwd, agentDir);
+        var cliResolved = await new DefaultPackageManager(settings, cwd, agentDir)
+            .ResolveExtensionSourcesAsync([packageRoot], temporary: true);
+        Assert.Contains(cliResolved.Skills, resource => resource.Path == skillPath);
+
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            settings,
+            noExtensions: true,
+            additionalExtensionPaths: [packageRoot]);
+
+        await loader.ReloadAsync();
+
+        Assert.Contains(OwnSkills(loader), skill => skill.FilePath == skillPath);
+        Assert.Contains(loader.Prompts, prompt => prompt.FilePath == promptPath);
+        Assert.Contains(loader.Themes, theme => theme.Path == themePath);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_LoadsCliBuiltinWhenDefaultExtensionsAreDisabled()
+    {
+        var (cwd, agentDir) = NewProject("cli-builtin");
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            SettingsManager.Create(cwd, agentDir),
+            noExtensions: true,
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            additionalExtensionPaths: ["builtin:demo"],
+            extensionFactories: [new InlineExtension.Described("demo", DemoFactory(), Builtin: true)]);
+
+        await loader.ReloadAsync();
+
+        Assert.Equal("builtin:demo", Assert.Single(loader.GetExtensions().Extensions).Path);
+    }
+
+    [Fact]
+    public async Task ReloadAsync_ReportsMissingAdditionalExtensionPaths()
+    {
+        var (cwd, agentDir) = NewProject("missing-cli-extension");
+        var missingPath = Path.Combine(_root, "missing-extension");
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            SettingsManager.Create(cwd, agentDir),
+            noExtensions: true,
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            additionalExtensionPaths: [missingPath]);
+
+        await loader.ReloadAsync();
+
+        var loadError = Assert.Single(loader.GetExtensions().Errors);
+        Assert.Equal(missingPath, loadError.Path);
+        Assert.Equal($"Extension path does not exist: {missingPath}", loadError.Error);
+    }
+
+    [Fact]
     public async Task GetExtensions_IsEmptyBeforeTheExtensionLoaderLands()
     {
         // Mirrors the TS constructor, which seeds `extensionsResult` with an empty set plus a live
@@ -427,6 +504,33 @@ public sealed class ResourceLoaderTests : IDisposable
     }
 
     [Fact]
+    public async Task LoadProjectTrustExtensionsAsync_CollectsCliPackageDependencyWarnings()
+    {
+        var (cwd, agentDir) = NewProject("cli-package-trust");
+        var packageRoot = Path.Combine(_root, "cli-package-trust");
+        var extensionPath = Path.Combine(packageRoot, "extensions", "entry.ts");
+        Directory.CreateDirectory(Path.GetDirectoryName(extensionPath)!);
+        File.WriteAllText(
+            Path.Combine(packageRoot, "package.json"),
+            """{"name":"cli-package","dependencies":{"@earendil-works/pi-ai":"*"}}""");
+        File.WriteAllText(extensionPath, "export default function(pi) {}");
+        var loader = new DefaultResourceLoader(
+            cwd,
+            agentDir,
+            SettingsManager.Create(cwd, agentDir),
+            noSkills: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            additionalExtensionPaths: [packageRoot]);
+
+        var result = await loader.LoadProjectTrustExtensionsAsync();
+
+        var warning = Assert.Single(result.Warnings);
+        Assert.Equal(Path.Combine(packageRoot, "package.json"), warning.Path);
+        Assert.Contains("@earendil-works/pi-ai", warning.Warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DetectExtensionConflicts_ReportsToolAndFlagClashes()
     {
         var first = NewExtensionFor("a.ts", toolNames: ["read"], flagNames: ["verbose"]);
@@ -490,6 +594,46 @@ public sealed class ResourceLoaderTests : IDisposable
 
         Assert.Equal(2, merged.Count);
         Assert.Equal("second", merged.Single(w => w.Path == "a.ts").Warning);
+    }
+
+    [Fact]
+    public void CollectExtensionPackageWarnings_DedupesRootsAndSortsHostProvidedDependencies()
+    {
+        var packageRoot = Path.Combine(_root, "warning-package");
+        Directory.CreateDirectory(packageRoot);
+        var packageJsonPath = Path.Combine(packageRoot, "package.json");
+        File.WriteAllText(
+            packageJsonPath,
+            """{"dependencies":{"typebox":"1.0.0","other":"1.0.0","@earendil-works/pi-ai":"*"}}""");
+        var firstExtension = Path.Combine(packageRoot, "extensions", "first.ts");
+        var secondExtension = Path.Combine(packageRoot, "extensions", "second.ts");
+        var metadata = new Dictionary<string, PathMetadata>(StringComparer.Ordinal)
+        {
+            [firstExtension] = new PathMetadata
+            {
+                Source = "cli",
+                Scope = "temporary",
+                Origin = "package",
+                PackageRoot = packageRoot,
+            },
+            [secondExtension] = new PathMetadata
+            {
+                Source = "cli",
+                Scope = "temporary",
+                Origin = "package",
+                PackageRoot = packageRoot,
+            },
+        };
+
+        var warning = Assert.Single(ResourceLoaderExtensions.CollectExtensionPackageWarnings(
+            [firstExtension, secondExtension],
+            metadata));
+
+        Assert.Equal(packageJsonPath, warning.Path);
+        Assert.Contains(
+            "@earendil-works/pi-ai, typebox",
+            warning.Warning,
+            StringComparison.Ordinal);
     }
 
     private static Extension NewExtensionFor(

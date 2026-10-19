@@ -43,8 +43,13 @@ namespace Pi.CodingAgent.Modes.Interactive;
 
 public partial class InteractiveMode
 {
-    private static bool IsOfflineEnv() =>
-        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PI_OFFLINE"));
+    private static bool IsOfflineEnv()
+    {
+        var value = Environment.GetEnvironmentVariable("PI_OFFLINE");
+        return value == "1"
+            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
+    }
 
     // ---------------------------------------------------------------- init (L936-1119)
 
@@ -331,11 +336,6 @@ public partial class InteractiveMode
     /// <summary>
     /// TS <c>checkForPackageUpdates</c> (L1255-1271)：offline 短路，其余路径失败返回空表。
     /// </summary>
-    /// <remarks>
-    /// 包管理器的 <c>checkForAvailableUpdates</c> 网络检查（npm view / git ls-remote 版本比对）
-    /// 属顺延项 <c>4e-3c-3</c>；落地前按 TS 的 catch 分支返回空表——启动横幅不显示，但不抛错。
-    /// 原先是 NotImplementedException 缝：online 模式下每次启动都会炸一个后台任务。
-    /// </remarks>
     private async Task<IReadOnlyList<string>> CheckForPackageUpdatesAsync()
     {
         if (IsOfflineEnv())
@@ -343,10 +343,15 @@ public partial class InteractiveMode
             return [];
         }
 
-        // 4e-3c-3 落地处：构造 DefaultPackageManager（cwd/agentDir/settingsManager）并调用
-        // CheckForAvailableUpdatesAsync，把 update.displayName 映射成列表；整个调用包在
-        // try/catch 里，失败返回空表（TS 同构）。
-        return [];
+        try
+        {
+            var updates = await Session.ResourceLoader.CheckForAvailableUpdatesAsync().ConfigureAwait(true);
+            return updates.Select(update => update.DisplayName).ToArray();
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     private async Task<string?> CheckTmuxKeyboardSetupAsync()
@@ -497,8 +502,7 @@ public partial class InteractiveMode
         // Start package update check asynchronously
         _ = CheckForPackageUpdatesAsync().ContinueWith(t =>
         {
-            // The check itself is a seam until the package-manager batch lands; the ContinueWith
-            // shape matches TS (updates → banner, finally → Windows title restore).
+            // Match TS: a failed background update check does not interrupt startup.
             if (t.Status == TaskStatus.RanToCompletion && t.Result.Count > 0)
             {
                 ShowPackageUpdateNotification(t.Result);
