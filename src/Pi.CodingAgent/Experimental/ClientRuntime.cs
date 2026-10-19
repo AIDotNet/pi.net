@@ -81,8 +81,12 @@ public sealed record ClientRuntime(
     IReadOnlyList<ClientRuntimeServer> Servers,
     Func<Task> Dispose);
 
-/// <summary>Options of <see cref="ClientRuntimes.OpenClientRuntimeAsync"/>.</summary>
-public sealed record OpenClientRuntimeOptions
+/// <summary>
+/// Options of <see cref="ClientRuntimes.OpenClientRuntimeAsync"/>. Not sealed so
+/// <see cref="RunClientTuiOptions"/> can extend it, the way TS's interfaces do (the same reason
+/// <see cref="ClientRuntimeServer"/> is not sealed).
+/// </summary>
+public record OpenClientRuntimeOptions
 {
     /// <summary>Directory searched when --connect is omitted. Defaults to PI_SERVER_DIR or ~/.pi/server.</summary>
     public string? Directory { get; init; }

@@ -91,7 +91,7 @@ public sealed class ConversationViews
         public readonly HashSet<object> Observers = [];
     }
 
-    private sealed record MountedDoc(DocumentId Id, int Version, IReadOnlyDictionary<string, object?> Value);
+    private sealed record MountedDoc(DocumentId Id, int Version);
 
     public ConversationViews(DurableSession session, IStorage storage)
     {
@@ -268,7 +268,7 @@ public sealed class ConversationViews
             if (loaded?.Value is not { } value) continue;
             var kind = token.Definition.Kind;
             docs[kind] = new Dictionary<string, object?>(value);
-            mount.Docs[kind] = new MountedDoc(loaded.Record.Id, loaded.Version, docs[kind]);
+            mount.Docs[kind] = new MountedDoc(loaded.Record.Id, loaded.Version);
         }
 
         mount.Value = new ConversationView
@@ -345,7 +345,7 @@ public sealed class ConversationViews
             }
             else
             {
-                mount.Docs[kind] = new MountedDoc(document.Record.Id, document.Version ?? 0, document.Value);
+                mount.Docs[kind] = new MountedDoc(document.Record.Id, document.Version ?? 0);
                 docsChanged = true;
                 docOps.Add(new DeltaOp.Set(prefix, document.Value));
                 relOps.Add(new DeltaOp.Set(relativePrefix, document.Value));
@@ -362,8 +362,13 @@ public sealed class ConversationViews
             var value = before;
             if (docsChanged)
             {
+                // The base is the view's own accumulated docs — TS applies the ops to
+                // `mount.value` (whose `docs[kind]` carries the running doc value). The per-kind
+                // mounted records are only incarnation/version markers; applying the ops to their
+                // stale snapshots would drop every key an earlier commit of the same doc wrote
+                // (a `run` written before a `generation`, for instance).
                 var docsRoot = new Dictionary<string, object?>(StringComparer.Ordinal);
-                foreach (var (name, doc) in mount.Docs) docsRoot[name] = doc.Value;
+                foreach (var (name, docValue) in before.Docs) docsRoot[name] = docValue;
                 var applied = (Dictionary<string, object?>)DeltaApply.Apply(relOps, docsRoot)!;
                 var docs = new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.Ordinal);
                 foreach (var (name, docValue) in applied) docs[name] = (IReadOnlyDictionary<string, object?>)docValue!;

@@ -62,6 +62,14 @@ public sealed record FacetOptions
     /// <summary>外部远程服务源（目录发现 + 打开）。</summary>
     public IReadOnlyList<IRemoteServiceSource> ServiceSources { get; init; } = [];
 
+    /// <summary>
+    /// 外部单例服务的类型化视图：serviceId → 适配工厂。对应 TS <c>services.use(service)</c> 返回的
+    /// Proxy——TS 的 Proxy 对任意属性名即时造成员，结构上满足服务接口；C# 的远程服务是成员字典
+    /// （<see cref="RemoteServiceFacade"/>），消费者声明的类型化契约需要显式适配器（C374）。
+    /// 注册了视图的服务，host 把适配器（而非裸门面）绑进单例槽。
+    /// </summary>
+    public IReadOnlyDictionary<string, Func<RemoteServiceFacade, object>>? TypedServiceViews { get; init; }
+
     /// <summary>失败上报器（默认忽略）。</summary>
     public Action<Exception>? OnError { get; init; }
 }

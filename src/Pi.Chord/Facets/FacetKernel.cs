@@ -29,6 +29,7 @@ public sealed class FacetKernel
 {
     private readonly IReadOnlyList<IFacet> _initialFacets;
     private readonly IReadOnlyList<IRemoteServiceSource> _serviceSources;
+    private readonly IReadOnlyDictionary<string, Func<RemoteServiceFacade, object>>? _typedServiceViews;
     private readonly Dictionary<IRemoteServiceSource, IRemoteServices> _sourceBindings = [];
     private readonly Action<Exception> _onError;
     private readonly Dictionary<string, FacetRuntime> _facets = [];
@@ -47,6 +48,7 @@ public sealed class FacetKernel
             throw new ArgumentException("Facet IDs must be unique within a generation");
         _initialFacets = options.Facets;
         _serviceSources = options.ServiceSources;
+        _typedServiceViews = options.TypedServiceViews;
         _onError = options.OnError ?? (_ => { });
     }
 
@@ -270,7 +272,11 @@ public sealed class FacetKernel
         return external;
     }
 
-    /// <summary>把外部服务绑定到本地槽（门面由源实现提供）。对应 TS <c>bindServices</c> 的外部路径。</summary>
+    /// <summary>
+    /// 把外部服务绑定到本地槽（门面由源实现提供）。对应 TS <c>bindServices</c> 的外部路径。
+    /// <para>注册了类型化视图（<see cref="FacetOptions.TypedServiceViews"/>）的服务绑适配器而非裸门面：
+    /// TS 的 Proxy 结构上满足消费者声明的接口，C# 的成员字典不满足，故由调用方提供显式适配（C374）。</para>
+    /// </summary>
     private void BindExternalServices(IReadOnlyDictionary<string, ExternalServiceBinding> externalServices)
     {
         foreach (var serviceId in externalServices.Keys)
@@ -278,6 +284,13 @@ public sealed class FacetKernel
             var source = externalServices[serviceId].Source;
             if (_sourceBindings.TryGetValue(source, out var services) && services.UseRaw(serviceId) is { } facade)
             {
+                if (_typedServiceViews is not null
+                    && _typedServiceViews.TryGetValue(serviceId, out var view)
+                    && facade is RemoteServiceFacade remoteFacade)
+                {
+                    facade = view(remoteFacade);
+                }
+
                 _serviceSlots.BindSingleton(serviceId, facade);
             }
         }
@@ -299,11 +312,10 @@ public sealed class FacetKernel
             .Select(p => p.ServiceId)
             .Distinct()
             .ToList();
-        if (remoteDefinitions.Count > 0)
-        {
-            _provider = new RemoteServiceProvider(remoteDefinitions
-                .Select(id => new RemoteServiceProvider.ProviderDefinition(id)));
-        }
+        // TS 无条件构造 provider（哪怕没有任何远程供给）：一个只提供本地服务的 host 也
+        // 有一个（空的）provider，`FacetHost.Services` 因此始终可用。
+        _provider = new RemoteServiceProvider(remoteDefinitions
+            .Select(id => new RemoteServiceProvider.ProviderDefinition(id)));
         var localKeyedIds = _keyedProvisions.Select(p => p.ServiceId).Distinct().ToList();
         LocalKeyedServices = localKeyedIds.Count > 0
             ? new LocalKeyedServiceRegistry(localKeyedIds, _onError)

@@ -7,8 +7,8 @@
 // `runExperimentalCommand` (the gate, the option parser, and the error/exit-code contract).
 //
 // The headless client runs through the injected runner, which defaults to the real
-// `ExperimentalClient.RunClientAsync` (client.ts, 4e-3c-2); `runClientTui` (client-tui.ts) lands
-// with 4e-3c-3, so that seam still reports a clear error until then.
+// `ExperimentalClient.RunClientAsync` (client.ts, 4e-3c-2); the TUI half defaults to
+// `ClientTuiRunner.RunClientTuiAsync` (client-tui.ts, 4e-3c-3).
 //
 // Port differences:
 // - chalk's colour is the C# `Chalk.Red` (same FORCE_COLOR detection), which degrades to plain
@@ -187,7 +187,7 @@ public static class ExperimentalCommands
         if (command.Prompt is null && stdinIsTty() && stdoutIsTty())
         {
             var tui = options?.RunClientTui
-                ?? throw new InvalidOperationException("The experimental client TUI is not wired into this build yet");
+                ?? (clientCommand => ClientTuiRunner.RunClientTuiAsync(clientCommand));
             await tui(command).ConfigureAwait(false);
             return;
         }
