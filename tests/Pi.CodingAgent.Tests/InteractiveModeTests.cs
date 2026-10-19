@@ -1683,9 +1683,11 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
     [Fact]
     public async Task HandleChangelogCommandRendersTheNoEntriesNotice()
     {
+        var changelogPath = Path.Combine(_root, "empty-CHANGELOG.md");
+        File.WriteAllText(changelogPath, string.Empty);
         var mode = await CreateModeAsync();
 
-        mode.HandleChangelogCommand();
+        mode.HandleChangelogCommand(changelogPath);
 
         var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
         Assert.Contains("No changelog entries found", rendered);

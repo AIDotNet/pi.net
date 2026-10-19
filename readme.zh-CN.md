@@ -28,37 +28,28 @@ Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只�
 | **Pi.Server / Pi.Client** | RPC 传输：握手 / 请求 / 取消 / 推送、会话路由、Unix 域套接字与本地服务器发现 |
 | **Pi.Codemode** | 沙箱化 JavaScript 执行：唯一能力是调用注入的工具；@options 源码解析、TypeScript 声明渲染与沙箱编排（VM 执行经 `ICodemodeJsEngine` 注入点外置） |
 | **Pi.Tui** | 终端 UI 框架：差分渲染 + 同步输出、字素级宽度测量与换行、ANSI/OSC 解析与 SGR 跟踪、Kitty 键盘协议与按键解码、overlay 栈、焦点管理、鼠标事件派发、颜色（OKLCH/OKHSL）与键位注册表、stdin 转义序列缓冲、终端内联图像（Kitty / iTerm2 协议）、栈/滚动布局引擎、LaTeX 数学渲染、斜杠命令与文件路径自动补全（含 `fd` 模糊搜索）、单行输入组件（Emacs 风格 kill/yank、撤销、括号粘贴）、选择列表组件（过滤/滚动窗口/鼠标/滚轮）、多行编辑器、markdown 渲染、设置列表、图像组件、备用屏渲染器（全屏模式：搜索 / 选择与复制 / 滚动条 / Kitty 图像缓存 / overlay 路由） |
-| **Pi.CodingAgent** | 交互式编码 Agent CLI（85.5k 行，进行中）：通用工具层（路径 / 进程 / 剪贴板 / 图像 / MIME / HTML 实体 / ANSI 剥离 / chalk 风格 / JS 语义辅助）已落地，会话 / 工具系统 / 扩展 / 模式层分批推进 |
+| **Pi.Durable** | Durable 会话、SQLite 存储、任务图、恢复机制与 coding-agent harness |
+| **Pi.CodingAgent / Pi.Cli** | 交互式编码 Agent、工具、已编译 .NET 扩展、CLI、RPC 与实验性服务/worker runtime |
+| **Pi.Vacation** | 基于 coding-agent runtime 的独立研究与规划宿主 |
+| **Pi.Evals** | 原生 .NET host/documentation 评测工具；配对文档评测使用 Docker |
 
-> tui 已收口（44/45 文件，仅剩 `index.ts` 桶文件，见 [tui 移植状态](docs/tui-porting-status.md)）；coding-agent（交互式 CLI 主产品，85.5k 行）进行中，见 [coding-agent 移植状态](docs/coding-agent-porting-status.md)；evals 尚未移植。durable / codemode 已完整移植，见[移植状态](docs/porting-status.md)。
+TypeScript monorepo 仍是行为参考；随包提供的上游 docs/examples 保留为 TypeScript 参考资料，C# 扩展 API 请看 [.NET 扩展指南](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)。权威迁移阶段、验收证据和未完成的平台检查见 [migration-execution-status.md](docs/migration-execution-status.md)。
 
 ## 快速开始
 
 需要 .NET 10 SDK。
 
 ```bash
-dotnet build Pi.slnx    # 0 警告 0 错误（沙箱内需加 -m:1）
-dotnet test  Pi.slnx    # 24657 项测试
+dotnet build Pi.slnx --no-restore -m:1
+dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```
 
-测试基于 xunit.v3 + Microsoft.Testing.Platform（MTP）。若 `dotnet test` 未触发执行，直接运行测试产物：
+测试项目使用 xUnit v3 和 Microsoft.Testing.Platform。可直接运行一个测试项目：
 
 ```bash
-tests/Pi.<Pkg>.Tests/bin/Debug/net10.0/Pi.<Pkg>.Tests.exe
+dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 ```
 
-## 移植状态
+## 迁移状态
 
-11 个运行时项目 + 1 个进行中，构建 0 警告 0 错误，**24668 项测试**（2026-10-09 实测，P65 更新；durable 340 + tui 23812 + coding-agent 11 + 其余 505；其中 tui 含 2822 条 latex、5244 条 autocomplete、5450 条 input、2598 条 select-list、7040 条 editor、4990 条 markdown、1692 条 extra-components 差分向量与 9109 条大小写映射向量，另有 37 条备用屏场景；coding-agent 含 409 条 utils 差分向量）。durable 满负荷时的间歇性挂起见 [docs/porting-status.md](docs/porting-status.md) 文末。
-
-- ✅ 完整移植：telemetry / protocol / agent（含 proxy.ts）/ mcp
-- ✅ 完整移植：server / client（RPC 主循环、会话路由、Unix 域套接字传输与本地服务器发现）
-- ✅ 完整移植：ai（10 个内建 API + 42 家 provider 全家桶 + compat + 全部 utils + CLI）
-- ✅ 完整移植：chord（delta / services / facets / node 层 / api）
-- ✅ 完整移植：codemode（identifier / types / source / declarations / runtime protocol + host 沙箱编排 + prelude 源码 + Wasm 加载）
-- 🚧 durable：基础层 + storage + session + env + harness（含 tools/events/harness.ts 装配）+ **testing 层（assertions / storage-conformance / env-conformance / runner / storage-benchmark）**已完成；各 `harness-*.test.ts` 对应测试补齐中
-- 🚧 tui：核心层完成（差分渲染 + 同步输出、Unicode 宽度/换行/截断、ANSI/OSC/SGR 跟踪、按键与 Kitty 协议、overlay 栈与焦点、鼠标事件派发、颜色与 OKLCH/OKHSL、键位注册表、stdin 转义序列缓冲、终端图像（Kitty/iTerm2 编码与元数据）、布局引擎、LaTeX、自动补全、单行输入组件、选择列表组件、多行编辑器、markdown 渲染、设置列表、图像组件、备用屏搜索、**备用屏渲染器（全屏模式：搜索 / 选择与复制 / 滚动条 / Kitty 图像缓存 / overlay 路由）**），44/45 文件、23,812 项测试；仅剩 `index.ts` 桶文件
-- 🚧 coding-agent：通用工具层（`src/utils/*`）已落地；会话 / 工具系统 / 扩展 / 模式层按七个子阶段推进，见 [coding-agent 移植状态](docs/coding-agent-porting-status.md)
-- ⏳ 未开始：evals
-
-逐包进度、TS → C# 关键设计差异、CBOR 线上兼容要点与路线图，见 **[docs/porting-status.md](docs/porting-status.md)**。
+实施进度、逐阶段验收证据、已记录的 TypeScript/.NET 差异和环境受限的检查统一维护在 [docs/migration-execution-status.md](docs/migration-execution-status.md)。

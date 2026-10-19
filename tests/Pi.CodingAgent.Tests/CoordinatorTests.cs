@@ -17,6 +17,22 @@ public class CoordinatorTests
     private static string TempPath(string name)
         => Path.Combine(Path.GetTempPath(), $"pi-coordclient-{Guid.NewGuid():N}-{name}");
 
+    private static ChildProcessHandle SpawnLongRunningChild()
+    {
+        var command = OperatingSystem.IsWindows() ? "powershell.exe" : "/bin/sh";
+        var arguments = OperatingSystem.IsWindows()
+            ? new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 10" }
+            : new[] { "-c", "sleep 10" };
+        var child = ChildProcess.SpawnProcess(command, arguments);
+        if (child.StartupError is { } error)
+        {
+            child.Dispose();
+            throw error;
+        }
+
+        return child;
+    }
+
     private static async Task<Socket> ListenAsync(string path)
     {
         var server = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
@@ -372,13 +388,13 @@ public class CoordinatorTests
     {
         var path = TempPath("control");
         var listener = await ListenAsync(path);
+        ChildProcessHandle? child = null;
         try
         {
             var attempts = 0;
             var lease = await Coordinator.EnsureCoordinatorAsync("/public", path, new EnsureCoordinatorOptions
             {
-                // 一个永远不"退出"的子进程占位（启动失败句柄的 ExitCode 恒为 null）。
-                Spawn = () => ChildProcess.SpawnProcess("pi-coordinator-not-installed", []),
+                Spawn = () => child = SpawnLongRunningChild(),
                 Connect = _ =>
                 {
                     attempts += 1;
@@ -394,6 +410,8 @@ public class CoordinatorTests
         }
         finally
         {
+            child?.KillTree();
+            child?.Dispose();
             listener.Dispose();
         }
     }
@@ -401,16 +419,25 @@ public class CoordinatorTests
     [Fact]
     public async Task EnsureCoordinator_TimesOutWhenNothingListens()
     {
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => Coordinator.EnsureCoordinatorAsync("/public", TempPath("control"), new EnsureCoordinatorOptions
-            {
-                Spawn = () => ChildProcess.SpawnProcess("pi-coordinator-not-installed", []),
-                Connect = _ => Task.FromResult<CoordinatorSocket?>(null),
-                StartTimeoutMs = 80,
-                RetryMs = 10,
-            }));
+        ChildProcessHandle? child = null;
+        try
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => Coordinator.EnsureCoordinatorAsync("/public", TempPath("control"), new EnsureCoordinatorOptions
+                {
+                    Spawn = () => child = SpawnLongRunningChild(),
+                    Connect = _ => Task.FromResult<CoordinatorSocket?>(null),
+                    StartTimeoutMs = 80,
+                    RetryMs = 10,
+                }));
 
-        Assert.Contains("Timed out waiting for coordinator startup", error.Message, StringComparison.Ordinal);
+            Assert.Contains("Timed out waiting for coordinator startup", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            child?.KillTree();
+            child?.Dispose();
+        }
     }
 
     [Fact]

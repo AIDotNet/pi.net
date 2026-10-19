@@ -569,9 +569,10 @@ public partial class InteractiveMode
     }
 
     /// <summary>TS <c>handleChangelogCommand</c> (L6747-6766).</summary>
-    internal void HandleChangelogCommand()
+    internal void HandleChangelogCommand() => HandleChangelogCommand(Config.GetChangelogPath());
+
+    internal void HandleChangelogCommand(string changelogPath)
     {
-        var changelogPath = Config.GetChangelogPath();
         var allEntries = Changelog.ParseChangelog(changelogPath);
 
         // TS reverses the array in place before mapping; the local is not read again afterwards.

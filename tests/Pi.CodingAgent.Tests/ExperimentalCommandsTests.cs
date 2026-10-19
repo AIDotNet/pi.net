@@ -288,14 +288,14 @@ public sealed class ExperimentalCommandsTests : IDisposable
     }
 
     [Fact]
-    public async Task InternalProcessEntry_RejectsAnUnwiredRole()
+    public async Task InternalProcessEntry_RejectsSessionWorkerInvocationWithoutOptions()
     {
         Environment.SetEnvironmentVariable(InternalProcess.InternalProcessEnv, "session-worker");
 
         Assert.Equal(1, await InternalProcessEntry.TryRunAsync(
-            [InternalProcess.InternalRoleArg, "session-worker", "x"], _error));
+            [InternalProcess.InternalRoleArg, "session-worker"], _error));
 
-        Assert.Contains("not wired into this build yet", _error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Session worker requires one options argument", _error.ToString(), StringComparison.Ordinal);
         Assert.Null(Environment.GetEnvironmentVariable(InternalProcess.InternalProcessEnv));
     }
 

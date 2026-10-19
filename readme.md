@@ -28,37 +28,28 @@ Pi's philosophy is "make Pi fit your workflow, not the other way around": each l
 | **Pi.Server / Pi.Client** | RPC transport: handshake / requests / cancellation / push, session routing, Unix domain sockets and local server discovery |
 | **Pi.Codemode** | Sandboxed JavaScript execution whose only capability is calling injected tools; @options source parsing, TypeScript declaration rendering and sandbox orchestration (VM execution is externalized behind the `ICodemodeJsEngine` injection point) |
 | **Pi.Tui** | Terminal UI framework: differential rendering + synchronized output, grapheme-level width measurement and wrapping, ANSI/OSC parsing with SGR tracking, Kitty keyboard protocol and key decoding, overlay stack, focus management, mouse event dispatch, colors (OKLCH/OKHSL) and keybinding registry, stdin escape-sequence buffering, inline terminal images (Kitty / iTerm2 protocols), stack/scroll layout engine, LaTeX math rendering, slash-command and file-path autocomplete (with `fd` fuzzy search), single-line input component (Emacs-style kill/yank, undo, bracketed paste), select-list component (filtering / scroll window / mouse / wheel), multi-line editor, markdown rendering, settings list, image component, and the alternate-screen renderer (full-screen mode: search / select-and-copy / scrollbar / Kitty image cache / overlay routing) |
-| **Pi.CodingAgent** | Interactive coding Agent CLI (85.5k lines, in progress): the general utility layer (paths / processes / clipboard / images / MIME / HTML entities / ANSI stripping / chalk styling / JS semantics helpers) has landed; sessions / tool system / extensions / modes are being ported in batches |
+| **Pi.Durable** | Durable sessions, SQLite storage, task graph, recovery, and coding-agent harness |
+| **Pi.CodingAgent / Pi.Cli** | Interactive coding agent, tools, compiled .NET extensions, CLI, RPC, and experimental server/worker runtime |
+| **Pi.Vacation** | Separate research/planning host built on the coding-agent runtime |
+| **Pi.Evals** | Native .NET host and documentation eval runner; paired documentation evals use Docker |
 
-> tui is wrapped up (44/45 files, only the `index.ts` barrel file remains — see [tui porting status](docs/tui-porting-status.md)); coding-agent (the interactive CLI main product, 85.5k lines) is in progress — see [coding-agent porting status](docs/coding-agent-porting-status.md); evals has not been ported yet. durable / codemode are fully ported — see [porting status](docs/porting-status.md).
+The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and remaining platform checks are in [migration-execution-status.md](docs/migration-execution-status.md).
 
 ## Getting Started
 
 Requires the .NET 10 SDK.
 
 ```bash
-dotnet build Pi.slnx    # 0 warnings 0 errors (add -m:1 inside the sandbox)
-dotnet test  Pi.slnx    # 24,657 tests
+dotnet build Pi.slnx --no-restore -m:1
+dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```
 
-Tests are based on xunit.v3 + Microsoft.Testing.Platform (MTP). If `dotnet test` does not trigger execution, run the test binaries directly:
+Test projects use xUnit v3 with Microsoft.Testing.Platform. Run a test project directly:
 
 ```bash
-tests/Pi.<Pkg>.Tests/bin/Debug/net10.0/Pi.<Pkg>.Tests.exe
+dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 ```
 
-## Porting Status
+## Migration Status
 
-11 runtime projects + 1 in progress, building with 0 warnings 0 errors, **25,588 tests** (measured 2026-10-14, updated at 4f-2a; durable 340 + tui 23,854 + coding-agent 1,889 + others 505; tui includes 2,822 latex, 5,244 autocomplete, 5,450 input, 2,598 select-list, 7,040 editor, 4,990 markdown, 1,692 extra-components differential vectors and 9,109 case-mapping vectors, plus 37 alternate-screen scenarios; coding-agent includes 409 utils differential vectors). For the intermittent hangs of durable under full load, see the end of [docs/porting-status.md](docs/porting-status.md).
-
-- ✅ Fully ported: telemetry / protocol / agent (incl. proxy.ts) / mcp
-- ✅ Fully ported: server / client (RPC main loop, session routing, Unix domain socket transport and local server discovery)
-- ✅ Fully ported: ai (10 built-in APIs + full catalog of 42 providers + compat + all utils + CLI)
-- ✅ Fully ported: chord (delta / services / facets / node layers / api)
-- ✅ Fully ported: codemode (identifier / types / source / declarations / runtime protocol + host sandbox orchestration + prelude source + Wasm loading)
-- 🚧 durable: base layer + storage + session + env + harness (incl. the tools/events/harness.ts assembly) + **testing layer (assertions / storage-conformance / env-conformance / runner / storage-benchmark)** complete; the tests corresponding to each `harness-*.test.ts` are being filled in
-- 🚧 tui: core layer complete (differential rendering + synchronized output, Unicode width/wrapping/truncation, ANSI/OSC/SGR tracking, keys and the Kitty protocol, overlay stack and focus, mouse event dispatch, colors and OKLCH/OKHSL, keybinding registry, stdin escape-sequence buffering, terminal images (Kitty/iTerm2 encoding and metadata), layout engine, LaTeX, autocomplete, single-line input component, select-list component, multi-line editor, markdown rendering, settings list, image component, alternate-screen search, **alternate-screen renderer (full-screen mode: search / select-and-copy / scrollbar / Kitty image cache / overlay routing)**), 44/45 files, 23,854 tests; only the `index.ts` barrel file remains
-- 🚧 coding-agent: the general utility layer (`src/utils/*`) has landed; sessions / tool system / extensions / modes are advancing through seven sub-phases — see [coding-agent porting status](docs/coding-agent-porting-status.md)
-- ⏳ Not started: evals
-
-For per-package progress, key TS → C# design differences, CBOR wire-compatibility notes and the roadmap, see **[docs/porting-status.md](docs/porting-status.md)**.
+Implementation progress, phase-by-phase evidence, known TypeScript/.NET differences, and environment-blocked checks are tracked in [docs/migration-execution-status.md](docs/migration-execution-status.md).
