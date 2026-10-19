@@ -1192,3 +1192,26 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
   （含 C337 的 `--internal-role coordinator`，以及 C365 的 server 侧装配：直连附件已回归值树契约，
   wiring 落地时直接可用）；4g-3f `durable/*` 9 文件后补 `createCodingAgentHarness` +
   `runSessionWorkerProcess`；Pi.Durable sqlite 存储单独排期。
+
+### 0.34 4g-3d-4b 实验服务器运行时（`8e6ef85`，2026-10-19）
+
+- **范围**：`experimental/server.ts`(770 行) 整体移植（`Server.cs` ~1,420 行 + `PosixStat.cs`）：
+  目录身份与两套锁（profile `launcher-<id>` / activation `activation-<id>`，重试配置经
+  `NodeLock.AcquireAsync` 新增 `maxWaitMs`/`fixedRetryMs` 可选参表达——既有三处调用保持指数退避默认）、
+  `ServerLifetime`（可注入 `IServerLifetimeClock`，对齐 TS fake-timer 三例的毫秒边界）、
+  `startServerBackend`（catalog + services + 每代 unix socket + 启动失败聚合）、
+  `startServer`（startup lease + 替换看守 + relay）、`startForegroundServer`、`activateServer`
+  （spawn-and-wait）、`runServerProcess`（信号关 runtime，退出码交调用方）。配套：
+  `CoordinatorConnection : ISessionWorkerCoordinator`、`SessionCatalogMetadata : ISessionMetadata`。
+- **测试**：23 例新增——`ServerLifecycleTests`(4，含一例「首个客户端取消启动宽限」)、
+  `ServerProfileTests`(5，对齐 TS 5 例)、`ServerStartupTests`(7，真协调器 + 真 socket + 真 client：
+  启动→serve→close、被替换世代拆卸、默认身份、前台锁舞、activate 竞态两例)、
+  `ServerRuntimeTests`(7，模型选项解析/进程参数校验/目录解析)。全量 **4754/0**（2m23s，+23）。
+- **抓出并修掉两个真问题**：① C370 `startForegroundServer` 漏 `profile.Release()`，第二次前台启动
+  在 launcher 锁上干等 30s——锁语义只有真机装配能验证（TS 的 activation 锁只覆盖启动）；
+  ② C371 relay 消息错误路径的 close/finish 竞态——全量负载下 close 事件抢先占 terminal 槽，
+  `Serve_RejectsANonBinaryDataMessage` 偶发失败；改为先 Finish 后 Close（对齐 Node 事件循环的保证
+  语义而非 TS 语句顺序）。另记 C369（Windows 跳过 POSIX uid/mode 校验，沿用 UnixListener 取舍）。
+- **4g-3d 后续**：4g-3d-4c `commands.ts`(98) + `cli.ts`(12)（含 C337 的 `--internal-role coordinator`、
+  `runServerProcess` 进程入口接线与 C365 的 server 侧装配）；4g-3f `durable/*` 9 文件后补
+  `createCodingAgentHarness`；Pi.Durable sqlite 存储单独排期。

@@ -7107,6 +7107,9 @@ provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（e
 | C366 | **worker 控制写串行化** | Node 的 `socket.write` 内部排队；C# 的 `CoordinatorSocket.WriteLineAsync` 不内部串行，而 worker 的 publish 是 fire-and-forget（`Emit` 同步调用）、operation response 是 awaited——并发写可能交织字节。`CoordinatorWorkerControl.SendAsync` 加尾链，恢复 Node 的写顺序语义 |
 | C367 | **服务调用 args 过界为 CLR 值树** | TS 的 `JSON.parse` 直接给值树；C# 的 `TryParseServiceCall` 原样保留 `JsonNode` args，endpoint 的控制调用解码（`args[2] is "singleton"` 等 string 模式）与 wire adapter（读 dictionary）全部失配——**被 e2e 抓出的真 bug**：任何 subscribe 都落到 `provider.Invoke` 报 "service_not_allowed"。现由 `SessionWorkerProtocol.ClrValue` 归一（manager 的 `ToClrValue` 同源复用） |
 | C368 | **op 载荷 camelCase 序列化** | TS 的状态值即 camelCase JSON；C# 的已解码记录经默认 STJ 是 PascalCase（`Conversation`/`Entries`/`Docs`）。`OpsJson` 显式 camelCase（值树成员的键不受影响） |
+| C369 | **`ensurePrivateServerDirectory` 在 Windows 上跳过 POSIX 校验而非拒绝运行** | TS 因 Node 无 `process.getuid` 直接抛 "Unix socket directory requires a POSIX user ID"——实验服务器在 Windows 上完全不可用。C# 沿用 UnixListener/UnixTransport 的既定取舍（Windows 10 1803+ 可用 AF_UNIX）：目录仍创建并校验为目录，仅跳过 uid 属主校验与 `chmod 0700`。POSIX 分支经 libc `lstat`/`getuid` P/Invoke 取属主（mode 与目录判定走托管 `File.GetUnixFileMode`），开发机为 Windows、该分支仅由真实 POSIX 用户执行 |
+| C370 | **`startForegroundServer` 的 activation 锁只覆盖启动（e2e 抓出的真 bug）** | TS 的 `startForegroundServer` 在 `finally` 里释放 activation 锁——即锁随 `startServer` 返回而释放，不覆盖服务器生命周期。初版 C# 漏了 `await profile.Release()`（launcher 锁），导致同目录第二次前台启动在 launcher 锁上干等 30s 后抛 `LockHeldException`——被 e2e 抓出后对齐 TS：先释放 profile 锁再取 activation 锁，`startServer` 内部自行重取 profile 锁 |
+| C371 | **relay 消息错误路径先 `Finish` 后 `Close`（全量负载诱发的真 flake）** | TS 的 `OnMessage` catch 先 `closeWebSocket` 再 `finish`，但 Node 事件循环保证同步的 `finish` 恒胜过它排队的 close 事件。.NET 的 close 事件由另一线程投递，两条语句之间的窗口内在满负载下会被抢占——`Serve_RejectsANonBinaryDataMessage` 偶发把 `Retrying.Error` 报成 "Radius relay host closed (4000: …)"。改为先落 terminal 槽再发 close：与 TS 的**保证语义**一致（非语句顺序），且对任何投递时序都成立 |
 
 ### 4g-3d-4a 测试方法论
 
@@ -7115,3 +7118,30 @@ provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（e
 - **manager 测试用可注入毫秒级真超时替代 fake timers**：`SessionWorkerManagerOptions`（Demand/Shutdown/Startup/Discovery ms）让 TS 的 `vi.useFakeTimers()` 三例（补偿、kill、有界关闭）以真实定时器复现，kill 经 `killWorker` 缝记录 pid。
 - **wire 测试数据必须用 long 字面量**：进程内 JSON 的 int backing 过不了 wire parser 的 `(long)` 硬转（`JsonTree`/`ClrValue` 归一为 long，但解析器输入侧仍按线上形状给 long）。
 - **并行跑多个测试套件会诱发负载敏感 flake**：本轮全量与 chord/server/durable 套件并行时 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath` 偶发（"No matching models" 未渲染），单跑与独占重跑均绿（4731/0）。与既有 `ThemeRuntimeTests` flake 同类，记入观测名单。
+
+### 4g-3d-4b 测试方法论
+
+- **`ServerLifetime` 用手动时钟复刻 vitest fake timers**：TS 三例（foreground 不退休、无首批客户端则退休、连接与 worker 双零才退休）依赖 `advanceTimersByTime(10_999)` 的毫秒边界。C# 注入 `IServerLifetimeClock`，测试侧 `ManualServerLifetimeClock` 按 due 时间顺序触发，且**触发时把时钟推到该 timer 的 due 时刻**——第一版没推，回调里 `StartTimer(1_000)` 以 advance 末端为基准算出 11_999，退休没在 11_000 触发（首跑即抓到）。这与 sinon 的 tick 语义一致：回调内的 setTimeout 相对于回调时刻。
+- **profile 测试断言锁产物是文件而非目录**：`proper-lockfile` 用 `mkdir <file>.lock`（目录），C# `NodeLock` 用 `FileMode.CreateNew` 排他文件（既有记录差异），故 `readdir` 等价的断言落在两个 `launcher-*.lock` 文件名上。
+- **AF_UNIX 108 字节路径上限决定测试目录深度**：每代服务器 socket 名 `server-<uuid>-<nonce>.sock` 就占 61 字符，而 Windows 默认 temp 路径（`…\AppData\Local\Temp\`，34 字符）只剩 12 字符给目录名。`ServerStartupTests.MakeRoot` 按实测长度在 temp 与当前盘根之间挑选第一个放得下的基座，放不下即报清晰错误——这与生产无关（`~/.pi/server` 很短），纯测试环境约束。
+- **协调器必须监听服务器自己推导的路径**：`startServer` 的 control 路径是 `control-<serverId>.sock`、public 路径是 `<serverId>.sock`（由 `getUnixSocketPath` 推导），测试里预起的进程内 `CoordinatorProcess` 必须落在同一对路径上，`EnsureCoordinatorAsync` 的探测才会命中而不 spawn。默认身份一例因此先预写 `default-server-id`（铸造本身由 profile 测试覆盖）。
+- **e2e 抓出 `startForegroundServer` 漏释放 profile 锁（C370）**：锁语义（TS 在 `finally` 里释放 activation 锁、锁只覆盖启动）只有真机装配能验证——第二例前台启动干等 30s 抛 `LockHeldException` 即漏释放的信号。修好后测试反转为断言「第二次启动不阻塞、且替换第一代」。
+- **启动期 revision 是 2 不是 1**：`createExperimentalServerServices` 初值 revision=1，每次 refresh 先自增；`startServer` 启动时调一次 `refreshSessions`，故客户端首次订阅即见 2。断言值回查了 TS `services/server.ts` 的自增顺序，没有从实现反抄。
+
+## 4g-3d-4b 实验服务器运行时（experimental/server.ts）
+
+TS **770 行**，C# 落 `src/Pi.CodingAgent/Experimental/Server.cs`（~1,420 行）+
+`PosixStat.cs`（libc 属主读取）：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/server.ts` | 770 | `Experimental/Server.cs` | `ResolveServerDirectory` / `EnsurePrivateServerDirectoryAsync` / `ResolveSessionDirectory` / `AcquireServerProfileAsync` / `AcquireServerActivationAsync` / `ServerLifetime`（+ `IServerLifetimeClock` 可注入时钟）/ `ActivateServerAsync` / `StartServerBackendAsync`（private）/ `StartServerAsync` / `StartForegroundServerAsync` / `ParseServerModelOptions` / `RunServerProcessAsync` |
+| —（新增） | — | `Experimental/PosixStat.cs` | libc `lstat`/`getuid` 的属主读取（`EnsurePrivateServerDirectoryAsync` 的 POSIX 分支；mode 与目录判定走托管 API） |
+
+**配套改动**：`Core/NodeLock.cs` 的 `AcquireAsync` 增补 `maxWaitMs`（proper-lockfile 的
+`retries.maxRetryTime`）与 `fixedRetryMs`（`minTimeout == maxTimeout` 且 `factor: 1`）两个可选参，
+以表达 `server.ts` 两处锁的不同重试配置（launcher：stale 30s / 等 30s / 固定 25ms；activation：
+stale 20s / 等 10s / 固定 25ms）；`Experimental/Coordinator.cs` 的 `CoordinatorConnection` 声明
+实现 `ISessionWorkerCoordinator`（成员本就齐全，manager 可直接持它）；
+`Experimental/SessionCatalog.cs` 的 `SessionCatalogMetadata` 实现 `Pi.Server.ISessionMetadata`
+（`Id` 已在，作为 `ServerHost<TMetadata>` 的元数据类型）。
