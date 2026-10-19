@@ -1234,3 +1234,25 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **4g-3d 后续**：4e-3c `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809)（client
   半场接线）；4g-3f `durable/*` 9 文件后补 `createCodingAgentHarness` + `runSessionWorkerProcess`
   （session-worker 角色分发已就位）；Pi.Durable sqlite 存储单独排期。
+
+### 0.36 4e-3c-1 实验客户端运行时（`6404bfc`，2026-10-19）
+
+- **范围**：`experimental/client-runtime.ts`(230) → `Experimental/ClientRuntime.cs`（~430 行）+
+  `Experimental/Services/RemoteServiceClients.cs`（~330 行，新增）。`openClientRuntime` 五条校验、
+  三条路由（显式 connect / 发现 / 冷激活）、version 失配复查（缝：`OpenClientRuntimeOptions.ClientFactory`，
+  TS mock 静态 `Client.connect`）、radius 重连装配、dispose 聚合（一错重抛、多错聚合）；
+  `activateBuiltinClientServices` 六门面 + management 包装（remove 当前附加会话时等 detach）。
+- **新差异**：C374 演示侧服务门面需显式客户端适配器（C# chord 无 Proxy，`UseAs<T>` 仅限字典视图）——
+  `RemoteStateView<T>` 状态投影 + 六个客户端视图 + 值树解码器；C375 值树解码按 TS 字段集逐字段读
+  （目录/模型/转录；`ModelRef` 只读 provider/modelId，勿用 catalog 读取器）。连带修两个 wire 形状：
+  `cancelQueued` 回 `{outcome}`、`prepareSession` 直接回 facet 数据（原各偏了一层，TS 侧
+  `services/server.ts` 为准）。`JsonTrees` 转 public 作转录解码入口；`IRadiusReconnectClient.ReconnectAsync`
+  返回 `Task<Hello>`；`Client` 名义类型需 `ClientReconnect` 转发适配（TS 结构 Pick 直接传自身）。
+- **测试**：14 例（`ClientRuntimeTests`）——校验 4 + 路由错误 2 + e2e 3（真服务器：发现并激活/
+  显式 connect/version 复查与显式路径原样抛出）+ dispose 幂等 + loopback 适配器/包装 1。
+  全量 **4785/0**（+14，1m16s）。
+- **未覆盖**：attached/prompted 路径与会话态服务水合需真 worker（C362）——server 侧 session 目标 RPC
+  必 spawn worker，测试宿主即测试 exe 必然失败；适配器经 loopback 覆盖，水合留待 4g-3f 补 spawn 缝。
+- **4e-3c 后续**：4e-3c-2 `client.ts`(86)（`runClient` 接 `RunClientCommandAsync` 的缝）；
+  4e-3c-3 `client-tui-chat.ts`(228) + `client-tui.ts`(809)（届时给 FacetKernel 加远程服务类型化视图钩子，
+  BuiltInFacet 的 `env.Use(Models/AgentController/…)` 才能工作）。

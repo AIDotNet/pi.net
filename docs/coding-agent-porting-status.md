@@ -7112,6 +7112,8 @@ provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（e
 | C371 | **relay 消息错误路径先 `Finish` 后 `Close`（全量负载诱发的真 flake）** | TS 的 `OnMessage` catch 先 `closeWebSocket` 再 `finish`，但 Node 事件循环保证同步的 `finish` 恒胜过它排队的 close 事件。.NET 的 close 事件由另一线程投递，两条语句之间的窗口内在满负载下会被抢占——`Serve_RejectsANonBinaryDataMessage` 偶发把 `Retrying.Error` 报成 "Radius relay host closed (4000: …)"。改为先落 terminal 槽再发 close：与 TS 的**保证语义**一致（非语句顺序），且对任何投递时序都成立 |
 | C372 | **内部进程角色在进程入口分发（补齐 C309/C337）** | TS 每个角色一个入口脚本（`coordinator.ts` / `server.ts` / `session-worker.ts` 底部块，由 spawner 直接指到该文件，且从不调 `setupCli`）；C# 只有一个可执行文件，故 `Pi.Cli.Program.Main` 在任何 CLI 装配**之前**用 env 角色标签分发：coordinator → `RunCoordinatorEntryAsync`、server → `RunServerEntryAsync`（新增，消费并校验角色）、session-worker → 明确报「未接线」（等 4g-3f，C362）。`--internal-role <role>` 前缀由 `InternalProcessEntry.StripRoleArgument` 剥掉后再转发。入口失败按 TS 入口块惯例打印并返回 1 |
 | C373 | **实验入口经 `PI_EXPERIMENTAL_ENTRY=1` 选择（沿用 RpcEntry 模式）** | TS 的 `experimental/cli.ts` 是独立开发入口（发布包只带稳定 `cli.ts`，#9132 边界）。C# 单可执行文件，故 `ExperimentalEntry.RunAsync` 公开、由 `Program.Main` 按 env 选择；边界语义不变——稳定入口从不分发 experimental 命令，实验入口在门控关闭时回退 `Main.MainAsync`（并接住 `MainExitException`，与 `Program.RunAsync` 的退出码约定一致，C303）。client 命令按 TS 用累积退出码立即结束，server 命令等 runtime 关闭后自然返回 |
+| C374 | **演示侧服务门面需显式客户端适配器（C# 无 Proxy）** | TS 的 `use(Service)` 返回 Proxy，结构上满足服务接口；C# chord 的远程服务是成员字典（`RemoteServiceFacade`），`UseAs<T>` 仅当 `T` 是字典视图时可用（既记差异）。故 `client-runtime` 的六个类型化门面（`ISessionDirectory`/`ISessionManagement`/`IPresentationPlugins`/`IModels`/`IAgentController`/`ITranscript`）由 `RemoteServiceClients` 显式适配：方法经 `RemoteServiceMember.CallAsync` 转发，状态成员经 `RemoteStateView<T>` 投影（值树 → 记录）。服务端 `ServiceWireAdapter`（C325）的镜像。附带修两个 wire 形状：`cancelQueued` 回 `{outcome}`（原为裸字符串）、`prepareSession` 直接回 facet 数据（原包了 `{packagePaths, presentationPlugins}`，TS 回 `selected.presentationPlugins`）。另：`Client` 不声明 `IRadiusReconnectClient`（C# 名义类型 vs TS 结构 Pick），由 `ClientRuntimes.ClientReconnect` 转发适配 |
+| C375 | **值树解码按 TS 形状逐字段读，不用反射** | 状态成员过界是 camelCase 值树（C365/C368），目录/模型/转录三个状态各自解码：`SessionDirectoryState`（revision + summaries，`createdAt` 兼容 long/double）、`ModelsState`（catalog/configuration/refresh 联合，thinkingLevel 经 `ThinkingLevelText.Parse`）、`ConversationView`（conversation/entries 经 `JsonTrees` 还原类型化记录，docs 保持值树——worker 发布的就是树）。loopback 传输交付同一形状，故一套解码两用。已知边界：带 `edits` 的条目在 STJ 下无法序列化（`ContextEdit` 抽象无判别器），与 worker→server 既有路径同限 |
 
 ### 4g-3d-4a 测试方法论
 
@@ -7136,6 +7138,30 @@ provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（e
 - **入口分发只能窥视角色不能预消费**：`TryRunAsync` 初版先 `ConsumeInternalProcessRole`，而 `RunCoordinatorEntryAsync` 自己也要消费并校验（TS 入口块的形状），第二次消费得到 null → 角色守卫误报。改为 `GetInternalProcessRole` 窥视 + 各 runner 自消费——测试用「coordinator 角色 + 缺失 socket 路径」断言报的是路径错误而非角色错误。
 - **`AwaitShutdown` 缝别把测试挂死**：`RunServerCommandOptions.AwaitShutdown` 让测试绕过信号注册；首版返回一个永不完成的 TCS 想断言「等待未被取消」，直接把 runner 挂住（timeout SIGTERM）。缝的语义是「等到关闭或信号」，测试完成它即可。
 - **`StringWriter.WriteLine` 写 `Environment.NewLine`**：按 `\n` 切分后行尾带 `\r`，期望值逐条 `TrimEnd('\r')`（CRLF 是老坑 C311 的测试侧翻版）。
+
+### 4e-3c-1 测试方法论
+
+- **e2e 用真服务器 + 真发现，不 mock 传输**：`ClientRuntimeTests` 复用 server e2e 的进程内协调器
+  + `StartServerAsync(KeepAlive)`，客户端走 `OpenClientRuntimeAsync` 的发现路径真连真建——
+  路由形状、目录复制、create 落盘（`meta.json`）都过真 wire。version 失配复查是唯一需要缝的地方：
+  TS mock 静态 `Client.connect`，C# 用 `OpenClientRuntimeOptions.ClientFactory`（第一次抛
+  `ServerError("version")`，第二次真连）；复查本身走 `ActivateServerAsync` 自带的 connect
+  （服务器在跑即连上、不 spawn），故缝只被调用一次——断言的是「显式 connect 的 version 错原样
+  抛出、发现路径的 version 错触发复查并最终连上」。
+- **目录复制是异步到达的**：create 的 RPC 返回后服务器才发布 refresh，客户端状态值随后更新——
+  断言前必须轮询（TS 用 `vi.waitFor`），直接读 `State.Value` 会读到旧值。`WaitUntilAsync`
+  即为此设。
+- **loopback 测适配器与 management 包装**：TS 的 client-TUI 测试用 loopback provider +
+  手写 service source；C# 同形——`RemoteServiceProvider` 承载**值树形状**的成员字典（与 wire
+  一致，一套解码两用），`LoopbackServerSource`/`LoopbackSessionSource` 实现两个 source 接口，
+  连接/附加状态可编程。据此覆盖：目录/模型/转录三个状态解码、create 摘要回读、`prepareSession`
+  回 facet 数据、agent 两种回复联合、thinking level 读写、以及 management 包装的
+  attach/detach/remove 簿记（`WhenAttached`/`WhenDetached` 调用记录）。
+- **`Client` 的 ServerId 必须是真 uuidv4**：构造即校验（"serverId must be a canonical lowercase
+  UUIDv4"），loopback 测试里也不能用 "server-1" 这种占位符。
+- **`ModelRefOrNull` 只读 provider/modelId**：配置态的 `model` 是 `ModelRef`（无 name/reasoning），
+  第一版误用 catalog 的 `ModelSummary` 读取器，"Expected a string, got null" 排查了半天——
+  wire 读取器必须与 TS 接口的字段集严格一一对应。
 
 ## 4g-3d-4c 实验命令与入口（experimental/commands.ts + experimental/cli.ts）
 
@@ -7167,3 +7193,32 @@ stale 20s / 等 10s / 固定 25ms）；`Experimental/Coordinator.cs` 的 `Coordi
 实现 `ISessionWorkerCoordinator`（成员本就齐全，manager 可直接持它）；
 `Experimental/SessionCatalog.cs` 的 `SessionCatalogMetadata` 实现 `Pi.Server.ISessionMetadata`
 （`Id` 已在，作为 `ServerHost<TMetadata>` 的元数据类型）。
+
+## 4e-3c-1 实验客户端运行时（experimental/client-runtime.ts）
+
+TS **230 行**，C# 落两处：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/client-runtime.ts` | 230 | `Experimental/ClientRuntime.cs` | `OpenClientRuntimeAsync`（五条前置校验 + 显式 connect / 发现 / 冷激活三条路由 + version 失配复查 + radius 重连装配 + dispose 聚合）+ `ActivateBuiltinClientServicesAsync`（六个类型化门面 + management 包装）+ `ClientRuntimeRoute` / `ClientRuntimeServer` / `ActivatedClientRuntimeServer` / `ClientRuntime` 联合 |
+| —（新增） | — | `Experimental/Services/RemoteServiceClients.cs` | 演示侧类型化门面适配器（C374）：`RemoteStateView<T>` 状态投影 + 六个服务的客户端视图 + 值树解码器（目录 / 模型 / 转录） |
+
+**配套改动**：`Services/ServiceWire.cs` 的 `ServiceWireValues` 增补客户端侧词汇——请求写入
+（`SessionCreateOptions` / `PrepareSessionRequest` / `PromptRequest` / `CompactionRequest` /
+`ModelRef`）与回复读取（`ReadSummary` / `ReadOperationResponse` / `ReadQueueResponse` /
+`ReadPromptResult` / `ReadCancelOutcome` / `ReadThinkingLevels`）+ `Number`（createdAt 的
+long/double 双形）；`Services/AgentControllerProvider.cs` 的 `cancelQueued` 回 `{outcome}`
+（对齐 TS，原为裸字符串）；`Services/ExperimentalServerProvider.cs` 的 `prepareSession` 直接回
+facet 数据（对齐 TS 的 `selected.presentationPlugins`，原包了一层——测试断言同步反转）；
+`Pi.Durable/Harness/JsonTrees.cs` 由 internal 改 public（转录视图的 wire 解码入口）；
+`Experimental/RadiusRelayHost.cs` 的 `IRadiusReconnectClient.ReconnectAsync` 返回
+`Task<ServerMessage.Hello>`（与 `Client` 的实际形状一致）。
+
+**测试**：14 例（`ClientRuntimeTests`）——四条命令校验 + 两条路由错误（坏 socket 路径 / 发现到
+服务器时的 model 选择）+ 三条 e2e（发现并激活服务、显式 connect、version 失配复查与显式路径
+原样抛出）+ dispose 幂等 + loopback 适配器/包装一例。全量 **4785/0**（+14）。
+
+**未覆盖（依赖 session worker，C362）**：`runClient` 的 attached/prompted 路径与会话态服务
+（Models/AgentController/Transcript）的**水合**需要真 worker——server 侧任何 session 目标 RPC
+都会 spawn worker 进程（测试宿主即测试 exe，必然失败）。适配器本身经 loopback 覆盖；水合路径
+留给 4g-3f（`runSessionWorkerProcess` 接线后补 spawn 缝）。
