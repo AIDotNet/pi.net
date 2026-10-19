@@ -629,13 +629,13 @@ public sealed record CompactionPolicy
     public required bool Enabled { get; init; }
 
     /// <summary>为回答保留的空间：超过 contextWindow - reserveTokens 时生成阻塞以压缩。</summary>
-    public required int ReserveTokens { get; init; }
+    public required long ReserveTokens { get; init; }
 
     /// <summary>摘要在原文中保留的近期上下文的近似大小。</summary>
-    public required int KeepRecentTokens { get; init; }
+    public required long KeepRecentTokens { get; init; }
 
     /// <summary>后台压缩在阻塞阈值之下 backgroundTokens 处启动；0 禁用。</summary>
-    public required int BackgroundTokens { get; init; }
+    public required long BackgroundTokens { get; init; }
 }
 
 /// <summary>运行进度提交频率。对应 TS <c>ProgressPolicy</c>。</summary>

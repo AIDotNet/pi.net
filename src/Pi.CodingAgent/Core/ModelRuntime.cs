@@ -538,6 +538,8 @@ public sealed class ModelRuntime : IModelResolverRuntime
 
     public IReadOnlyList<ModelSpec> GetModels(string? providerId = null) => _models.GetModels(providerId);
 
+    internal Models DurableModels => _models;
+
     /// <summary>
     /// The resolver only ever asks for the whole catalog, so <see cref="IModelResolverRuntime"/> declares the
     /// parameterless form while this class's accessor keeps its optional provider filter.

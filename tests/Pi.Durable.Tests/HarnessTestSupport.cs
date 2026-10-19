@@ -242,7 +242,6 @@ internal static class HarnessTestSupport
             Reports = [],
             Settings = new HarnessSettings
             {
-                Extensions = [],
                 Retry = new ConversationRetryPolicy { Enabled = false, MaxRetries = 0, BaseDelayMs = 0 },
             },
         };

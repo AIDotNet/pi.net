@@ -176,8 +176,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
         _report = options.OnReport ?? (_ => { });
         var now = options.Now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         var reportException = new Action<Exception>(error => _report(error));
-        Settings Settings() => AgentDocs.ResolveSettings(
-            options.SettingsSource is { } source ? source() : options.Settings);
+        Settings Settings() => ResolveHarnessSettings();
         // 调度器的 Conversation 委托在运行时才被调用（此时 _submissions/_tasks 已赋值），
         // 但字段初始化顺序使闭包捕获它们会触发可空警告；以本地持有者桥接。
         Submissions? submissionsRef = null;
@@ -235,8 +234,12 @@ public sealed class HarnessImpl : DurableSession, IHarness
         var state = await SnapshotAsync(AgentDocs.AgentDoc, id, context).ConfigureAwait(false);
         return AgentDocs.ResolveAgent(
             state is null ? null : AgentDocs.StateFromJson(state), registry,
-            AgentDocs.ResolveSettings(_options.Settings), _report);
+            ResolveHarnessSettings(), _report);
     }
+
+    private Settings ResolveHarnessSettings()
+        => AgentDocs.ResolveSettings(
+            _options.SettingsSource is { } source ? source() : _options.Settings);
 
     /// <summary>
     /// 从对话当前的 <c>cwd</c> 构建其环境；无 <c>env</c> 选项时为 null。

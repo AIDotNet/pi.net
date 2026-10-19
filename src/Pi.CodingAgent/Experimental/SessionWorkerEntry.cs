@@ -753,6 +753,23 @@ internal sealed class ServiceUpdateStream(string token, string sessionKey, IWork
 public static class SessionWorkerEntry
 {
     /// <summary>
+    /// TS <c>session-worker.ts</c> process entry: consume and validate the role before running the
+    /// production Harness factory.
+    /// </summary>
+    public static Task RunSessionWorkerEntryAsync(IReadOnlyList<string> args)
+    {
+        var role = InternalProcess.ConsumeInternalProcessRole();
+        if (role != InternalProcessRole.SessionWorker)
+        {
+            throw new InvalidOperationException(
+                "Session worker entrypoint requires an internal session-worker invocation");
+        }
+
+        return SessionWorkerControl.RunSessionWorkerWithHarnessAsync(
+            args, SessionWorkerHarnessSetup.CreateAsync);
+    }
+
+    /// <summary>
     /// TS <c>run</c>: own the session, open its services, and serve commands until shutdown.
     /// </summary>
     public static async Task RunAsync(

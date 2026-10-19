@@ -13,8 +13,7 @@
 // passes `process.argv.slice(2)` of a role-specific script, the port forwards the remainder.
 //
 // Exit codes: a role that fails prints the error and exits 1, exactly like TS's entry blocks
-// (`console.error(error); process.exit(1)`). The session-worker role is not wired yet — it waits
-// for 4g-3f's durable harness setup (C362).
+// (`console.error(error); process.exit(1)`).
 
 namespace Pi.CodingAgent.Experimental;
 
@@ -43,8 +42,11 @@ public static class InternalProcessEntry
                     await ExperimentalServer.RunServerEntryAsync(forwarded).ConfigureAwait(false);
                     return 0;
 
+                case InternalProcessRole.SessionWorker:
+                    await SessionWorkerEntry.RunSessionWorkerEntryAsync(forwarded).ConfigureAwait(false);
+                    return 0;
+
                 default:
-                    // 4g-3f wires the session worker (C362); consume the tag so it cannot leak.
                     InternalProcess.ConsumeInternalProcessRole();
                     throw new InvalidOperationException(
                         $"Internal process role {role.Value} is not wired into this build yet");

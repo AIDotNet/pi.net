@@ -31,6 +31,7 @@ public class DurableSession : ISession
     private readonly HashSet<Action<CommitPublication, Context>> _commitListeners = [];
     private readonly HashSet<Action> _closeListeners = [];
     private readonly ITransactionHost _host;
+    private readonly object _enqueueGate = new();
     private Task _tail = Task.CompletedTask;
     private Task? _closing;
     private Exception? _poison;
@@ -644,17 +645,20 @@ public class DurableSession : ISession
 
     private Task<T> Enqueue<T>(Func<Task<T>> job)
     {
-        var run = _tail.ContinueWith(
-            _ => job(),
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default).Unwrap();
-        _tail = run.ContinueWith(
-            static _ => { },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-        return run;
+        lock (_enqueueGate)
+        {
+            var run = _tail.ContinueWith(
+                _ => job(),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default).Unwrap();
+            _tail = run.ContinueWith(
+                static _ => { },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            return run;
+        }
     }
 
     private void AssertUsable()
