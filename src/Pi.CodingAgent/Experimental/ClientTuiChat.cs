@@ -76,6 +76,8 @@ public sealed class ExperimentalChatView
     /// <summary>Every card shown, also older ones whose call ID a later turn reused.</summary>
     private readonly List<ToolExecutionComponent> _cards = [];
 
+    private readonly List<CompactionCard> _summaries = [];
+
     /// <summary>Call IDs whose cards the streaming answer created; its entry takes them over.</summary>
     private readonly HashSet<string> _streamingCalls = new(StringComparer.Ordinal);
 
@@ -83,6 +85,52 @@ public sealed class ExperimentalChatView
     private AssistantMessageComponent? _streaming;
     private StatusIndicator? _indicator;
     private string _statusText = "";
+    private bool _expanded;
+
+    private sealed class CompactionCard : Box
+    {
+        private readonly string _summary;
+        private readonly MarkdownTheme _markdownTheme = ThemeHelpers.GetMarkdownTheme();
+        private bool _expanded;
+
+        public CompactionCard(string summary)
+            : base(1, 1, text => ThemeRuntime.Current.Bg("customMessageBg", text))
+        {
+            _summary = summary;
+            UpdateDisplay();
+        }
+
+        public void SetExpanded(bool expanded)
+        {
+            if (_expanded == expanded) return;
+            _expanded = expanded;
+            UpdateDisplay();
+        }
+
+        private void UpdateDisplay()
+        {
+            Clear();
+            AddChild(new Text(
+                ThemeRuntime.Current.Fg("customMessageLabel", ThemeRuntime.Current.Bold("[compaction]")), 0, 0));
+            AddChild(new Spacer(1));
+            AddChild(_expanded
+                ? new Markdown(
+                    _summary,
+                    0,
+                    0,
+                    _markdownTheme,
+                    new DefaultTextStyle
+                    {
+                        Color = text => ThemeRuntime.Current.Fg("customMessageText", text),
+                    })
+                : new Text(
+                    ThemeRuntime.Current.Fg("customMessageText", "Earlier context summarized (")
+                    + ThemeRuntime.Current.Fg("dim", KeybindingHints.KeyText("app.tools.expand"))
+                    + ThemeRuntime.Current.Fg("customMessageText", " to expand)"),
+                    0,
+                    0));
+        }
+    }
 
     public ExperimentalChatView(ITui ui, string cwd)
     {
@@ -136,6 +184,14 @@ public sealed class ExperimentalChatView
         Apply(view);
     }
 
+    public void SetExpanded(bool expanded)
+    {
+        _expanded = expanded;
+        foreach (var card in _cards) card.SetExpanded(expanded);
+        foreach (var summary in _summaries) summary.SetExpanded(expanded);
+        _ui.RequestRender();
+    }
+
     public void Dispose()
     {
         DiscardTools();
@@ -153,6 +209,7 @@ public sealed class ExperimentalChatView
         _cards.Clear();
         _tools.Clear();
         _streamingCalls.Clear();
+        _summaries.Clear();
     }
 
     private void SyncQueue(IReadOnlyList<object?> items)
@@ -283,8 +340,13 @@ public sealed class ExperimentalChatView
         }
         else if (entry.Kind == "pi.compaction")
         {
-            AddText(ThemeRuntime.Current.Fg("muted", "[compaction]"));
-            if (message is UserMessage compactionUser) AddText(UserText(compactionUser.Content));
+            var summary = message is UserMessage compactionUser
+                ? UserText(compactionUser.Content)
+                : "";
+            var component = new CompactionCard(summary);
+            component.SetExpanded(_expanded);
+            _summaries.Add(component);
+            Transcript.AddChild(component);
         }
         else if (entry.Kind == "pi.reset")
         {
@@ -327,6 +389,7 @@ public sealed class ExperimentalChatView
             Renderers.TryGetValue(toolName, out var renderers) ? renderers : null,
             _ui,
             _cwd);
+        component.SetExpanded(_expanded);
         Transcript.AddChild(component);
         _cards.Add(component);
         _tools[toolCallId] = component;

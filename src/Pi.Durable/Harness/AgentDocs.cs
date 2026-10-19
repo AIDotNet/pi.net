@@ -82,7 +82,7 @@ public static class AgentDocs
     /// 对 <c>pi.agent</c> 应用一个变更：给定字段替换存储值，<c>ClearX</c> 清除，未设置的字段不动。
     /// 对应 TS <c>configure()</c>（TS 以 null 表示清除；C# 为显式清除标记）。
     /// </summary>
-    public static async Task ConfigureAsync(Transaction tx, ConversationId conversationId, AgentChange change)
+    public static async Task ConfigureAsync(ITx tx, ConversationId conversationId, AgentChange change)
     {
         var doc = await tx.DocAsync(AgentDoc, conversationId).ConfigureAwait(false);
         ApplyChange(doc, change);

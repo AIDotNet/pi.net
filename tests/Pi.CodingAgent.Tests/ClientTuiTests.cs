@@ -284,6 +284,13 @@ public sealed class ClientTuiTests : IAsyncDisposable
                     Kind = "pi.tool-result",
                     Model = [new ToolResultMessage("call-1", "bash", [new TextContent("a.txt")])],
                 },
+                new EntryRecord
+                {
+                    Id = EntryId.From(4),
+                    ConversationId = ConversationId.From(1),
+                    Kind = "pi.compaction",
+                    Model = [new UserMessage(new MessageContent.Text("The train route is confirmed."), 4)],
+                },
             ],
             Docs = new Dictionary<string, IReadOnlyDictionary<string, object?>>
             {
@@ -321,9 +328,15 @@ public sealed class ClientTuiTests : IAsyncDisposable
         Assert.Contains("hello there", transcript, StringComparison.Ordinal);
         Assert.Contains("ls", transcript, StringComparison.Ordinal);
         Assert.Contains("a.txt", transcript, StringComparison.Ordinal);
+        Assert.Contains("Earlier context summarized", transcript, StringComparison.Ordinal);
+        Assert.DoesNotContain("The train route is confirmed", transcript, StringComparison.Ordinal);
         // TS collapses every whitespace run (leading and trailing included) to one space.
         Assert.Contains("[steer] queued follow-up", pending, StringComparison.Ordinal);
         Assert.Contains("[write] <pi.reset>", pending, StringComparison.Ordinal);
+
+        chat.SetExpanded(true);
+        var expandedTranscript = string.Join("\n", chat.Transcript.Render(80));
+        Assert.Contains("The train route is confirmed", expandedTranscript, StringComparison.Ordinal);
 
         // The status line owns a spinner timer; disposing stops it (TS's dispose()).
         chat.Dispose();
