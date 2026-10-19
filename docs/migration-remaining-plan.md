@@ -1256,3 +1256,22 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **4e-3c 后续**：4e-3c-2 `client.ts`(86)（`runClient` 接 `RunClientCommandAsync` 的缝）；
   4e-3c-3 `client-tui-chat.ts`(228) + `client-tui.ts`(809)（届时给 FacetKernel 加远程服务类型化视图钩子，
   BuiltInFacet 的 `env.Use(Models/AgentController/…)` 才能工作）。
+
+### 0.37 4e-3c-2 实验客户端命令（`02b2b33`，2026-10-19）
+
+- **范围**：`experimental/client.ts`(86) → `Experimental/Client.cs`（~170 行）：`runClient` 的
+  发现→激活、list 路径（每服务器每会话，server 然后 session 排序，localeCompare → CurrentCulture）、
+  四条选择错误（ambiguous / missing / missing 无 prompt / prompt 无法择服）、attached/prompted
+  两种结果形状。`RunClientCommandAsync` 的 headless 半场默认接到真实现（TUI 半场缝保留到 4e-3c-3）。
+- **测试**：5 例（`ClientTests`，两个真服务器共享一个会话目录）——排序列表、ambiguous、missing、
+  missing 无 prompt、prompt 需唯一服务器。全量 **4790/0**（+5）。
+- **抓到并修掉一个测试侧真问题**：会话种子若在服务器启动**之后**创建，启动时 refresh 看不到
+  （`demo-1` 只出现在第二个服务器的目录态里）——ambiguous 一例因此走进 attach 并以
+  `ServerError: Internal server error`（worker spawn 失败）收场。种子必须前置到任何 startServer 之前
+  （对齐 TS 的 `beforeEach` 顺序）。
+- **未覆盖**：attached/prompted 的 e2e 需真 worker（C362）；radius 分支的 "No discovered server"
+  需 relay 装配。两者均与 4e-3c-1 同因。
+- **4e-3c 后续**：4e-3c-3 `client-tui-chat.ts`(228) + `client-tui.ts`(809)——届时给
+  `FacetKernel` 加远程服务类型化视图钩子（`FacetOptions.TypedServiceViews`：serviceId →
+  `RemoteServiceFacade` 适配工厂），BuiltInFacet 与 presentation bridge 的 `env.Use(Models/
+  AgentController/Transcript/…)` 才能拿到类型化门面。
