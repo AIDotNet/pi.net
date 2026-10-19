@@ -40,11 +40,8 @@ public sealed record LlamaProgressState
 /// The UI surface the llama extension drives. Port of the TS <c>LlamaUi</c> interface.
 /// </summary>
 /// <remarks>
-/// The concrete TUI implementation (<c>LlamaView</c> / <c>HuggingFaceSearch</c> /
-/// <c>showLlamaUi</c> in <c>ui.ts</c>) renders through the interactive theme and components that land
-/// with 4f, so only this interface, the pure label helpers and <see cref="LlamaUi.RunWithProgressAsync{T}"/>
-/// are ported here. The view is supplied through
-/// <see cref="LlamaExtension.LlamaExtensionOptions.ShowUi"/>.
+/// <see cref="LlamaManagerView"/> implements the concrete TUI from <c>ui.ts</c>. The extension keeps
+/// <see cref="LlamaExtension.LlamaExtensionOptions.ShowUi"/> injectable for tests and alternate hosts.
 /// </remarks>
 public interface ILlamaUi
 {

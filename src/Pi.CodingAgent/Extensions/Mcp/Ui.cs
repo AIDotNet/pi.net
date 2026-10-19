@@ -1,13 +1,10 @@
 // ============================================================================
-// MCP manager UI contract — port of the UI-agnostic half of extensions/mcp/ui.ts (P4b-6)
+// MCP manager UI contract — port of extensions/mcp/ui.ts
 // ============================================================================
 //
-// `ui.ts` has two halves. This file is the first: the data and callback contract the `/mcp` manager
-// is written against (`McpMenu`, `McpUi`), which `index.ts` builds menus for and drives. The second
-// half — `McpManagerView` and `showMcpManager`, the TUI component that renders those menus with
-// `DynamicBorder` / `SelectList` / `AuthUrlComponent` / `keyHint` — needs the interactive layer
-// (theme, keybindings, `ctx.ui.custom`) and lands with 4f as batch P4b-7; `McpExtensionOptions.ShowManager`
-// is the seam it will plug into.
+// This file defines the data and callback contract the `/mcp` manager is written against
+// (`McpMenu`, `IMcpUi`). `McpManagerView` supplies the TUI implementation and is the default
+// `McpExtensionOptions.ShowManager`; hosts can still replace it for tests or alternate front ends.
 //
 // Keeping the two halves apart is what makes the manager logic testable today: everything below is
 // plain data, so a test drives `/mcp` end to end with a scripted UI instead of a terminal.
@@ -48,8 +45,8 @@ public sealed record McpMenu
 /// The interactive surface the manager uses. TS <c>McpUi</c>.
 /// </summary>
 /// <remarks>
-/// Difference C191: TS passes the <c>AbortSignal</c> of the sign-in prompt as a parameter; the port
-/// passes a <see cref="CancellationToken"/>, which is also what
+/// TS passes the <c>AbortSignal</c> of the sign-in prompt as a parameter; the port passes a
+/// <see cref="CancellationToken"/>, which is also what
 /// <see cref="OAuth.IMcpSignInPrompt.PromptForRedirectUrlAsync"/> takes, so the two stay one value.
 /// </remarks>
 public interface IMcpUi

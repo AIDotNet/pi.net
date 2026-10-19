@@ -29,8 +29,7 @@
 //   C189  the port has no lazy module load (`runtime.lazy.ts`), so only the event-loop turn that
 //         `setImmediate` bought is kept (`DeferOneTurnAsync`).
 //   C190  `McpServerListing.Connection` is flattened to `Instructions` (TS structural `{instructions?}`).
-//   C191  `McpExtensionOptions.ShowManager` is the seam for the TUI manager view, which lands with 4f
-//         (batch P4b-7) and defaults to null.
+//   C191  `McpExtensionOptions.ShowManager` remains injectable, with `McpManagerView` as its default.
 //   C192  the sign-in token snapshot is a `Task<string>` because the port's credential store reads
 //         asynchronously (TS `credentials.tokens()` is synchronous).
 //   C154's neighbour  the port always emits `ExtensionEvent.CustomToolCall` for `tool_call`, so the
@@ -89,11 +88,11 @@ public sealed record McpExtensionOptions
     public long? StartupWaitMs { get; init; }
 
     /// <summary>
-    /// Runs <c>manage</c> in the manager view. TS <c>showMcpManager</c>; the view itself needs the
-    /// interactive layer and lands with 4f (batch P4b-7, difference C191). While it is null the TUI
-    /// branches of <c>/mcp</c> fall back to their non-TUI behaviour.
+    /// Runs <c>manage</c> in the manager view. TS <c>showMcpManager</c>. Tests and hosts may replace
+    /// the built-in TUI view.
     /// </summary>
-    public Func<IExtensionCommandContext, Func<IMcpUi, Task>, Task>? ShowManager { get; init; }
+    public Func<IExtensionCommandContext, Func<IMcpUi, Task>, Task> ShowManager { get; init; }
+        = McpManagerView.ShowMcpManagerAsync;
 }
 
 /// <summary>
@@ -1462,7 +1461,7 @@ public static partial class McpExtension
                 }
 
                 string? failure;
-                if (ctx.Mode == ExtensionMode.Tui && options.ShowManager is not null)
+                if (ctx.Mode == ExtensionMode.Tui)
                 {
                     failure = null;
                     await options.ShowManager(ctx, async ui =>
@@ -1755,7 +1754,7 @@ public static partial class McpExtension
                     var extra = parts.Skip(2).ToList();
                     if (action is null)
                     {
-                        if (ctx.Mode == ExtensionMode.Tui && options.ShowManager is not null)
+                        if (ctx.Mode == ExtensionMode.Tui)
                         {
                             await options.ShowManager(ctx, ui => ManageAsync(ui, ctx)).ConfigureAwait(false);
                         }

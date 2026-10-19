@@ -10,10 +10,8 @@ namespace Pi.CodingAgent.Extensions.Llama;
 /// <remarks>
 /// <para>
 /// The command body is fully ported (catalog sync, load/unload/download orchestration) and drives the
-/// <see cref="ILlamaUi"/> seam. The concrete TUI view from <c>ui.ts</c> (<c>LlamaView</c> /
-/// <c>HuggingFaceSearch</c> / <c>showLlamaUi</c>) renders through the interactive theme and components
-/// that land with 4f-2 / 4f-3, so it is supplied through
-/// <see cref="LlamaExtensionOptions.ShowUi"/>; the default reports the pending batch.
+/// <see cref="ILlamaUi"/> seam. <see cref="LlamaManagerView"/> is the default concrete TUI view;
+/// hosts and tests may replace it through <see cref="LlamaExtensionOptions.ShowUi"/>.
 /// </para>
 /// </remarks>
 public static class LlamaExtension
@@ -25,17 +23,17 @@ public static class LlamaExtension
     public sealed record LlamaExtensionOptions
     {
         /// <summary>
-        /// The <c>showLlamaUi(ctx, run)</c> seam. Defaults to the pending 4f-3 implementation; tests
-        /// and the interactive mode supply the real view.
+        /// The <c>showLlamaUi(ctx, run)</c> seam. Defaults to <see cref="LlamaManagerView.ShowLlamaUiAsync"/>.
         /// </summary>
-        public Func<IExtensionCommandContext, Func<ILlamaUi, Task>, Task>? ShowUi { get; init; }
+        public Func<IExtensionCommandContext, Func<ILlamaUi, Task>, Task> ShowUi { get; init; }
+            = LlamaManagerView.ShowLlamaUiAsync;
     }
 
     /// <summary>The TS <c>default export llamaExtension(pi)</c>.</summary>
     public static ExtensionFactory CreateLlamaExtension(LlamaExtensionOptions? options = null)
     {
         options ??= new LlamaExtensionOptions();
-        var showUi = options.ShowUi ?? DefaultShowUi;
+        var showUi = options.ShowUi;
 
         return async pi =>
         {
@@ -138,15 +136,6 @@ public static class LlamaExtension
             });
         };
     }
-
-    /// <summary>The TS <c>showLlamaUi</c> default until the 4f view lands.</summary>
-    private static Task DefaultShowUi(IExtensionCommandContext ctx, Func<ILlamaUi, Task> run)
-        => throw new NotSupportedException(
-            "The llama.cpp manager UI (extensions/llama/ui.ts LlamaView / HuggingFaceSearch / showLlamaUi) " +
-            "renders through the interactive theme and components that land with batch 4f-2 / 4f-3 of the " +
-            "porting plan (docs/migration-remaining-plan.md). Supply a view through " +
-            "LlamaExtensionOptions.ShowUi; the provider registration and the command orchestration are " +
-            "already ported.");
 
     /// <summary>The TS <c>modelIsLoaded(model)</c>.</summary>
     private static bool ModelIsLoaded(LlamaModelInfo model)
