@@ -7110,6 +7110,8 @@ provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（e
 | C369 | **`ensurePrivateServerDirectory` 在 Windows 上跳过 POSIX 校验而非拒绝运行** | TS 因 Node 无 `process.getuid` 直接抛 "Unix socket directory requires a POSIX user ID"——实验服务器在 Windows 上完全不可用。C# 沿用 UnixListener/UnixTransport 的既定取舍（Windows 10 1803+ 可用 AF_UNIX）：目录仍创建并校验为目录，仅跳过 uid 属主校验与 `chmod 0700`。POSIX 分支经 libc `lstat`/`getuid` P/Invoke 取属主（mode 与目录判定走托管 `File.GetUnixFileMode`），开发机为 Windows、该分支仅由真实 POSIX 用户执行 |
 | C370 | **`startForegroundServer` 的 activation 锁只覆盖启动（e2e 抓出的真 bug）** | TS 的 `startForegroundServer` 在 `finally` 里释放 activation 锁——即锁随 `startServer` 返回而释放，不覆盖服务器生命周期。初版 C# 漏了 `await profile.Release()`（launcher 锁），导致同目录第二次前台启动在 launcher 锁上干等 30s 后抛 `LockHeldException`——被 e2e 抓出后对齐 TS：先释放 profile 锁再取 activation 锁，`startServer` 内部自行重取 profile 锁 |
 | C371 | **relay 消息错误路径先 `Finish` 后 `Close`（全量负载诱发的真 flake）** | TS 的 `OnMessage` catch 先 `closeWebSocket` 再 `finish`，但 Node 事件循环保证同步的 `finish` 恒胜过它排队的 close 事件。.NET 的 close 事件由另一线程投递，两条语句之间的窗口内在满负载下会被抢占——`Serve_RejectsANonBinaryDataMessage` 偶发把 `Retrying.Error` 报成 "Radius relay host closed (4000: …)"。改为先落 terminal 槽再发 close：与 TS 的**保证语义**一致（非语句顺序），且对任何投递时序都成立 |
+| C372 | **内部进程角色在进程入口分发（补齐 C309/C337）** | TS 每个角色一个入口脚本（`coordinator.ts` / `server.ts` / `session-worker.ts` 底部块，由 spawner 直接指到该文件，且从不调 `setupCli`）；C# 只有一个可执行文件，故 `Pi.Cli.Program.Main` 在任何 CLI 装配**之前**用 env 角色标签分发：coordinator → `RunCoordinatorEntryAsync`、server → `RunServerEntryAsync`（新增，消费并校验角色）、session-worker → 明确报「未接线」（等 4g-3f，C362）。`--internal-role <role>` 前缀由 `InternalProcessEntry.StripRoleArgument` 剥掉后再转发。入口失败按 TS 入口块惯例打印并返回 1 |
+| C373 | **实验入口经 `PI_EXPERIMENTAL_ENTRY=1` 选择（沿用 RpcEntry 模式）** | TS 的 `experimental/cli.ts` 是独立开发入口（发布包只带稳定 `cli.ts`，#9132 边界）。C# 单可执行文件，故 `ExperimentalEntry.RunAsync` 公开、由 `Program.Main` 按 env 选择；边界语义不变——稳定入口从不分发 experimental 命令，实验入口在门控关闭时回退 `Main.MainAsync`（并接住 `MainExitException`，与 `Program.RunAsync` 的退出码约定一致，C303）。client 命令按 TS 用累积退出码立即结束，server 命令等 runtime 关闭后自然返回 |
 
 ### 4g-3d-4a 测试方法论
 
@@ -7127,6 +7129,26 @@ provider + 空 registry）+ `RootAsync` → `RunAsync(options, 工厂, env)`（e
 - **协调器必须监听服务器自己推导的路径**：`startServer` 的 control 路径是 `control-<serverId>.sock`、public 路径是 `<serverId>.sock`（由 `getUnixSocketPath` 推导），测试里预起的进程内 `CoordinatorProcess` 必须落在同一对路径上，`EnsureCoordinatorAsync` 的探测才会命中而不 spawn。默认身份一例因此先预写 `default-server-id`（铸造本身由 profile 测试覆盖）。
 - **e2e 抓出 `startForegroundServer` 漏释放 profile 锁（C370）**：锁语义（TS 在 `finally` 里释放 activation 锁、锁只覆盖启动）只有真机装配能验证——第二例前台启动干等 30s 抛 `LockHeldException` 即漏释放的信号。修好后测试反转为断言「第二次启动不阻塞、且替换第一代」。
 - **启动期 revision 是 2 不是 1**：`createExperimentalServerServices` 初值 revision=1，每次 refresh 先自增；`startServer` 启动时调一次 `refreshSessions`，故客户端首次订阅即见 2。断言值回查了 TS `services/server.ts` 的自增顺序，没有从实现反抄。
+
+### 4g-3d-4c 测试方法论
+
+- **入口边界按 TS 的三例语义测**（`experimental-cli-entry.test.ts`）：稳定入口即使 `PI_EXPERIMENTAL=1` 也不分发（`server --server-id invalid --version` 打印 VERSION、退出 0）、实验入口门控开时分发（退出 1 + stderr 报错、stdout 无 VERSION）、门控关时回退稳定 CLI。C# 单可执行文件，故第三例直接调 `ExperimentalEntry.RunAsync` 断言回退路径，第一例调 `Main.MainAsync`（注入 writer + 接 `MainExitException`）。
+- **入口分发只能窥视角色不能预消费**：`TryRunAsync` 初版先 `ConsumeInternalProcessRole`，而 `RunCoordinatorEntryAsync` 自己也要消费并校验（TS 入口块的形状），第二次消费得到 null → 角色守卫误报。改为 `GetInternalProcessRole` 窥视 + 各 runner 自消费——测试用「coordinator 角色 + 缺失 socket 路径」断言报的是路径错误而非角色错误。
+- **`AwaitShutdown` 缝别把测试挂死**：`RunServerCommandOptions.AwaitShutdown` 让测试绕过信号注册；首版返回一个永不完成的 TCS 想断言「等待未被取消」，直接把 runner 挂住（timeout SIGTERM）。缝的语义是「等到关闭或信号」，测试完成它即可。
+- **`StringWriter.WriteLine` 写 `Environment.NewLine`**：按 `\n` 切分后行尾带 `\r`，期望值逐条 `TrimEnd('\r')`（CRLF 是老坑 C311 的测试侧翻版）。
+
+## 4g-3d-4c 实验命令与入口（experimental/commands.ts + experimental/cli.ts）
+
+TS 两个文件共 **110 行**，C# 落三处：
+
+| TS | 行 | C# | 说明 |
+| --- | --- | --- | --- |
+| `experimental/commands.ts` | 98 | `Experimental/Commands.cs` | `RunServerCommandAsync`（relay 状态行 + 身份输出 + 信号等待 + 必关）+ `RunClientCommandAsync`（TTY 判定 + 三种结果打印）+ `RunExperimentalCommandAsync`（门控 + 解析 + 错误/退出码）+ `RelayStatusReporter`（缓冲/去重/connecting 抑制）+ `ClientResult` 联合 |
+| `experimental/cli.ts` | 12 | `Pi.Cli/ExperimentalEntry.cs` | 实验入口：分发 → client 立即以累积退出码结束 → 否则回退 `Main.MainAsync`（接 `MainExitException`） |
+| —（新增） | — | `Experimental/InternalProcessEntry.cs` | 进程入口的角色分发（C372）：窥视角色、剥 `--internal-role` 前缀、按角色转 `RunCoordinatorEntryAsync` / `RunServerEntryAsync` |
+
+**配套改动**：`Pi.Cli/Program.cs` 在任何 CLI 装配前先跑角色分发；`Server.cs` 新增
+`RunServerEntryAsync`（TS server.ts 底部块：消费并校验角色）；测试项目引用 Pi.Cli。
 
 ## 4g-3d-4b 实验服务器运行时（experimental/server.ts）
 

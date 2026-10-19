@@ -1215,3 +1215,22 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **4g-3d 后续**：4g-3d-4c `commands.ts`(98) + `cli.ts`(12)（含 C337 的 `--internal-role coordinator`、
   `runServerProcess` 进程入口接线与 C365 的 server 侧装配）；4g-3f `durable/*` 9 文件后补
   `createCodingAgentHarness`；Pi.Durable sqlite 存储单独排期。
+
+### 0.35 4g-3d-4c 实验命令与入口（`f528f97`，2026-10-19）
+
+- **范围**：`experimental/commands.ts`(98) + `experimental/cli.ts`(12) → `Commands.cs` +
+  `Pi.Cli/ExperimentalEntry.cs` + `InternalProcessEntry.cs`（进程入口角色分发，补齐 C309/C337）。
+  server 命令半场完整落地（relay 状态行 + 身份横幅 + 信号等待 + 必关）；client 半场留缝——
+  `runClient`/`runClientTui` 属 4e-3c，`ClientResult` 联合与 seam 先落地，未接线时报清晰错误。
+- **测试**：17 例（`ExperimentalCommandsTests`）——分发门控与错误/退出码约定、server 命令输出序列
+  （启动期状态缓冲 + connecting 抑制 + 连续去重）与失败仍关、client 三种结果形状、角色分发
+  （未接线/参数剥离子/coordinator）、入口边界三例（对齐 TS `experimental-cli-entry.test.ts`：
+  稳定入口不分发、实验入口分发、门控关闭回退打印 VERSION）。测试项目新增 Pi.Cli 引用。
+  全量 **4771/0**（首跑唯一失败为既有已知 flake `ThemeRuntimeTests`，#111111→#800080，
+  单跑 67/0、重跑全绿）。
+- **抓到并修掉两个真问题**：① 实验入口回退稳定 CLI 时没接 `MainExitException`——`--version`
+  会把异常抛到进程顶层（稳定路径 `Program.RunAsync` 接，C303）；② 入口分发预消费了角色标签，
+  `RunCoordinatorEntryAsync` 二次消费得 null → 角色守卫误报——改为窥视 + 各 runner 自消费。
+- **4g-3d 后续**：4e-3c `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809)（client
+  半场接线）；4g-3f `durable/*` 9 文件后补 `createCodingAgentHarness` + `runSessionWorkerProcess`
+  （session-worker 角色分发已就位）；Pi.Durable sqlite 存储单独排期。
