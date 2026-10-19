@@ -28,14 +28,13 @@
 | `env` | `Pi.Durable/Env` | 已迁移 | 合并在 Durable 项目中。 |
 | `durable` | `Pi.Durable` | 核心实现已迁移，差分工作仍在进行 | Memory/SQLite storage、Session 与大部分 harness/runtime 已有实现；`contextRetentionMs`/idle context-cache policy 和部分 harness/recovery 差分测试仍缺。 |
 | `tui` | `Pi.Tui` | 基本完成 | 44/45 个源文件已覆盖；剩余 `index.ts` 是 barrel/export 文件，公开面已逐项核对。 |
-| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` | 部分迁移，主体已落地 | 交互模式、RPC、CLI、实验客户端/服务端及 Durable session-worker 接线已有实现。Package manager 更新、CLI `-e` 资源链及扩展依赖告警已在阶段 3 完成；仍待 MCP/Llama 管理 UI、`vacation/*`，并判定 Bun 专属入口如何映射到 .NET。 |
+| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` | 部分迁移，主体已落地 | 交互模式、RPC、CLI、实验客户端/服务端及 Durable session-worker 接线已有实现。Package manager 更新、CLI `-e` 资源链及扩展依赖告警已在阶段 3 完成；MCP/Llama 管理 UI 已在阶段 4 完成；仍待 `vacation/*`，并判定 Bun 专属入口如何映射到 .NET。 |
 | `evals` | 尚无项目 | 未迁移 | 约 1.4k 行源代码；依赖 coding-agent，安排在其运行时和 harness 前置完成后。 |
 
 ## 剩余事项与优先级
 
 | 优先级 | 工作项 | 主要源范围 | 依赖 / 理由 |
 |---|---|---|---|
-| **P1** | MCP / Llama 管理 UI | MCP `ui.ts`；Llama `ui.ts` | 当前 C# 是调用缝/拒绝桩，不是完整 UI；补 `McpManagerView` / `showMcpManager` 与 `LlamaView` / `HuggingFaceSearch` / `showLlamaUi`，依赖已落地的 Interactive TUI 主题和组件。 |
 | **P1** | Vacation workflow | `experimental/vacation/*`，6 个文件、约 1.3k 行 | 独立实验功能，需逐行为移植并补测试。 |
 | **P1** | Bun / 客户端平台范围判定 | `bun/*`、`client/*` 及入口相关代码 | 不能把 Bun 运行时垫片直接当成 .NET 功能缺失。需先核对可见行为，再记录取舍并验证 Windows/POSIX 对应行为；不允许静默删去用户可见能力。 |
 | **P2** | Durable harness/cache/recovery 差分 | `contextRetentionMs`/idle context-cache policy；`harness-compaction`、`structured`、`tasks`、`ownership`、`tasks-recovery`、`conversations`、`live-deltas`、`tools-recovery`、`generation-recovery` | 旧台账估算约 8.9k 行 TS 测试。SQLite 和 worker 接线已完成；仍按测试文件逐批对齐行为和缓存边界，不能用代码行数替代覆盖。 |
@@ -51,7 +50,7 @@
 | **1. SQLite storage** | `Pi.Durable/Storage` 新增 SQLite schema/migration 与实现；`Pi.Durable.csproj` 添加 SQLite provider；新增 `Pi.Durable.Tests` SQLite/conformance 测试。 | schema migration 可重复/原子；事务失败可回滚；ID 全局冲突规则、排序/分页/cursor、fork 可见性、文档历史/当前点、重开恢复和 close 语义与 TS 一致；全部 storage conformance 通过；0 警告构建。 | 已完成并推送（`0546fc3`）；原全量套件挂起在阶段 2 修复并复验通过。 |
 | **2. Harness setup 与 worker** | `Pi.CodingAgent/Experimental`、Durable harness 及 Session 入队；SQLite-backed `createCodingAgentHarness`、worker process role/spawn/shutdown/reopen。 | 真实子进程覆盖 ready/demand/operation/shutdown、锁释放和重开持久性；worker 输入/控制错误、操作取消和 manager 超时有定点测试；compaction safe-integer 范围不被收窄；相关测试及 Durable 全量套件通过。 | 已完成并随阶段提交推送；执行细节见下表。 |
 | **3. Package manager/资源链** | `Core/PackageManager*`、`ResourceLoader`、CLI/settings/resource 装配及扩展告警。 | 更新检查/执行与 marker/ref 状态、告警排序/内容、额外路径解析和缺失路径错误均有 TS 对照测试；CLI `-e` 端到端通过。 | 已完成并推送（`1d8e077`）。 |
-| **4. MCP/Llama UI** | `Extensions/Mcp`、`Extensions/Llama` 与必要的 Interactive 组件/注册点。 | 命令触发、视图生命周期、键盘交互、主题渲染、取消/错误路径覆盖；extension manager 默认行为与 TS 相同。 |
+| **4. MCP/Llama UI** | `Extensions/Mcp`、`Extensions/Llama` 与必要的 Interactive 组件/注册点。 | 命令触发、视图生命周期、键盘交互、主题渲染、取消/错误路径覆盖；extension manager 默认行为与 TS 相同。 | 已完成并推送（`35d9723`）。 |
 | **5. Vacation** | 新增对应 `Experimental/Vacation` 模块及测试。 | 六个源文件的公开行为和边界逐一映射；相关测试通过；无占位实现。 |
 | **6. Bun/platform 判定与适配** | `bun/*`、`client/*`、CLI/环境/进程入口。 | 在本阶段动工前记录以下决策：A. 为 .NET 重造 Bun 兼容层；B. 不移植运行时专属打包器/启动垫片，但保留并验证其可观察 CLI、进程、文件和平台行为。按当前目标建议 B，因为目标不是 Bun/JavaScript runtime；只有源文件存在 .NET 用户可见语义时才实现对应 .NET 行为。 |
 | **7. Durable test parity** | `tests/Pi.Durable.Tests` 中尚缺的 harness/recovery 测试，逐个对应列出的 TS 文件。 | 所有适用 TS 测试均有 C# 等价断言，或有逐项记录的不可移植理由；完整 Durable 套件可稳定完成，不把无限挂起视为通过。 |
@@ -82,4 +81,5 @@
 | 1. SQLite storage | 补齐 SQLite schema/migration、事务执行器、持久化存储、扫描顺序/cursor 语义及 TypeScript JSON wire 兼容；增加重开、损坏数据、迁移失败回滚、历史点、current-only revision 回收与 WAL close 测试。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；`SqliteStorageTests`：8/8；`SqliteStorageConformanceTests.PassesStorageConformanceSuite`：23/23；`MemoryStorageConformanceTests.PassesStorageConformanceSuite`：23/23。全量 `Pi.Durable.Tests.exe` 达到 323 通过、2 跳过后在上述 harness inbox 用例挂起超过 15 分钟，已手动停止；阶段定点验收通过，但 Durable 全量套件仍待修复/复验。 | `0546fc3 feat(durable): add SQLite storage`，已推送 `origin/main`。 |
 | 2. Harness setup 与 worker | 生产 Worker setup 接入 SQLite、SettingsSource、prompt、模型与插件 facet；CLI 内部 role 负责真实子进程启动/退出。另修复 Session 队列挂接竞态，并将 Harness compaction budgets 扩至与 TS 安全整数一致的 `long`。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；Worker/entry/manager/protocol/provider 定点测试 74/74；真实 CLI/SQLite restart E2E、Worker setup/settings 与 prompt 测试 4/4；完整 `Pi.Durable.Tests.exe` 最终 370 通过、2 Bash 环境跳过、0 失败。时序敏感测试曾在中间运行偶发失败，单测重跑与最终完整套件通过。 | 本阶段实现与验收记录同一提交，已推送 `origin/main`。 |
 | 3. Package manager/资源链 | 完成 package-manager 更新检查/执行、npm semver 与并发限制、Git ref/reset/incomplete-marker 恢复和临时 Git checkout 刷新；接通 legacy npm/pnpm 全局路径回退、CLI `-e` 资源、host-provided package 告警及交互启动更新通知。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；`PackageManagerTests` 24/24、`PackageManagerUpdateTests` 12/12、`ResourceLoaderTests` 24/24、`CliMainEndToEndTests` 13/13、`InteractiveModeStartupTests` 20/20（共 93 项通过，0 失败）。测试通过 MTP runner 直接执行目标程序集。 | `1d8e077 feat(coding-agent): complete package updates and resource wiring`，已推送 `origin/main`。 |
-| 4–9 | 尚未开始。 | — | — |
+| 4. MCP/Llama UI | 补齐 MCP 菜单/状态/OAuth 重定向 TUI 与 Llama 模型菜单、Hugging Face 搜索/缓存/取消、进度视图；将两个扩展的默认 UI hook 接到真实视图。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；`ExtensionManagerViewTests` 13/13、`McpExtensionTests` 46/46、`LlamaExtensionTests` 44/44、`InteractiveModeStartupTests` 20/20（共 123 项通过，0 失败）；`git diff --check` 通过。 | `35d9723 feat(coding-agent): implement MCP and llama manager UIs`，已推送 `origin/main`。 |
+| 5–9 | 尚未开始。 | — | — |

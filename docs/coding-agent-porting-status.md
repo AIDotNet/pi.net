@@ -35,6 +35,14 @@
 | **4f** | 模式层：`modes/rpc/*`、`modes/interactive/*`（含 7,082 行的 `interactive-mode.ts` 与 components / theme）                                                                    |   ~23,700 | ⏳                                                                                                                                                                                      |
 | **4g** | 入口与实验层：`cli/*`、`main.ts`、`cli.ts`、`rpc-entry.ts`、`package-manager-cli.ts`、`bun/*`、`client/*`、`experimental/*`                                                     |   ~12,000 | ⏳                                                                                                                                                                                      |
 
+## MCP / Llama 管理 UI（迁移执行阶段 4）
+
+- 对照源码：`extensions/mcp/ui.ts`、`extensions/llama/ui.ts`。
+- `McpManagerView` 已实现动态菜单重建与选择保留、空菜单取消、状态页、OAuth redirect URL 输入/取消/abort、授权链接复制；已成为 `McpExtensionOptions.ShowManager` 默认实现。
+- `LlamaManagerView` 已实现已加载模型排序、模型/确认/连接错误选择、Hugging Face 搜索（500 ms debounce、忽略大小写缓存、fuzzy filter、旧请求取消/过期结果保护、精确 owner/repository 输入）、搜索错误显示及可停止的进度页；已成为 `LlamaExtensionOptions.ShowUi` 默认实现。
+- 测试：`ExtensionManagerViewTests` 13/13、`McpExtensionTests` 46/46、`LlamaExtensionTests` 44/44、`InteractiveModeStartupTests` 20/20；solution 构建 0 警告、0 错误。
+- 实现提交 `35d9723` 已推送到 `origin/main`；阶段执行与验收记录见 [migration-execution-status.md](migration-execution-status.md)。
+
 ## 4a 进度（utils 层）
 
 
