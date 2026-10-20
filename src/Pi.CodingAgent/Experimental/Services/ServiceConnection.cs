@@ -238,6 +238,9 @@ public static class ServiceConnection
             => ReadyAsync(ContextSignals.WithAbortSignal(cancellationToken, Context.Background));
 
         object? IRemoteServices.UseRaw(string serviceId) => _services.Use(new Service<object?>(serviceId));
+
+        IDisposable IRemoteServices.ObserveRaw(string serviceId, Func<object, Context, Task?> handler)
+            => _services.ObserveRaw(serviceId, handler);
     }
 
     /// <summary>Options for <see cref="RoutedServiceBinding"/>.</summary>

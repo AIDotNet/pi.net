@@ -19,6 +19,17 @@ public interface IInstanceDirectoryEntry
 /// </summary>
 public sealed class InstanceDirectory<TEntry> where TEntry : IInstanceDirectoryEntry
 {
+    private sealed class EntryReferenceComparer : IEqualityComparer<TEntry>
+    {
+        public static EntryReferenceComparer Instance { get; } = new();
+
+        public bool Equals(TEntry? x, TEntry? y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(TEntry entry) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(entry);
+    }
+
+    private sealed record ObservationTask(Context.Context Context, Action Cancel);
+
     private readonly Dictionary<string, TEntry> _entries = [];
     private readonly HashSet<Observer> _observers = [];
     private readonly Action<Exception> _reportError;
@@ -104,6 +115,8 @@ public sealed class InstanceDirectory<TEntry> where TEntry : IInstanceDirectoryE
         {
             if (observer.Closed) return;
             observer.Closed = true;
+            foreach (var task in observer.Tasks.Values) task.Cancel();
+            observer.Tasks.Clear();
             _observers.Remove(observer);
         });
     }
@@ -113,7 +126,12 @@ public sealed class InstanceDirectory<TEntry> where TEntry : IInstanceDirectoryE
     {
         if (_disposed) return;
         _disposed = true;
-        foreach (var observer in _observers) observer.Closed = true;
+        foreach (var observer in _observers)
+        {
+            observer.Closed = true;
+            foreach (var task in observer.Tasks.Values) task.Cancel();
+            observer.Tasks.Clear();
+        }
         _observers.Clear();
         foreach (var entry in _entries.Values.ToList()) entry.Deactivate();
         _entries.Clear();
@@ -124,6 +142,10 @@ public sealed class InstanceDirectory<TEntry> where TEntry : IInstanceDirectoryE
         if (!ReferenceEquals(_entries.GetValueOrDefault(entry.Key), entry)) return;
         _entries.Remove(entry.Key);
         entry.Deactivate();
+        foreach (var observer in _observers)
+        {
+            if (observer.Tasks.Remove(entry, out var task)) task.Cancel();
+        }
     }
 
     private void StartAll(TEntry entry)
@@ -133,22 +155,28 @@ public sealed class InstanceDirectory<TEntry> where TEntry : IInstanceDirectoryE
 
     private void Start(Observer observer, TEntry entry)
     {
-        if (observer.Closed) return;
+        if (observer.Closed || observer.Tasks.ContainsKey(entry)) return;
+        var (context, cancel) = ContextSignals.WithCancel(Context.Context.Background);
+        observer.Tasks.Add(entry, new ObservationTask(context, cancel));
         try
         {
-            var pending = observer.Handler(entry.Service, Context.Context.Background);
+            var pending = observer.Handler(entry.Service, context);
             if (pending is not null)
             {
                 _ = pending.ContinueWith(
                     completed =>
                     {
-                        if (completed.IsFaulted && !observer.Closed) _reportError(completed.Exception!.GetBaseException());
+                        if (completed.IsFaulted && !observer.Closed
+                            && !(context.AbortSignal?.IsCancellationRequested ?? false))
+                        {
+                            _reportError(completed.Exception!.GetBaseException());
+                        }
                     }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             }
         }
         catch (Exception error)
         {
-            _reportError(error);
+            if (!(context.AbortSignal?.IsCancellationRequested ?? false)) _reportError(error);
         }
     }
 
@@ -160,6 +188,8 @@ public sealed class InstanceDirectory<TEntry> where TEntry : IInstanceDirectoryE
     private sealed class Observer(Func<object, Context.Context, Task?> handler)
     {
         public Func<object, Context.Context, Task?> Handler { get; } = handler;
+
+        public Dictionary<TEntry, ObservationTask> Tasks { get; } = new(EntryReferenceComparer.Instance);
 
         public bool Closed { get; set; }
     }

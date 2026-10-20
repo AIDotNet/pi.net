@@ -101,36 +101,38 @@ public class ServiceSlotTests
     }
 
     [Fact]
-    public async Task KeyedObserveReceivesSpawnedInstances()
+    public async Task KeyedObserveStartsAtActivationAndReceivesSpawnedInstances()
     {
-        var observed = new List<object>();
+        var observed = new List<string>();
         var kernel = new FacetKernel(new FacetOptions
         {
             Facets =
             [
                 new TestFacetHelper("owner", env =>
                 {
-                    env.OnActivate(() => Task.CompletedTask);
-                    // 本地 keyed 源在装配后由 SpawnDeferred 连接；本测试直接登记注册表。
-                    env.Provide(new Service<object>("kv"), new object());
-                    env.Own(() => Task.CompletedTask);
+                    var values = env.ProvideMany(
+                        new Service<Dictionary<string, object?>>("kv", Local: true));
+                    env.OnActivate(() =>
+                    {
+                        values.Spawn("a", new Dictionary<string, object?> { ["k"] = "a" });
+                        return Task.CompletedTask;
+                    });
                 }),
                 new TestFacetHelper("watcher", env =>
                 {
-                    env.Observe(new Service<Dictionary<string, object?>>("kv"),
+                    env.Observe(new Service<Dictionary<string, object?>>("kv", Local: true),
                         (instance, _) =>
                         {
-                            lock (observed) observed.Add(instance!);
+                            lock (observed) observed.Add((string)instance["k"]!);
                             return Task.CompletedTask;
                         });
                 }),
             ],
         });
-        // watcher Observe 要求 keyed 源已连接——装配前注册会抛 disconnected，
-        // 这里直接断言该语义（provider 集成阶段的完整 keyed 流由 LocalKeyedServiceRegistry 测试覆盖）。
-        await Assert.ThrowsAsync<InvalidOperationException>(() => kernel.ActivateAsync());
+        await kernel.ActivateAsync();
+        Assert.Equal(["a"], observed);
+        Assert.Empty(await kernel.DisposeAsync());
 
-        // 本地 keyed 注册表独立验证：孵化 → 观察。
         var registry = new LocalKeyedServiceRegistry(["kv"], _ => { });
         var seen = new List<string>();
         using var watch = registry.Observe(new Service<Dictionary<string, object?>>("kv"),
@@ -145,10 +147,110 @@ public class ServiceSlotTests
         close();
     }
 
+    [Fact]
+    public void KeyedObservationContextsCancelOnInstanceCloseAndUnsubscribe()
+    {
+        var registry = new LocalKeyedServiceRegistry(["kv"], _ => { });
+        var contexts = new List<Context.Context>();
+        using var watch = registry.Observe(new Service<Dictionary<string, object?>>("kv"),
+            (_, context) =>
+            {
+                contexts.Add(context);
+                return Task.CompletedTask;
+            });
+
+        var closeFirst = registry.Spawn(new Service<Dictionary<string, object?>>("kv"), "first",
+            new Dictionary<string, object?>());
+        var firstContext = Assert.Single(contexts);
+        Assert.False(firstContext.AbortSignal?.IsCancellationRequested ?? true);
+
+        closeFirst();
+        Assert.True(firstContext.AbortSignal?.IsCancellationRequested ?? false);
+
+        registry.Spawn(new Service<Dictionary<string, object?>>("kv"), "second",
+            new Dictionary<string, object?>());
+        var secondContext = contexts[1];
+        watch.Dispose();
+        Assert.True(secondContext.AbortSignal?.IsCancellationRequested ?? false);
+        registry.Dispose();
+    }
+
+    [Fact]
+    public async Task RemoteKeyedObservationSurvivesReloadAndCancelsRetiredContext()
+    {
+        var firstObserved = new TaskCompletionSource<(RemoteServiceFacade Facade, Context.Context Context)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondObserved = new TaskCompletionSource<(RemoteServiceFacade Facade, Context.Context Context)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var observationCount = 0;
+        var errors = new List<Exception>();
+
+        var consumer = new TestFacetHelper("remote-watcher", environment =>
+            environment.Observe(
+                new Service<IReadOnlyDictionary<string, object?>>("remote.keyed"),
+                (instance, context) =>
+                {
+                    var observed = (Assert.IsType<RemoteServiceFacade>(instance), context);
+                    if (Interlocked.Increment(ref observationCount) == 1)
+                    {
+                        firstObserved.TrySetResult(observed);
+                    }
+                    else
+                    {
+                        secondObserved.TrySetResult(observed);
+                    }
+                    return Task.CompletedTask;
+                }));
+
+        TestFacetHelper Provider(string value) => new("remote-provider", environment =>
+        {
+            var values = environment.ProvideMany(
+                new Service<IReadOnlyDictionary<string, object?>>("remote.keyed"));
+            environment.OnActivate(() =>
+            {
+                values.Spawn("current", new Dictionary<string, object?>
+                {
+                    ["read"] = (Func<object?[], object?>)(_ => value),
+                });
+                return Task.CompletedTask;
+            });
+        });
+
+        var kernel = new FacetKernel(new FacetOptions
+        {
+            Facets = [consumer, Provider("A")],
+            OnError = errors.Add,
+        });
+        await kernel.ActivateAsync();
+
+        var firstCompleted = await Task.WhenAny(firstObserved.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.True(ReferenceEquals(firstObserved.Task, firstCompleted),
+            string.Join(Environment.NewLine, errors));
+        var first = await firstObserved.Task;
+        Assert.Equal("A", await first.Facade.Member("read").CallAsync([], first.Context));
+
+        await kernel.ReloadAsync([Provider("B")]);
+
+        var secondCompleted = await Task.WhenAny(secondObserved.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.True(ReferenceEquals(secondObserved.Task, secondCompleted),
+            string.Join(Environment.NewLine, errors));
+        var second = await secondObserved.Task;
+        Assert.True(first.Context.AbortSignal?.IsCancellationRequested ?? false);
+        var stale = await Assert.ThrowsAsync<RemoteServiceError>(
+            () => first.Facade.Member("read").CallAsync([], first.Context));
+        Assert.Equal("service_stale_instance", stale.Code);
+        Assert.Equal("B", await second.Facade.Member("read").CallAsync([], second.Context));
+
+        Assert.Empty(await kernel.DisposeAsync());
+        Assert.True(second.Context.AbortSignal?.IsCancellationRequested ?? false);
+        Assert.Empty(errors);
+    }
+
     private sealed class TestFacetHelper(string id, Action<IFacetEnvironment> setup) : IFacet
     {
         public string Id => id;
 
         public void Setup(IFacetEnvironment environment) => setup(environment);
     }
+
 }

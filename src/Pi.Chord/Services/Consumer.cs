@@ -381,14 +381,14 @@ public sealed class RemoteServiceFacade : IReadOnlyDictionary<string, object?>
 /// </summary>
 internal sealed class KeyedBinding<T> where T : class
 {
-    private sealed class KeyedInstance(string key, long generation, object service, RemoteServiceFacade facade)
+    private sealed class KeyedInstance(string key, long generation, RemoteServiceFacade facade)
         : IInstanceDirectoryEntry
     {
         public string Key => key;
 
         public long Generation => generation;
 
-        public object Service { get; } = service;
+        public object Service => this;
 
         public RemoteServiceFacade Facade { get; } = facade;
 
@@ -598,7 +598,7 @@ internal sealed class KeyedBinding<T> where T : class
         var facade = new RemoteServiceFacade(_service.Id, address, _transport,
             () => active && !_closed, _assertAccess, _reportError);
         facade.Install(snapshot, context);
-        _instances.Replace(new KeyedInstance(address.Key, address.Generation, facade, facade));
+        _instances.Replace(new KeyedInstance(address.Key, address.Generation, facade));
     }
 
     private sealed class Disposal(Action dispose) : IDisposable
@@ -729,6 +729,9 @@ public sealed class RemoteServiceBinding : IRemoteServices, IDisposable
     /// <summary>观察 keyed 服务并把门面转型为 <typeparamref name="T"/>（约束同 <see cref="UseAs{T}"/>）。</summary>
     public IDisposable ObserveAs<T>(Service<T> service, Func<T, Context.Context, Task?> handler)
         => Observe(service, (facade, context) => handler((T)(object)facade, context));
+
+    public IDisposable ObserveRaw(string serviceId, Func<object, Context.Context, Task?> handler)
+        => Observe(new Service<object>(serviceId), (facade, context) => handler(facade, context));
 
     /// <summary>就绪门：等全部起始与重绑完成；期间有新绑定则重来。对应 TS <c>ready(context)</c>。</summary>
     public async Task ReadyAsync(CancellationToken cancellationToken = default)

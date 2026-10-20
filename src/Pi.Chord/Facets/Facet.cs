@@ -8,6 +8,12 @@ public sealed record Service<T>(string Id, bool Local = false);
 /// <summary>服务引用（require/provide 记录）。对应 TS <c>FacetServiceReference</c>。</summary>
 public sealed record FacetServiceReference(string ServiceId, ServiceMode Mode);
 
+/// <summary>Facet 管理的多实例服务孵化器。</summary>
+public interface IServiceSpawner<T> where T : class
+{
+    Action Spawn(string key, T implementation);
+}
+
 /// <summary>
 /// Facet 装配环境。对应 TS <c>FacetEnvironment</c>：use/observe 声明依赖，
 /// provide/provideMany 声明供给，replicatedState 建复制状态，own/onActivate/onDeactivate 注册生命周期。
@@ -29,6 +35,9 @@ public interface IFacetEnvironment
     /// <summary>声明并安装本 facet 的单例服务实现。</summary>
     void Provide<T>(Service<T> service, T implementation);
 
+    /// <summary>声明多实例服务并返回可按键孵化实例的能力。</summary>
+    IServiceSpawner<T> ProvideMany<T>(Service<T> service) where T : class;
+
     /// <summary>声明多实例服务所有权并返回延迟孵化能力。</summary>
     Action SpawnDeferred<T>(Service<T> service, Func<string, T> factory) where T : class;
 
@@ -37,6 +46,9 @@ public interface IFacetEnvironment
 
     /// <summary>注册资源清理。</summary>
     void Own(Func<Task> disposal);
+
+    /// <summary>报告不能由调用方直接等待的运行时回调错误。</summary>
+    void ReportError(Exception error) => System.Diagnostics.Trace.TraceError(error.ToString());
 
     /// <summary>注册依赖就绪后的异步初始化。</summary>
     void OnActivate(Func<Task> callback);
@@ -84,11 +96,18 @@ internal sealed class FacetLifecycle
     private readonly List<Func<Task>> _activateCallbacks = [];
     private readonly List<Func<Task>> _deactivateCallbacks = [];
     private readonly List<Func<Task>> _disposals = [];
+    private readonly List<Func<IDisposable>> _observations = [];
     private LifecycleState _state = LifecycleState.SettingUp;
 
     public FacetLifecycle(string facetId) => _facetId = facetId;
 
     public LifecycleState State => _state;
+
+    public void AssertSettingUp(string operation)
+    {
+        if (_state != LifecycleState.SettingUp)
+            throw new InvalidOperationException($"Facet {_facetId} can {operation} only during setup");
+    }
 
     public void AssertPreparable()
     {
@@ -109,16 +128,22 @@ internal sealed class FacetLifecycle
 
     public void OnActivate(Func<Task> callback)
     {
-        if (_state != LifecycleState.SettingUp && _state != LifecycleState.Prepared)
+        if (_state != LifecycleState.SettingUp)
             throw new InvalidOperationException($"Facet {_facetId} cannot register activation now");
         _activateCallbacks.Add(callback);
     }
 
     public void OnDeactivate(Func<Task> callback)
     {
-        if (_state != LifecycleState.SettingUp && _state != LifecycleState.Prepared)
+        if (_state != LifecycleState.SettingUp)
             throw new InvalidOperationException($"Facet {_facetId} cannot register deactivation now");
         _deactivateCallbacks.Add(callback);
+    }
+
+    public void Observe(Func<IDisposable> start)
+    {
+        AssertSettingUp("observe services");
+        _observations.Add(start);
     }
 
     public void Own(Func<Task> disposal) => _disposals.Add(disposal);
@@ -128,11 +153,20 @@ internal sealed class FacetLifecycle
     {
         if (_state != LifecycleState.Prepared)
             throw new InvalidOperationException($"Facet {_facetId} is not prepared");
+        _state = LifecycleState.Active;
+        foreach (var start in _observations)
+        {
+            var observation = start();
+            _disposals.Add(() =>
+            {
+                observation.Dispose();
+                return Task.CompletedTask;
+            });
+        }
         foreach (var callback in _activateCallbacks)
         {
             await callback().ConfigureAwait(false);
         }
-        _state = LifecycleState.Active;
     }
 
     /// <summary>拆除：deactivate 回调 → 资源清理（都执行，错误聚合由调用方处理）。</summary>
@@ -165,6 +199,7 @@ internal sealed class FacetLifecycle
         }
         _activateCallbacks.Clear();
         _deactivateCallbacks.Clear();
+        _observations.Clear();
         _disposals.Clear();
         _state = LifecycleState.Dead;
         return errors;

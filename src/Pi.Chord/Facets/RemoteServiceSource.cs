@@ -12,6 +12,10 @@ public interface IRemoteServices
 
     /// <summary>取服务的本地门面实例。</summary>
     object? UseRaw(string serviceId);
+
+    /// <summary>观察 keyed 服务并返回本地门面实例。</summary>
+    IDisposable ObserveRaw(string serviceId, Func<object, Context.Context, Task?> handler)
+        => throw new NotSupportedException($"Remote service binding does not support keyed service {serviceId}");
 }
 
 /// <summary>打开选项。对应 TS <c>open()</c> 的参数。</summary>

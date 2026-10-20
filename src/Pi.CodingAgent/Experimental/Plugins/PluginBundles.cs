@@ -10,9 +10,8 @@
 //   and the presentation turns that data back into local loaders.
 //
 // TS resolves the bundles' `@earendil-works/pi-coding-agent/experimental/plugin` import to the host's
-// plugin module by URL. The C# port has no JavaScript module graph — extensions load as
-// AssemblyLoadContext plugins — so the resolver maps the specifier to the assembly that carries the
-// plugin API, and the default module host still refuses to execute JavaScript (C335).
+// plugin module by URL. The .NET bundle path uses Jint to execute CommonJS and maps that specifier to
+// the assembly that carries the plugin API.
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -26,6 +25,8 @@ namespace Pi.CodingAgent.Experimental.Plugins;
 /// <summary>Port of <c>plugins/bundled.ts</c>.</summary>
 public static class PluginBundles
 {
+    private static readonly IFacetModuleHost DefaultModuleHost = new JintFacetModuleHost();
+
     /// <summary>TS <c>PRESENTATION_FACET_BUNDLES_KEY</c>.</summary>
     public const string PresentationFacetBundlesKey = "presentationFacetBundles";
 
@@ -44,6 +45,7 @@ public static class PluginBundles
             return null;
         }
 
+        moduleHost ??= DefaultModuleHost;
         return Api.CombineFacetLoaders(
             [.. manifestPaths.Select(manifestPath => CreateOptionalSessionFacetLoader(manifestPath, moduleHost))]);
     }
@@ -54,6 +56,7 @@ public static class PluginBundles
     /// </summary>
     public static IFacetLoader CreateOptionalSessionFacetLoader(string manifestPath, IFacetModuleHost? moduleHost = null)
     {
+        moduleHost ??= DefaultModuleHost;
         var loader = FacetBundleLoader.CreateFacetBundleLoader(new FacetBundleLoaderOptions
         {
             ManifestPath = manifestPath,
@@ -93,6 +96,7 @@ public static class PluginBundles
             throw new InvalidOperationException("Invalid presentation plugin bundle list");
         }
 
+        moduleHost ??= DefaultModuleHost;
         return
         [
             .. artifacts.Select(artifact => FacetBundleLoader.CreateFacetBundleArtifactLoader(

@@ -10,6 +10,7 @@ internal sealed class FacetRuntime
     public List<FacetServiceReference> Provides { get; } = [];
     public FacetLifecycle Lifecycle { get; }
     public List<object> Implementations { get; } = [];
+    public List<FacetKeyedProvision> KeyedProvisions { get; } = [];
 
     public FacetRuntime(string facetId)
     {
@@ -17,6 +18,12 @@ internal sealed class FacetRuntime
         Lifecycle = new FacetLifecycle(facetId);
     }
 }
+
+internal sealed record FacetKeyedProvision(
+    string ServiceId,
+    bool Local,
+    Action<LocalKeyedServiceRegistry>? ConnectLocal,
+    Action<RemoteServiceProvider>? ConnectRemote);
 
 /// <summary>
 /// Facet 内核：原子启动/热重载/拆除的依赖与生命周期管理。
@@ -35,10 +42,11 @@ public sealed class FacetKernel
     private readonly Dictionary<string, FacetRuntime> _facets = [];
     private readonly HostServiceSlots _serviceSlots = new();
     private readonly List<(string ServiceId, bool Local, object Implementation)> _singletonProvisions = [];
-    private readonly List<(string ServiceId, Func<string, IReadOnlyDictionary<string, object>>, Action<string, IReadOnlyDictionary<string, object>>)> _keyedProvisions = [];
     private RemoteServiceProvider? _provider;
+    private RemoteServiceBinding? _internalServices;
     private IReadOnlyList<string> _activationOrder = [];
     private bool _active;
+    private bool _servicesAvailable;
 
     public FacetKernel(FacetOptions options)
     {
@@ -76,8 +84,8 @@ public sealed class FacetKernel
             {
                 var record = new FacetRuntime(facet.Id);
                 _facets[facet.Id] = record;
-                SetupFacet(facet, record);
                 records.Add(record);
+                SetupFacet(facet, record);
             }
 
             var externalServices = await ResolveExternalServicesAsync().ConfigureAwait(false);
@@ -90,6 +98,11 @@ public sealed class FacetKernel
             {
                 await services.ReadyAsync().ConfigureAwait(false);
             }
+            if (_internalServices is not null)
+            {
+                await _internalServices.ReadyAsync().ConfigureAwait(false);
+            }
+            _servicesAvailable = true;
             foreach (var id in _activationOrder)
             {
                 await _facets[id].Lifecycle.ActivateAsync().ConfigureAwait(false);
@@ -98,7 +111,24 @@ public sealed class FacetKernel
         }
         catch (Exception error)
         {
+            _servicesAvailable = false;
             var cleanupErrors = DisposeFacetRecords(records.AsEnumerable().Reverse());
+            if (_internalServices is not null)
+            {
+                try
+                {
+                    await _internalServices.DisposeAsync(Pi.Chord.Context.Context.Background).ConfigureAwait(false);
+                }
+                catch (Exception cleanupError)
+                {
+                    cleanupErrors.Add(cleanupError);
+                }
+                _internalServices = null;
+            }
+            _serviceSlots.Dispose();
+            LocalKeyedServices?.Dispose();
+            LocalKeyedServices = null;
+            _sourceBindings.Clear();
             if (cleanupErrors.Count > 0)
             {
                 throw new AggregateException("Facet generation startup and cleanup failed",
@@ -184,6 +214,10 @@ public sealed class FacetKernel
         {
             foreach (var error in disposeErrors) Report(error);
         }
+        foreach (var provision in candidates.SelectMany(record => record.KeyedProvisions))
+        {
+            ConnectKeyedProvision(provision, Provider);
+        }
     }
 
     /// <summary>拆除全部 facet（激活序的逆序）。对应 TS <c>dispose()</c>。</summary>
@@ -191,13 +225,27 @@ public sealed class FacetKernel
     {
         if (!_active && _facets.Count == 0) return [];
         _active = false;
+        _servicesAvailable = false;
         var errors = DisposeFacetRecords(_activationOrder
             .Select(id => _facets.GetValueOrDefault(id))
             .OfType<FacetRuntime>()
             .Reverse());
         _facets.Clear();
+        if (_internalServices is not null)
+        {
+            try
+            {
+                await _internalServices.DisposeAsync(Pi.Chord.Context.Context.Background).ConfigureAwait(false);
+            }
+            catch (Exception error)
+            {
+                errors.Add(error);
+            }
+            _internalServices = null;
+        }
         _serviceSlots.Dispose();
         LocalKeyedServices?.Dispose();
+        LocalKeyedServices = null;
         _sourceBindings.Clear();
         return errors;
     }
@@ -224,7 +272,10 @@ public sealed class FacetKernel
             }
         }
 
-        var local = _singletonProvisions.Select(p => p.ServiceId).ToHashSet();
+        var local = _singletonProvisions.Select(provision => provision.ServiceId)
+            .Concat(_facets.Values.SelectMany(record => record.KeyedProvisions)
+                .Select(provision => provision.ServiceId))
+            .ToHashSet(StringComparer.Ordinal);
         var external = new Dictionary<string, ExternalServiceBinding>();
         foreach (var record in _facets.Values)
         {
@@ -264,7 +315,7 @@ public sealed class FacetKernel
                 Services = serviceIds,
                 AssertAccess = () =>
                 {
-                    if (!_active) throw new InvalidOperationException("Facet host is not active");
+                    if (!_servicesAvailable) throw new InvalidOperationException("Facet host is not active");
                 },
                 OnError = _onError,
             });
@@ -279,20 +330,28 @@ public sealed class FacetKernel
     /// </summary>
     private void BindExternalServices(IReadOnlyDictionary<string, ExternalServiceBinding> externalServices)
     {
-        foreach (var serviceId in externalServices.Keys)
+        foreach (var (serviceId, binding) in externalServices)
         {
-            var source = externalServices[serviceId].Source;
-            if (_sourceBindings.TryGetValue(source, out var services) && services.UseRaw(serviceId) is { } facade)
+            if (!_sourceBindings.TryGetValue(binding.Source, out var services))
             {
-                if (_typedServiceViews is not null
-                    && _typedServiceViews.TryGetValue(serviceId, out var view)
-                    && facade is RemoteServiceFacade remoteFacade)
-                {
-                    facade = view(remoteFacade);
-                }
-
-                _serviceSlots.BindSingleton(serviceId, facade);
+                throw new InvalidOperationException($"Facet host service source for {serviceId} is not open");
             }
+            if (binding.Mode == ServiceMode.Keyed)
+            {
+                _serviceSlots.BindKeyed(serviceId, new RemoteKeyedServiceSource(services));
+                continue;
+            }
+
+            var facade = services.UseRaw(serviceId)
+                ?? throw new InvalidOperationException($"Facet host service {serviceId} has no singleton binding");
+            if (_typedServiceViews is not null
+                && _typedServiceViews.TryGetValue(serviceId, out var view)
+                && facade is RemoteServiceFacade remoteFacade)
+            {
+                facade = view(remoteFacade);
+            }
+
+            _serviceSlots.BindSingleton(serviceId, facade);
         }
     }
 
@@ -307,16 +366,40 @@ public sealed class FacetKernel
             => implementation is IReadOnlyDictionary<string, object> members
                 && members.Count > 0
                 && members.Values.All(v => v is Func<object?[], object?> or IReplicatedStateInternals);
+        var keyedProvisions = _facets.Values.SelectMany(record => record.KeyedProvisions).ToList();
         var remoteDefinitions = _singletonProvisions
             .Where(p => !p.Local && IsPublishable(p.Implementation))
-            .Select(p => p.ServiceId)
-            .Distinct()
+            .Select(p => new RemoteServiceProvider.ProviderDefinition(p.ServiceId, ServiceMode.Singleton))
+            .Concat(keyedProvisions
+                .Where(provision => !provision.Local)
+                .Select(provision => new RemoteServiceProvider.ProviderDefinition(
+                    provision.ServiceId, ServiceMode.Keyed)))
             .ToList();
+        if (remoteDefinitions.Select(definition => definition.ServiceId)
+            .Distinct(StringComparer.Ordinal).Count() != remoteDefinitions.Count)
+        {
+            throw new InvalidOperationException("Facet host has duplicate remote service providers");
+        }
         // TS 无条件构造 provider（哪怕没有任何远程供给）：一个只提供本地服务的 host 也
         // 有一个（空的）provider，`FacetHost.Services` 因此始终可用。
-        _provider = new RemoteServiceProvider(remoteDefinitions
-            .Select(id => new RemoteServiceProvider.ProviderDefinition(id)));
-        var localKeyedIds = _keyedProvisions.Select(p => p.ServiceId).Distinct().ToList();
+        var provider = new RemoteServiceProvider(remoteDefinitions);
+        _provider = provider;
+        var internalServices = new RemoteServiceBinding(new RemoteServiceBindingOptions
+        {
+            Services = remoteDefinitions.Select(definition => definition.ServiceId).ToList(),
+            Transport = LoopbackServiceTransport.Create(provider),
+            AssertAccess = () =>
+            {
+                if (!_servicesAvailable) throw new InvalidOperationException("Facet host is not active");
+            },
+            OnError = _onError,
+        });
+        _internalServices = internalServices;
+        var localKeyedIds = keyedProvisions
+            .Where(provision => provision.Local)
+            .Select(provision => provision.ServiceId)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
         LocalKeyedServices = localKeyedIds.Count > 0
             ? new LocalKeyedServiceRegistry(localKeyedIds, _onError)
             : null;
@@ -328,13 +411,44 @@ public sealed class FacetKernel
                 _serviceSlots.BindSingleton(serviceId, implementation);
                 continue;
             }
-            if (_provider is not null && implementation is IReadOnlyDictionary<string, object> members
+            if (implementation is IReadOnlyDictionary<string, object> members
                 && members.Count > 0
                 && members.Values.All(v => v is Func<object?[], object?> or IReplicatedStateInternals))
             {
-                _provider.Provide(serviceId, members);
+                provider.Provide(serviceId, members);
             }
             _serviceSlots.BindSingleton(serviceId, implementation);
+        }
+
+        foreach (var provision in keyedProvisions)
+        {
+            ConnectKeyedProvision(provision, provider);
+            if (provision.Local)
+            {
+                _serviceSlots.BindKeyed(provision.ServiceId, LocalKeyedServices!);
+            }
+            else
+            {
+                _serviceSlots.BindKeyed(provision.ServiceId, new RemoteKeyedServiceSource(internalServices));
+            }
+        }
+    }
+
+    private void ConnectKeyedProvision(FacetKeyedProvision provision, RemoteServiceProvider provider)
+    {
+        if (provision.Local)
+        {
+            var registry = LocalKeyedServices
+                ?? throw new InvalidOperationException("Local keyed services are not assembled");
+            (provision.ConnectLocal
+                ?? throw new InvalidOperationException($"Local keyed service {provision.ServiceId} is not connectable"))
+                (registry);
+        }
+        else
+        {
+            (provision.ConnectRemote
+                ?? throw new InvalidOperationException($"Remote keyed service {provision.ServiceId} is not connectable"))
+                (provider);
         }
     }
 
@@ -365,6 +479,20 @@ public sealed class FacetKernel
         {
             ReplicatedStates.ReportErrorAsync(reportError);
         }
+    }
+
+    private sealed class RemoteKeyedServiceSource(IRemoteServices services) : IKeyedServiceSource
+    {
+        public IDisposable Observe<T>(Service<T> service, Func<T, Pi.Chord.Context.Context, Task?> handler)
+            => services.ObserveRaw(service.Id, (instance, context) =>
+            {
+                if (instance is not T typed)
+                {
+                    throw new InvalidOperationException(
+                        $"Remote keyed service {service.Id} cannot be represented as {typeof(T).Name}");
+                }
+                return handler(typed, context);
+            });
     }
 
     // ─── 依赖图校验（完整移植） ──────────────────────────────────────────
@@ -492,17 +620,11 @@ public sealed class FacetKernel
         public void Observe<T>(Service<T> service, Func<T, Context.Context, Task?> handler)
         {
             RecordReference(record.Requires, service.Id, ServiceMode.Keyed);
-            // keyed 源在装配后连接；装配前注册的观察在 OnActivate 时仍可重新注册。
-            var observable = kernel._serviceSlots.Observe(service, () =>
+            record.Lifecycle.Observe(() => kernel._serviceSlots.Observe(service, () =>
             {
-                if (!kernel._active)
-                    throw new InvalidOperationException($"Service {service.Id} is not assembled yet");
-            }, handler);
-            record.Lifecycle.Own(() =>
-            {
-                observable.Dispose();
-                return Task.CompletedTask;
-            });
+                if (record.Lifecycle.State != LifecycleState.Active)
+                    throw new InvalidOperationException($"Facet {record.FacetId} cannot access services while inactive");
+            }, handler));
         }
 
         public void Provide<T>(Service<T> service, T implementation)
@@ -512,27 +634,55 @@ public sealed class FacetKernel
             kernel._singletonProvisions.Add((service.Id, service.Local, implementation!));
         }
 
+        public IServiceSpawner<T> ProvideMany<T>(Service<T> service) where T : class
+        {
+            record.Lifecycle.AssertSettingUp("provide service instances");
+            RecordReference(record.Provides, service.Id, ServiceMode.Keyed);
+            var spawner = new StagedServiceSpawner<T>(
+                new FacetLifecycleAccessor(
+                    operation =>
+                    {
+                        if (record.Lifecycle.State != LifecycleState.Active)
+                            throw new InvalidOperationException($"Facet host cannot {operation} before activation");
+                    },
+                    disposal => record.Lifecycle.Own(() =>
+                    {
+                        disposal();
+                        return Task.CompletedTask;
+                    })),
+                (key, implementation) =>
+                {
+                    if (key.Length == 0)
+                        throw new ArgumentException("Facet service instance key must not be empty");
+                    if (implementation is System.Collections.IList)
+                        throw new ArgumentException($"Facet service {service.Id} implementation must be an object");
+                    if (!service.Local && implementation is not IReadOnlyDictionary<string, object>)
+                    {
+                        throw new ArgumentException(
+                            $"Remote service {service.Id} implementation must be a member dictionary");
+                    }
+                });
+            record.KeyedProvisions.Add(service.Local
+                ? new FacetKeyedProvision(service.Id, true,
+                    registry => spawner.Connect((key, implementation) => registry.Spawn(service, key, implementation)),
+                    null)
+                : new FacetKeyedProvision(service.Id, false, null,
+                    provider => spawner.Connect((key, implementation) =>
+                    {
+                        if (implementation is not IReadOnlyDictionary<string, object> members)
+                        {
+                            throw new InvalidOperationException(
+                                $"Remote service {service.Id} implementation must be a member dictionary");
+                        }
+                        return provider.Spawn(service.Id, key, members);
+                    })));
+            return spawner;
+        }
+
         public Action SpawnDeferred<T>(Service<T> service, Func<string, T> factory)
             where T : class
         {
-            RecordReference(record.Provides, service.Id, ServiceMode.Keyed);
-            // 本地 keyed：注册表装配后由工厂孵化。
-            var spawner = new StagedServiceSpawner<T>(
-                new FacetLifecycleAccessor(operation =>
-                {
-                    if (!kernel._active)
-                        throw new InvalidOperationException($"Facet host cannot {operation} before activation");
-                }), (key, _) =>
-                {
-                    if (key.Length == 0)
-                        throw new ArgumentException("Instance key must not be empty");
-                });
-            spawner.Connect((key, _) =>
-            {
-                var registry = kernel.LocalKeyedServices
-                    ?? throw new InvalidOperationException("Local keyed services are not assembled");
-                return registry.Spawn(service, key, factory(key));
-            });
+            var spawner = ProvideMany(service);
             return () => spawner.Spawn("__deferred__", factory("__deferred__"));
         }
 
@@ -544,6 +694,8 @@ public sealed class FacetKernel
         }
 
         public void Own(Func<Task> disposal) => record.Lifecycle.Own(disposal);
+
+        public void ReportError(Exception error) => kernel._onError(error);
 
         public void OnActivate(Func<Task> callback) => record.Lifecycle.OnActivate(callback);
 

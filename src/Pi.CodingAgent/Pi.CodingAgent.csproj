@@ -23,6 +23,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="DiffPlex" Version="1.9.0" />
+    <PackageReference Include="Jint" Version="4.17.0" />
     <PackageReference Include="SkiaSharp" Version="4.153.1" />
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>

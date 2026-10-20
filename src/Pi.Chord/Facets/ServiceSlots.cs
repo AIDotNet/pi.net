@@ -186,6 +186,7 @@ public sealed class LocalKeyedServiceRegistry : IKeyedServiceSource, IDisposable
 /// </summary>
 internal sealed class StagedServiceSpawner<T>(
     FacetLifecycleAccessor lifecycle, Action<string, T> validate)
+    : IServiceSpawner<T>
     where T : class
 {
     private readonly Dictionary<string, (T Implementation, Action? Release)> _instances = [];
@@ -214,7 +215,7 @@ internal sealed class StagedServiceSpawner<T>(
         var installer = _installer;
         if (installer is not null) _instances[key] = (implementation, installer(key, implementation));
         var closed = false;
-        return () =>
+        Action close = () =>
         {
             if (closed) return;
             closed = true;
@@ -226,11 +227,15 @@ internal sealed class StagedServiceSpawner<T>(
             _instances.Remove(key);
             instance.Release?.Invoke();
         };
+        lifecycle.Own(close);
+        return close;
     }
 }
 
 /// <summary>生命周期激活断言的访问器（解耦 FacetLifecycle internal 可见性）。</summary>
-internal sealed class FacetLifecycleAccessor(Action<string> assertActive)
+internal sealed class FacetLifecycleAccessor(Action<string> assertActive, Action<Action> own)
 {
     public void AssertActive(string operation) => assertActive(operation);
+
+    public void Own(Action disposal) => own(disposal);
 }

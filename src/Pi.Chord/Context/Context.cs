@@ -2,12 +2,17 @@ using System.Diagnostics.CodeAnalysis;
 namespace Pi.Chord.Context;
 
 /// <summary>上下文键：token 即键本身（引用相等）。对应 TS <c>ContextKey</c>（symbol token）。</summary>
-public sealed class ContextKey<T>
+public abstract class ContextKey
 {
-    /// <summary>创建带描述的键（描述仅用于诊断输出）。</summary>
-    public ContextKey(string description) => Description = description;
+    protected ContextKey(string description) => Description = description;
 
     public string Description { get; }
+}
+
+/// <summary>携带值类型的上下文键。键的身份由实例引用决定。</summary>
+public sealed class ContextKey<T> : ContextKey
+{
+    public ContextKey(string description) : base(description) { }
 }
 
 /// <summary>不可变的调用作用域值链，随操作显式传递。对应 TS <c>Context</c>。</summary>
@@ -19,6 +24,14 @@ public abstract class Context
     /// <summary>按键查值；无则 undefined。</summary>
     [return: MaybeNull]
     public abstract T Value<T>(ContextKey<T> key);
+
+    /// <summary>按键身份查找未类型化的值，供跨运行时适配器保留键引用语义。</summary>
+    public virtual bool TryGetValue(ContextKey key, out object? value)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        value = null;
+        return false;
+    }
 
     /// <summary>派生一个携带新值的子上下文。</summary>
     public Context WithValue<T>(ContextKey<T> key, T value) => new ValueContext<T>(this, key, value);
@@ -34,6 +47,13 @@ public abstract class Context
 
         [return: MaybeNull]
         public override T Value<T>(ContextKey<T> key) => default;
+
+        public override bool TryGetValue(ContextKey key, out object? value)
+        {
+            ArgumentNullException.ThrowIfNull(key);
+            value = null;
+            return false;
+        }
 
         public override string ToString() => _name;
     }
@@ -60,6 +80,17 @@ public abstract class Context
         {
             if (ReferenceEquals(key, (object?)_key)) return (TOther)(object?)_value!;
             return _parent.Value(key);
+        }
+
+        public override bool TryGetValue(ContextKey key, out object? value)
+        {
+            ArgumentNullException.ThrowIfNull(key);
+            if (ReferenceEquals(key, _key))
+            {
+                value = _value;
+                return true;
+            }
+            return _parent.TryGetValue(key, out value);
         }
 
         public override string ToString() => $"{_parent}.WithValue({_key.Description})";
