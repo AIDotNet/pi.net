@@ -3,8 +3,8 @@ using System.Runtime.CompilerServices;
 using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Experimental.Durable;
 using Pi.CodingAgent.Experimental.Plugins;
-using Pi.Durable.Env;
 using Pi.Durable.Harness;
 using Pi.Durable.Storage;
 using Pi.Durable.Tools;
@@ -32,23 +32,20 @@ internal static class SessionWorkerHarnessSetup
         var cwd = options.Metadata.Cwd;
         var modelRuntime = await ModelRuntime.CreateAsync().ConfigureAwait(false);
         var settingsManager = SettingsManager.Create(cwd);
-        HttpDispatcher.ApplyHttpProxySettings(settingsManager.GetGlobalSettings().HttpProxy);
+        // TS 的 session-worker 直接复用 durable/harness-setup.ts 的三件，不另写一份。
+        DurableHarnessSetup.ConfigureHarnessHttp(settingsManager);
         var envs = new ExecutionEnvs(cwd);
         HarnessImpl? harness = null;
 
         try
         {
-            var registry = Registry.CreateRegistry();
-            registry.Install(CodingTools.Extension);
-            registry.Install(CreatePiPrompt(settingsManager, cwd));
-
             var storage = await SqliteStorage.OpenAsync(databasePath).ConfigureAwait(false);
             harness = await Harness.OpenAsync(storage, new HarnessOptions
             {
                 Models = modelRuntime.DurableModels,
-                Registry = registry,
+                Registry = DurableHarnessSetup.CreateCodingRegistry(settingsManager, cwd),
                 SettingsSource = () => CreateHarnessSettings(settingsManager),
-                EnvFactory = envs.GetAsync,
+                EnvFactory = envs.EnvAsync,
                 OnReport = error => Console.Error.WriteLine(error),
             }, Context.Todo).ConfigureAwait(false);
 
@@ -270,41 +267,5 @@ internal static class SessionWorkerHarnessSetup
         public IReadOnlyList<Wrap>? Wraps => null;
 
         public IReadOnlyList<AnyDurableTask>? Tasks => null;
-    }
-
-    private sealed class ExecutionEnvs(string defaultCwd)
-    {
-        private readonly object _gate = new();
-        private readonly Dictionary<string, LocalExecutionEnv> _envs = new(StringComparer.Ordinal);
-
-        public Task<Pi.Durable.Env.IExecutionEnv?> GetAsync(EnvTarget target, Context context)
-        {
-            lock (_gate)
-            {
-                var cwd = target.Cwd ?? defaultCwd;
-                if (!_envs.TryGetValue(cwd, out var env))
-                {
-                    env = new LocalExecutionEnv(new LocalExecutionEnv.LocalEnvOptions { Cwd = cwd });
-                    _envs.Add(cwd, env);
-                }
-
-                return Task.FromResult<Pi.Durable.Env.IExecutionEnv?>(env);
-            }
-        }
-
-        public async Task CleanupAsync(Context context)
-        {
-            LocalExecutionEnv[] envs;
-            lock (_gate)
-            {
-                envs = [.. _envs.Values];
-                _envs.Clear();
-            }
-
-            foreach (var env in envs)
-            {
-                await env.CleanupAsync(context).ConfigureAwait(false);
-            }
-        }
     }
 }
