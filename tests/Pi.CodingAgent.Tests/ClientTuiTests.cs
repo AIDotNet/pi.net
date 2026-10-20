@@ -8,12 +8,11 @@
 // conversation, and a `FakeTui` so they do not schedule render timers. A focused fullscreen test
 // also mounts the client on a real `TuiAltScreen` backed by `StringTerminal`.
 //
-// Two adaptations the port needs:
+// Two fixture adaptations:
 // - The transcript state crosses the loopback transport as a chord value tree (the client adapter
 //   decodes one — C365/C375), so the fixture republishes the durable view's tree on every commit.
-// - The TS test reloads a real JavaScript bundle; the C# plugin host refuses to execute JavaScript
-//   (C335), so the reload data carries an empty artifact list — the counters and the status line
-//   still observe the whole reload round trip.
+// - This test returns empty plugin artifacts to isolate the reload round trip; default Jint bundle
+//   execution is covered end to end by PluginBundlesTests.
 
 using System.Text.Json.Nodes;
 using AiFaux = Pi.Ai.Providers.Faux;
@@ -44,7 +43,8 @@ namespace Pi.CodingAgent.Tests;
 /// <summary>
 /// <see cref="ExperimentalClientTui"/> end to end: the session selection of
 /// <c>prepareClientSession</c>, the facet host over the loopback sources, the prompt / reload /
-/// reconnect lifecycle, and the two built-in selectors — the port of the TS suite of the same name.
+/// reconnect lifecycle, the built-in selectors, and the /compact command — the port of the TS
+/// suite of the same name.
 /// </summary>
 public sealed class ClientTuiTests : IAsyncDisposable
 {
@@ -181,6 +181,44 @@ public sealed class ClientTuiTests : IAsyncDisposable
             fixture.DropAttachment();
             fixture.RefreshModels();
             Assert.Equal(settled, Render(component));
+        }
+        finally
+        {
+            await component.CloseAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData("/compact preserve the latest references", "preserve the latest references")]
+    [InlineData("/compact", null)]
+    public async Task CompactCommandForwardsOptionalInstructionsAndShowsProgress(
+        string input, string? expectedInstructions)
+    {
+        var fixture = new ClientTuiFixture(gateCompact: true);
+        await using var _disposal = fixture;
+        var component = await ExperimentalClientTui.CreateAsync(
+            new ExperimentalClientTui.CreateExperimentalClientTuiOptions
+            {
+                Command = new ClientCommand(),
+                Ui = new FakeTui(),
+                Servers = [fixture.Server],
+                RequestRender = () => { },
+                Finish = () => { },
+            });
+
+        try
+        {
+            component.HandleInput(input);
+            component.HandleInput("\r");
+
+            await WaitUntilAsync(() => fixture.CompactRequests.Count == 1);
+            Assert.Equal(expectedInstructions, Assert.Single(fixture.CompactRequests).CustomInstructions);
+            await WaitUntilAsync(() => Render(component).Contains("Compacting…", StringComparison.Ordinal));
+            Assert.DoesNotContain("Select ", Render(component), StringComparison.Ordinal);
+
+            fixture.ReleaseCompact();
+            await WaitUntilAsync(() => !Render(component).Contains("Compacting…", StringComparison.Ordinal));
+            Assert.DoesNotContain("Error:", Render(component), StringComparison.Ordinal);
         }
         finally
         {
@@ -440,8 +478,10 @@ public sealed class ClientTuiTests : IAsyncDisposable
         private readonly MutableReplicatedState<ServerConnectionState> _connection;
         private readonly TaskCompletionSource _promptGate =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _compactGate =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public ClientTuiFixture()
+        public ClientTuiFixture(bool gateCompact = false)
         {
             // A faux provider whose single response captures the user message, then waits on the
             // gate: the prompt stays "Working..." until the test releases it (TS's promptFinished).
@@ -536,7 +576,7 @@ public sealed class ClientTuiTests : IAsyncDisposable
                     var request = ServiceWireValues.Read<PrepareSessionRequest>(args[0]);
                     ManagementLog.Add($"prepare:{request.SessionId}");
                     PluginPackageCount = request.PackagePaths?.Count ?? 0;
-                    // An empty artifact list: the C# plugin host cannot execute the TS bundle (C335).
+                    // Empty artifacts isolate the reload behavior in this fixture.
                     return PluginBundles.CreatePresentationFacetData([]);
                 }),
                 ["reload"] = (Func<object?[], object?>)(args =>
@@ -600,8 +640,17 @@ public sealed class ClientTuiTests : IAsyncDisposable
                     return null;
                 }),
             });
-            sessionProvider.Provide(AgentController.Service.Id,
-                (IReadOnlyDictionary<string, object>)AgentControllerProvider.Create(_harness, _root));
+            var controller = (IReadOnlyDictionary<string, object>)AgentControllerProvider.Create(_harness, _root);
+            if (gateCompact)
+            {
+                var members = controller.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                members["compact"] = (Func<object?[], object?>)(arguments => CompactWireAsync(arguments));
+                sessionProvider.Provide(AgentController.Service.Id, members);
+            }
+            else
+            {
+                sessionProvider.Provide(AgentController.Service.Id, controller);
+            }
             sessionProvider.Provide(SessionPlugins.Service.Id, new Dictionary<string, object>
             {
                 ["reload"] = (Func<object?[], object?>)(args =>
@@ -630,6 +679,8 @@ public sealed class ClientTuiTests : IAsyncDisposable
         public List<string> ModelsLog { get; } = [];
 
         public List<string> Prompts { get; } = [];
+
+        public List<AgentCompactionRequest> CompactRequests { get; } = [];
 
         public int PresentationReloads { get; private set; }
 
@@ -689,6 +740,8 @@ public sealed class ClientTuiTests : IAsyncDisposable
         /// <summary>TS <c>finishPrompt()</c>: let the held response complete.</summary>
         public void ReleasePrompt() => _promptGate.TrySetResult();
 
+        public void ReleaseCompact() => _compactGate.TrySetResult();
+
         /// <summary>TS <c>publishReplacement(attachment, { status: "detached" })</c>.</summary>
         public void DropAttachment()
             => _attachment.Replace(Context.Background, new SessionAttachmentState.Detached());
@@ -723,7 +776,15 @@ public sealed class ClientTuiTests : IAsyncDisposable
 
         public async ValueTask DisposeAsync()
         {
+            _compactGate.TrySetResult();
             await _harness.CloseAsync(Context.Background);
+        }
+
+        private async Task<object?> CompactWireAsync(object?[] arguments)
+        {
+            CompactRequests.Add(ServiceWireValues.Read<AgentCompactionRequest>(arguments[0]));
+            await _compactGate.Task;
+            return ServiceWireValues.OperationResponse(true, "compact-op", null);
         }
 
         private static Dictionary<string, object?> Summary(string sessionId, double createdAt)
