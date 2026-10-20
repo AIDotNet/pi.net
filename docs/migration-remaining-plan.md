@@ -1359,8 +1359,41 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
   `System.ArgumentException: Unknown argument: --help (Parameter 'arguments')`，与 TS
   `throw new Error(\`Unknown argument: ${arg}\`)` 同形（C380 记下参数名后缀差异）。
   真实模型对话未在无交互终端中执行。
-- **未收口**：`createCodingAgentHarness` 仍暂缓（C362）——4g-3f 已交付它的 `harness-setup` 依赖，
-  剩下的唯一阻塞是 **Pi.Durable 的 sqlite 存储未移植**（现有仅 `MemoryStorage`）。`runSessionWorkerProcess`
-  的 spawn 缝同此因。
+- **一致性检查推翻了两条既有台账记录**（详见 0.40）：C362 记的「Pi.Durable 的 sqlite 存储整体未移植、
+  `createCodingAgentHarness` 暂缓」**已不成立**——`0546fc3` 交付了 `SqliteStorage` 全套、`0b882b9`
+  交付了 `SessionWorkerHarnessSetup.CreateAsync` 与 `runSessionWorkerProcess` 的接线。本批因此还做了一件
+  收敛：`SessionWorkerHarnessSetup` 里自带的 `ExecutionEnvs` / 内联 registry / 直接调
+  `ApplyHttpProxySettings` 三处，改为复用 `DurableHarnessSetup`（TS 的 `session-worker.ts` 本来就是
+  从 `durable/harness-setup.ts` import 这三件）。
 - **4g-3g 一并收敛**：`vacation/*` 的功能在阶段 5（`1b26f0f`）已落地，本批只把它改走共享实现，
   台账行同步标记（`harness-setup.ts` 是 durable 版的严格子集，无需新增代码）。
+
+### 0.40 一致性检查推翻 C362：session worker 早已接线（`adf2303`，2026-10-20）
+
+- **怎么发现的**：4g-3f 写完 `DurableHarnessSetup` 后做一致性检查，发现
+  `SessionWorkerHarnessSetup.CreateAsync` 里还有一份私有的 `ExecutionEnvs`、一段内联的
+  registry 装配、一次直接调用的 `ApplyHttpProxySettings` —— 而 TS 的 `session-worker.ts`
+  本来就是从 `durable/harness-setup.ts` import 这三件（`grep -rn ExecutionEnvs` 可证：
+  只有 `harness-setup.ts` 声明，`runtime.ts` 与 `session-worker.ts` 各 import 一次）。
+  顺着这条线回查 C362 的前提，发现**该记录已整体过期**。
+- **C362 记录的三条断言逐条证伪**：
+  | 记录断言 | 实测 |
+  | --- | --- |
+  | 「Pi.Durable 的 sqlite 存储整体未移植，现有仅 `MemoryStorage`」 | `0546fc3 feat(durable): add SQLite storage` 交付 `SqliteStorage`(1,477) + `SqliteStorageMigrations`(167) + `SqliteStorageJson`(600) + `SqliteCommandExecutor`(97)，`Microsoft.Data.Sqlite 10.0.13` 已在 `Pi.Durable.csproj` |
+  | 「`createCodingAgentHarness` 暂缓」 | `0b882b9 feat(coding-agent): wire durable session worker` 交付 `SessionWorkerHarnessSetup.CreateAsync`，逐段对齐 TS：modelRuntime → settingsManager → configureHarnessHttp → ExecutionEnvs → `Harness.OpenAsync(SqliteStorage.OpenAsync(db))` → created 判定 → findInitialAgentModel → root → 返回 runtime（facetLoader + cleanup）→ catch 关 harness、清 env、`AggregateError` |
+  | 「`runSessionWorkerProcess` 的 spawn 缝未接」 | `SessionWorkerEntry.RunSessionWorkerEntryAsync` → `RunSessionWorkerWithHarness(args, SessionWorkerHarnessSetup.CreateAsync)`；`InternalProcessEntry` 的 session-worker 分支已分发 |
+- **为什么当时是对的、后来变错**：`0546fc3` 晚于 `262f413`（4g-3d-3c），`0b882b9` 更晚——
+  记录写下时确实成立，是**兑现后没有回写**。这与 0.1/0.2 的「基线漂移」、本日 4g-3f 的
+  「行数漂移」是同一类失效模式：**台账会指向一个已经不存在的缺口**，后续批次据此重复排期、
+  或误判某条链被阻塞。
+- **约定**：凡是写成「暂缓 / 未移植 / 排在 X 之后」的记录，在兑现它的那个提交里必须同时改这一行；
+  每批动工前不只核对基线 commit，也要核对**本批要依赖的那些「暂缓」记录是否仍成立**。
+- **收敛动作**：`SessionWorkerHarnessSetup` 改用 `DurableHarnessSetup.ConfigureHarnessHttp` /
+  `CreateCodingRegistry` / `ExecutionEnvs`，删掉私有 `ExecutionEnvs`（−44 行）。行为不变：
+  同一套 registry 内容、同一个按目录缓存、同样的代理播种。
+- **测试**：`SessionWorker*` **74/74**（含 `SessionWorkerProcessE2ETests.InternalProcessEntry_UsesSqliteHarnessAcrossWorkerRestarts`
+  ——它正是 sqlite harness + 入口接线的端到端证据）；全量 **4854/0**。
+  期间两次全量各挂一个不同用例（`RadiusLoginMenuComponentTests.ConfirmingStopsTheRenderRequests`、
+  `CoreProviderComposerTests.ImagesWithoutAnyImplementationReportTheModelsLayerMessage`），
+  两者单跑分别 10/10、39/39，第三次全量（`--output Detailed`）4854/0 全绿 → 负载敏感 flake，
+  记入观测名单，与本批改动无关（两者都不碰 session worker 与 harness 装配）。
