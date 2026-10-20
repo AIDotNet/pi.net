@@ -22,8 +22,9 @@
 > 早期 `docs/migration-plan.md` 记的「19,427 行」是错的（少算了一个数量级），已按实测更正。
 
 > **当前状态入口**：本文件的分阶段表保留历史拆分进度；包级当前判断和未闭环验收项以
-> [migration-execution-status.md](./migration-execution-status.md) 为准。实验插件 JavaScript
-> bundle 的执行兼容性仍未解决，不能以空 artifact fixture 代替真实插件装载。
+> [migration-execution-status.md](./migration-execution-status.md) 为准。默认 Jint host 已能执行
+> import 解析器支持的 CommonJS 插件 bundle；空 artifact fixture 只隔离 Client TUI 的 reload 测试，
+> 真实 bundle 执行由 `PluginBundlesTests` 覆盖。Node/Bun 内置模块、全局对象和动态加载钩子不在支持范围。
 
 ## 分阶段计划
 
@@ -6849,7 +6850,7 @@ sha256 取十六进制前 12 / 24 位（`createHash("sha256").digest("hex").slic
 | # | 差异 | 说明 |
 |---|---|---|
 | C334 | **打包器由调用方注入 `IFacetEntryBundler`** | TS 的 `bundleFacetPackage` 内置 esbuild；.NET 无 JS 打包器，`CreateServerPluginPackage` 收注入的 entry bundler 转交 `Pi.Chord.Bundler.BundleFacetPackageAsync`（测试用写真实产物的假 bundler 端到端验证） |
-| C335 | **`resolvePluginExternal` 映射到承载插件 API 的程序集** | TS 把 `@earendil-works/pi-coding-agent/experimental/plugin` 解析为宿主包内 `../plugin.js` 的 URL；C# 无 JS 模块图（扩展走 AssemblyLoadContext），故解析为该 specifier 对应的 `Pi.CodingAgent` 程序集位置，默认 `UnsupportedFacetModuleHost` 仍拒绝执行 JS bundle |
+| C335 | **`resolvePluginExternal` 映射到承载插件 API 的程序集** | TS 把 `@earendil-works/pi-coding-agent/experimental/plugin` 解析为宿主包内 `../plugin.js` 的 URL；C# 用 Jint host 执行 CommonJS bundle，并将受支持的插件 API import 映射到 `Pi.CodingAgent` 程序集承载的宿主 API。未支持的 import 明确失败；不模拟 Node/Bun 内置模块、全局对象或动态加载钩子 |
 | C336 | **`plugin.ts` 是不移植的纯 re-export barrel** | 其六个导出（`AgentController` / `PresentationUI` / `SlashCommands` 及相关类型）已由 `Pi.CodingAgent.Experimental.Services.*` 承载；C# 侧它对应的「模块」即 C335 中解析到的程序集 |
 
 ## 4g-3c-3 协调器两端（coordinator.ts / coordinator-entry.ts）
@@ -7280,16 +7281,17 @@ TS 是应用到 `mount.value`（其 `docs[kind]` 携带运行中的文档值）�
   `live.run !== undefined`；发布侧用「删键」清值，故键存在性是保形判定（已注释）。
 - **`prepareClientSession` 的 finally dispose 省略**（C377）。
 - **测试侧两处适配**：① 转录状态过 loopback 是值树，fixture 每次提交重发布视图树
-  （C365/C368）；② `/reload` 数据带空 artifact 列表——C# 插件宿主不执行 JS（C335），
-  计数与状态行仍走完整 reload 回路。
+  （C365/C368）；② `/reload` fixture 返回空 artifact 列表以隔离 reload 回路，真实 CommonJS
+  bundle 执行另由 `PluginBundlesTests` 覆盖（C335）。
 
-**测试**：8 例（`ClientTuiTests`，移植 TS `experimental-client-tui.test.ts`）——
+  **测试**：`ClientTuiTests` 当前 10 项（移植 TS `experimental-client-tui.test.ts` 并补充 `/compact`）——
 三种命令形状的启动选择（新建 / continued 复用最新 / 插件包路径解析）、
 prompt 排队→应答→渲染、`/reload` 两半场（presentation + session）、radius 掉线→
 busy→重连恢复重开 lane、`/model` 与 `/thinking` 两个内建选择器、关闭后对外部发布静止；
-另新增真实 fullscreen 集成：`TuiAltScreen` + `StringTerminal` 验证完整 viewport、长
-transcript 和 PageUp/PageDown 的 follow-end 行为。另三个 chord 侧用例（`RemoteSourceTests`
-+3：视图替换绑定 / 无视图绑原门面 / 非门面目标保持原绑定）。
+  `/compact` 对有/无自定义指令的转发、pending 时的 “Compacting…” 状态及完成清理；
+  另新增真实 fullscreen 集成：`TuiAltScreen` + `StringTerminal` 验证完整 viewport、长
+  transcript 和 PageUp/PageDown 的 follow-end 行为。另三个 chord 侧用例（`RemoteSourceTests`
+  +3：视图替换绑定 / 无视图绑原门面 / 非门面目标保持原绑定）。
 
 **抓到并修掉一个测试侧真问题**：主 fixture 服务器写成 `Radius: false`，而 TS 对应
 fixture 是 `radius: true`——桥接 facet 只对 radius 服务器订阅 connection/attachment，
@@ -7307,5 +7309,6 @@ fixture 是 `radius: true`——桥接 facet 只对 radius 服务器订阅 conne
 **本机验收**：`ClientTuiTests` 8/8；完整 `Pi.Tui.Tests` 23,875/23,875；完整
 `Pi.CodingAgent.Tests` 4,944/4,944，0 失败。
 
-**未覆盖**：`/compact` 等其余内建命令的选择器走查；插件包真实 JavaScript 执行/装载
-（C335，需决定保留 JS bundle runtime 还是转为 .NET 原生插件包；见迁移执行状态）。
+**未覆盖**：自定义扩展命令的补全与失败分支尚无 Client TUI 端到端对照；Jint 只支持
+host resolver 明确支持的 CommonJS import，不覆盖 Node/Bun 内置模块、全局对象和动态加载
+（C335；未支持项会显式失败，详见迁移执行状态）。
