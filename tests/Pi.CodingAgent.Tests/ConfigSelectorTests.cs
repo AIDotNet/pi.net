@@ -11,6 +11,7 @@ using Pi.CodingAgent.Modes.Interactive.Components;
 using Pi.CodingAgent.Utils;
 using Pi.Tui;
 using Xunit;
+using Pi.Durable.Env;
 
 namespace Pi.CodingAgent.Tests;
 

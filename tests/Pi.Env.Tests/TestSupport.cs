@@ -78,11 +78,33 @@ internal sealed class TempDir : IDisposable
 
 internal static class TestCommands
 {
-    /// <summary>一条会跑很久的命令，用于取消与超时用例。</summary>
+    /// <summary>
+    /// 一条会跑几秒的命令，用于取消与超时用例。对齐 TS <c>remote.test.ts</c> 的 <c>["sleep", "5"]</c>：
+    /// 单个进程、约五秒。这里同样取「裸进程」而非 <c>cmd /c</c> 包裹——一来形状与 TS 一致，
+    /// 二来一旦某次中止没生效，用例仍在五秒内有界，不会拖成三十秒。
+    /// </summary>
     public static IReadOnlyList<string> LongRunning =>
         OperatingSystem.IsWindows()
-            ? ["cmd", "/c", "ping", "-n", "30", "127.0.0.1"]
-            : ["sleep", "30"];
+            ? ["ping", "-n", "6", "127.0.0.1"]
+            : ["sleep", "5"];
+
+    /// <summary>
+    /// 同上，但完全静默——<see cref="LongRunning"/> 在 Windows 上是 <c>ping</c>，会持续打印；
+    /// 而「无输出超时」要的正是守护进程停在收包等待、只能被截止时间唤醒的路径。
+    /// </summary>
+    public static IReadOnlyList<string> SilentLongRunning =>
+        OperatingSystem.IsWindows()
+            ? ["cmd", "/c", "ping -n 6 127.0.0.1 >nul"]
+            : ["sleep", "5"];
+
+    /// <summary>
+    /// 终止一次进程树的时间预算（毫秒）。守护进程用 <c>taskkill /F /T</c> 在 Windows 上终止，
+    /// 用 <c>kill(-pid)</c> 在 POSIX 上终止：后者是一次系统调用，前者要另起一个进程。
+    /// 用裸帧协议脚本对同一个守护进程实测（本机，13 次）：Windows 每次 <b>1.1–1.8 秒</b>，
+    /// 且与进程树形状无关（<c>cmd /c ping</c> 与裸 <c>ping</c> 相同）。
+    /// 上游测试里「中止/超时应在若干毫秒内落定」的预算按 POSIX 标定，故 Windows 上按实测放宽。
+    /// </summary>
+    public static long KillBudget(int kills) => OperatingSystem.IsWindows() ? 2_000L * kills : 0L;
 
     /// <summary>杀掉一个进程；用于模拟连接丢失。</summary>
     public static void Kill(long pid)
@@ -91,4 +113,33 @@ internal static class TestCommands
         process.Kill();
         process.WaitForExit(5000);
     }
+
+    /// <summary>
+    /// 充当 <c>sh</c> 的 Git Bash。上游 conformance 测试直接写死 <c>$ProgramFiles/Git/bin/bash.exe</c>，
+    /// 这里额外接受 <c>PI_ENV_BASH</c> 覆盖——Git 装到非标准位置（例如随宿主程序附带的 PortableGit）时，
+    /// 不必把测试改成静默跳过。POSIX 上返回 null（用系统 <c>sh</c>）。
+    /// </summary>
+    public static string? FindBash()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        if (Environment.GetEnvironmentVariable("PI_ENV_BASH") is { Length: > 0 } configured)
+        {
+            return File.Exists(configured) ? configured : null;
+        }
+
+        foreach (var variable in new[] { "ProgramFiles", "ProgramFiles(x86)" })
+        {
+            if (Environment.GetEnvironmentVariable(variable) is not { } root) continue;
+            var candidate = System.IO.Path.Join(root, "Git", "bin", "bash.exe");
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        return null;
+    }
+
+    public static bool HasPosixShell => !OperatingSystem.IsWindows() || FindBash() is not null;
+
+    /// <summary>POSIX shell 的「程序 + -c」，与 conformance 套件的 <c>Shell</c> 选项对应。</summary>
+    public static IReadOnlyList<string> PosixShell =>
+        OperatingSystem.IsWindows() ? [FindBash()!, "-c"] : ["sh", "-c"];
 }

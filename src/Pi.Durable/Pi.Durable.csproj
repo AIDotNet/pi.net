@@ -4,6 +4,11 @@
     <ProjectReference Include="..\Pi.Ai\Pi.Ai.csproj" />
     <ProjectReference Include="..\Pi.Chord\Pi.Chord.csproj" />
   </ItemGroup>
+  <!-- NodePath 的 CwdOverride 是测试缝：语料用例需要把“当前目录”固定到生成语料时的值。 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pi.CodingAgent.Tests" />
+    <InternalsVisibleTo Include="Pi.Env.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />

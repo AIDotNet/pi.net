@@ -11,6 +11,7 @@ using Pi.CodingAgent.Modes.Interactive;
 using Pi.CodingAgent.Utils;
 using Xunit;
 using IOPath = System.IO.Path;
+using Pi.Durable.Env;
 
 namespace Pi.CodingAgent.Tests;
 

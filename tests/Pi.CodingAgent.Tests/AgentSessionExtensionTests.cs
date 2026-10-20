@@ -5,6 +5,7 @@ using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Utils;
 using Xunit;
 using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
+using Pi.Durable.Env;
 
 namespace Pi.CodingAgent.Tests;
 

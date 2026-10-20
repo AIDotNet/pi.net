@@ -1,10 +1,12 @@
 using System.Text;
 
-namespace Pi.CodingAgent.Utils;
+namespace Pi.Durable.Env;
 
 /// <summary>
-/// Port of the parts of Node's <c>path</c> module the coding agent uses, for the <em>host</em> path
-/// flavour.
+/// Port of the parts of Node's <c>path</c> module this repository needs, in both path flavours:
+/// every entry point takes a <c>windows</c> flag, and the overloads without one use the host's
+/// flavour. Lives in <c>Pi.Durable</c> because both the coding agent and <c>Pi.Env</c> need it —
+/// the remote execution environment applies the <em>remote</em> system's rules, not the host's.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -32,7 +34,7 @@ namespace Pi.CodingAgent.Utils;
 public static class NodePath
 {
     /// <summary>Whether the host uses Windows path semantics (Node's <c>process.platform === "win32"</c>).</summary>
-    public static bool IsWindows => string.Equals(ProcessInfo.Platform, "win32", StringComparison.Ordinal);
+    public static bool IsWindows => OperatingSystem.IsWindows();
 
     /// <summary>Node's <c>path.sep</c>.</summary>
     public static char Separator => IsWindows ? '\\' : '/';

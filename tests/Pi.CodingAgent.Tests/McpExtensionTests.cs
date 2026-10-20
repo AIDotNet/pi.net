@@ -18,6 +18,7 @@ using Xunit;
 // Both namespaces bind these two names; the extension contract is the one the production code uses.
 using KeybindingsManager = Pi.CodingAgent.Core.KeybindingsManager;
 using NewSessionOptions = Pi.CodingAgent.Core.Extensions.NewSessionOptions;
+using Pi.Durable.Env;
 
 namespace Pi.CodingAgent.Tests;
 

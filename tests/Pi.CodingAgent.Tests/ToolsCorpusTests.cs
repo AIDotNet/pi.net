@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Pi.CodingAgent.Utils;
+using Pi.Durable.Env;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;

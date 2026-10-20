@@ -65,10 +65,11 @@ public enum ExecutionErrorCode
 /// <summary>命令执行失败。对应 TS <c>ExecutionError</c>。</summary>
 public sealed class ExecutionError : Exception
 {
-    public ExecutionError(ExecutionErrorCode code, string message, Exception? cause = null)
+    public ExecutionError(ExecutionErrorCode code, string message, Exception? cause = null, string? spillPath = null)
         : base(message, cause)
     {
         Code = code;
+        SpillPath = spillPath;
     }
 
     /// <summary>超时或中止后已落盘溢出的完整输出文件。</summary>
