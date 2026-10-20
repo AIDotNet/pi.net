@@ -6,11 +6,11 @@
 
 ## 基线与范围
 
-- TypeScript 源仓库：`D:\AI\参考项目\pi`，`main`，基线 `eb326d265ae0b88489a6d10319307780df827cdf`。
-- .NET 目标仓库：`D:\AI\参考项目\pi.net`，`main`，基线 `28aed27a515c6f87c3670ffcd10fd867fd7060c6`。
-- 目标仓库起始工作区干净并与 `origin/main` 同步。源仓库的未跟踪 `.workbuddy/` 属于原有内容，本轮保持不动。
-- 源包含 14 个 package；目标在本轮前有 13 个运行时项目，Stage 5 新增 `Pi.Vacation`、4g-3f 新增 `Pi.DurableHost` 后现有 15 个运行时项目。`env` 独立为 `Pi.Env`（见 `docs/env-package-migration.md`；此处原记「并入 `Pi.Durable/Env`」有误，`packages/env` 是基于 SSH + 守护进程的**远程**执行环境，与 Durable 里的执行环境抽象不是一回事），`Pi.Cli` 是 coding-agent 的 .NET 进程入口；Stage 8 新增独立评测工具项目 `Pi.Evals`（不计为运行时 package）。
-- 逐阶段代码记录比旧的逐包汇总新：coding-agent 已覆盖交互/RPC 模式、CLI、多个实验运行时及独立 Vacation / Durable 宿主；最近的批次为 4g-3f（durable 实验宿主，与 vacation 收敛为一份实现）。以下按源/目标代码和剩余事项描述，不把旧台账中的早期百分比当作当前状态。
+- TypeScript 源仓库：`D:\AI\参考项目\pi`，`main`，复核基线 `eb326d265ae0b88489a6d10319307780df827cdf`（与 `origin/main` 一致）。
+- .NET 目标仓库：`D:\AI\参考项目\pi.net`，`main`，本轮复核起点 `47cdc4af7be384099b8102a0676e65add23c4a85`（与 `origin/main` 一致）。
+- 目标仓库复核前工作区干净。源仓库未跟踪的 `.workbuddy/` 属于既有内容，本轮保持不动。
+- 源含 14 个 package，目标映射到 17 个 .NET 项目：12 个常规包各一个项目，`coding-agent` 拆为 `Pi.CodingAgent`、`Pi.Cli`、`Pi.Vacation`、`Pi.DurableHost`，`evals` 对应独立 CLI 项目 `Pi.Evals`。目标另有 13 个测试项目和一个 `Pi.Env.FakeDaemon` 测试支持项目。
+- 最近的代码记录已包括远程执行环境 `Pi.Env`、Durable 实验宿主、`createCodingAgentHarness`/session-worker 接线及 codemode 工具渲染器。以下区分已迁移实现、刻意不做逐文件映射的运行时专属文件，以及仍未完成的外部验收；不把旧台账中的早期百分比或启发式文件名未匹配数当作完成度。
 
 ## 逐包迁移矩阵
 
@@ -25,18 +25,21 @@
 | `ai` | `Pi.Ai` | 已迁移 | Provider 与模型层已广泛移植；依赖本地浏览器回调的 OAuth 测试不适合无头环境。 |
 | `chord` | `Pi.Chord` | 已迁移 | 核心协议/服务/Facet 已实现；`index.ts` 是导出桶，不要求在 C# 复制。 |
 | `codemode` | `Pi.Codemode` | 已迁移 | VM 执行由 `ICodemodeJsEngine` 注入；默认实现明确拒绝未配置的执行，不伪装为成功。 |
-| `env` | `Pi.Env` | 客户端已迁移，ssh 端到端未在本机验证 | 协议连接、SSH 引导、远程环境与 watcher 已移植；守护进程按原生产物注入（差异 E-C1）。`Pi.Env.Tests` 47 项 / 46 通过 / 1 跳过（sshd 端到端需 POSIX 主机）。 |
-| `durable` | `Pi.Durable` | 核心实现与 Stage 7 harness 一致性核对已完成 | Memory/SQLite storage、Session、context retention/cache、compaction、任务/会话恢复及 harness/runtime 均有实现和行为级测试；剩余平台验收与最终 wire/API 审计列入 Stage 9。 |
-| `tui` | `Pi.Tui` | 基本完成 | 44/45 个源文件已覆盖；剩余 `index.ts` 是 barrel/export 文件，公开面已逐项核对。 |
-| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` + `Pi.DurableHost` | 部分迁移，主体已落地 | 交互模式、RPC、CLI、实验客户端/服务端、Durable session-worker、Vacation 与 Durable 实验宿主已有实现。Package manager 更新、CLI `-e` 资源链及扩展依赖告警已在阶段 3 完成；MCP/Llama 管理 UI 已在阶段 4 完成；Vacation 已在阶段 5 完成；Stage 6 平台核对与宿主资源定位已完成；Stage 8 增加 .NET 扩展指南。Stage 9 已将随包 README 改为 .NET 说明，并明确上游 docs/examples 是 TypeScript 参考内容。4g-3f 新增 `Pi.DurableHost`（`pi-durable`），并把 `experimental/durable` 与 `experimental/vacation` 收敛为一份实现（`ExperimentalRuntime`/`ExperimentalTui`/`ExperimentalSessions` + `ExperimentalProfile`，差异 C378/C379/C380）。未完成：`createCodingAgentHarness` 与 `runSessionWorkerProcess` 的 spawn 缝仍等 Pi.Durable 的 sqlite 存储（C362）。 |
+| `env` | `Pi.Env` | 客户端实现已迁移；Windows conformance 通过 | 协议连接、SSH 引导、远程环境与 watcher 已移植；守护进程按原生产物注入（差异 E-C1）。本轮 `Pi.Env.Tests` 46/46 通过、1 项 sshd 端到端因本机无 sshd 跳过；仍需 POSIX 主机验收。 |
+| `durable` | `Pi.Durable` | 核心实现及 harness 行为对齐已完成 | Memory/SQLite storage、Session、context retention/cache、compaction、任务/会话恢复及 harness/runtime 均有实现；本轮 `Pi.Durable.Tests` 398/398 通过。最终公开契约与 POSIX 验收仍在剩余项中。 |
+| `tui` | `Pi.Tui` | 功能实现完成 | 44/45 个 TS 源文件已有实现；剩余 `index.ts` 是纯导出桶，不需要单独 C# 文件。 |
+| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` + `Pi.DurableHost` | 主体功能迁移完成；平台/契约验收未闭环 | 交互/RPC、CLI、MCP/Llama UI、package manager、资源链、Vacation、Durable session-worker 与独立宿主均已实现。C362 已由 `adf2303` 的 harness 复用接线并在 `11e2b58` 关闭；codemode renderer 已由 `c989567` 移植。4g-3h 剩余 Bun/Node 专属运行时垫片、动态加载钩子及被合并/替代的文件不逐字移植；本轮没有发现仍缺失的整块 coding-agent 功能文件。 |
 | `evals` | `Pi.Evals` | 实现完成，容器级验收未完成 | 已移植 CLI、host/documentation eval、任务发现/计划/报告和 Docker 隔离执行；单元测试已通过。当前环境无 Docker/Podman/nerdctl 或 WSL 发行版，镜像构建与容器 smoke 尚未验证。 |
 
 ## 剩余事项与优先级
 
+**P0：本轮没有发现尚未迁移的完整功能模块。** 下列运行时和契约验收仍未完成，不能据此宣称迁移已全部验收。
+
 | 优先级 | 工作项 | 主要源范围 | 依赖 / 理由 |
 |---|---|---|---|
-| **P1** | Evals 容器级验收 | `packages/evals` 与 `Pi.Evals/Docker` | Stage 8 已实现并通过构建/定点测试；需在具备 Docker 的环境构建两种镜像并执行隔离 eval smoke。 |
-| **P2** | POSIX 运行时与公开契约最终核验 | `packages/client/src/unix.ts`、CLI/worker 入口及各包公开 API/wire 类型 | Stage 6 已完成 Windows 验收；仍需在 POSIX runner 验证 Unix transport，并完成剩余公开接口/JSON 形状的最终复核。 |
+| **P1** | Evals 容器级验收 | `packages/evals` 与 `src/Pi.Evals/Docker` | 实现及单元测试已通过；需构建两种镜像并运行隔离 eval smoke。本机没有 Docker、Podman、nerdctl 服务，WSL 未安装发行版。 |
+| **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | 现有导出面扫描是启发式：TS 类型别名、工厂函数、命名转换及拆分项目会产生未匹配项；必须逐项分类并用行为/JSON 测试确认，不能把扫描结果直接视作缺陷或通过。 |
+| **P2** | POSIX transport 与 SSH 端到端验收 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts`、`Pi.Client` / `Pi.Server` / `Pi.Env` | Windows 定点测试通过，但没有 POSIX .NET runner 或 sshd；需在 POSIX 主机验证 Unix socket、发现/握手，以及 SSH 扫描、信任、部署和远程执行链。 |
 
 文档/示例范围已明确：随包 README 已改为 .NET 10 说明，文档索引和 README 均标明上游 docs/examples 面向 TypeScript/Node/Bun；C# 扩展使用仓库的 .NET 指南。上游示例作为参考保留，不冒充 .NET 示例，也不再作为未决适配项。
 
@@ -46,7 +49,7 @@
 
 | 阶段 | 目标与文件范围 | 验收标准 | 状态 |
 |---|---|---|---|
-| **0. 基线与盘点** | 核对源/目标 commit、项目映射、旧台账与可复现基线；更新本文件及旧文档入口。 | 13 个目标项目/14 个源包的映射清楚；构建基线记录准确；工作区无临时调试改动。 | 已完成并提交、推送（`47dcfe7`）。 |
+| **0. 基线与盘点** | 核对源/目标 commit、项目映射、旧台账与可复现基线；更新本文件及旧文档入口。 | 14 个 TS 包映射到 17 个 .NET 项目；基线和工作区状态可复查。 | 已完成并提交、推送（`47dcfe7`）。 |
 | **1. SQLite storage** | `Pi.Durable/Storage` 新增 SQLite schema/migration 与实现；`Pi.Durable.csproj` 添加 SQLite provider；新增 `Pi.Durable.Tests` SQLite/conformance 测试。 | schema migration 可重复/原子；事务失败可回滚；ID 全局冲突规则、排序/分页/cursor、fork 可见性、文档历史/当前点、重开恢复和 close 语义与 TS 一致；全部 storage conformance 通过；0 警告构建。 | 已完成并推送（`0546fc3`）；原全量套件挂起在阶段 2 修复并复验通过。 |
 | **2. Harness setup 与 worker** | `Pi.CodingAgent/Experimental`、Durable harness 及 Session 入队；SQLite-backed `createCodingAgentHarness`、worker process role/spawn/shutdown/reopen。 | 真实子进程覆盖 ready/demand/operation/shutdown、锁释放和重开持久性；worker 输入/控制错误、操作取消和 manager 超时有定点测试；compaction safe-integer 范围不被收窄；相关测试及 Durable 全量套件通过。 | 已完成并随阶段提交推送；执行细节见下表。 |
 | **3. Package manager/资源链** | `Core/PackageManager*`、`ResourceLoader`、CLI/settings/resource 装配及扩展告警。 | 更新检查/执行与 marker/ref 状态、告警排序/内容、额外路径解析和缺失路径错误均有 TS 对照测试；CLI `-e` 端到端通过。 | 已完成并推送（`1d8e077`）。 |
@@ -66,6 +69,10 @@
 - `packages/client/src/unix.ts` 在 Node/Bun 的 Windows 平台显式拒绝 Unix transport；`Pi.Client` 目前利用 .NET Unix-domain socket 实现，在支持该能力的 Windows 系统上也开放该 API。这是记录在案的 .NET 扩展行为，不声称与源的 Windows 拒绝完全一致；Windows 上 `ServerClientEndToEndTests` 9/9 通过。当前环境未运行 POSIX .NET，阶段 9 需在 POSIX runner 验证对应传输。
 - Vacation 会话锁由 .NET 对 `.vacation.lock` 的 `FileShare.None` 独占句柄实现；进程退出时操作系统释放锁，但空锁文件保留。与 TS `proper-lockfile` 的 10 秒 stale-lock 等待/清理策略不同，重开没有 stale 等待。HTTP 全局 dispatcher 仍按既有差异 C32 处理：保留代理环境变量播种及 Harness stream timeout 映射，不伪造 Undici global dispatcher 的等价实现。
 - `index.ts` 纯导出桶、Node/Bun 专属测试启动器等无独立 C# 语义的文件可不产生一一对应文件，但要在最终公开 API/平台矩阵中有可复核的逐项说明。
+- 2026-10-20 复核确认：C362 的 SQLite-backed harness/session-worker 接线已存在；codemode 扩展 renderer 已实现；4g-3h 中 Bun sandbox/启动垫片、Node 动态加载钩子和 re-export barrel 没有可直接照搬的 .NET 运行时语义。`experimental/durable` 与 `experimental/vacation` 共用实现由 `ExperimentalProfile` 表达，不重复移植两份相同 TS 文件。
+- `tools/` 下被 `.gitignore` 排除的覆盖/导出面脚本仅作启发式线索；未匹配文件名或导出 token 不等价于功能缺失，也不代表公开契约已核验完成。
+- 2026-10-20 复核确认：C362 的 SQLite-backed harness/session-worker 接线已存在；codemode 扩展 renderer 已实现；4g-3h 中 Bun sandbox/启动垫片、Node 动态加载钩子和 re-export barrel 没有可直接照搬的 .NET 运行时语义。`experimental/durable` 与 `experimental/vacation` 共用实现由 `ExperimentalProfile` 表达，不重复移植两份相同 TS 文件。
+- `tools/` 下被 `.gitignore` 排除的覆盖/导出面脚本仅作启发式线索；未匹配文件名或导出 token 不等价于功能缺失，也不代表公开契约已核验完成。
 
 ## 验证基线、风险与限制
 
@@ -73,11 +80,12 @@
 - Stage 8：`Pi.Evals.Tests` 52/52 通过；`Pi.Evals --help` 退出码 0；完整 solution 构建 0 警告、0 错误；提交 `f4b03aa` 已推送至 `origin/main`。本机无 Docker、Podman、nerdctl，且 WSL 无发行版，故未验证镜像构建和容器运行。
 - Stage 9 本机复验：`dotnet build .\Pi.slnx --no-restore -m:1` 通过，0 警告、0 错误；12 个测试项目总计 29,799 项，29,797 通过、0 失败、2 项跳过。跳过项仅为 `ToolsTests.Bash_NonZeroExit_Throws` 与 `ToolsTests.Bash_StreamsOutputThroughApiAndReturnsNoContent`，因 Git Bash/MSYS2 在当前 Windows 环境无法初始化；Pi CLI 与 Evals CLI `--help` 退出码均为 0，包资源测试 1/1 通过，`git diff --check` 通过。全量复验还发现并修正了测试中的已退出子进程、过期 session-worker 断言和打包 changelog 干扰；修正后全量套件无失败。
 - Stage 9 外部验收仍未完成：本机无容器运行时/WSL，无法执行 Docker eval；也没有 POSIX runner 可核验 Unix socket 与公开接口/JSON 边界。上述事项仍列为 P1/P2，不作为通过项。
+- 上述 29,799 项是历史快照，已由本轮复验取代：`dotnet build Pi.slnx --no-restore -m:1 -v:minimal` 通过，0 警告、0 错误；13 个测试项目共 29,942 项，29,941 通过、0 失败、1 项 sshd 测试因本机无 sshd 跳过。`Pi.CodingAgent.Tests` 为 4,943/4,943、`Pi.Durable.Tests` 为 398/398、`Pi.Env.Tests` 为 46/46 加 1 跳过。PortableGit 仅通过测试进程环境配置启用，没有改机器级或仓库配置。
+- CLI smoke：Pi CLI 与 `Pi.Evals` 的 `--help` 退出码为 0；`Pi.DurableHost` 与 `Pi.Vacation` 对 `--help` 以退出码 1 拒绝未知参数，这与 TS 宿主只支持 `--continue`/`-c` 的参数契约一致。`git diff --check` 通过。
 - `dotnet build Pi.slnx -m:1 --no-restore`：此前阶段基线通过，0 警告、0 错误；Stage 7 复验结果见上一条。
 - `dotnet test --solution` 在当前 SDK/Microsoft.Testing.Platform 配置下不能作为入口；本机可直接执行 `tests\<项目>\bin\Debug\net10.0\<项目>.exe` 并使用 MTP 的 `--filter-method`、`--filter-class` 等筛选参数。每阶段记录实际命令和结果。
 - `Pi.Durable.Tests` 的阶段 1 全量执行曾卡在 inbox 用例；阶段 2 将测试 fixture 的默认扩展选择校正为 TS 的 undefined 语义，并修复了 `Session.Enqueue` 并发调用时 `_tail` 链接非原子的竞态。阶段 2 最终全量复验：370 项通过、2 项因本机缺少可用 Git Bash 而跳过、0 失败；期间两次全量运行中的时序敏感输出测试曾分别偶发失败，单测复跑及之后的全量复验通过，故保留为时序稳定性观察项而非环境豁免。
-- `HarnessInspectTests.Inspect_DerivesEveryLiveTaskStateWithoutRunningTaskCode` 先前在完整执行并移除临时诊断后单测通过（1/1）；harness inbox 挂起应在 worker/harness 阶段继续定位。
-- 既有逐阶段记录报告 coding-agent 全量 4,797 项通过；本轮串行复测曾有 1 项失败，但 `UnknownFlagIsNotAnErrorOnItsOwn` 单测通过，失败详情未保留，需在最终审计时复跑并捕获完整报告。
+- 早期 harness inbox 挂起及 coding-agent 4,797 项测试记录均为历史诊断；本轮全量测试项目运行完成且无失败，当前测试数见上述复验结果。
 - AI Radius OAuth 的浏览器 loopback 用例可能在无头环境持续等待；本机 `HttpListener`/Unix socket 测试还受权限和路径长度影响。只有逐项复现并记录后，才能把它们列为环境限制。
 - 旧文档的 package 状态表和总测试数存在过期快照；本文件优先记录当前基线和逐阶段提交，历史记录不覆盖当前实测。
 
@@ -94,4 +102,4 @@
 | 6. Bun/platform 判定与适配 | 修复 UDS 短写与发现错误过滤；补齐 coding-agent 包元数据、README、CHANGELOG、docs、examples 和交互图片的宿主输出；以可控时钟测试覆盖 post-exit stdio grace 的输出重置与 idle 释放。按决策 B 使用 .NET 原生进程与发布流程，不复制 Bun 运行时。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；Windows `ServerClientEndToEndTests` 9/9；`ChildProcessTests` 3/3；`PackageAssetTests` 1/1；`CoreUtilsCorpusTests` 18/18、`PromptCorpusTests` 16/16、`CliMainEndToEndTests` 13/13、`SessionWorkerProcessE2ETests` 1/1、`EarendilAnnouncementComponentTests` 2/2；稳定 CLI、`PI_RPC_ENTRY=1`、`PI_EXPERIMENTAL_ENTRY=1` 的 `--help` smoke 均退出 0；资源副本逐文件校验一致（两处尾随空白已规范化）。`git diff --check` 通过。POSIX 运行时测试留待阶段 9。 | `c828754 fix(coding-agent): align transport and packaged assets` 已推送；此记录随本台账提交。 |
 | 7. Durable test parity | 完成 context retention/cache 生命周期与 leading-system 顺序核对；补齐 generation recovery 和 compaction 恢复/overflow/后台路径断言；修正 compaction transcript 工具参数序列化，使其符合 TS 的 `key=JSON.stringify(value)` 形状。其它 harness 测试按上方测试映射做行为级一致性核验。 | `dotnet build .\Pi.slnx --no-restore -m:1`：0 警告、0 错误；完整 Durable 测试 398 项，396 通过、2 项因当前 Git Bash/MSYS2 环境不可用而跳过、0 失败；`git diff --check` 通过。 | `eb9d195 fix(durable): align harness recovery behavior`，已推送 `origin/main`。 |
 | 8. Evals | 新增 `Pi.Evals` CLI 和 Docker 镜像/worker，移植 host eval、5 个 docs scenario、协议发现与报告；增加 C# extension authoring 文档与上游 docs 导航。 | `dotnet build .\Pi.slnx --no-restore -m:1`：0 警告、0 错误；Evals 测试 52/52；CLI `--help` 通过；项目输出含 README/docs/examples/Dockerfile；`git diff --check` 通过。Docker、Podman、nerdctl 均不存在且 WSL 无发行版，因此镜像 build 和隔离运行未验证，作为显式剩余风险。 | `f4b03aa feat(evals): add native .NET evaluation runner` 已提交并推送；容器级验收仍受环境阻塞。 |
-| 9. 最终一致性与交付 | 修正全量复验发现的测试假设；将根 README 与打包说明适配为 .NET，并标注上游 docs/examples 的适用范围；复验 solution、全部测试和 CLI。 | `dotnet build .\Pi.slnx --no-restore -m:1`：0 警告、0 错误；12 个测试项目共 29,799 项，29,797 通过、0 失败、2 项因 Git Bash/MSYS2 初始化失败而跳过；Pi CLI、Evals CLI `--help` 及包资源测试通过；`git diff --check` 通过。 | 本机可运行验收记录已提交并推送（`309fb30`）；Docker、POSIX 和剩余公开契约复核仍阻塞，未宣称迁移全部完成。 |
+| 9. 最终一致性与交付 | 修正全量复验发现的测试假设；将根 README 与打包说明适配为 .NET，并标注上游 docs/examples 的适用范围；复核源码缺口并重新验证 solution、全部测试和 CLI。 | `dotnet build Pi.slnx --no-restore -m:1 -v:minimal`：0 警告、0 错误；13 个测试项目共 29,942 项，29,941 通过、0 失败、1 项 sshd 跳过；Pi CLI 与 Evals CLI `--help` 退出码 0；Durable/Vacation 宿主对 `--help` 按 TS 契约拒绝未知参数；`git diff --check` 通过。 | 本机可运行验收通过；Docker、POSIX 和剩余公开契约复核仍阻塞，阶段未完成。原实现记录提交 `309fb30` 已推送；本轮台账修订待提交推送。 |
