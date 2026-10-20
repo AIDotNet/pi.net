@@ -308,7 +308,7 @@ public abstract partial class TuiBase : Container, ITui
     {
     }
 
-    protected virtual IReadOnlyList<IComponent> GetMountedRoots() => Children;
+    protected virtual IReadOnlyList<IComponent> GetMountedRoots() => GetChildrenSnapshot();
 
     protected bool HasOverlayEntries => _overlayStack.Count > 0;
 
@@ -482,7 +482,7 @@ public abstract partial class TuiBase : Container, ITui
         {
             return false;
         }
-        return container.Children.Any(child => ContainsComponent(child, target));
+        return container.GetChildrenSnapshot().Any(child => ContainsComponent(child, target));
     }
 
     // ------------------------------------------------------------------
@@ -1536,18 +1536,109 @@ public abstract partial class TuiBase : Container, ITui
 public class Container : IComponent
 {
     public List<IComponent> Children { get; } = new();
+    private readonly object _childrenGate = new();
+    private long _childrenVersion;
 
     /// <summary>
     /// Child heights observed during the last render, reused for hit-testing when the width is
     /// unchanged (port of <c>Container.mouseLayout</c>).
     /// </summary>
-    private (int Width, List<(IComponent Component, int Height)> Children)? _mouseLayout;
+    private (int Width, long Version, List<(IComponent Component, int Height)> Children)? _mouseLayout;
 
-    public virtual void AddChild(IComponent component) => Children.Add(component);
+    public IReadOnlyList<IComponent> GetChildrenSnapshot() => TakeChildrenSnapshot().Children;
 
-    public virtual void RemoveChild(IComponent component) => Children.Remove(component);
+    private (IComponent[] Children, long Version) TakeChildrenSnapshot()
+    {
+        lock (_childrenGate)
+        {
+            return (Children.ToArray(), _childrenVersion);
+        }
+    }
 
-    public virtual void Clear() => Children.Clear();
+    private void MarkChildrenChanged()
+    {
+        _childrenVersion++;
+        _mouseLayout = null;
+    }
+
+    public virtual void AddChild(IComponent component)
+    {
+        lock (_childrenGate)
+        {
+            Children.Add(component);
+            MarkChildrenChanged();
+        }
+    }
+
+    public void InsertChild(int index, IComponent component)
+    {
+        lock (_childrenGate)
+        {
+            Children.Insert(index, component);
+            MarkChildrenChanged();
+        }
+    }
+
+    public bool InsertChildBefore(IComponent sibling, IComponent component)
+    {
+        lock (_childrenGate)
+        {
+            var index = Children.IndexOf(sibling);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            Children.Insert(index, component);
+            MarkChildrenChanged();
+            return true;
+        }
+    }
+
+    public bool ReplaceChild(IComponent existing, IComponent replacement)
+    {
+        lock (_childrenGate)
+        {
+            var index = Children.IndexOf(existing);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            Children[index] = replacement;
+            MarkChildrenChanged();
+            return true;
+        }
+    }
+
+    public void ReplaceChildAt(int index, IComponent component)
+    {
+        lock (_childrenGate)
+        {
+            Children[index] = component;
+            MarkChildrenChanged();
+        }
+    }
+
+    public virtual void RemoveChild(IComponent component)
+    {
+        lock (_childrenGate)
+        {
+            if (Children.Remove(component))
+            {
+                MarkChildrenChanged();
+            }
+        }
+    }
+
+    public virtual void Clear()
+    {
+        lock (_childrenGate)
+        {
+            Children.Clear();
+            MarkChildrenChanged();
+        }
+    }
 
     /// <summary>
     /// Optional keyboard handler. Declared here rather than left to <see cref="IComponent"/>'s default
@@ -1563,10 +1654,38 @@ public class Container : IComponent
 
     public virtual void Invalidate()
     {
-        foreach (var child in Children)
+        foreach (var child in GetChildrenSnapshot())
         {
             child.Invalidate();
         }
+    }
+
+    private List<(IComponent Component, int Height)> GetMouseChildren(int width)
+    {
+        lock (_childrenGate)
+        {
+            if (_mouseLayout is { } cached
+                && cached.Width == width
+                && cached.Version == _childrenVersion)
+            {
+                return cached.Children;
+            }
+        }
+
+        var (children, version) = TakeChildrenSnapshot();
+        var mouseChildren = children
+            .Select(child => (Component: child, Height: child.Render(width).Length))
+            .ToList();
+
+        lock (_childrenGate)
+        {
+            if (_childrenVersion == version)
+            {
+                _mouseLayout = (width, version, mouseChildren);
+            }
+        }
+
+        return mouseChildren;
     }
 
     public virtual TuiMouseEventResult? HandleMouse(TuiMouseEvent @event)
@@ -1576,9 +1695,7 @@ public class Container : IComponent
             return null;
         }
 
-        var mouseChildren = _mouseLayout is { } cached && cached.Width == @event.Width
-            ? cached.Children
-            : Children.Select(child => (Component: child, Height: child.Render(@event.Width).Length)).ToList();
+        var mouseChildren = GetMouseChildren(@event.Width);
 
         var childY = 0;
         foreach (var (child, childHeight) in mouseChildren)
@@ -1603,15 +1720,22 @@ public class Container : IComponent
 
     public virtual string[] Render(int width)
     {
+        var (children, version) = TakeChildrenSnapshot();
         var lines = new List<string>();
         var mouseChildren = new List<(IComponent Component, int Height)>();
-        foreach (var child in Children)
+        foreach (var child in children)
         {
             var childLines = child.Render(width);
             mouseChildren.Add((child, childLines.Length));
             lines.AddRange(childLines);
         }
-        _mouseLayout = (width, mouseChildren);
+        lock (_childrenGate)
+        {
+            if (_childrenVersion == version)
+            {
+                _mouseLayout = (width, version, mouseChildren);
+            }
+        }
         return lines.ToArray();
     }
 }

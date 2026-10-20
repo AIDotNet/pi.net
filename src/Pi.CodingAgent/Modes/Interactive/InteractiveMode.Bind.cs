@@ -344,7 +344,7 @@ public partial class InteractiveMode
             return;
         }
 
-        if (_chatContainer.Children.Count > 0)
+        if (_chatContainer.GetChildrenSnapshot().Count > 0)
         {
             _chatContainer.AddChild(new Spacer(1));
         }

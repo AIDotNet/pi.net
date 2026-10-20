@@ -124,6 +124,46 @@ public class ComponentTests
         container.Invalidate(); // should not throw
         Assert.Single(container.Children);
     }
+
+    [Fact]
+    public async Task Container_RenderUsesStableChildrenDuringConcurrentMutation()
+    {
+        using var renderEntered = new ManualResetEventSlim();
+        using var continueRender = new ManualResetEventSlim();
+        var container = new Container();
+        container.AddChild(new BlockingComponent(renderEntered, continueRender));
+        container.AddChild(new Text("old", 0, 0));
+
+        var renderTask = Task.Run(() => container.Render(20));
+        var entered = renderEntered.Wait(TimeSpan.FromSeconds(5));
+        if (entered)
+        {
+            container.Clear();
+            container.AddChild(new Text("new", 0, 0));
+        }
+        continueRender.Set();
+
+        var rendered = await renderTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(entered, "The child renderer should have started before the collection is mutated.");
+        Assert.Equal(2, rendered.Length);
+        Assert.Contains("old", Ansi.StripTerminalSequences(rendered[1]));
+        Assert.Contains("new", Ansi.StripTerminalSequences(container.Render(20)[0]));
+    }
+
+    private sealed class BlockingComponent(
+        ManualResetEventSlim renderEntered,
+        ManualResetEventSlim continueRender) : IComponent
+    {
+        public string[] Render(int width)
+        {
+            renderEntered.Set();
+            if (!continueRender.Wait(TimeSpan.FromSeconds(5)))
+            {
+                throw new TimeoutException("The test did not release the blocked render.");
+            }
+            return ["blocking"];
+        }
+    }
 }
 
 public class TuiMainScreenTests

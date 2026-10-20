@@ -3,9 +3,10 @@
 // ============================================================================
 //
 // The TS suite drives `ExperimentalClientTui.create` against loopback service sources backed by a
-// real in-memory durable Harness whose answers come from the faux provider. This file keeps that
+// real in-memory durable Harness whose answers come from the faux provider. Most tests keep that
 // shape: one loopback provider per source (server-scoped and session-scoped), a faux-driven root
-// conversation, and a `FakeTui` instead of a real terminal so nothing schedules its own timers.
+// conversation, and a `FakeTui` so they do not schedule render timers. A focused fullscreen test
+// also mounts the client on a real `TuiAltScreen` backed by `StringTerminal`.
 //
 // Two adaptations the port needs:
 // - The transcript state crosses the loopback transport as a chord value tree (the client adapter
@@ -184,6 +185,69 @@ public sealed class ClientTuiTests : IAsyncDisposable
         finally
         {
             await component.CloseAsync();
+        }
+    }
+
+    [Fact]
+    public async Task RendersAndScrollsTheClientTuiInTheFullscreenViewport()
+    {
+        var fixture = new ClientTuiFixture();
+        await using var _disposal = fixture;
+        var terminal = new StringTerminal(80, 12);
+        var ui = new TuiAltScreen(terminal, showHardwareCursor: false, new TuiAltScreenOptions
+        {
+            Mouse = false,
+            WheelScrollLines = 1,
+        });
+        ExperimentalClientTui? component = null;
+
+        try
+        {
+            component = await ExperimentalClientTui.CreateAsync(
+                new ExperimentalClientTui.CreateExperimentalClientTuiOptions
+                {
+                    Command = new ClientCommand(),
+                    Ui = ui,
+                    Servers = [fixture.Server],
+                    RequestRender = () => ui.RequestRender(),
+                    Finish = () => { },
+                });
+            ui.AddChild(component);
+            ui.SetLayoutRoot(component.LayoutRoot);
+            ui.SetFocus(component);
+            ui.Start();
+            ui.RenderNow(force: true);
+
+            var initialFrame = ui.GetScreenLines();
+            Assert.Equal(terminal.Rows, initialFrame.Length);
+            Assert.Contains($"Server: {ServerId}",
+                AnsiText.StripAnsi(string.Join("\n", initialFrame)), StringComparison.Ordinal);
+
+            var prompt = string.Join(' ', Enumerable.Repeat("scroll-content", 400));
+            component.HandleInput(prompt);
+            component.HandleInput("\r");
+            await WaitUntilAsync(() => fixture.Prompts.Count == 1);
+            ui.RenderNow(force: true);
+
+            var endPosition = ui.ViewportTop;
+            Assert.True(endPosition > 0, "The long transcript should extend beyond the fullscreen viewport.");
+
+            terminal.SendInput("\x1b[5~");
+            ui.RenderNow(force: true);
+            Assert.True(ui.ViewportTop < endPosition, "Page Up should reveal earlier transcript content.");
+
+            terminal.SendInput("\x1b[6~");
+            ui.RenderNow(force: true);
+            Assert.True(ui.IsFollowingOutput, "Page Down should restore follow-end mode.");
+
+            fixture.ReleasePrompt();
+            await WaitUntilAsync(() => Render(component).Contains("remote answer", StringComparison.Ordinal));
+        }
+        finally
+        {
+            fixture.ReleasePrompt();
+            if (component is not null) await component.CloseAsync();
+            if (terminal.Started) ui.Stop();
         }
     }
 

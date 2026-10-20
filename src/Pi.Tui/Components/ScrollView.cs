@@ -73,7 +73,7 @@ public sealed class ScrollView : Container, ILayoutComponent, IScrollLayoutState
         }
 
         _child = component;
-        Children.Add(component);
+        base.AddChild(component);
         FollowEnd = options.Follow == "end";
         _followingEnd = FollowEnd;
         Primary = options.Primary;

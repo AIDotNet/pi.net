@@ -95,7 +95,7 @@ public sealed class ThinkingSelectorComponent : Container, IFocusable
         AddChild(_searchInput);
         AddChild(new Spacer(1));
 
-        _selectListChildIndex = Children.Count;
+        _selectListChildIndex = GetChildrenSnapshot().Count;
         AddChild(_selectList);
         AddChild(new Spacer(1));
         AddChild(new Text(
@@ -140,7 +140,7 @@ public sealed class ThinkingSelectorComponent : Container, IFocusable
             : _allItems;
         var selectedValue = _selectList.GetSelectedItem()?.Value;
         var newList = BuildSelectList(filtered, selectedValue is null ? null : ThinkingLevelText.Parse(selectedValue));
-        Children[_selectListChildIndex] = newList;
+        ReplaceChildAt(_selectListChildIndex, newList);
         _selectList = newList;
     }
 

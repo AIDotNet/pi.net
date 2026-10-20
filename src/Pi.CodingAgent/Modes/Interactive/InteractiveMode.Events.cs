@@ -180,14 +180,10 @@ public partial class InteractiveMode
             return;
         }
 
-        if (_streamingComponent is not null)
+        if (_streamingComponent is not null
+            && _chatContainer.InsertChildBefore(_streamingComponent, component))
         {
-            var streamingIndex = _chatContainer.Children.IndexOf(_streamingComponent);
-            if (streamingIndex >= 0)
-            {
-                _chatContainer.Children.Insert(streamingIndex, component);
-                return;
-            }
+            return;
         }
 
         _chatContainer.AddChild(component);
@@ -269,7 +265,7 @@ public partial class InteractiveMode
                 var textContent = InteractiveModeRender.GetUserMessageText(message);
                 if (textContent.Length > 0)
                 {
-                    if (_chatContainer.Children.Count > 0)
+                    if (_chatContainer.GetChildrenSnapshot().Count > 0)
                     {
                         _chatContainer.AddChild(new Spacer(1));
                     }
@@ -557,7 +553,7 @@ public partial class InteractiveMode
             return;
         }
 
-        if (_chatContainer.Children.Count > 0)
+        if (_chatContainer.GetChildrenSnapshot().Count > 0)
         {
             _chatContainer.AddChild(new Spacer(1));
         }

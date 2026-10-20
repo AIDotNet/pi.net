@@ -266,15 +266,15 @@ public partial class InteractiveMode
     internal bool ToolOutputExpandedForTests => _toolOutputExpanded;
     internal StatusIndicator? ActiveStatusIndicatorForTests => _activeStatusIndicator;
     internal bool ActiveWorkingIndicatorEmbeddedForTests => _activeWorkingIndicatorEmbedded;
-    internal IReadOnlyList<IComponent> ChatChildrenForTests => _chatContainer.Children;
-    internal IReadOnlyList<IComponent> PendingMessagesContainerChildrenForTests => _pendingMessagesContainer.Children;
+    internal IReadOnlyList<IComponent> ChatChildrenForTests => _chatContainer.GetChildrenSnapshot();
+    internal IReadOnlyList<IComponent> PendingMessagesContainerChildrenForTests => _pendingMessagesContainer.GetChildrenSnapshot();
     internal SessionManager SessionManagerForTests => SessionManager;
-    internal IReadOnlyList<IComponent> EditorContainerChildrenForTests => _editorContainer.Children;
-    internal IReadOnlyList<IComponent> FooterContainerChildrenForTests => _footerContainer.Children;
-    internal IReadOnlyList<IComponent> HeaderContainerChildrenForTests => _headerContainer.Children;
-    internal IReadOnlyList<IComponent> StatusContainerChildrenForTests => _statusContainer.Children;
-    internal IReadOnlyList<IComponent> WidgetContainerAboveChildrenForTests => _widgetContainerAbove.Children;
-    internal IReadOnlyList<IComponent> WidgetContainerBelowChildrenForTests => _widgetContainerBelow.Children;
+    internal IReadOnlyList<IComponent> EditorContainerChildrenForTests => _editorContainer.GetChildrenSnapshot();
+    internal IReadOnlyList<IComponent> FooterContainerChildrenForTests => _footerContainer.GetChildrenSnapshot();
+    internal IReadOnlyList<IComponent> HeaderContainerChildrenForTests => _headerContainer.GetChildrenSnapshot();
+    internal IReadOnlyList<IComponent> StatusContainerChildrenForTests => _statusContainer.GetChildrenSnapshot();
+    internal IReadOnlyList<IComponent> WidgetContainerAboveChildrenForTests => _widgetContainerAbove.GetChildrenSnapshot();
+    internal IReadOnlyList<IComponent> WidgetContainerBelowChildrenForTests => _widgetContainerBelow.GetChildrenSnapshot();
     internal ExtensionSelectorComponent? ExtensionSelectorForTests => _extensionSelector;
     internal FooterDataProvider FooterDataProviderForTests => _footerDataProvider;
 
@@ -282,7 +282,7 @@ public partial class InteractiveMode
     internal IReadOnlyList<AutocompleteProviderFactory> AutocompleteProviderWrappersForTests => _autocompleteProviderWrappers;
 
     /// <summary>Test seam: the loaded-resources container children.</summary>
-    internal IReadOnlyList<IComponent> LoadedResourcesContainerChildrenForTests => _loadedResourcesContainer.Children;
+    internal IReadOnlyList<IComponent> LoadedResourcesContainerChildrenForTests => _loadedResourcesContainer.GetChildrenSnapshot();
 
     /// <summary>
     /// Test seam: the staged changelog markdown (normally staged by <see cref="InitAsync"/>).
@@ -403,7 +403,7 @@ public partial class InteractiveMode
 
     internal void ShowStatus(string message)
     {
-        var children = _chatContainer.Children;
+        var children = _chatContainer.GetChildrenSnapshot();
         var last = children.Count > 0 ? children[^1] : null;
         var secondLast = children.Count > 1 ? children[^2] : null;
 
@@ -494,7 +494,7 @@ public partial class InteractiveMode
             return false;
         }
 
-        var components = new List<IComponent>(previousUi.Children);
+        var components = new List<IComponent>(previousUi.GetChildrenSnapshot());
         var focus = previousUi.GetFocusedComponent();
         var terminal = previousUi.Terminal;
         var showHardwareCursor = previousUi.GetShowHardwareCursor();
@@ -763,7 +763,7 @@ public partial class InteractiveMode
     internal void SetHiddenThinkingLabel(string? label = null)
     {
         _hiddenThinkingLabel = InteractiveModeStatus.ResolveHiddenThinkingLabel(label, DefaultHiddenThinkingLabel);
-        foreach (var child in _chatContainer.Children)
+        foreach (var child in _chatContainer.GetChildrenSnapshot())
         {
             if (child is AssistantMessageComponent messageComponent)
             {
@@ -953,8 +953,6 @@ public partial class InteractiveMode
 
         // Find the index of the current header in the header container
         var currentHeader = _customHeader ?? _builtInHeader;
-        var index = _headerContainer.Children.IndexOf(currentHeader);
-
         if (factory is not null)
         {
             // Create and add custom header
@@ -964,14 +962,9 @@ public partial class InteractiveMode
                 expandableCustom.SetExpanded(_toolOutputExpanded);
             }
 
-            if (index != -1)
+            if (!_headerContainer.ReplaceChild(currentHeader, _customHeader))
             {
-                _headerContainer.Children[index] = _customHeader;
-            }
-            else
-            {
-                // If not found (e.g. builtInHeader was never added), add at the top
-                _headerContainer.Children.Insert(0, _customHeader);
+                _headerContainer.InsertChild(0, _customHeader);
             }
         }
         else
@@ -983,10 +976,7 @@ public partial class InteractiveMode
                 expandableBuiltIn.SetExpanded(_toolOutputExpanded);
             }
 
-            if (index != -1)
-            {
-                _headerContainer.Children[index] = _builtInHeader;
-            }
+            _headerContainer.ReplaceChild(currentHeader, _builtInHeader);
         }
 
         _ui.RequestRender();
@@ -1509,7 +1499,7 @@ public partial class InteractiveMode
 
         foreach (var container in new[] { _loadedResourcesContainer, _chatContainer })
         {
-            foreach (var child in container.Children)
+            foreach (var child in container.GetChildrenSnapshot())
             {
                 if (child is IExpandable expandable)
                 {
@@ -1524,7 +1514,7 @@ public partial class InteractiveMode
     /// <summary>Update rendered assistant messages without rebuilding live tool components.</summary>
     private void UpdateThinkingBlockVisibility()
     {
-        foreach (var child in _chatContainer.Children)
+        foreach (var child in _chatContainer.GetChildrenSnapshot())
         {
             if (child is AssistantMessageComponent messageComponent)
             {

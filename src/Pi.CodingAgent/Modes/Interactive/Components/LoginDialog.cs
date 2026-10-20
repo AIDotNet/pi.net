@@ -118,12 +118,12 @@ public sealed class LoginDialogComponent : Container, IFocusable
     private void ReplaceInputWithSubmittedText(string value)
     {
         // TS rebuilds the array with `children.map(child => child === input ? new TuiText(...) : child)`.
-        var children = _contentContainer.Children;
+        var children = _contentContainer.GetChildrenSnapshot();
         for (var i = 0; i < children.Count; i++)
         {
             if (ReferenceEquals(children[i], _input))
             {
-                children[i] = new TuiText($"> {value}", 0, 0);
+                _contentContainer.ReplaceChildAt(i, new TuiText($"> {value}", 0, 0));
             }
         }
     }

@@ -21,6 +21,10 @@
 
 > 早期 `docs/migration-plan.md` 记的「19,427 行」是错的（少算了一个数量级），已按实测更正。
 
+> **当前状态入口**：本文件的分阶段表保留历史拆分进度；包级当前判断和未闭环验收项以
+> [migration-execution-status.md](./migration-execution-status.md) 为准。实验插件 JavaScript
+> bundle 的执行兼容性仍未解决，不能以空 artifact fixture 代替真实插件装载。
+
 ## 分阶段计划
 
 按依赖顺序推进，每个子阶段以「构建 0 警告 0 错误 + 相关测试全绿 + 一致性核对」收口。
@@ -7239,11 +7243,10 @@ facet 数据（对齐 TS 的 `selected.presentationPlugins`，原包了一层—
 服务器时的 model 选择）+ 三条 e2e（发现并激活服务、显式 connect、version 失配复查与显式路径
 原样抛出）+ dispose 幂等 + loopback 适配器/包装一例。全量 **4785/0**（+14）。
 
-**未覆盖（依赖 session worker，C362）**：`runClient` 的 attached/prompted 路径与会话态服务
-（Models/AgentController/Transcript）的**水合**需要真 worker——server 侧任何 session 目标 RPC
-都会 spawn worker 进程（测试宿主即测试 exe，必然失败）。适配器本身经 loopback 覆盖；水合路径
-留给 `runSessionWorkerProcess` 接线（4g-3f 已交付其 `harness-setup` 依赖，剩余唯一阻塞是
-Pi.Durable 的 sqlite 存储，见 C362）。
+**缺口关闭**：早期记录的 attached/prompted session hydration 阻塞已随 session-worker/harness
+复用接线关闭（`adf2303`、`11e2b58`；整体阶段记录见
+[migration-execution-status.md](./migration-execution-status.md)）。不得再把旧版「SQLite
+storage/worker 未完成」说明当作当前缺口。
 
 ## 4e-3c-3 实验客户端 TUI（experimental/client-tui.ts + client-tui-chat.ts）
 
@@ -7280,12 +7283,13 @@ TS 是应用到 `mount.value`（其 `docs[kind]` 携带运行中的文档值）�
   （C365/C368）；② `/reload` 数据带空 artifact 列表——C# 插件宿主不执行 JS（C335），
   计数与状态行仍走完整 reload 回路。
 
-**测试**：7 例（`ClientTuiTests`，移植 TS `experimental-client-tui.test.ts`）——
+**测试**：8 例（`ClientTuiTests`，移植 TS `experimental-client-tui.test.ts`）——
 三种命令形状的启动选择（新建 / continued 复用最新 / 插件包路径解析）、
 prompt 排队→应答→渲染、`/reload` 两半场（presentation + session）、radius 掉线→
 busy→重连恢复重开 lane、`/model` 与 `/thinking` 两个内建选择器、关闭后对外部发布静止；
-另三个 chord 侧用例（`RemoteSourceTests` +3：视图替换绑定 / 无视图绑原门面 /
-非门面目标保持原绑定）。全量 **4797/0**（coding-agent +7，chord 99→102）。
+另新增真实 fullscreen 集成：`TuiAltScreen` + `StringTerminal` 验证完整 viewport、长
+transcript 和 PageUp/PageDown 的 follow-end 行为。另三个 chord 侧用例（`RemoteSourceTests`
++3：视图替换绑定 / 无视图绑原门面 / 非门面目标保持原绑定）。
 
 **抓到并修掉一个测试侧真问题**：主 fixture 服务器写成 `Radius: false`，而 TS 对应
 fixture 是 `radius: true`——桥接 facet 只对 radius 服务器订阅 connection/attachment，
@@ -7295,5 +7299,13 @@ fixture 是 `radius: true`——桥接 facet 只对 radius 服务器订阅 conne
 **顺手对齐**：continue/resume 的排序键改用 `summary.serverId`（TS 是
 `left.summary.serverId`，原按 `server.serverId`——实运行时两者同值，按 TS 逐字对齐）。
 
-**未覆盖**：真终端 fullscreen 渲染与滚动、`/compact` 等其余内建命令的选择器走查、
-插件包真装载（C335）。
+**真实终端测试发现的并发缺陷**：后台 TUI 定时器可与异步 `Rebuild` 同时遍历/修改
+`Container.Children`，触发 `Collection was modified` 并使进程崩溃。`Container.Render`、
+鼠标命中测试和失效遍历现使用受锁保护的子项快照；InteractiveMode/selector 的结构变更
+改走同步容器方法，并新增确定性的并发回归测试。
+
+**本机验收**：`ClientTuiTests` 8/8；完整 `Pi.Tui.Tests` 23,875/23,875；完整
+`Pi.CodingAgent.Tests` 4,944/4,944，0 失败。
+
+**未覆盖**：`/compact` 等其余内建命令的选择器走查；插件包真实 JavaScript 执行/装载
+（C335，需决定保留 JS bundle runtime 还是转为 .NET 原生插件包；见迁移执行状态）。

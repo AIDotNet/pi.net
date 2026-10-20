@@ -127,7 +127,7 @@ public sealed class SelectSubmenu : Container
 
         // Select list
         _selectList = BuildSelectList(options, currentValue);
-        _listChildIndex = Children.Count;
+        _listChildIndex = GetChildrenSnapshot().Count;
         AddChild(_selectList);
 
         // TS wires `searchInput.onSubmit` before the list exists; the handler only reads `selectList`
@@ -183,7 +183,7 @@ public sealed class SelectSubmenu : Container
             : _allOptions;
 
         var newList = BuildSelectList(filtered, "");
-        Children[_listChildIndex] = newList;
+        ReplaceChildAt(_listChildIndex, newList);
         _selectList = newList;
     }
 

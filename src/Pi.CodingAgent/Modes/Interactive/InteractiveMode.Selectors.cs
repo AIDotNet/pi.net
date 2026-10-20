@@ -85,7 +85,7 @@ public partial class InteractiveMode
                     OnShowImagesChange = enabled =>
                     {
                         SettingsManager.SetShowImages(enabled);
-                        foreach (var child in _chatContainer.Children)
+                        foreach (var child in _chatContainer.GetChildrenSnapshot())
                         {
                             if (child is ToolExecutionComponent tool)
                             {
@@ -96,7 +96,7 @@ public partial class InteractiveMode
                     OnImageWidthCellsChange = width =>
                     {
                         SettingsManager.SetImageWidthCells(width);
-                        foreach (var child in _chatContainer.Children)
+                        foreach (var child in _chatContainer.GetChildrenSnapshot())
                         {
                             if (child is ToolExecutionComponent tool)
                             {
@@ -219,7 +219,7 @@ public partial class InteractiveMode
                         _outputPad = padding;
                         foreach (var container in new[] { _chatContainer, _pendingMessagesContainer })
                         {
-                            foreach (var child in container.Children)
+                            foreach (var child in container.GetChildrenSnapshot())
                             {
                                 if (child is IOutputPadSettable padSettable)
                                 {

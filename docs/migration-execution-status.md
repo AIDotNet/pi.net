@@ -27,17 +27,18 @@
 | `codemode` | `Pi.Codemode` | 已迁移 | VM 执行由 `ICodemodeJsEngine` 注入；默认实现明确拒绝未配置的执行，不伪装为成功。 |
 | `env` | `Pi.Env` | 客户端实现已迁移；Windows conformance 通过 | 协议连接、SSH 引导、远程环境与 watcher 已移植；守护进程按原生产物注入（差异 E-C1）。本轮 `Pi.Env.Tests` 46/46 通过、1 项 sshd 端到端因本机无 sshd 跳过；仍需 POSIX 主机验收。 |
 | `durable` | `Pi.Durable` | 核心实现及 harness 行为对齐已完成 | Memory/SQLite storage、Session、context retention/cache、compaction、任务/会话恢复及 harness/runtime 均有实现；本轮 `Pi.Durable.Tests` 398/398 通过。最终公开契约与 POSIX 验收仍在剩余项中。 |
-| `tui` | `Pi.Tui` | 功能实现完成 | 44/45 个 TS 源文件已有实现；剩余 `index.ts` 是纯导出桶，不需要单独 C# 文件。 |
-| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` + `Pi.DurableHost` | 主体功能迁移完成；平台/契约验收未闭环 | 交互/RPC、CLI、MCP/Llama UI、package manager、资源链、Vacation、Durable session-worker 与独立宿主均已实现。C362 已由 `adf2303` 的 harness 复用接线并在 `11e2b58` 关闭；codemode renderer 已由 `c989567` 移植。4g-3h 剩余 Bun/Node 专属运行时垫片、动态加载钩子及被合并/替代的文件不逐字移植；本轮没有发现仍缺失的整块 coding-agent 功能文件。 |
+| `tui` | `Pi.Tui` | 功能实现完成 | 44/45 个 TS 源文件已有实现；剩余 `index.ts` 是纯导出桶，不需要单独 C# 文件。本轮新增 fullscreen client TUI/滚动集成测试和容器并发渲染回归测试。 |
+| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` + `Pi.DurableHost` | 主体功能迁移完成；平台/契约验收未闭环 | 交互/RPC、CLI、MCP/Llama UI、package manager、资源链、Vacation、Durable session-worker 与独立宿主均已实现。C362 已由 `adf2303` 的 harness 复用接线并在 `11e2b58` 关闭；codemode renderer 已由 `c989567` 移植。4g-3h 剩余 Bun/Node 专属运行时垫片、动态加载钩子及被合并/替代的文件不逐字移植；实验插件 JS bundle 在默认 .NET host 中仍不可执行，兼容方案待决。 |
 | `evals` | `Pi.Evals` | 实现完成，容器级验收未完成 | 已移植 CLI、host/documentation eval、任务发现/计划/报告和 Docker 隔离执行；单元测试已通过。当前环境无 Docker/Podman/nerdctl 或 WSL 发行版，镜像构建与容器 smoke 尚未验证。 |
 
 ## 剩余事项与优先级
 
-**P0：本轮没有发现尚未迁移的完整功能模块。** 下列运行时和契约验收仍未完成，不能据此宣称迁移已全部验收。
+**P0：本轮没有发现需要从零补建的整包/主模块。** 这不表示所有边界均已完成；例如实验插件 JS bundle 执行仍是待决的兼容性缺口。下列运行时和契约验收未完成前，不能宣称迁移已全部验收。
 
 | 优先级 | 工作项 | 主要源范围 | 依赖 / 理由 |
 |---|---|---|---|
 | **P1** | Evals 容器级验收 | `packages/evals` 与 `src/Pi.Evals/Docker` | 实现及单元测试已通过；需构建两种镜像并运行隔离 eval smoke。本机没有 Docker、Podman、nerdctl 服务，WSL 未安装发行版。 |
+| **P1** | 实验插件包执行兼容性决策 | `packages/coding-agent/src/experimental/plugins/*`、`src/Pi.CodingAgent/Experimental/Plugins`、`src/Pi.Chord/Node/BundleLoader.cs` | TS 插件包产出 JavaScript bundle；默认 .NET `UnsupportedFacetModuleHost` 不执行该格式。需决定提供兼容 JS runtime，还是定义 .NET 原生插件包格式；在决策和真实装载验收前，不把插件包功能记为 parity 完成。 |
 | **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | 现有导出面扫描是启发式：TS 类型别名、工厂函数、命名转换及拆分项目会产生未匹配项；必须逐项分类并用行为/JSON 测试确认，不能把扫描结果直接视作缺陷或通过。 |
 | **P2** | POSIX transport 与 SSH 端到端验收 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts`、`Pi.Client` / `Pi.Server` / `Pi.Env` | Windows 定点测试通过，但没有 POSIX .NET runner 或 sshd；需在 POSIX 主机验证 Unix socket、发现/握手，以及 SSH 扫描、信任、部署和远程执行链。 |
 
@@ -59,6 +60,7 @@
 | **7. Durable test parity** | `Pi.Durable/Harness` 的 context retention/cache、compaction、任务/会话和 generation/tool recovery；核对 `harness-compaction`、`structured`、`tasks`、`ownership`、`tasks-recovery`、`conversations`、`live-deltas`、`tools-recovery`、`generation-recovery`。 | 各源测试套件的可观察状态迁移、边界和恢复行为均有 C# 等价断言（允许将重复场景合并到行为级测试）；不可移植项有可复现理由；完整 Durable 套件可稳定完成。 | 已完成并推送（`eb9d195`）。 |
 | **8. Evals** | 新增 `Pi.Evals` 及测试项目，接线 solution/CLI；移植 host/docs eval、CLI、scenario/task/report、Docker supervisor/worker 与 .NET 扩展文档。 | 评测选择、执行、结果格式、失败/超时语义与 TS 对照；新项目和全 solution 构建通过；测试覆盖源包契约；Docker 镜像构建及隔离 smoke 在可用运行时验证。 | 实现、构建与测试完成，已提交并推送（`f4b03aa`）；Docker 镜像/容器验收因环境无容器运行时而阻塞，未宣称通过。 |
 | **9. 最终一致性与交付** | 全包差异审计、迁移文档收口、上游 TypeScript 文档/示例的 .NET 适配决策、所有提交和远端同步。 | `dotnet build Pi.slnx -m:1` 成功；目标测试按环境可运行范围全部通过，剩余受限测试有隔离证据；源/目标公开接口与 JSON/wire 形状核对完；文档/示例差异已处理或明确接受；工作区干净且提交已推送。 | 本机构建、测试、CLI smoke 和文档适配完成；POSIX、Docker 与剩余公开契约复核仍未完成，阶段保持未完成。 |
+| **10. Experimental client TUI fullscreen parity** | `ClientTuiTests`、`Pi.Tui.Container` 及 InteractiveMode/selector 的子项访问；接入真实 `TuiAltScreen`/`StringTerminal`，覆盖全屏渲染、滚动与异步结构更新。 | 验证 viewport 高度、长 transcript、PageUp/PageDown follow-end；在并发变更时稳定渲染容器快照；运行完整 `Pi.Tui.Tests` 与 `Pi.CodingAgent.Tests`。 | 本轮已完成本机验收：Pi.Tui 23,875/23,875、Pi.CodingAgent 4,944/4,944；整体阶段 9 仍受上述 P1/P2 项阻塞。 |
 
 ### 特殊范围决策
 
