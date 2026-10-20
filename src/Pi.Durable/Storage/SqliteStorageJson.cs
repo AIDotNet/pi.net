@@ -12,6 +12,9 @@ internal static class SqliteStorageJson
 {
     private static readonly JsonSerializerOptions Options = CreateOptions();
 
+    /// <summary>与 SQLite 存储共用的一套记录 JSON 形状（camelCase + 品牌 ID/联合转换器）。</summary>
+    internal static JsonSerializerOptions SerializerOptions => Options;
+
     public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
 
     public static T Deserialize<T>(string json)

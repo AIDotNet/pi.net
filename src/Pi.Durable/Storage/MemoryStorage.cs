@@ -145,19 +145,74 @@ public sealed class MemoryStorage : IStorage
     /// <inheritdoc />
     public Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
     {
+        // 外层锁保证“取序列 → 校验 → 应用”对并发调用是原子的；内层锁可重入。
+        lock (_gate)
+        {
+            return Task.FromResult(PrepareCommit(writes).Apply());
+        }
+    }
+
+    /// <summary>
+    /// 校验并分离一次提交，但不改变可观察状态。对应 TS <c>MemoryStorage.prepareCommit</c>：
+    /// 需要“先落盘、再应用”的存储后端（如 JSONL）用它取得已解析副本的写入与目标序列。
+    /// 显式 <paramref name="seq"/> 供日志重放按原始序列应用。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">存储已关闭，或序列没有严格递增。</exception>
+    internal PreparedCommit PrepareCommit(IReadOnlyList<StorageWrite> writes, Seq? seq = null)
+    {
         lock (_gate)
         {
             AssertOpen();
-            var seq = Seq.From(_nextSeq);
+            var target = seq ?? Seq.From(_nextSeq);
+            if (target.Value < _nextSeq)
+                throw new InvalidOperationException($"Commit sequence {target.Value} does not strictly increase");
             var detached = CloneWrites(writes);
             var resolved = ResolveDocumentCopies(detached);
             CheckGlobalIds(resolved);
             var actions = PrepareDocumentActions(resolved);
             CheckDocumentActions(actions);
-            ApplyPreparedCommit(resolved, actions, seq);
-            var publication = BuildPublication(seq, resolved);
-            QueuePublication(publication);
-            return Task.FromResult(seq);
+            return new PreparedCommit(this, resolved, actions, target);
+        }
+    }
+
+    /// <summary>一次已校验、尚未应用的内存提交。对应 TS <c>PreparedMemoryCommit</c>。</summary>
+    internal sealed class PreparedCommit
+    {
+        private readonly MemoryStorage _storage;
+        private readonly IReadOnlyList<StorageWrite> _writes;
+        private readonly IReadOnlyList<(long Id, DocumentAction Action)> _actions;
+        private readonly Seq _seq;
+        private bool _applied;
+
+        internal PreparedCommit(
+            MemoryStorage storage,
+            IReadOnlyList<StorageWrite> writes,
+            IReadOnlyList<(long Id, DocumentAction Action)> actions,
+            Seq seq)
+        {
+            _storage = storage;
+            _writes = writes;
+            _actions = actions;
+            _seq = seq;
+        }
+
+        /// <summary>本次提交的序列。</summary>
+        public Seq Seq => _seq;
+
+        /// <summary>分离并解析副本后的写入；日志后端据此编码。</summary>
+        public IReadOnlyList<StorageWrite> Writes => _writes;
+
+        /// <summary>应用提交并发布一次；重复调用返回同一序列。</summary>
+        public Seq Apply()
+        {
+            lock (_storage._gate)
+            {
+                if (_applied) return _seq;
+                _applied = true;
+                _storage.ApplyPreparedCommit(_writes, _actions, _seq);
+                _storage.QueuePublication(_storage.BuildPublication(_seq, _writes));
+                return _seq;
+            }
         }
     }
 
@@ -921,7 +976,7 @@ public sealed class MemoryStorage : IStorage
     }
 
     /// <summary>一个文档化身在本批次中的动作聚合。对应 TS <c>DocumentAction</c>。</summary>
-    private sealed class DocumentAction
+    internal sealed class DocumentAction
     {
         public DocumentCreate? Create { get; set; }
 

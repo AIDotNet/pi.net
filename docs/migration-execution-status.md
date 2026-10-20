@@ -33,11 +33,14 @@
 
 ## 剩余事项与优先级
 
-**P0：本轮没有发现需要从零补建的整包/主模块。** 这不表示所有边界均已完成；Stage 11 已通过默认 Jint host 解决受支持 CommonJS 插件 bundle 的执行，Node/Bun 内置模块、全局对象和动态加载仍不提供兼容层。下列运行时和契约验收未完成前，不能宣称迁移已全部验收。
+**P0：截至 2026-10-20 独立静态复核，没有发现需要整包补建的主模块，但发现一处未入账的真实功能缺口（JSONL 存储后端，G1）。** 这不表示所有边界均已完成；Stage 11 已通过默认 Jint host 解决受支持 CommonJS 插件 bundle 的执行，Node/Bun 内置模块、全局对象和动态加载仍不提供兼容层。下列运行时和契约验收未完成前，不能宣称迁移已全部验收。
 
 | 优先级 | 工作项 | 主要源范围 | 依赖 / 理由 |
 |---|---|---|---|
-| **P1** | Evals 容器级验收 | `packages/evals` 与 `src/Pi.Evals/Docker` | 实现及单元测试已通过；需构建两种镜像并运行隔离 eval smoke。本机没有 Docker、Podman、nerdctl 服务，WSL 未安装发行版。 |
+| **P1** | JSONL 存储后端（G1） | `packages/durable/src/storage/jsonl/{storage,node}.ts` 与 `test/jsonl-storage.test.ts` | **实现已落地，未编译/未运行验证**：新增 `JsonlStorage.cs` / `JsonlStorageJson.cs`、`MemoryStorage.PrepareCommit` 与 3 个测试类。需在可用环境执行 build + conformance 后改为“已完成”。详见下方“2026-10-20 独立静态复核”。 |
+| **P1** | CodeMode 默认 JS 引擎（G2） | `packages/coding-agent/src/extensions/codemode/{execute.ts,worker.ts}`、`packages/codemode/src/runtime/worker.ts` | `ICodemodeJsEngine` 只有 `UnsupportedCodemodeJsEngine`，且 `EngineDefaults.Override` 在生产代码中无赋值点，内置 `codemode/execute` 工具开箱即失败。详见 G2。 |
+| **P2** | 扩展 Overlay 句柄接线（G3） | `packages/coding-agent/src/core/extensions/types.ts`、`packages/tui/src/tui.ts` | **实现已落地，未编译/未运行验证**：`OverlayHandle` 改为包装真实 `IOverlayHandle`（hide/setHidden/isHidden/focus/unfocus/isFocused/getBounds），`InteractiveMode` 转交 `ShowOverlay` 返回值。详见 G3。 |
+| **P1** | Evals 容器级验收 | `packages/evals` 与 `src/Pi.Evals/Docker` | 实现及单元测试已通过；需构建两种镜像并运行隔离 eval smoke。本机没有 Docker、Podman、nerdctl 服务，WSL 未安装发行版。容器内 `assertRootOnly`/`assertSandboxCannotRead` 探针亦未移植（G4）。 |
 | **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | 现有导出面扫描是启发式：TS 类型别名、工厂函数、命名转换及拆分项目会产生未匹配项；必须逐项分类并用行为/JSON 测试确认，不能把扫描结果直接视作缺陷或通过。 |
 | **P2** | POSIX transport 与 SSH 端到端验收 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts`、`Pi.Client` / `Pi.Server` / `Pi.Env` | Windows 定点测试通过，但没有 POSIX .NET runner 或 sshd；需在 POSIX 主机验证 Unix socket、发现/握手，以及 SSH 扫描、信任、部署和远程执行链。 |
 
@@ -110,3 +113,99 @@
 | 9. 最终一致性与交付 | 修正全量复验发现的测试假设；将根 README 与打包说明适配为 .NET，并标注上游 docs/examples 的适用范围；复核源码缺口并重新验证 solution、全部测试和 CLI。 | `dotnet build Pi.slnx --no-restore -m:1 -v:minimal`：0 警告、0 错误；13 个测试项目共 29,942 项，29,941 通过、0 失败、1 项 sshd 跳过；Pi CLI 与 Evals CLI `--help` 退出码 0；Durable/Vacation 宿主对 `--help` 按 TS 契约拒绝未知参数；`git diff --check` 通过。 | 本机可运行验收通过；Docker、POSIX 和剩余公开契约复核仍阻塞，阶段未完成。原实现记录提交 `309fb30` 已推送；后续台账更新（含本阶段）持续记录并单独推送。 |
 | 11. Jint 插件包与 keyed Context 生命周期 | 默认插件 host 改为 Jint CommonJS 执行；修复同 Jint 引擎回调重入；桥接 Context key identity、AbortSignal 事件及监听器释放；将 keyed observation 改为按 observer-entry 创建/取消 Context，并覆盖 remote reload 的旧实例失效。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；`Pi.Chord.Tests` 104/104、`PluginBundlesTests` 12/12、`JintContextBridgeTests` 3/3、完整 `Pi.CodingAgent.Tests` 4,948/4,948；`git diff --check` 通过。 | `a3b7b0c feat(plugins): align Jint bundles and keyed contexts`，已推送 `origin/main`。 |
 | 12. Client TUI `/compact` dispatch parity | 新增经 loopback AgentController 服务调用的 Client TUI 覆盖；分别验证自定义指令和空参数，并将 compact 响应 gate 住以观察 pending 状态及完成清理。 | `dotnet build .\tests\Pi.CodingAgent.Tests\Pi.CodingAgent.Tests.csproj --no-restore -m:1`：0 警告、0 错误；`ClientTuiTests.CompactCommandForwardsOptionalInstructionsAndShowsProgress` 2/2；`ClientTuiTests` 类 10/10。 | `f9be16f test(client): cover compact slash command`，已推送 `origin/main`。 |
+| 13. JSONL 存储后端（G1） | 按 `storage/jsonl/storage.ts` 逐段移植：主标记 + `doc-*/task-*` 侧车、严格 UTF-8/撕裂行处理、侧车确认与未确认尾截断、current-only 文档与 terminal 任务的回收、`.reclaim` 原子替换、毒化与重开语义；为 `MemoryStorage` 抽出 `PrepareCommit`（先校验后落盘）。新增 `JsonlStorageTests`、`JsonlStorageConformanceTests`、`JsonlStorageAcrossReopenConformanceTests`。 | **未运行**：本轮 shell 不可用，未执行 build/测试。静态核对项：存储契约 20 个成员全部委托/实现；校验文案与 TS 逐条对齐；conformance 以 `LocalExecutionEnv` 临时目录驱动并含跨重开包装器。 | **未提交、未推送**（无法运行 git）。 |
+| 14. 扩展 Overlay 句柄（G3） | `OverlayHandle` 由空占位改为包装 `Pi.Tui.IOverlayHandle` 的七成员契约；`InteractiveMode` 把 `ShowOverlay` 的真实句柄交给扩展回调，不再丢弃。 | **未运行**：未编译、未跑交互测试。静态核对：成员与 TS `OverlayHandle` 一一对应；调用方仅 `InteractiveMode` 一处，构造器 internal 不影响扩展程序集。 | **未提交、未推送**。 |
+
+## 2026-10-20 独立静态复核
+
+### 复核限制（先读）
+
+本轮 `execute_command` 无法启动 shell：`spawn C:\Users\Xzy\AppData\Local\Microsoft\WindowsApps\pwsh.exe ENOENT`。本机存在 Windows PowerShell 5.1（`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`），但工具固定调用 PowerShell 7 的 app execution alias。因此本轮：
+
+- 未运行 `dotnet build`、任何测试项目或 CLI 烟测；
+- 未运行任何 `git` 命令，**未提交、未推送**；
+- 以下全部结论来自源码逐文件静态对比，是“证据 + 判断”，不是运行结果。台账中历史阶段的构建/测试数字仍以其原提交记录为准。
+
+### 复核方法
+
+以 `packages/*/src`（TS，1,570 个 `.ts`）对 `src/Pi.*`（C#）逐包比对：先按目录统计两侧文件，再对无同名落点的 TS 文件做人工判定（区分桶文件、纯类型、平台专属适配器与真实功能）；同时检索 C# 侧 `NotImplementedException`、`TODO`、`Unsupported*`、空占位类型与从未赋值的注入点。
+
+### 结论
+
+12 个包（telemetry、protocol、agent、mcp、server、client、ai、chord、codemode 的编排层、tui、env、durable 的 memory/sqlite 层）文件级覆盖完整，未发现结构性缺失。发现 **3 处真实功能缺口** 与 **3 项受环境阻塞的验收**：
+
+| ID | 缺口 | TS 证据 | .NET 现状 | 影响 | 优先级 |
+|---|---|---|---|---|---|
+| **G1** | JSONL 纯文件存储后端缺失 | `packages/durable/src/storage/jsonl/storage.ts:1-880`、`node.ts`、`test/jsonl-storage.test.ts`（含跨重开 conformance 与恢复/回收用例） | `src/Pi.Durable/Storage` 仅 `MemoryStorage`、`SqliteStorage`；无 `JsonlStorage` | 无法用“目录 + JSONL 文件”持久化会话；TS 的第三套后端与其恢复语义在 .NET 无对应物 | **P1** |
+| **G2** | CodeMode 无默认 JS 引擎 | `packages/coding-agent/src/extensions/codemode/{execute.ts,worker.ts}`、`packages/codemode/src/runtime/worker.ts`（QuickJS WASM，每次执行新建 worker） | `src/Pi.Codemode/Runtime/Engine.cs:53` 只有 `UnsupportedCodemodeJsEngine`；`src/Pi.CodingAgent/Extensions/Codemode/CodemodeExecute.cs:59-63` 的 `EngineDefaults.Override` 在生产代码中无任何赋值点 | 内置 `codemode/execute` 工具开箱即以 `kind: "sandbox"` 失败，仅测试/宿主注入后才可用 | **P1** |
+| **G3** | 扩展 Overlay 句柄仍是空占位 | `packages/coding-agent/src/core/extensions/types.ts`（`OverlayHandle` 的 show/hide/setHidden）、`packages/tui/src/tui.ts`（真实 overlay 句柄） | `src/Pi.CodingAgent/Core/Extensions/Types/Placeholders.cs:119` 空类；`src/Pi.CodingAgent/Modes/Interactive/InteractiveMode.cs:1281-1285` 丢弃 `_ui.ShowOverlay(...)` 返回值并回传 `new OverlayHandle()` | 扩展拿到的是无行为对象，无法隐藏/恢复自己弹出的 overlay；TS 的 UI 契约在该路径上未兑现 | **P2** |
+| **G4** | Evals 容器内权限探针未移植 | `packages/evals/docker/entrypoint.ts:73-101,127-130`（`assertRootOnly` / `assertSandboxCannotRead`） | `src/Pi.Evals/EvalDockerRunner.cs` 的 `VerifyImageLayout` 只静态检查文件模式 | 镜像“评估器源码不可被 sandbox UID 读取”缺少运行时实证；容器级验收本来也被环境阻塞 | **P2**（依赖 Docker） |
+| **G5** | Cloudflare Workers AI binding 路径 | `packages/ai/src/api/cloudflare-ai-binding.ts`、`api/cloudflare.ts` | 无；只有 `Providers/CloudflareWorkersAi.cs` 的 HTTP 路径 | 该模块是 workerd `env.AI.fetch()` 适配，属平台专属；建议按 Node/Bun 适配器同一规则**明确排除**并在文档登记，而不是补建 | **P3** |
+| **G6** | POSIX transport / SSH 端到端 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts` | `Pi.Client`/`Pi.Server`/`Pi.Env` 已实现，仅在 Windows 验证 | Unix socket、发现/握手、sshd 扫描/信任/部署链未在 POSIX 主机验收 | **P1（验收）** |
+
+补充说明：
+- `chord/src/delta/draft.ts` 只是 10 行类型别名，`index.ts` 类桶文件不产生 C# 语义，二者不计为缺口。
+- `packages/durable/src/storage/jsonl/node.ts` 是 `NodeExecutionEnv` 的薄封装；C# 已有 `IFileSystem` 抽象，G1 只需移植 `storage.ts` 的逻辑即可保持可移植性。
+- `packages/ai` 的 `models.generated.ts`、`*.lazy.ts`、`bun-oauth.ts` 已在既有“特殊范围决策”中归并/排除，本轮复核未发现新的运行时缺口。
+- `src/Pi.Durable`、`src/Pi.Codemode`、`src/Pi.Tui` 中未发现 `NotImplementedException` 或 TODO 桩；`NotSupportedException` 命中均为类型守卫或平台分支。
+
+### 追加阶段计划（Stage 13–17）
+
+依赖顺序按“可离线验证 → 需要新运行时 → 需要容器 → 需要 POSIX”排列；每阶段仍沿用本文件既有约定：先读 TS 实现与测试，再做最小范围 C# 实现，阶段结束跑定点测试 + solution 构建，记录差异后单独提交推送。
+
+| 阶段 | 目标与文件范围 | 验收标准 | 依赖 | 状态 |
+|---|---|---|---|---|
+| **13. JSONL 存储后端（G1）** | 新增 `src/Pi.Durable/Storage/JsonlStorage.cs`（必要时拆 `JsonlStorageJson.cs`），复用 `IFileSystem`；新增 `tests/Pi.Durable.Tests/JsonlStorageTests.cs` 并注册 storage conformance。 | 1) storage conformance 23 项在 JSONL 后端全通过，含跨重开变体；2) 主日志/侧车文件的格式、`format`/`type` 校验与损坏拒绝文案与 TS 一致（`Malformed complete main.jsonl`、`Confirmed record follows an unconfirmed tail`、`Commit sequence does not strictly increase`、`Missing confirmed sidecar record`、`Invalid document content`）；3) current-only 文档与 terminal 任务的侧车回收、`.reclaim` 临时文件与崩溃恢复语义一致；4) `fsync` 选项、close 后拒绝、毒化后拒绝；5) 0 警告构建。 | 无（纯离线） | **实现与测试已写入，构建/运行未验证** |
+| **14. CodeMode 默认引擎（G2）** | 在 `Pi.Codemode` 提供默认可用的 `ICodemodeJsEngine` 实现（候选：Jint 承载 prelude + 工具桥；或宿主侧子进程引擎），或明确将 `codemode/execute` 标为“需宿主注入”并从默认工具集移除。**先决策，再实现**。 | 1) `codemode/execute` 在默认 CLI 下可执行 `tools.*` 调用并回传文本/图片/console 输出；2) 中止、超时、失控脚本停止、沙箱错误路径有测试；3) prelude 的 `settle/run/stalled` 消息序与 TS worker 一致；4) 若选择“移除默认工具”，需在 README/docs 与工具清单同步，并有测试锁定。 | Stage 13 无依赖；需先定引擎方案 | 未开始（待决策） |
+| **15. 扩展 Overlay 句柄（G3）** | `Placeholders.cs` 的 `OverlayHandle` 换成真实契约（show/hide/setHidden 或等价的 `IOverlayHandle`）；`InteractiveMode` 转交 `ShowOverlay` 返回的句柄并处理关闭后失效。 | 1) 扩展可隐藏/恢复自身 overlay；2) overlay 关闭后调用不抛异常且无副作用；3) 非 overlay 路径不受影响；4) `ExtensionManagerViewTests`/交互测试全绿。 | 无 | **实现已写入，构建/运行未验证**；尚缺“关闭后调用”覆盖测试 |
+| **16. Evals 容器验收（G4 + P1）** | 补齐 `assertRootOnly`/`assertSandboxCannotRead` 等价探针；在可用容器运行时构建两镜像并跑隔离 smoke。 | 1) 镜像内以 sandbox UID 读取评估器源码失败、root 读取成功；2) 两镜像 id 不同；3) 隔离 eval smoke 产出报告且失败正确传播。 | Docker/Podman/nerdctl 或 WSL 发行版 | 受环境阻塞 |
+| **17. 公开契约与 POSIX 收口（G6 + P2）** | 逐包导出面与 JSON/wire 形状核验；POSIX runner 上跑 Unix socket/发现/握手与 sshd 端到端。 | 1) 公开 API 差异逐项分类（补建或登记排除）；2) POSIX 传输与 SSH 链路通过；3) `git status` 干净、全部提交已推送。 | POSIX 主机 + sshd | 受环境阻塞 |
+
+### 环境恢复后必须执行的最小验证
+
+```powershell
+dotnet build .\Pi.slnx --no-restore -m:1 -v:minimal
+dotnet run --no-restore --project .\tests\Pi.Durable.Tests\Pi.Durable.Tests.csproj
+dotnet run --no-restore --project .\tests\Pi.CodingAgent.Tests\Pi.CodingAgent.Tests.csproj
+dotnet run --project .\src\Pi.Cli\Pi.Cli.csproj -- --help
+git status --short
+git diff --check
+```
+
+当前 shell 修复方式（任一）：安装 PowerShell 7 并启用 `pwsh` app execution alias；或把 IDE 的默认终端指向 `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` 后重试。
+
+### 本轮变更清单（均未提交）
+
+| 文件 | 变更 |
+|---|---|
+| `src/Pi.Durable/Storage/JsonlStorage.cs` | 新增 JSONL 存储后端（提交/恢复/回收/毒化/关闭） |
+| `src/Pi.Durable/Storage/JsonlStorageJson.cs` | 新增主标记与侧车记录的编码/严格校验 |
+| `src/Pi.Durable/Storage/MemoryStorage.cs` | 抽出 `PrepareCommit`（校验 → 落盘 → 应用），`CommitAsync` 保持原子 |
+| `src/Pi.Durable/Storage/SqliteStorageJson.cs` | 暴露共用序列化选项 |
+| `tests/Pi.Durable.Tests/JsonlStorageTests.cs` | 新增 conformance（含跨重开）与 7 个定点测试 |
+| `src/Pi.CodingAgent/Core/Extensions/Types/Placeholders.cs` | `OverlayHandle` 改为真实句柄包装 |
+| `src/Pi.CodingAgent/Modes/Interactive/InteractiveMode.cs` | 转交 `ShowOverlay` 句柄 |
+| `readme.md` / `readme.zh-CN.md` | 存储后端说明 |
+| `docs/migration-execution-status.md` | 本台账 |
+
+Stage 13 定向验证命令（shell 恢复后执行，先于提交）：
+
+```powershell
+dotnet build .\src\Pi.Durable\Pi.Durable.csproj --no-restore -m:1
+dotnet build .\tests\Pi.Durable.Tests\Pi.Durable.Tests.csproj --no-restore -m:1
+dotnet run --no-restore --project .\tests\Pi.Durable.Tests\Pi.Durable.Tests.csproj -- --filter-class Pi.Durable.Tests.JsonlStorageConformanceTests
+dotnet run --no-restore --project .\tests\Pi.Durable.Tests\Pi.Durable.Tests.csproj -- --filter-class Pi.Durable.Tests.JsonlStorageAcrossReopenConformanceTests
+dotnet run --no-restore --project .\tests\Pi.Durable.Tests\Pi.Durable.Tests.csproj -- --filter-class Pi.Durable.Tests.JsonlStorageTests
+```
+
+Stage 15 定向验证：`dotnet build .\tests\Pi.CodingAgent.Tests\Pi.CodingAgent.Tests.csproj --no-restore -m:1`，并补一条“overlay 关闭后调用句柄不抛异常”的交互测试。
+
+### 尚未动工的 G2 与可选方案
+
+G2（CodeMode 默认 JS 引擎）需要先定方案，未在本轮改代码：
+
+- **A. Jint 承载 prelude + 工具桥**：复用 CodingAgent 插件 host 已有的 Jint 依赖，无新增外部运行时；但 Jint 的微任务/中断模型与 QuickJS worker 不同，`stalled()` 排空与失控脚本终止需要额外实现，风险中等偏高。
+- **B. 从默认工具集移除 `codemode/execute`**：最低风险，但属于行为回退，需要同步工具清单与文档，并加测试锁定。
+- **C. 子进程引擎（Node/QuickJS）**：与 TS 最接近，但给 .NET 宿主增加 Node 依赖，偏离“原生宿主”决策。
+
+建议先做 A 的可行性验证（能跑通 prelude + 一次工具调用 + 中止），失败再退回 B。决策后再进入实现阶段。

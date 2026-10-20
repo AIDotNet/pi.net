@@ -1279,10 +1279,8 @@ public partial class InteractiveMode
                 // Resolve overlay options - TS allows a static value or a factory for dynamic updates.
                 var overlayOptions = options?.OverlayOptions;
                 var handle = _ui.ShowOverlay(component, overlayOptions);
-                // Expose handle to caller for visibility control. The C# OverlayHandle is still a
-                // placeholder (see Extensions/Types/Placeholders.cs), so nothing transfers yet.
-                options?.OnHandle?.Invoke(new OverlayHandle());
-                _ = handle;
+                // 把 TUI 的真实句柄交给扩展；overlay 关闭后该句柄的后续调用为空操作。
+                options?.OnHandle?.Invoke(new OverlayHandle(handle));
             }
             else
             {

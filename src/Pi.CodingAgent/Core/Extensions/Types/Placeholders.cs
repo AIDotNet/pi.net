@@ -1,5 +1,6 @@
 using Pi.Ai.Models;
 using Pi.Ai.Types;
+using Pi.Tui;
 
 namespace Pi.CodingAgent.Core.Extensions.Types;
 
@@ -114,10 +115,35 @@ public interface ISessionManager : IReadonlySessionManager
 // ---------------------------------------------------------------------------
 
 /// <summary>
-/// TS <c>OverlayHandle</c>（pi-tui）占位。// 4e/4f 接入后替换
+/// 扩展可见的 overlay 控制句柄。对应 pi-tui 的 <c>OverlayHandle</c>：
+/// 包装真实 <see cref="IOverlayHandle"/>，只暴露 TS 契约里的七个成员。
 /// </summary>
 public sealed class OverlayHandle
 {
+    private readonly IOverlayHandle _handle;
+
+    internal OverlayHandle(IOverlayHandle handle) => _handle = handle;
+
+    /// <summary>永久移除 overlay（不能再次显示）。</summary>
+    public void Hide() => _handle.Hide();
+
+    /// <summary>临时隐藏或显示 overlay。</summary>
+    public void SetHidden(bool hidden) => _handle.SetHidden(hidden);
+
+    /// <summary>overlay 是否被临时隐藏。</summary>
+    public bool IsHidden() => _handle.IsHidden();
+
+    /// <summary>聚焦该 overlay 并置于视觉最前。</summary>
+    public void Focus() => _handle.Focus();
+
+    /// <summary>释放焦点到下一个可见的可捕获 overlay 或先前目标。</summary>
+    public void Unfocus(OverlayUnfocusOptions? options = null) => _handle.Unfocus(options);
+
+    /// <summary>该 overlay 当前是否持有焦点。</summary>
+    public bool IsFocused() => _handle.IsFocused();
+
+    /// <summary>最近一次渲染的可见边界。</summary>
+    public OverlayBounds? GetBounds() => _handle.GetBounds();
 }
 
 /// <summary>
