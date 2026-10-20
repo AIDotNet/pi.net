@@ -64,7 +64,7 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | ✅ `6404bfc`（client-runtime，0.36）+ `02b2b33`（client，0.37）+ `ad84b5f`（TUI+chat，0.38，含 Chord `TypedServiceViews` C376 与 Durable advance 基座修正） |
 | 4g-3f | `durable/*`（**实际 8 文件** 1,350 行；原记「9 文件 ~1,440」有误） | ~1,350 | ✅ `82f5c2f`（0.39；与 `vacation/*` 收敛为一份实现，仅新增 7 例测试） |
 | 4g-3g | `vacation/*`（6 文件） | ~1,305 | ✅ 代码随 4g-3f 一并收敛（`ExperimentalRuntime` / `ExperimentalTui` / `ExperimentalSessions` 三处 profile 化，见 0.39） |
-| 4g-3h | `bun/*`(61) + `client/*`(1) + `plugin.ts`(16) + `source-resolver.ts`(86) | ~164 | 平台缺口判定批 |
+| 4g-3h | `bun/*`(61) + `client/*`(1) + `plugin.ts`(16) + `source-resolver.ts`(86) | ~164 | 平台缺口判定批。**2026-10-20 逐文件审计确认**：`bun/*`（sandbox env 恢复/运行时装配）、`core/extensions/jiti-*`、`virtual-modules.ts`、`experimental/source-resolver.ts`（tsconfig paths 的 Node module hook）、各 `*.lazy.ts` 都属此类；`experimental/plugin.ts` 只是 17 行 re-export barrel，无需移植 |
 
 **P7 evals**（~1,300 行，未建项目）。
 
@@ -1397,3 +1397,36 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
   `CoreProviderComposerTests.ImagesWithoutAnyImplementationReportTheModelsLayerMessage`），
   两者单跑分别 10/10、39/39，第三次全量（`--output Detailed`）4854/0 全绿 → 负载敏感 flake，
   记入观测名单，与本批改动无关（两者都不碰 session worker 与 harness 装配）。
+
+### 0.41 codemode 工具渲染器（`c989567`，2026-10-20）
+
+- **怎么发现的**：新写的逐文件覆盖审计（`tools/audit-file-coverage.py`，把 TS 文件名做
+  PascalCase 后与 `src/**/*.cs` 比对，文件名对不上再用主导出名在 C# 源码里搜一遍降噪）
+  列出 73 个「无同名 C# 文件」的 TS 文件。逐条分类后绝大多数是**已折入别处**（`core/tools/bash.ts`
+  → `Core/Tools/BashTool.cs`、组件目录按组件名拆开、barrel `index.ts`、以及
+  `utils/photon.ts` + `image-resize-worker.ts` 已被 `Utils/Image/` 的 SkiaSharp 实现取代），
+  `bun/*`、`jiti-*`、`virtual-modules`、`source-resolver`、`*.lazy.ts` 是平台垫片（4g-3h 范围），
+  真正的缺口只有一个：**`extensions/codemode/renderer.ts`(151) 从未移植**。
+- **为什么会漏**：`core/tools/renderers/index.ts` 的内置渲染器表**不含** codemode —— 扩展自己带
+  渲染器（`tool.ts` 里 `...codemodeRenderers` 展开）。于是 4f-1 的「内置渲染器」批按表覆盖时看不到它，
+  P5 的 codemode 批只移植了执行与声明渲染，两边都以为对方管了。表现是 codemode 行退化成通用行：
+  脚本不高亮、嵌套调用与成本不显示、`Script completed / Wall time / Output:` 头不剥。
+- **范围**：`renderCall`（脚本高亮 + 展开全文 / 10 行可视行预览 + `[invalid arg]`）与
+  `renderResult`（嵌套调用状态行 `… / ✓ / ✗ / ⊘` + 时长 + 成本、折叠时只留最后 8 条并前置
+  「N earlier calls」提示、多于一条计费时追加 `Model calls: $…` 合计、剥脚本头、输出 5 行预览 +
+  `Full output: <path>`）→ `Extensions/Codemode/CodemodeRenderers.cs`，并挂到
+  `CreateCodemodeToolDefinition`（对齐 TS 的展开）。
+- **连带新增 `Js.ToPrecision`（C381）**：`formatCost` 对不足一美分走 `toPrecision(2)`，而 .NET 无等价物，
+  且规范按 **double 精确值**舍入（`(1.45).toPrecision(2)` = `"1.4"`，按最短表示舍入会得 `"1.5"`）。
+  实现走精确有理数 + BigInteger，指数估后用精确比较修正；74 条 V8 实测向量锁定（含次正规数）。
+- **正则锚点（C382）**：脚本头用 `\A…\z` + `[0-9.]+` 而非 `^…$` + `\d` —— .NET 的 `$` 还匹配末尾换行前、
+  `\d` 匹配 Unicode 数字，照搬会把 `"…Output:/n/n"` 误判成头而剥掉原文。有专门一例钉住。
+- **测试**：`CodemodeRenderersTests` 15 例（脚本预览/展开/非法参数/空脚本、剥头与「不是头」两种、
+  折叠窗口与合计、时长与成本格式、错误仅在展开时显示、全量输出路径、partial 不出输出、
+  复用上次容器）+ `JsNumberFormatTests` 74 例。全量 **4943/0**（+89）。
+- **未纳入差分语料**：`tools/gen-toolrenderers-corpus.mjs` 只 stage `core/tools/renderers/*`，
+  扩展渲染器要新增 staged import 链（`extensions/codemode/renderer.ts` → `./tool.ts` 类型、
+  `keybinding-hints`、`visual-truncate`、`theme`）。本批用手写断言覆盖同一批可观察决策，
+  记为该渲染器的后续项。
+- **审计脚本的结论（供后续批次参考）**：`coding-agent` 已无「整文件缺失」的功能性缺口；
+  剩下的是平台垫片（4g-3h）与散落的「已折入别处」。
