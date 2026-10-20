@@ -18,7 +18,7 @@
 `Pi.Durable/Env` 的公开面是 `IExecutionEnv` / `LocalExecutionEnv` / `FileStat` 等，
 与 `packages/env` 的 26 个导出**零交集**。因此 `env` 是 14 个源包中唯一整体缺失的一个。
 
-判定方法可复现：`tools/audit-export-surface.py` 逐包解析 TS `src/index.ts` 的导出闭包
+判定方法可复现：`tools/audit-export-surface.py`（本地诊断脚本，按仓库约定 `tools/` 不入库）逐包解析 TS `src/index.ts` 的导出闭包
 （含 `export *` 递归），与对应 C# 项目的公开符号集合做归一化比对。其余 13 包的未匹配项
 全部落在「TS 纯类型别名 / 类型守卫 / 工厂函数」上，`env` 则是 26/26 全未匹配。
 
@@ -72,7 +72,60 @@ C# 客户端直接与它对话，跑 Durable 的 env conformance 全套用例 + 
 | E-C4 | 错误消息里的 `JSON.stringify(value)` 改用 STJ 的宽松转义 | 仅影响消息文本；`toThrow()` 级断言不变 |
 | E-C5 | 文件模式（0700/0600）只在非 Windows 上设置 | Windows 无 POSIX 模式位 |
 | E-C6 | 参考守护进程来自上游 Rust 源码的本地 `cargo build`，不随仓库分发 | 与上游发布模型一致（二进制在发布产物里） |
+| E-C7 | 测试里「中止/超时应在若干毫秒内落定」的墙钟预算在 Windows 上按实测放宽 | 守护进程用 `taskkill /F /T` 在 Windows 上终止进程树，用 `kill(-pid)` 在 POSIX 上终止。实测（裸帧协议脚本、零客户端逻辑、13 次采样）：Windows 每次终止 **1.1–1.8 秒**，与进程树形状无关（`cmd /c ping` 与裸 `ping` 相同）。上游阈值按 POSIX 标定 |
+| E-C8 | 测试宿主的 `sh` 用 Git Bash，并允许 `PI_ENV_BASH` 指到非标准安装位置 | 上游把 `$ProgramFiles/Git/bin/bash.exe` 写死；本机 Git 装在被宿主程序附带的 PortableGit 里，硬编码路径会退化成静默跳过（见执行记录） |
 
 ## 五、执行记录
 
-（每阶段完成后追加，含实际命令与结果。）
+### E1 协议连接层 — `9013cbb`
+
+- `src/Pi.Env/{EnvJson,Connection}.cs` + `Pi.Env.csproj`，`Pi.slnx` 增加 `src/Pi.Env`、`tests/Pi.Env.Tests`、`tests/Pi.Env.FakeDaemon`。
+- 参考守护进程：`cargo build --target-dir tools/pi-env-daemon-target`（本机 Rust 1.92）→ `pi-env 1.0.4`。
+- `ConnectionTests` 9/9；全解决方案 `dotnet build Pi.slnx -m:1` 0 警告 0 错误。
+
+### E2 SSH 层 — `d7230b9`
+
+- `src/Pi.Env/Ssh.cs`，`SshTests` 9/9（`Pi.Env.Tests` 合计 18/18）。
+- 该轮把依赖 `RemoteExecutionEnv` 的 sshd 端到端用例暂时移出，E3 补回（见下）。
+
+### E3 远程环境层 — `b355710`
+
+- `src/Pi.Env/{RemoteEnv,RemoteWatcher,Errors}.cs`；`NodePath` 从 `Pi.CodingAgent/Utils` 下沉到
+  `Pi.Durable/Env`（远程环境要按**远端**规则解析路径，否则 `Pi.Env` 会反向依赖 `Pi.CodingAgent`），
+  `Pi.CodingAgent/GlobalUsings.cs` 用 `global using` 别名保住 57 个调用点不动。
+- `ExecutionError` 增加可选 `spillPath` 参数（`exec` 失败时要能带上溢出文件路径）。
+- 结果：`Pi.Env.Tests` **47 项 / 46 通过 / 1 跳过**（跳过的 sshd 端到端用例在本机不可用，与上游同策略）。
+  `Pi.Durable.Tests` 398 项通过。全解决方案 0 警告 0 错误。
+
+一致性检查（逐条对齐 TS 原文）：
+
+| 检查项 | 结果 |
+|---|---|
+| `packages/env` 导出面 26 项 | 26/26 匹配（`tools/audit-export-surface.py`，本地诊断脚本）。脚本原先把 `env` 映射到 `Pi.Durable`，沿用台账的错误记录，已改为 `Pi.Env`；并补上 `<Pascal>Async` 候选，顺带修正 `durable`/`coding-agent` 各 2 个同类假阴性 |
+| `abortResult` 调用点 | TS 17 处 ↔ C# 17 处，全部传 `context.abortSignal` |
+| `watch.ts` ↔ `RemoteWatcher.cs` | 退避 1s→30s、`ready` 才完成、`error` 后置 closed、断连重连后上报 `overflow`、回调抛异常不中断，逐条一致 |
+| `errors.ts` ↔ `Errors.cs` | 错误码映射表逐项一致（`ENOENT/ENOTDIR/EISDIR/EINVAL/SYMLINK/NOT_REGULAR/EACCES/EPERM`） |
+| Durable `EnvConformance` 20 项 | 20/20 通过（此前有 13 项被自造的按名字门控静默跳过，见下） |
+
+本轮修正的测试侧问题（均非实现缺陷）：
+
+1. **静默跳过**：conformance 测试曾按用例名（`exec`/`watch`/`symlink`）门控，缺 POSIX shell 时 `return`，
+   13/20 项「通过」其实什么都没跑。上游 `conformance.test.ts` **没有这道门**，且 watch 用例只用
+   `WriteFileAsync`/`RenameFileAsync`/`RemoveAsync`，根本不碰 shell。已删除门控，改为真实执行。
+2. **本机没有 Git Bash**：`$ProgramFiles/Git/bin/bash.exe` 不存在，宿主程序自带的 PortableGit 在
+   `D:\soft\WorkBuddyAI\resources\vendor\PortableGit\usr\bin\bash.exe`。`FindBash` 增加 `PI_ENV_BASH` 覆盖后，
+   conformance 20/20 实跑通过。
+3. **中止/超时阈值**：见 E-C7。判定依据是裸帧协议脚本（不经过任何 C# 代码）对同一个守护进程的实测，
+   同步取消 0 ms、延迟取消 1.0–1.4 s、`timeoutMs=300` 落定 1.4–1.8 s。
+4. **用例命令形状**：`LongRunning` 原用 `cmd /c ping -n 30`（30 秒），上游是 `["sleep","5"]`（裸进程、约五秒）。
+   已改为裸 `ping -n 6` 对齐形状——一旦某次中止没生效，用例仍在五秒内有界。
+
+未完成 / 未验证（不得记为通过）：
+
+- `SshdTests` 的端到端用例（未信任主机被拒 → 扫描接受 → 部署校验 → 经 SSH 执行）已按 TS 结构移植，
+  但**本机为 Windows 且无 sshd，实测跳过**（上游 `describe.skipIf(sshd === undefined)` 同样从不在此平台跑）。
+  需在 POSIX 主机上执行一次才能记为已验证。
+- `Pi.Durable.Tests` 观察到的既有抖动（与本轮改动无关，两轮全量各挂一个不同用例、单独跑均通过）：
+  `ToolsTests.Bash_StreamsOutputThroughApiAndReturnsNoContent`（只收到 stderr 分块）、
+  `HarnessGenerationRecoveryTests.ConvertsCommittedPartialToAbortedEntryBeforeResendingAfterReopen`（`zz` vs `zzz`）。
+  两者都在未改动的代码与测试里，属负载敏感竞态，另行排查。
