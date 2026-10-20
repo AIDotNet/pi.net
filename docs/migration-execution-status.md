@@ -9,8 +9,8 @@
 - TypeScript 源仓库：`D:\AI\参考项目\pi`，`main`，基线 `eb326d265ae0b88489a6d10319307780df827cdf`。
 - .NET 目标仓库：`D:\AI\参考项目\pi.net`，`main`，基线 `28aed27a515c6f87c3670ffcd10fd867fd7060c6`。
 - 目标仓库起始工作区干净并与 `origin/main` 同步。源仓库的未跟踪 `.workbuddy/` 属于原有内容，本轮保持不动。
-- 源包含 14 个 package；目标在本轮前有 13 个运行时项目，Stage 5 新增 `Pi.Vacation` 后现有 14 个。`env` 独立为 `Pi.Env`（见 `docs/env-package-migration.md`；此处原记「并入 `Pi.Durable/Env`」有误，`packages/env` 是基于 SSH + 守护进程的**远程**执行环境，与 Durable 里的执行环境抽象不是一回事），`Pi.Cli` 是 coding-agent 的 .NET 进程入口；Stage 8 新增独立评测工具项目 `Pi.Evals`（不计为运行时 package）。
-- 逐阶段代码记录比旧的逐包汇总新：coding-agent 已覆盖交互/RPC 模式、CLI、多个实验运行时及独立 Vacation 宿主；最近的实验客户端批次为 4e-3c-3。以下按源/目标代码和剩余事项描述，不把旧台账中的早期百分比当作当前状态。
+- 源包含 14 个 package；目标在本轮前有 13 个运行时项目，Stage 5 新增 `Pi.Vacation`、4g-3f 新增 `Pi.DurableHost` 后现有 15 个运行时项目。`env` 独立为 `Pi.Env`（见 `docs/env-package-migration.md`；此处原记「并入 `Pi.Durable/Env`」有误，`packages/env` 是基于 SSH + 守护进程的**远程**执行环境，与 Durable 里的执行环境抽象不是一回事），`Pi.Cli` 是 coding-agent 的 .NET 进程入口；Stage 8 新增独立评测工具项目 `Pi.Evals`（不计为运行时 package）。
+- 逐阶段代码记录比旧的逐包汇总新：coding-agent 已覆盖交互/RPC 模式、CLI、多个实验运行时及独立 Vacation / Durable 宿主；最近的批次为 4g-3f（durable 实验宿主，与 vacation 收敛为一份实现）。以下按源/目标代码和剩余事项描述，不把旧台账中的早期百分比当作当前状态。
 
 ## 逐包迁移矩阵
 
@@ -28,7 +28,7 @@
 | `env` | `Pi.Env` | 客户端已迁移，ssh 端到端未在本机验证 | 协议连接、SSH 引导、远程环境与 watcher 已移植；守护进程按原生产物注入（差异 E-C1）。`Pi.Env.Tests` 47 项 / 46 通过 / 1 跳过（sshd 端到端需 POSIX 主机）。 |
 | `durable` | `Pi.Durable` | 核心实现与 Stage 7 harness 一致性核对已完成 | Memory/SQLite storage、Session、context retention/cache、compaction、任务/会话恢复及 harness/runtime 均有实现和行为级测试；剩余平台验收与最终 wire/API 审计列入 Stage 9。 |
 | `tui` | `Pi.Tui` | 基本完成 | 44/45 个源文件已覆盖；剩余 `index.ts` 是 barrel/export 文件，公开面已逐项核对。 |
-| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` | 部分迁移，主体已落地 | 交互模式、RPC、CLI、实验客户端/服务端、Durable session-worker 及 Vacation 已有实现。Package manager 更新、CLI `-e` 资源链及扩展依赖告警已在阶段 3 完成；MCP/Llama 管理 UI 已在阶段 4 完成；Vacation 已在阶段 5 完成；Stage 6 平台核对与宿主资源定位已完成；Stage 8 增加 .NET 扩展指南。Stage 9 已将随包 README 改为 .NET 说明，并明确上游 docs/examples 是 TypeScript 参考内容。 |
+| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` + `Pi.DurableHost` | 部分迁移，主体已落地 | 交互模式、RPC、CLI、实验客户端/服务端、Durable session-worker、Vacation 与 Durable 实验宿主已有实现。Package manager 更新、CLI `-e` 资源链及扩展依赖告警已在阶段 3 完成；MCP/Llama 管理 UI 已在阶段 4 完成；Vacation 已在阶段 5 完成；Stage 6 平台核对与宿主资源定位已完成；Stage 8 增加 .NET 扩展指南。Stage 9 已将随包 README 改为 .NET 说明，并明确上游 docs/examples 是 TypeScript 参考内容。4g-3f 新增 `Pi.DurableHost`（`pi-durable`），并把 `experimental/durable` 与 `experimental/vacation` 收敛为一份实现（`ExperimentalRuntime`/`ExperimentalTui`/`ExperimentalSessions` + `ExperimentalProfile`，差异 C378/C379/C380）。未完成：`createCodingAgentHarness` 与 `runSessionWorkerProcess` 的 spawn 缝仍等 Pi.Durable 的 sqlite 存储（C362）。 |
 | `evals` | `Pi.Evals` | 实现完成，容器级验收未完成 | 已移植 CLI、host/documentation eval、任务发现/计划/报告和 Docker 隔离执行；单元测试已通过。当前环境无 Docker/Podman/nerdctl 或 WSL 发行版，镜像构建与容器 smoke 尚未验证。 |
 
 ## 剩余事项与优先级

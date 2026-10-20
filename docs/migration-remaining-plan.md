@@ -62,8 +62,8 @@ Pi.Durable/Pi.Chord/Pi.Server/Pi.Client/Pi.Protocol/Pi.Telemetry）+ `bun/*`(61)
 | 4g-3c | `coordinator.ts`(612) + `coordinator-entry.ts`(10) + `plugins/*`(226) | ~848 | 🟡 `plugins/*` ✅ `b1b4b80`（0.25）；余 `coordinator.ts` / `coordinator-entry.ts` |
 | 4g-3d | `server.ts`(770) + `session-worker*.ts`(1,688) + `radius-relay.ts`(724) + `radius-auth.ts`(67) + `commands.ts`(98) + `cli.ts`(12) | ~3,359 | 🟡 `radius-auth.ts` ✅ `1dd39c4`（0.27）+ `radius-relay.ts` 全文 ✅ `1602814`/`6422a37`（0.28/0.29）+ `session-worker.ts` 协议半 ✅ `106978b`（0.30）+ 入口半 ✅ `00e5b14`/`262f413`（0.31/0.32，`createCodingAgentHarness` 暂缓见 C362）；余 `session-worker-manager.ts` + `server.ts`/`commands.ts`/`cli.ts` |
 | 4g-3e | `client.ts`(86) + `client-runtime.ts`(230) + `client-tui.ts`(809) + `client-tui-chat.ts`(228) | ~1,353 | ✅ `6404bfc`（client-runtime，0.36）+ `02b2b33`（client，0.37）+ `ad84b5f`（TUI+chat，0.38，含 Chord `TypedServiceViews` C376 与 Durable advance 基座修正） |
-| 4g-3f | `durable/*`（9 文件） | ~1,440 | |
-| 4g-3g | `vacation/*`（6 文件） | ~1,305 | |
+| 4g-3f | `durable/*`（**实际 8 文件** 1,350 行；原记「9 文件 ~1,440」有误） | ~1,350 | ✅ `82f5c2f`（0.39；与 `vacation/*` 收敛为一份实现，仅新增 7 例测试） |
+| 4g-3g | `vacation/*`（6 文件） | ~1,305 | ✅ 代码随 4g-3f 一并收敛（`ExperimentalRuntime` / `ExperimentalTui` / `ExperimentalSessions` 三处 profile 化，见 0.39） |
 | 4g-3h | `bun/*`(61) + `client/*`(1) + `plugin.ts`(16) + `source-resolver.ts`(86) | ~164 | 平台缺口判定批 |
 
 **P7 evals**（~1,300 行，未建项目）。
@@ -1308,3 +1308,59 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
 - **4e-3c 收口**：experimental 客户端四件套（runtime / command / TUI / chat）齐。
   后续：4g-3f `durable/*` 9 文件（`createCodingAgentHarness` + `runSessionWorkerProcess`
   spawn 缝，C362）、Pi.Durable sqlite 存储、4g-3g `vacation/*`。
+
+### 0.39 4g-3f durable 实验宿主（`82f5c2f`，2026-10-20）
+
+- **范围纠正**：台账原记「`durable/*`（9 文件）~1,440 行」，实测当前检出（基线 `eb326d265`，
+  复核无漂移）只有 **8 个文件 1,350 行**；`git log --name-only` 显示该目录历史上也只出现过这 8 个
+  （`README` / `harness-setup` / `main` / `prompt` / `runtime` / `sessions` / `subagent` / `tui`）。
+  原数字无法复现，按实测修正。
+- **本批最重要的判定：上游同源，1,350 行不是「新代码」而是「小 delta + 复用」**。
+  逐文件实测：`cmp` 判定 `tui.ts`(655) 与 `main.ts`(20) **逐字节相同**；`diff runtime.ts` 只有
+  14 行（6 处装配差异）；`diff sessions.ts` 只有 2 行（目录名 `durable-sessions`/`vacation-sessions`
+  与「No durable/vacation session exists for …」文案）；`harness-setup.ts` 除
+  `createCodingRegistry` vs `createVacationRegistry` 外逐字相同。于是先收敛、再补 delta（C378）：
+  - `Experimental/ExperimentalRuntime.cs`（877 行）：从 `VacationRuntime.cs` 机械重命名后
+    profile 化，六钩子 `SessionKind` / `Label` / `InstallRegistry` / `RootExtensions` /
+    `RootCwd` / `CreateEnvironments` 承载全部差异。
+  - `Experimental/ExperimentalTui.cs`（490）、`Experimental/ExperimentalSessions.cs`（170）：
+    同样一份实现，`Vacation*` 三件改写为转发。
+  - `Experimental/Durable/DurableRuntime.cs`（56）+ `DurableTui.cs`（16）+ `DurableCommandLine.cs`（26）。
+- **文件映射**（`→` 后为本批产物）：
+
+  | 上游 | 行 | 目标 |
+  | --- | --- | --- |
+  | `sessions.ts` | 56 | `Experimental/ExperimentalSessions.cs`（170；`ExperimentalSessionKind` 收差异） |
+  | `subagent.ts` | 55 | `Experimental/Durable/SubagentExtension.cs`（125） |
+  | `harness-setup.ts` | 123 | `Experimental/Durable/DurableHarnessSetup.cs`（78）+ 复用 |
+  | `runtime.ts` | 367 | `Experimental/ExperimentalRuntime.cs`（877，profile 化）+ `DurableRuntime.cs` |
+  | `tui.ts` | 655 | `Experimental/ExperimentalTui.cs`（490，纯重命名）+ `DurableTui.cs` |
+  | `main.ts` | 20 | `Pi.DurableHost/Program.cs` + `DurableCommandLine.cs`（C380） |
+  | `prompt.ts` | 74 | 复用 `SessionWorkerHarnessSetup.CreatePiPrompt`（4g-3d-3b 已移植） |
+  | `README.md` | — | 不移植（文档） |
+
+- **复用而非重抄**（C378 末段）：`createPiPrompt` 逐字段核对过（KEYS 顺序、`tag: false`、
+  四份 `CONTRIBUTIONS`、按 cwd 缓存 contextFiles/skills、按 `PromptInput` 弱表缓存 sections）；
+  `createHarnessSettings` / `findInitialAgentModel` 分别用
+  `SessionWorkerHarnessSetup.CreateHarnessSettings` / `ModelResolver.FindInitialModelAsync`；
+  `configureHarnessHttp` 只调 `ApplyHttpProxySettings`（`configureHttpDispatcher` 属 C32/C267 已裁）。
+- **零语义改动的机器验证**：把重构前 `VacationTui.cs` 做与 `ExperimentalTui.cs` 相同的 10 组重命名，
+  两者 `diff` 输出为空；`ExperimentalRuntime.cs` 与重构前 `VacationRuntime.cs` 的 `diff` 只剩预期的
+  6 处 profile 化 + 一行 `using Pi.Durable.Env;`。
+- **新增差异**：C378（同源收敛）、C379（`OpenDurableOptions` 并入 `OpenExperimentalOptions`）、
+  C380（独立可执行 `Pi.DurableHost`，`AssemblyName=pi-durable`）。
+- **测试**：`DurableFoundationTests` 4 例（durable 会话目录名与锁文件、`--continue` 无会话时文案带
+  durable、coding registry 装 CodingTools+pi-prompt、subagent 工具一例 replay-safe 且参数只有 task）+
+  `DurableRuntimeTests` 3 例（开在根对话且任务面板打开、关闭释放锁后 `--continue` 重开同一会话、
+  命令行只认 `--continue`/`-c`）= **+7**；`Vacation*` 相关 10 例全绿（转发后行为不变）。
+  `Pi.CodingAgent.Tests` 全量 **4854/0**；`Pi.Durable.Tests` **398/0**（本批未触碰该程序集，复跑确认）。
+  构建 `dotnet build Pi.slnx -m:1` **0 警告 0 错误**。
+- **`Pi.DurableHost` 烟测**：`pi-durable.exe --help` → 退出码 1、stderr
+  `System.ArgumentException: Unknown argument: --help (Parameter 'arguments')`，与 TS
+  `throw new Error(\`Unknown argument: ${arg}\`)` 同形（C380 记下参数名后缀差异）。
+  真实模型对话未在无交互终端中执行。
+- **未收口**：`createCodingAgentHarness` 仍暂缓（C362）——4g-3f 已交付它的 `harness-setup` 依赖，
+  剩下的唯一阻塞是 **Pi.Durable 的 sqlite 存储未移植**（现有仅 `MemoryStorage`）。`runSessionWorkerProcess`
+  的 spawn 缝同此因。
+- **4g-3g 一并收敛**：`vacation/*` 的功能在阶段 5（`1b26f0f`）已落地，本批只把它改走共享实现，
+  台账行同步标记（`harness-setup.ts` 是 durable 版的严格子集，无需新增代码）。
