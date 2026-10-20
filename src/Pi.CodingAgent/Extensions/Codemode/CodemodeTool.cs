@@ -556,6 +556,9 @@ public static partial class CodemodeToolApi
             Execute = (toolCallId, parameters, signal, onUpdate, ctx) =>
                 CodemodeExecute.ExecuteCodemodeAsync(
                     toolCallId, parameters, signal, onUpdate, ctx as IExtensionToolContext, options),
+            // TS spreads `...codemodeRenderers` into the definition.
+            RenderCall = CodemodeRenderers.RenderCall,
+            RenderResult = CodemodeRenderers.RenderResult,
         };
     }
 

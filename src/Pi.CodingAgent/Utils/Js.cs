@@ -262,6 +262,156 @@ public static class Js
         return remainder * 2 >= denominator ? quotient + BigInteger.One : quotient;
     }
 
+    /// <summary>
+    /// The ECMAScript <c>Number.prototype.toPrecision</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// .NET has no equivalent: <c>"G2"</c> switches to scientific notation at <c>1e-5</c> where JS stays
+    /// fixed until <c>1e-7</c>, drops trailing significant digits (<c>0.5</c> formats as <c>0.5</c>, not
+    /// <c>0.50</c>), and writes exponents zero-padded. The digits are therefore produced here: the
+    /// specification rounds the <em>exact</em> value of the double to <c>precision</c> significant digits
+    /// with ties toward the larger magnitude, which is why <c>(1.45).toPrecision(2)</c> is <c>"1.4"</c>
+    /// (the double is just below 1.45) even though its shortest representation is <c>"1.45"</c>. The
+    /// exact value is a rational <c>mantissa / 2^-exponent</c>, so integer arithmetic decides the
+    /// rounding.
+    /// </para>
+    /// <para>
+    /// Notation follows steps 10-13 of the specification: scientific when the exponent is below -6 or at
+    /// least <paramref name="precision"/>, fixed otherwise, always with exactly
+    /// <paramref name="precision"/> significant digits.
+    /// </para>
+    /// </remarks>
+    public static string ToPrecision(double value, int precision)
+    {
+        // The specification throws a RangeError outside this range.
+        if (precision is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(precision), precision, "Precision must be between 1 and 100.");
+        }
+
+        if (double.IsNaN(value))
+        {
+            return "NaN";
+        }
+
+        if (double.IsPositiveInfinity(value))
+        {
+            return "Infinity";
+        }
+
+        if (double.IsNegativeInfinity(value))
+        {
+            return "-Infinity";
+        }
+
+        if (value == 0)
+        {
+            return precision == 1 ? "0" : $"0.{new string('0', precision - 1)}";
+        }
+
+        var (digits, exponent) = SignificantDigits(Math.Abs(value), precision);
+        string text;
+        if (exponent < -6 || exponent >= precision)
+        {
+            var mantissa = digits.Length == 1 ? digits : $"{digits[..1]}.{digits[1..]}";
+            text = exponent >= 0 ? $"{mantissa}e+{exponent}" : $"{mantissa}e{exponent}";
+        }
+        else if (exponent + 1 >= precision)
+        {
+            // No fractional digits left after placing the point.
+            text = digits + new string('0', exponent + 1 - precision);
+        }
+        else if (exponent >= 0)
+        {
+            text = $"{digits[..(exponent + 1)]}.{digits[(exponent + 1)..]}";
+        }
+        else
+        {
+            text = $"0.{new string('0', -(exponent + 1))}{digits}";
+        }
+
+        return value < 0 ? $"-{text}" : text;
+    }
+
+    /// <summary>
+    /// <paramref name="precision"/> significant digits of a positive finite double, with the decimal
+    /// exponent of the first one (<c>10^exponent &lt;= value &lt; 10^(exponent + 1)</c>).
+    /// </summary>
+    private static (string Digits, int Exponent) SignificantDigits(double magnitude, int precision)
+    {
+        var (numerator, denominator) = ExactRatio(magnitude);
+        var exponent = DecimalExponent(magnitude, numerator, denominator);
+        var scale = precision - 1 - exponent;
+        var scaled = scale >= 0 ? numerator * BigInteger.Pow(10, scale) : numerator;
+        var divisor = scale >= 0 ? denominator : denominator * BigInteger.Pow(10, -scale);
+
+        // Ties toward the larger magnitude, per the specification.
+        var rounded = BigInteger.DivRem(scaled, divisor, out var remainder);
+        if (remainder * 2 >= divisor)
+        {
+            rounded += BigInteger.One;
+        }
+
+        // Rounding 9.99 to two digits gives 100, which carries into the exponent.
+        if (rounded >= BigInteger.Pow(10, precision))
+        {
+            rounded /= 10;
+            exponent += 1;
+        }
+
+        return (rounded.ToString(CultureInfo.InvariantCulture), exponent);
+    }
+
+    /// <summary>The exact value of a positive finite double as <c>numerator / denominator</c>.</summary>
+    private static (BigInteger Numerator, BigInteger Denominator) ExactRatio(double magnitude)
+    {
+        var bits = (ulong)BitConverter.DoubleToInt64Bits(magnitude);
+        var mantissa = bits & 0xF_FFFF_FFFF_FFFFUL;
+        var exponent = (int)((bits >> 52) & 0x7FFUL);
+        if (exponent == 0)
+        {
+            exponent = 1; // Subnormal: no implicit leading bit.
+        }
+        else
+        {
+            mantissa |= 1UL << 52;
+        }
+
+        exponent -= 1075;
+        var numerator = new BigInteger(mantissa);
+        return exponent >= 0
+            ? (numerator << exponent, BigInteger.One)
+            : (numerator, BigInteger.One << -exponent);
+    }
+
+    /// <summary>
+    /// <c>floor(log10(magnitude))</c>, exact. The estimate from <see cref="Math.Log10"/> can land one
+    /// position off for exact powers of ten, and an off-by-one here changes which digits get rounded, so
+    /// it is corrected against the exact rational.
+    /// </summary>
+    private static int DecimalExponent(double magnitude, BigInteger numerator, BigInteger denominator)
+    {
+        var exponent = (int)Math.Floor(Math.Log10(magnitude));
+        while (CompareToPowerOfTen(numerator, denominator, exponent) < 0)
+        {
+            exponent--;
+        }
+
+        while (CompareToPowerOfTen(numerator, denominator, exponent + 1) >= 0)
+        {
+            exponent++;
+        }
+
+        return exponent;
+    }
+
+    /// <summary>Compare <c>numerator / denominator</c> with <c>10^exponent</c>.</summary>
+    private static int CompareToPowerOfTen(BigInteger numerator, BigInteger denominator, int exponent) =>
+        exponent >= 0
+            ? numerator.CompareTo(denominator * BigInteger.Pow(10, exponent))
+            : (numerator * BigInteger.Pow(10, -exponent)).CompareTo(denominator);
+
     /// <summary>Place the decimal point <paramref name="digits"/> positions from the right.</summary>
     private static string InsertDecimalPoint(BigInteger scaled, int digits)
     {
