@@ -1,3 +1,4 @@
+using Pi.CodingAgent.Experimental;
 using Pi.CodingAgent.Experimental.Vacation;
 using Xunit;
 
@@ -15,7 +16,7 @@ public sealed class VacationRuntimeTests
 
         try
         {
-            var first = await VacationRuntime.OpenAsync(new OpenVacationOptions
+            var first = await VacationRuntime.OpenAsync(new OpenExperimentalOptions
             {
                 Cwd = cwd,
                 AgentDirectory = agentDirectory,
@@ -34,7 +35,7 @@ public sealed class VacationRuntimeTests
                 await first.CloseAsync();
             }
 
-            await using var continued = await VacationRuntime.OpenAsync(new OpenVacationOptions
+            await using var continued = await VacationRuntime.OpenAsync(new OpenExperimentalOptions
             {
                 Cwd = cwd,
                 ContinueSession = true,

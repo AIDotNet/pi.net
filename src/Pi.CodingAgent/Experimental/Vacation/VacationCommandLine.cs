@@ -2,7 +2,7 @@ namespace Pi.CodingAgent.Experimental.Vacation;
 
 public static class VacationCommandLine
 {
-    public static OpenVacationOptions Parse(IReadOnlyList<string> arguments)
+    public static OpenExperimentalOptions Parse(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         var continueSession = false;
@@ -17,6 +17,6 @@ public static class VacationCommandLine
             throw new ArgumentException($"Unknown argument: {argument}", nameof(arguments));
         }
 
-        return new OpenVacationOptions { ContinueSession = continueSession };
+        return new OpenExperimentalOptions { ContinueSession = continueSession };
     }
 }

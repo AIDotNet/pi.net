@@ -8,6 +8,7 @@
     <Project Path="src/Pi.Evals/Pi.Evals.csproj" />
     <Project Path="src/Pi.Cli/Pi.Cli.csproj" />
     <Project Path="src/Pi.Vacation/Pi.Vacation.csproj" />
+    <Project Path="src/Pi.DurableHost/Pi.DurableHost.csproj" />
     <Project Path="src/Pi.Client/Pi.Client.csproj" />
     <Project Path="src/Pi.Durable/Pi.Durable.csproj" />
     <Project Path="src/Pi.Env/Pi.Env.csproj" />

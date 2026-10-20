@@ -31,6 +31,7 @@ Pi's philosophy is "make Pi fit your workflow, not the other way around": each l
 | **Pi.Durable** | Durable sessions, SQLite storage, task graph, recovery, and coding-agent harness |
 | **Pi.CodingAgent / Pi.Cli** | Interactive coding agent, tools, compiled .NET extensions, CLI, RPC, and experimental server/worker runtime |
 | **Pi.Vacation** | Separate research/planning host built on the coding-agent runtime |
+| **Pi.DurableHost** | Separate durable-session host (`pi-durable`) built on the coding-agent runtime, with the `subagent` tool and per-directory execution environments |
 | **Pi.Evals** | Native .NET host and documentation eval runner; paired documentation evals use Docker |
 
 The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and remaining platform checks are in [migration-execution-status.md](docs/migration-execution-status.md).

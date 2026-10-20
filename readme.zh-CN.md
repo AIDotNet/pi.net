@@ -31,6 +31,7 @@ Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只�
 | **Pi.Durable** | Durable 会话、SQLite 存储、任务图、恢复机制与 coding-agent harness |
 | **Pi.CodingAgent / Pi.Cli** | 交互式编码 Agent、工具、已编译 .NET 扩展、CLI、RPC 与实验性服务/worker runtime |
 | **Pi.Vacation** | 基于 coding-agent runtime 的独立研究与规划宿主 |
+| **Pi.DurableHost** | 基于 coding-agent runtime 的独立 durable 会话宿主（`pi-durable`），带 `subagent` 工具与按目录缓存的执行环境 |
 | **Pi.Evals** | 原生 .NET host/documentation 评测工具；配对文档评测使用 Docker |
 
 TypeScript monorepo 仍是行为参考；随包提供的上游 docs/examples 保留为 TypeScript 参考资料，C# 扩展 API 请看 [.NET 扩展指南](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)。权威迁移阶段、验收证据和未完成的平台检查见 [migration-execution-status.md](docs/migration-execution-status.md)。

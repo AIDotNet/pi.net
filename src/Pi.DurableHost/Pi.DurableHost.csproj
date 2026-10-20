@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>pi-durable</AssemblyName>
+    <RootNamespace>Pi.DurableHost</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pi.CodingAgent\Pi.CodingAgent.csproj" />
+  </ItemGroup>
+</Project>
