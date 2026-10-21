@@ -10,9 +10,8 @@ namespace Pi.Ai.Providers;
 /// Radius 网关 provider：随包基线目录 + 动态刷新目录（凭据扩展字段 / 网络）。
 /// 对应 TS <c>providers/radius.ts</c> 的 <c>radiusProvider</c>。
 /// <para>取到动态目录后它**替换**基线目录（不是叠加）：组织停用的模型不该从随包目录里重新冒出来。</para>
-/// <para>TS 的刷新通过 ModelsStore 的 <c>context.publish</c> 做事务化持久化；
-/// C# 侧持久化上下文尚未移植，故 <see cref="RefreshModelsAsync"/> 只做内存更新，
-/// 持久化由调用方按需处理（差异已在 porting-status 记录）。</para>
+/// <para>刷新经 ModelsStore 管道做事务化持久化（TS <c>context.publish</c>）：启动时从存储快照恢复、
+/// legacy 凭据缓存导入落库、网络刷新写回，见 <see cref="RefreshModels"/>。</para>
 /// </summary>
 public sealed class RadiusProvider : IProvider
 {
@@ -74,30 +73,58 @@ public sealed class RadiusProvider : IProvider
         => dynamic ?? baseline;
 
     /// <summary>
-    /// 刷新动态目录：先从凭据扩展字段恢复，再（可选）经网络拉取网关配置。
-    /// 对应 TS <c>refreshModels</c> 的内存部分。
+    /// 刷新钩子，接入 ModelsStore 支撑的刷新链。对应 TS <c>refreshModels(context)</c>。
     /// </summary>
-    /// <returns>
-    /// **动态目录本身**（不是 <see cref="GetModels"/> 的生效目录）：尚未取得任何目录时为 <c>null</c>。
-    /// TS 的 <c>refreshModels</c> 返回 <c>void</c>，端口把它返回出来仅供调用方观察（既有差异）。
-    /// </returns>
-    public async Task<IReadOnlyList<ModelSpec>?> RefreshModelsAsync(Credential? credential, bool allowNetwork = true,
-        CancellationToken cancellationToken = default)
-    {
-        var oauth = credential as Credential.OAuth;
-        // 对应 TS 的 legacy 分支（`!stored && credential.type === "oauth"` → `getRadiusModels`）：
-        // 只有取到非空目录才覆盖，否则保持 null（TS 的 `legacy.length > 0` 判定）。
-        var restored = RadiusProviderConfig.Models(Id, oauth);
-        if (restored.Count > 0) _dynamic = restored;
+    public Func<RefreshModelsContext, Task>? RefreshModels => RefreshModelsAsync;
 
-        if (!allowNetwork) return _dynamic;
-        var apiKey = oauth is not null ? oauth.Access : (credential as Credential.ApiKey)?.Key;
-        var config = await RadiusProviderConfig.LoadGatewayConfigAsync(Gateway, apiKey, HttpClient, cancellationToken)
+    /// <summary>
+    /// 刷新动态目录（TS <c>refreshModels</c> 的三分支）：
+    /// ① 存储快照恢复（只更新内存——存储已持有这份目录，TS 的 <c>publish({ update })</c> 不带 <c>persist</c>）；
+    /// ② legacy 导入——pre-ModelsStore 实现把目录缓存在 OAuth 凭据扩展字段里，非空才导入并写回存储；
+    /// ③ 网络刷新——**无条件**覆盖（含空目录）：组织停用了全部模型时生效目录就是空。
+    /// </summary>
+    private async Task RefreshModelsAsync(RefreshModelsContext context)
+    {
+        var oauth = context.Credential as Credential.OAuth;
+
+        if (context.Stored is not null)
+        {
+            var restored = context.Stored.Models.Where(model => model.Provider == Id).ToList();
+            var applied = await context.Publish(new ModelsPublication
+            {
+                Update = () => _dynamic = restored,
+            }).ConfigureAwait(false);
+            if (!applied) return;
+        }
+        else if (oauth is not null)
+        {
+            var legacy = RadiusProviderConfig.Models(Id, oauth);
+            if (legacy.Count > 0)
+            {
+                var applied = await context.Publish(new ModelsPublication
+                {
+                    Persist = new ModelsStoreEntry { Models = legacy, CheckedAt = NowMs() },
+                    Update = () => _dynamic = legacy,
+                }).ConfigureAwait(false);
+                if (!applied) return;
+            }
+        }
+
+        if (!context.AllowNetwork || context.Signal.IsCancellationRequested) return;
+        var apiKey = oauth is not null ? oauth.Access : (context.Credential as Credential.ApiKey)?.Key;
+        var config = await RadiusProviderConfig.LoadGatewayConfigAsync(Gateway, apiKey, HttpClient, context.Signal)
             .ConfigureAwait(false);
-        // 网络刷新后**无条件**覆盖（含空目录）：组织停用了全部模型时生效目录就是空。
-        _dynamic = RadiusProviderConfig.ModelsFromConfig(Id, config);
-        return _dynamic;
+        if (context.Signal.IsCancellationRequested) return;
+        var refreshed = RadiusProviderConfig.ModelsFromConfig(Id, config);
+        await context.Publish(new ModelsPublication
+        {
+            Persist = new ModelsStoreEntry { Models = refreshed, CheckedAt = NowMs() },
+            Update = () => _dynamic = refreshed,
+        }).ConfigureAwait(false);
     }
+
+    /// <summary>TS 的 <c>Date.now()</c>（Unix 毫秒）。</summary>
+    private static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     public IAssistantMessageEventStream Stream(ModelSpec model, IReadOnlyList<ChatMessage> context,
         IReadOnlyDictionary<string, object?>? options = null)
