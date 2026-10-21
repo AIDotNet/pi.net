@@ -250,6 +250,8 @@ public abstract partial class TuiBase : Container, ITui
     private IComponent? _focusedComponent;
     private bool _renderRequested;
     private bool _immediateRenderScheduled;
+    private int _rendersInProgress;
+    private readonly Dictionary<int, int> _renderThreadsInProgress = [];
     private Timer? _renderTimer;
     private long _lastRenderAt;
     private int _focusOrderCounter;
@@ -787,8 +789,19 @@ public abstract partial class TuiBase : Container, ITui
     public void Stop(TuiStopOptions? options = null)
     {
         options ??= new TuiStopOptions();
-        _stopped = true;
-        CancelRenderTimer();
+        lock (_renderLock)
+        {
+            _stopped = true;
+            CancelRenderTimerLocked();
+            // TS 的单线程事件循环保证 stop() 之后不会再跑渲染回调；.NET 的 Timer 回调可能已在
+            // 另一个线程上越过 _stopped 检查，故等待进行中的渲染结束，避免 Stop 返回后仍访问终端/主题。
+            // 渲染线程自身会调用 Stop（超宽行触发致命错误），不能等待自己，否则死锁。
+            var currentThread = Environment.CurrentManagedThreadId;
+            while (_rendersInProgress - _renderThreadsInProgress.GetValueOrDefault(currentThread) > 0)
+            {
+                Monitor.Wait(_renderLock);
+            }
+        }
         if (_terminalColorSchemeNotificationsEnabled)
         {
             Terminal.Write("\x1b[?2031l");
@@ -816,7 +829,7 @@ public abstract partial class TuiBase : Container, ITui
         _renderRequested = false;
         CancelRenderTimer();
         _lastRenderAt = NowMs();
-        DoRender();
+        RenderGuarded();
     }
 
     public void RequestRender(bool force = false)
@@ -863,7 +876,7 @@ public abstract partial class TuiBase : Container, ITui
                 _renderRequested = false;
                 _lastRenderAt = NowMs();
             }
-            DoRender();
+            RenderGuarded();
         });
     }
 
@@ -872,6 +885,36 @@ public abstract partial class TuiBase : Container, ITui
         lock (_renderLock)
         {
             CancelRenderTimerLocked();
+        }
+    }
+
+    /// <summary>
+    /// 在 <see cref="Stop"/> 可观察的停止点内执行渲染：Stop 会等待已开始的渲染结束，
+    /// 从而保证返回后不再访问终端或主题。
+    /// </summary>
+    private void RenderGuarded()
+    {
+        var threadId = Environment.CurrentManagedThreadId;
+        lock (_renderLock)
+        {
+            if (_stopped) return;
+            _rendersInProgress++;
+            _renderThreadsInProgress[threadId] = _renderThreadsInProgress.GetValueOrDefault(threadId) + 1;
+        }
+        try
+        {
+            DoRender();
+        }
+        finally
+        {
+            lock (_renderLock)
+            {
+                _rendersInProgress--;
+                var remaining = _renderThreadsInProgress.GetValueOrDefault(threadId) - 1;
+                if (remaining == 0) _renderThreadsInProgress.Remove(threadId);
+                else _renderThreadsInProgress[threadId] = remaining;
+                if (_rendersInProgress == 0) Monitor.PulseAll(_renderLock);
+            }
         }
     }
 
@@ -908,7 +951,7 @@ public abstract partial class TuiBase : Container, ITui
             _renderRequested = false;
             _lastRenderAt = NowMs();
         }
-        DoRender();
+        RenderGuarded();
         lock (_renderLock)
         {
             if (_renderRequested)
