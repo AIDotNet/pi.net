@@ -696,11 +696,14 @@ internal static class EvalContainerSupervisor
         }
 
         var assembly = Assembly.GetEntryAssembly()?.Location;
-        if (string.IsNullOrEmpty(assembly)
-            || File.GetUnixFileMode(assembly) != UnixFileMode.UserRead)
+        if (string.IsNullOrEmpty(assembly) || !File.Exists(assembly))
         {
-            throw new InvalidOperationException("Eval image must mark Pi.Evals.dll readable only by root.");
+            throw new InvalidOperationException("Cannot locate the eval runner assembly.");
         }
+
+        // TS assertRootOnly(evalRoot/src/docker/configs) 的对应物：.NET 镜像不携带源码，
+        // 评估器定义编译进 Pi.Evals.dll，因此该程序集就是唯一需要 root-only 的评估器源。
+        EvalFileProbe.AssertRootOnly(assembly);
     }
 
     private static void ValidateCredentialSource(string provider)
@@ -908,5 +911,92 @@ internal static class EvalContainerSupervisor
             string path,
             uint owner,
             uint group);
+    }
+}
+
+/// <summary>
+/// TS <c>docker/entrypoint.ts</c> 的运行时权限探针：<c>assertRootOnly</c> 与
+/// <c>assertSandboxCannotRead</c>。.NET 镜像把评估器定义编译进 <c>Pi.Evals.dll</c>，
+/// 不再携带 <c>evals/src/docker</c> 源码，因此探针对象是入口程序集。
+/// </summary>
+internal static class EvalFileProbe
+{
+    private const UnixFileMode SharedBits =
+        UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+        UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+
+    [DllImport("libc", SetLastError = true, EntryPoint = "stat")]
+    private static extern int Stat(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        byte[] buffer);
+
+    /// <summary>对应 TS <c>assertRootOnly</c>：文件/目录必须属 root，且组与其他用户无任何权限。</summary>
+    public static void AssertRootOnly(string path)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            throw new InvalidOperationException("Evaluator source permission checks require Linux.");
+        }
+
+        var mode = File.GetUnixFileMode(path);
+        if ((mode & UnixFileMode.UserRead) == 0)
+        {
+            throw new InvalidOperationException($"Evaluator source must be readable by root: {path}");
+        }
+
+        if ((mode & SharedBits) != 0)
+        {
+            throw new InvalidOperationException($"Evaluator source must be readable only by root: {path}");
+        }
+
+        if (UnixOwner(path) != 0)
+        {
+            throw new InvalidOperationException($"Evaluator source must be owned by root: {path}");
+        }
+    }
+
+    /// <summary>
+    /// 对应 TS <c>assertSandboxCannotRead</c>：降权到 sandbox UID 后尝试读取路径，成功即失败。
+    /// 调用方必须已 <c>setuid</c>，否则该探针会误报。
+    /// </summary>
+    public static void AssertSandboxCannotRead(string path)
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            throw new InvalidOperationException("The eval sandbox permission probe requires Linux.");
+        }
+
+        try
+        {
+            if ((File.GetAttributes(path) & FileAttributes.Directory) != 0)
+            {
+                using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
+                _ = entries.MoveNext();
+            }
+            else
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"The model-facing user can read evaluator source: {path}");
+    }
+
+    private static uint UnixOwner(string path)
+    {
+        var buffer = new byte[256];
+        if (Stat(path, buffer) != 0)
+        {
+            throw new IOException($"Could not stat {path} (errno {Marshal.GetLastWin32Error()}).");
+        }
+
+        // glibc struct stat 的布局并非全架构一致：x86_64 为 mode@24/uid@28，
+        // arm64 走 asm-generic，为 mode@16/uid@24。
+        var uidOffset = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? 24 : 28;
+        return BitConverter.ToUInt32(buffer, uidOffset);
     }
 }

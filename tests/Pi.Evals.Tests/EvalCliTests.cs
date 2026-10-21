@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using Xunit;
 
 namespace Pi.Evals.Tests;
@@ -76,5 +77,49 @@ public sealed class EvalCliTests
         Assert.Equal(["evals/smoke.eval.cs"], options.Files);
         Assert.Equal("fixture", options.Provider);
         Assert.Equal("model", options.Model);
+    }
+}
+
+public sealed class EvalFileProbeTests
+{
+    [Fact]
+    [SupportedOSPlatform("linux")]
+    public void RootOnlyProbeRejectsGroupReadableFiles()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix permissions are required.");
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.GroupRead);
+
+            var error = Assert.Throws<InvalidOperationException>(() => EvalFileProbe.AssertRootOnly(path));
+
+            Assert.Contains("readable only by root", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    [SupportedOSPlatform("linux")]
+    public void SandboxProbeRejectsReadableFiles()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix permissions are required.");
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead);
+
+            var error = Assert.Throws<InvalidOperationException>(
+                () => EvalFileProbe.AssertSandboxCannotRead(path));
+
+            Assert.Contains("can read evaluator source", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

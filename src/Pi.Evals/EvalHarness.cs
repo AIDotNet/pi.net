@@ -825,14 +825,7 @@ public static class EvalHarness
             throw new InvalidOperationException("Failed to verify the unprivileged eval tool sandbox.");
         }
 
-        try
-        {
-            using var stream = File.OpenRead(evaluatorAssembly);
-            throw new InvalidOperationException("The unprivileged eval process can read the eval runner assembly.");
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
+        EvalFileProbe.AssertSandboxCannotRead(evaluatorAssembly);
     }
 
     private static void ChownTree(string path, EvalSandboxIdentity identity)
