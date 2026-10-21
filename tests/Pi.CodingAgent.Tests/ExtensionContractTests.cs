@@ -5,6 +5,8 @@ using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Core.Extensions.Types;
 using Pi.CodingAgent.Core.Tools;
+using Pi.Tui;
+using Pi.Tui.Components;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;
@@ -274,11 +276,43 @@ public class ExtensionContractTests
     }
 
     [Fact]
+    public void OverlayHandle_ForwardsControlToTuiHandle()
+    {
+        var underlying = new RecordingOverlayHandle();
+        var handle = new OverlayHandle(underlying);
+
+        handle.SetHidden(true);
+        Assert.True(handle.IsHidden());
+        handle.SetHidden(false);
+        Assert.False(handle.IsHidden());
+
+        handle.Focus();
+        Assert.True(handle.IsFocused());
+
+        var target = new Text("target", 0, 0);
+        handle.Unfocus(new OverlayUnfocusOptions { Target = target });
+        Assert.Same(target, underlying.UnfocusTarget);
+        Assert.False(handle.IsFocused());
+
+        var bounds = Assert.IsType<OverlayBounds>(handle.GetBounds());
+        Assert.Equal(1, bounds.Row);
+        Assert.Equal(2, bounds.Col);
+        Assert.Equal(3, bounds.Width);
+        Assert.Equal(4, bounds.Height);
+
+        handle.Hide();
+        Assert.True(underlying.Disposed);
+        // TS hide() 对已移除的 overlay 是空操作，包装层重复调用不得抛出。
+        handle.Hide();
+        handle.SetHidden(true);
+    }
+
+    [Fact]
     public void PlaceholderTypes_AreConstructible()
     {
         Assert.NotNull(SourceInfos.CreateSynthetic("builtin:read", "builtin"));
         Assert.NotNull(EventBusController.CreateEventBus());
-        Assert.NotNull(new OverlayHandle());
+        Assert.NotNull(new OverlayHandle(new RecordingOverlayHandle()));
         Assert.NotNull(new CustomMessage("t", new MessageContent.Text("c"), false, 0));
         Assert.NotNull(BashTool.CreateLocalBashOperations());
         // 4e-3e-9g 移除了两个重复占位：`Provider`（真实类型是 Pi.Ai.Models.IProvider，由
@@ -382,4 +416,33 @@ public class ExtensionContractTests
         => tsNames.Select(n => char.ToUpperInvariant(n[0]) + n[1..])
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
+
+    private sealed class RecordingOverlayHandle : IOverlayHandle
+    {
+        public bool Hidden { get; private set; }
+
+        public bool Focused { get; private set; }
+
+        public bool Disposed { get; private set; }
+
+        public IComponent? UnfocusTarget { get; private set; }
+
+        public void Hide() => this.Disposed = true;
+
+        public void SetHidden(bool hidden) => this.Hidden = hidden;
+
+        public bool IsHidden() => this.Hidden;
+
+        public void Focus() => this.Focused = true;
+
+        public void Unfocus(OverlayUnfocusOptions? options = null)
+        {
+            this.Focused = false;
+            this.UnfocusTarget = options?.Target;
+        }
+
+        public bool IsFocused() => this.Focused;
+
+        public OverlayBounds? GetBounds() => new() { Row = 1, Col = 2, Width = 3, Height = 4 };
+    }
 }
