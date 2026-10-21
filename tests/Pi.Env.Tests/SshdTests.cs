@@ -95,7 +95,8 @@ public class SshdTests
 
             var scanned = await Ssh.ScanHostKeyAsync(target);
             var expected = (await Sshd.RunAsync("ssh-keygen", ["-lf", hostKey + ".pub"])).Split(' ')[1];
-            Assert.Contains(expected, scanned.Fingerprints);
+            // 与 TS 一致：fingerprints 是 ssh-keygen -lf 的整行，包含 bits、指纹与算法。
+            Assert.Contains(expected, string.Join("\n", scanned.Fingerprints));
             await Ssh.AcceptHostKeyAsync(target, scanned.Lines);
 
             var tools = Path.Join(home, ".pi", "mobile", "tools");

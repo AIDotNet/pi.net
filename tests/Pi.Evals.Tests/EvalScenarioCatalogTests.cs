@@ -20,6 +20,12 @@ public sealed class EvalScenarioCatalogTests
     }
 
     [Fact]
+    public void GetDocumentationCases_TreatsAnEmptyFileListAsNoFilter()
+    {
+        Assert.Equal(5, EvalScenarioCatalog.GetDocumentationCases([]).Count);
+    }
+
+    [Fact]
     public void GetDocumentationCases_AppliesFileAndNameFilters()
     {
         var cases = EvalScenarioCatalog.GetDocumentationCases(
@@ -29,6 +35,22 @@ public sealed class EvalScenarioCatalogTests
         var selected = Assert.Single(cases);
         Assert.Equal("evals/extensions.docs.eval.cs", selected.File);
         Assert.Equal("Create and use a tool extension > creates, reloads, and invokes the extension", selected.FullName);
+    }
+
+    [Fact]
+    public void GetDocumentationCases_MatchesTheVitestStyleFullName()
+    {
+        var cases = EvalScenarioCatalog.GetDocumentationCases(
+            ["evals/models.docs.eval.cs"],
+            "^Add model to existing provider adds the model without replacing existing models$");
+
+        var selected = Assert.Single(cases);
+        Assert.Equal(
+            "Add model to existing provider adds the model without replacing existing models",
+            selected.TestName);
+        Assert.Equal(
+            "Add model to existing provider > adds the model without replacing existing models",
+            selected.FullName);
     }
 
     [Fact]

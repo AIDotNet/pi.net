@@ -84,7 +84,7 @@
 |---|---|---|---|
 | Anthropic workload identity federation（OIDC） | `packages/ai/src/api/anthropic-messages.ts` 构造 `authentication: { type: "oidc_federation", federation_rule_id, service_account_id, identity_token: { source: "file", path } }`，由 Anthropic SDK 的 `lib/credentials` 完成 token exchange 与刷新 | **已实现（2026-10-21）**：`Auth/AnthropicFederation.cs` 直接实现 `POST /v1/oauth/token` 的 RFC 7523 jwt-bearer 交换（`oauth-2025-04-20,oidc-federation-2026-04-01` 双 beta 头、16 KiB assertion 上限、https/环回校验、错误体按 RFC 6749 字段脱敏、`Request-Id` 透出），并按 SDK 语义实现令牌缓存：剩余 >120s 直接使用、30–120s 返回旧令牌并后台刷新（失败退避 5s）、≤30s 阻塞刷新、并发刷新合并；每次交换重新读取身份令牌文件以支持轮换。`AnthropicMessages.Stream` 注入 `Authorization: Bearer` 并追加 `oauth-2025-04-20` beta，`StreamSimple` 的认证预检同步放行 federation | 使用 federation 的部署现在无需 API key 即可调用；API key / `ANTHROPIC_AUTH_TOKEN` / 显式认证头仍然优先，且仅 `anthropic` provider 参与交换。新增 24 项测试（5 项 provider 解析、18 项 token/messages wire、1 项 `Models` 端到端），覆盖交换一次复用、请求形状、可选 id、优先级、其他 provider 拒绝、到期重换、令牌文件轮换、并发合并、错误脱敏、明文端点拒绝与文件校验 |
 
-除 G7 外，本审计未发现公开导出面或 wire 形状的功能缺失；容器级（G4）与 POSIX/SSH（G6）属于验收环境阻塞，已分别在 Stage 16、Stage 17 跟踪。
+除 G7 外，本审计未发现公开导出面或 wire 形状的功能缺失；容器级（G4）与 POSIX/SSH（G6）曾在 Stage 16、Stage 17 作为验收环境阻塞跟踪，已于 2026-10-21 在外部 Ubuntu 24.04 + Docker 29.7.1 主机完成（Stage 23：双镜像与权限探针通过，`Pi.Server.Tests` 33/33、`Pi.Env.Tests` 48/48）。当前没有未完成的验收项。
 
 ## 复现命令
 

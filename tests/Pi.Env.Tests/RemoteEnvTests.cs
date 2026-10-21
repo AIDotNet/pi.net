@@ -253,15 +253,22 @@ public class RemoteEnvTests
         using (connection)
         using (directory)
         {
-            var output = new StringBuilder();
+            // 守护进程为 stdout/stderr 各起一个读取线程，跨流顺序不保证；按流分别断言。
+            var stdout = new StringBuilder();
+            var stderr = new StringBuilder();
             var result = await env.ExecAsync(
                 ShellCommand.FromArgv([.. TestCommands.PosixShell, "printf %s hello; printf %s err >&2; exit 3"]),
-                new ShellExecOptions { OnOutput = (text, _, _) => output.Append(text) },
+                new ShellExecOptions
+                {
+                    OnOutput = (text, _, info) =>
+                        (info.Stream == ShellOutputStream.Stderr ? stderr : stdout).Append(text),
+                },
                 Background);
 
             Assert.True(result.IsOk, result.IsOk ? null : result.Error.Message);
             Assert.Equal(3L, result.Value.ExitCode);
-            Assert.Equal("helloerr", output.ToString());
+            Assert.Equal("hello", stdout.ToString());
+            Assert.Equal("err", stderr.ToString());
         }
     }
 }

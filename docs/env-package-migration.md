@@ -122,9 +122,11 @@ C# 客户端直接与它对话，跑 Durable 的 env conformance 全套用例 + 
 
 未完成 / 未验证（不得记为通过）：
 
-- `SshdTests` 的端到端用例（未信任主机被拒 → 扫描接受 → 部署校验 → 经 SSH 执行）已按 TS 结构移植，
+- ~~`SshdTests` 的端到端用例（未信任主机被拒 → 扫描接受 → 部署校验 → 经 SSH 执行）已按 TS 结构移植，
   但**本机为 Windows 且无 sshd，实测跳过**（上游 `describe.skipIf(sshd === undefined)` 同样从不在此平台跑）。
-  需在 POSIX 主机上执行一次才能记为已验证。
+  需在 POSIX 主机上执行一次才能记为已验证。~~ **已于 2026-10-21 在 Ubuntu 24.04 主机完成（Stage 23）**：
+  `Pi.Env.Tests` 48/48，覆盖真实 `/usr/sbin/sshd` 扫描/信任/部署与远程写读执行；守护进程由上游 Rust 源码构建。
+  期间修正了两个仅 Linux 暴露的测试假设：stdout/stderr 跨流顺序不可保证、指纹断言需匹配 `ssh-keygen -lf` 整行。
 - `Pi.Durable.Tests` 观察到的既有抖动（与本轮改动无关，两轮全量各挂一个不同用例、单独跑均通过）：
   `ToolsTests.Bash_StreamsOutputThroughApiAndReturnsNoContent`（只收到 stderr 分块）、
   `HarnessGenerationRecoveryTests.ConvertsCommittedPartialToAbortedEntryBeforeResendingAfterReopen`（`zz` vs `zzz`）。

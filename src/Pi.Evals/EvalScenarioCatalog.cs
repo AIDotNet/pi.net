@@ -33,16 +33,17 @@ public static class EvalScenarioCatalog
         IReadOnlyList<string>? files = null,
         string? testNamePattern = null)
     {
-        var selectedFiles = files?
-            .Select(NormalizeFile)
-            .ToHashSet(StringComparer.Ordinal);
+        // 与 TS 一致：未指定文件或空列表表示全部用例，而不是零匹配。
+        var selectedFiles = files is { Count: > 0 }
+            ? files.Select(NormalizeFile).ToHashSet(StringComparer.Ordinal)
+            : null;
         var pattern = string.IsNullOrWhiteSpace(testNamePattern)
             ? null
             : new Regex(testNamePattern, RegexOptions.CultureInvariant);
 
         return DocumentationCases
             .Where(evalCase => selectedFiles is null || selectedFiles.Contains(evalCase.File))
-            .Where(evalCase => pattern is null || pattern.IsMatch(evalCase.FullName))
+            .Where(evalCase => pattern is null || pattern.IsMatch(evalCase.TestName))
             .Select(evalCase => evalCase with { })
             .ToArray();
     }

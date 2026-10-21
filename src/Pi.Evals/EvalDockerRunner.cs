@@ -350,7 +350,7 @@ internal static class EvalContainerSupervisor
         var (sandboxUid, sandboxGid) = ReadPositivePair(
             "PI_EVAL_SANDBOX_UID",
             "PI_EVAL_SANDBOX_GID");
-        var artifactOwner = ReadOptionalPositivePair(
+        var artifactOwner = ReadOptionalIdentityPair(
             "PI_EVAL_ARTIFACT_UID",
             "PI_EVAL_ARTIFACT_GID");
         var provider = RequiredEnvironment("PI_PROVIDER");
@@ -688,8 +688,12 @@ internal static class EvalContainerSupervisor
             throw new InvalidOperationException("Eval image has an invalid documentation variant.");
         }
 
+        // 文档与示例目录按设计携带上游的 .ts 示例，它们正是 with_docs 实验材料；
+        // 评估器源码本身只允许存在于受保护的 Pi.Evals.dll 中。
         var sourceFile = Directory.EnumerateFiles(baseDirectory, "*", SearchOption.AllDirectories)
-            .FirstOrDefault(path => Path.GetExtension(path) is ".cs" or ".csproj" or ".ts");
+            .FirstOrDefault(path => !IsUnder(path, docsDirectory)
+                && !IsUnder(path, examplesDirectory)
+                && Path.GetExtension(path) is ".cs" or ".csproj" or ".ts");
         if (sourceFile is not null)
         {
             throw new InvalidOperationException($"Eval image contains source code outside the protected assembly: {sourceFile}");
@@ -705,6 +709,9 @@ internal static class EvalContainerSupervisor
         // 评估器定义编译进 Pi.Evals.dll，因此该程序集就是唯一需要 root-only 的评估器源。
         EvalFileProbe.AssertRootOnly(assembly);
     }
+
+    private static bool IsUnder(string path, string directory)
+        => path.StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.Ordinal);
 
     private static void ValidateCredentialSource(string provider)
     {
@@ -860,7 +867,7 @@ internal static class EvalContainerSupervisor
         return (uid, gid);
     }
 
-    private static (uint Uid, uint Gid)? ReadOptionalPositivePair(string uidName, string gidName)
+    private static (uint Uid, uint Gid)? ReadOptionalIdentityPair(string uidName, string gidName)
     {
         var uidText = Environment.GetEnvironmentVariable(uidName);
         var gidText = Environment.GetEnvironmentVariable(gidName);
@@ -869,11 +876,11 @@ internal static class EvalContainerSupervisor
             return null;
         }
 
-        if (!uint.TryParse(uidText, out var uid) || uid == 0
-            || !uint.TryParse(gidText, out var gid) || gid == 0)
+        // 调用者可以是 root（0/0），与 TS 直接透传 getuid/getgid 一致。
+        if (!uint.TryParse(uidText, out var uid) || !uint.TryParse(gidText, out var gid))
         {
             throw new InvalidOperationException(
-                $"{uidName} and {gidName} must both be positive integers, or neither may be set.");
+                $"{uidName} and {gidName} must both be non-negative integers, or neither may be set.");
         }
 
         return (uid, gid);

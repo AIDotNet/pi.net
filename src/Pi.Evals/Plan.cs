@@ -17,6 +17,12 @@ public sealed record DiscoveredEvalCase
     public required string EvalSet { get; init; }
 
     public required string CaseId { get; init; }
+
+    /// <summary>
+    /// vitest 风格的完整测试名（套件与用例以空格连接）。上游把 <c>--testNamePattern</c>
+    /// 交给 vitest 匹配这个名字，而发现结果里的 <see cref="FullName"/> 用 <c> &gt; </c> 连接。
+    /// </summary>
+    public string TestName => $"{EvalSet} {CaseId}";
 }
 
 public sealed record EvalTask
