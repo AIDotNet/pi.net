@@ -26,7 +26,7 @@ Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只�
 | **Pi.Mcp** | MCP 客户端：JSON-RPC + 三种传输 + OAuth 全层 |
 | **Pi.Chord** | 独立的应用编排运行时：服务、复制状态、RPC 与插件 |
 | **Pi.Server / Pi.Client** | RPC 传输：握手 / 请求 / 取消 / 推送、会话路由、Unix 域套接字与本地服务器发现 |
-| **Pi.Codemode** | 沙箱化 JavaScript 执行：唯一能力是调用注入的工具；@options 源码解析、TypeScript 声明渲染与沙箱编排（VM 执行经 `ICodemodeJsEngine` 注入点外置） |
+| **Pi.Codemode** | 沙箱化 JavaScript 执行：唯一能力是调用注入的工具；@options 源码解析、TypeScript 声明渲染与沙箱编排，默认由 Jint 承载 VM，可通过 `ICodemodeJsEngine` 替换 |
 | **Pi.Tui** | 终端 UI 框架：差分渲染 + 同步输出、字素级宽度测量与换行、ANSI/OSC 解析与 SGR 跟踪、Kitty 键盘协议与按键解码、overlay 栈、焦点管理、鼠标事件派发、颜色（OKLCH/OKHSL）与键位注册表、stdin 转义序列缓冲、终端内联图像（Kitty / iTerm2 协议）、栈/滚动布局引擎、LaTeX 数学渲染、斜杠命令与文件路径自动补全（含 `fd` 模糊搜索）、单行输入组件（Emacs 风格 kill/yank、撤销、括号粘贴）、选择列表组件（过滤/滚动窗口/鼠标/滚轮）、多行编辑器、markdown 渲染、设置列表、图像组件、备用屏渲染器（全屏模式：搜索 / 选择与复制 / 滚动条 / Kitty 图像缓存 / overlay 路由） |
 | **Pi.Durable** | Durable 会话、内存 / SQLite / JSONL 文件存储后端、任务图、恢复机制与 coding-agent harness |
 | **Pi.CodingAgent / Pi.Cli** | 交互式编码 Agent、工具、已编译 .NET 扩展、CLI、RPC 与实验性服务/worker runtime |
