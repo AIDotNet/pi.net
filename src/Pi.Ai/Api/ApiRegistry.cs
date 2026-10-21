@@ -93,6 +93,20 @@ public static class ApiRegistry
 
     private static IEnumerable<(string Api, ApiProvider Provider)> BuiltInApis()
     {
+        yield return ("anthropic-messages", new ApiProvider
+        {
+            Api = "anthropic-messages",
+            Stream = (model, context, options, client, ct) => AnthropicMessages.Stream(
+                model, context, ProviderStreamOptions.FromJson(options), client, ct),
+            StreamSimple = AnthropicMessages.StreamSimple,
+        });
+        yield return ("openai-completions", new ApiProvider
+        {
+            Api = "openai-completions",
+            Stream = (model, context, options, client, ct) => OpenAiCompletions.Stream(
+                model, context, ProviderStreamOptions.FromJson(options), client, ct),
+            StreamSimple = OpenAiCompletions.StreamSimple,
+        });
         yield return ("openai-responses", new ApiProvider
         {
             Api = "openai-responses",

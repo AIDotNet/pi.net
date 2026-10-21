@@ -36,6 +36,9 @@ public class OpenAiCompletionsTests : IDisposable
     /// <summary>模拟服务器：按脚本回放 SSE chunk 序列。</summary>
     private readonly List<string[]> _scripts = [];
 
+    /// <summary>最近一次请求体（用于断言消息转换/回放）。</summary>
+    public string? LastRequestBody { get; private set; }
+
     public OpenAiCompletionsTests AddScript(params string[] chunks)
     {
         _scripts.Add(chunks);
@@ -52,6 +55,8 @@ public class OpenAiCompletionsTests : IDisposable
             catch { return; }
             try
             {
+                using var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8);
+                LastRequestBody = await reader.ReadToEndAsync();
                 var chunks = scriptIndex < _scripts.Count ? _scripts[scriptIndex++] : ["[DONE]"];
                 var response = context.Response;
                 response.StatusCode = 200;
@@ -183,6 +188,61 @@ public class OpenAiCompletionsTests : IDisposable
     }
 
     [Fact]
+    public async Task StreamsReasoningDetailsAndReplaysThemInTheNextRequest()
+    {
+        const string detail = """{"type":"reasoning.encrypted","id":"call_1","data":"encrypted-signature"}""";
+        AddScript(
+            new JsonObject
+            {
+                ["id"] = "chatcmpl-1",
+                ["choices"] = new JsonArray(new JsonObject
+                {
+                    ["index"] = 0,
+                    ["delta"] = new JsonObject
+                    {
+                        ["reasoning_details"] = new JsonArray(JsonNode.Parse(detail)),
+                    },
+                    ["finish_reason"] = null,
+                }),
+            }.ToJsonString(),
+            ToolCallChunk(1, 0, "call_1", "read", "{\"path\":\"README.md\"}"),
+            Chunk(1, finish: "tool_calls"));
+        AddScript(
+            Chunk(2, content: "ok"),
+            Chunk(2, finish: "stop"));
+
+        var model = new Model("gpt-test", "GPT Test", "openai-completions", "openai");
+        var messages = new List<ChatMessage> { Messages.UserText("read it") };
+        var stream = await OpenAiCompletions.StreamSimple(model, new TranscriptContext(messages),
+            new SimpleStreamOptions(ApiKey: "sk-test", BaseUrl: _baseUrl));
+
+        AssistantMessage? final = null;
+        await foreach (var @event in stream)
+            if (@event is AssistantMessageEvent.Done done) final = done.Message;
+
+        Assert.NotNull(final);
+        Assert.Equal(StopReason.ToolUse, final!.StopReason);
+        var thinking = Assert.IsType<ThinkingContent>(final.Content[0]);
+        Assert.Equal("", thinking.Thinking);
+        Assert.Equal($"[{detail}]", thinking.Signature);
+        Assert.IsType<ToolCallContent>(final.Content[1]);
+
+        messages.Add(final);
+        var replay = await OpenAiCompletions.StreamSimple(model, new TranscriptContext(messages),
+            new SimpleStreamOptions(ApiKey: "sk-test", BaseUrl: _baseUrl));
+        await foreach (var _ in replay) { }
+
+        Assert.NotNull(LastRequestBody);
+        var payload = JsonNode.Parse(LastRequestBody!)!.AsObject();
+        var wireMessages = payload["messages"]!.AsArray();
+        var assistant = Assert.IsType<JsonObject>(wireMessages[1]);
+        var details = Assert.IsType<JsonArray>(assistant["reasoning_details"]);
+        Assert.Equal("reasoning.encrypted", details[0]!["type"]!.GetValue<string>());
+        Assert.Equal("encrypted-signature", details[0]!["data"]!.GetValue<string>());
+        Assert.Null(assistant["reasoning"]);
+    }
+
+    [Fact]
     public async Task HttpFailureEncodesErrorInStream()
     {
         // 无脚本 → 服务器返回 [DONE]（空流）；这里换成构造非法场景：
@@ -194,7 +254,10 @@ public class OpenAiCompletionsTests : IDisposable
 
         AssistantMessage? final = null;
         await foreach (var @event in stream)
+        {
             if (@event is AssistantMessageEvent.Done done) final = done.Message;
+            if (@event is AssistantMessageEvent.Error error) final = error.Message;
+        }
 
         Assert.NotNull(final);
         Assert.Equal(StopReason.Error, final!.StopReason);

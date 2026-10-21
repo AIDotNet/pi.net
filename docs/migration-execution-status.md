@@ -22,9 +22,9 @@
 | `mcp` | `Pi.Mcp` | 已迁移 | JSON-RPC、传输与 OAuth 已实现；部分网络测试受本机 loopback/监听限制。 |
 | `server` | `Pi.Server` | 已迁移 | RPC 与本地发现已移植；Unix socket 等平台边界仍需最终跨平台验收。 |
 | `client` | `Pi.Client` | 已迁移 | 客户端协议与传输已实现。 |
-| `ai` | `Pi.Ai` | 已迁移 | Provider 与模型层已广泛移植；依赖本地浏览器回调的 OAuth 测试不适合无头环境。 |
+| `ai` | `Pi.Ai` | 已迁移（G7 除外） | Provider 与模型层已广泛移植；公开导出面与 wire 形状已完成审计（[public-api-audit.md](./public-api-audit.md)）。Anthropic OIDC federation 仅构造配置并显式拒绝，见 G7；依赖本地浏览器回调的 OAuth 测试不适合无头环境。 |
 | `chord` | `Pi.Chord` | 已迁移 | 核心协议/服务/Facet 已实现；`index.ts` 是导出桶，不要求在 C# 复制。 |
-| `codemode` | `Pi.Codemode` | 已迁移 | VM 执行由 `ICodemodeJsEngine` 注入；默认实现明确拒绝未配置的执行，不伪装为成功。 |
+| `codemode` | `Pi.Codemode` | 已迁移 | 默认由 Jint 承载 prelude、工具桥与 promise 排空；`ICodemodeJsEngine` 可替换引擎，`UnsupportedCodemodeJsEngine` 可显式禁用。QuickJS WASM 载荷与 Jint 内存计量属于已记录的引擎差异。 |
 | `env` | `Pi.Env` | 客户端实现已迁移；Windows conformance 通过 | 协议连接、SSH 引导、远程环境与 watcher 已移植；守护进程按原生产物注入（差异 E-C1）。本轮 `Pi.Env.Tests` 46/46 通过、1 项 sshd 端到端因本机无 sshd 跳过；仍需 POSIX 主机验收。 |
 | `durable` | `Pi.Durable` | 核心实现及 harness 行为对齐已完成 | Memory/SQLite storage、Session、context retention/cache、compaction、任务/会话恢复及 harness/runtime 均有实现；本轮 `Pi.Durable.Tests` 398/398 通过。最终公开契约与 POSIX 验收仍在剩余项中。 |
 | `tui` | `Pi.Tui` | 功能实现完成 | 44/45 个 TS 源文件已有实现；剩余 `index.ts` 是纯导出桶，不需要单独 C# 文件。本轮新增 fullscreen client TUI/滚动集成测试和容器并发渲染回归测试。 |
@@ -33,15 +33,15 @@
 
 ## 剩余事项与优先级
 
-**P0：截至 2026-10-20 独立静态复核，没有发现需要整包补建的主模块，但发现一处未入账的真实功能缺口（JSONL 存储后端，G1）。** 这不表示所有边界均已完成；Stage 11 已通过默认 Jint host 解决受支持 CommonJS 插件 bundle 的执行，Node/Bun 内置模块、全局对象和动态加载仍不提供兼容层。下列运行时和契约验收未完成前，不能宣称迁移已全部验收。
+**P0：2026-10-20 静态复核发现的 G1–G3 已在 2026-10-21 完成实现与运行验证（G1 JSONL、G2 CodeMode 默认 Jint 引擎、G3 Overlay 句柄）；当前没有已知的主模块缺失。** 这不表示所有边界均已完成：Node/Bun 内置模块、全局对象和动态加载仍不提供兼容层，容器（G4）与 POSIX/SSH（G6）验收仍受环境阻塞。下列运行时和契约验收未完成前，不能宣称迁移已全部验收。
 
 | 优先级 | 工作项 | 主要源范围 | 依赖 / 理由 |
 |---|---|---|---|
-| **P1** | JSONL 存储后端（G1） | `packages/durable/src/storage/jsonl/{storage,node}.ts` 与 `test/jsonl-storage.test.ts` | **实现已落地，未编译/未运行验证**：新增 `JsonlStorage.cs` / `JsonlStorageJson.cs`、`MemoryStorage.PrepareCommit` 与 3 个测试类。需在可用环境执行 build + conformance 后改为“已完成”。详见下方“2026-10-20 独立静态复核”。 |
-| **P1** | CodeMode 默认 JS 引擎（G2） | `packages/coding-agent/src/extensions/codemode/{execute.ts,worker.ts}`、`packages/codemode/src/runtime/worker.ts` | `ICodemodeJsEngine` 只有 `UnsupportedCodemodeJsEngine`，且 `EngineDefaults.Override` 在生产代码中无赋值点，内置 `codemode/execute` 工具开箱即失败。详见 G2。 |
-| **P2** | 扩展 Overlay 句柄接线（G3） | `packages/coding-agent/src/core/extensions/types.ts`、`packages/tui/src/tui.ts` | **实现已落地，未编译/未运行验证**：`OverlayHandle` 改为包装真实 `IOverlayHandle`（hide/setHidden/isHidden/focus/unfocus/isFocused/getBounds），`InteractiveMode` 转交 `ShowOverlay` 返回值。详见 G3。 |
+| **P1** | JSONL 存储后端（G1） | `packages/durable/src/storage/jsonl/{storage,node}.ts` 与 `test/jsonl-storage.test.ts` | **已完成（2026-10-21）**：`JsonlStorage.cs` / `JsonlStorageJson.cs`、`MemoryStorage.PrepareCommit` 与 3 个测试类已构建并通过；修复了 ID 空间按 JS safe-integer 边界耗尽的语义。提交 `8535249`。 |
+| **P1** | CodeMode 默认 JS 引擎（G2） | `packages/coding-agent/src/extensions/codemode/{execute.ts,worker.ts}`、`packages/codemode/src/runtime/worker.ts` | **已完成（2026-10-21）**：默认引擎改为 `JintCodemodeEngine`，`codemode/execute` 无需宿主注入即可执行；新增真实 Jint 集成测试，并修复同步工具调用在 host 绑定 VM 前完成回复的竞态。提交 `af67fa0`。详见 G2。 |
+| **P2** | 扩展 Overlay 句柄接线（G3） | `packages/coding-agent/src/core/extensions/types.ts`、`packages/tui/src/tui.ts` | **已完成（2026-10-21）**：`OverlayHandle` 包装真实 `IOverlayHandle`，`InteractiveMode` 转交 `ShowOverlay` 返回值；新增转发与移除后调用测试。实现提交 `8535249`，行为测试提交 `e6ae911`。 |
 | **P1** | Evals 容器级验收 | `packages/evals` 与 `src/Pi.Evals/Docker` | 实现及单元测试已通过；需构建两种镜像并运行隔离 eval smoke。本机没有 Docker、Podman、nerdctl 服务，WSL 未安装发行版。容器内 `assertRootOnly`/`assertSandboxCannotRead` 探针亦未移植（G4）。 |
-| **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | 现有导出面扫描是启发式：TS 类型别名、工厂函数、命名转换及拆分项目会产生未匹配项；必须逐项分类并用行为/JSON 测试确认，不能把扫描结果直接视作缺陷或通过。 |
+| **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | **已完成（2026-10-21，公开契约部分）**：1,426 个 barrel 导出逐项分类（442 runtime / 945 type / 39 unknown 均已判型），新增 OpenAI 与 Anthropic wire 套件并修复两个 `JsonNode` 归属缺陷；唯一功能缺口为 G7（OIDC federation）。结论见 [public-api-audit.md](./public-api-audit.md)。POSIX 传输验收仍由 Stage 17 跟踪。 |
 | **P2** | POSIX transport 与 SSH 端到端验收 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts`、`Pi.Client` / `Pi.Server` / `Pi.Env` | Windows 定点测试通过，但没有 POSIX .NET runner 或 sshd；需在 POSIX 主机验证 Unix socket、发现/握手，以及 SSH 扫描、信任、部署和远程执行链。 |
 
 文档/示例范围已明确：随包 README 已改为 .NET 10 说明，文档索引和 README 均标明上游 docs/examples 面向 TypeScript/Node/Bun；C# 扩展使用仓库的 .NET 指南。上游示例作为参考保留，不冒充 .NET 示例，也不再作为未决适配项。
@@ -94,6 +94,7 @@
 - `Pi.Durable.Tests` 的阶段 1 全量执行曾卡在 inbox 用例；阶段 2 将测试 fixture 的默认扩展选择校正为 TS 的 undefined 语义，并修复了 `Session.Enqueue` 并发调用时 `_tail` 链接非原子的竞态。阶段 2 最终全量复验：370 项通过、2 项因本机缺少可用 Git Bash 而跳过、0 失败；期间两次全量运行中的时序敏感输出测试曾分别偶发失败，单测复跑及之后的全量复验通过，故保留为时序稳定性观察项而非环境豁免。
 - 早期 harness inbox 挂起及 coding-agent 4,797 项测试记录均为历史诊断；本轮全量测试项目运行完成且无失败，当前测试数见上述复验结果。
 - Stage 11 复验：`dotnet build Pi.slnx --no-restore -m:1` 通过，0 警告、0 错误；`Pi.Chord.Tests` 104/104、`PluginBundlesTests` 12/12、`JintContextBridgeTests` 3/3、完整 `Pi.CodingAgent.Tests` 4,948/4,948 通过，0 失败；`git diff --check` 通过。
+- Stage 18（公开契约与 wire 审计）：`dotnet build Pi.slnx --no-restore -m:1 -v:minimal` 通过，0 警告、0 错误；`Pi.Ai.Tests` 402/402（新增 OpenAI wire 32 项、Anthropic wire 10 项）；`Pi.Mcp.Tests` 47/47（新增客户端 4 项、真实 Node stdio 8 项）；`git diff --check` 通过。审计导出面 1,426 项；唯一功能缺口为 G7，容器/POSIX 验收仍受环境阻塞。
 - AI Radius OAuth 的浏览器 loopback 用例可能在无头环境持续等待；本机 `HttpListener`/Unix socket 测试还受权限和路径长度影响。只有逐项复现并记录后，才能把它们列为环境限制。
 - 旧文档的 package 状态表和总测试数存在过期快照；本文件优先记录当前基线和逐阶段提交，历史记录不覆盖当前实测。
 
@@ -113,8 +114,10 @@
 | 9. 最终一致性与交付 | 修正全量复验发现的测试假设；将根 README 与打包说明适配为 .NET，并标注上游 docs/examples 的适用范围；复核源码缺口并重新验证 solution、全部测试和 CLI。 | `dotnet build Pi.slnx --no-restore -m:1 -v:minimal`：0 警告、0 错误；13 个测试项目共 29,942 项，29,941 通过、0 失败、1 项 sshd 跳过；Pi CLI 与 Evals CLI `--help` 退出码 0；Durable/Vacation 宿主对 `--help` 按 TS 契约拒绝未知参数；`git diff --check` 通过。 | 本机可运行验收通过；Docker、POSIX 和剩余公开契约复核仍阻塞，阶段未完成。原实现记录提交 `309fb30` 已推送；后续台账更新（含本阶段）持续记录并单独推送。 |
 | 11. Jint 插件包与 keyed Context 生命周期 | 默认插件 host 改为 Jint CommonJS 执行；修复同 Jint 引擎回调重入；桥接 Context key identity、AbortSignal 事件及监听器释放；将 keyed observation 改为按 observer-entry 创建/取消 Context，并覆盖 remote reload 的旧实例失效。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；`Pi.Chord.Tests` 104/104、`PluginBundlesTests` 12/12、`JintContextBridgeTests` 3/3、完整 `Pi.CodingAgent.Tests` 4,948/4,948；`git diff --check` 通过。 | `a3b7b0c feat(plugins): align Jint bundles and keyed contexts`，已推送 `origin/main`。 |
 | 12. Client TUI `/compact` dispatch parity | 新增经 loopback AgentController 服务调用的 Client TUI 覆盖；分别验证自定义指令和空参数，并将 compact 响应 gate 住以观察 pending 状态及完成清理。 | `dotnet build .\tests\Pi.CodingAgent.Tests\Pi.CodingAgent.Tests.csproj --no-restore -m:1`：0 警告、0 错误；`ClientTuiTests.CompactCommandForwardsOptionalInstructionsAndShowsProgress` 2/2；`ClientTuiTests` 类 10/10。 | `f9be16f test(client): cover compact slash command`，已推送 `origin/main`。 |
-| 13. JSONL 存储后端（G1） | 按 `storage/jsonl/storage.ts` 逐段移植：主标记 + `doc-*/task-*` 侧车、严格 UTF-8/撕裂行处理、侧车确认与未确认尾截断、current-only 文档与 terminal 任务的回收、`.reclaim` 原子替换、毒化与重开语义；为 `MemoryStorage` 抽出 `PrepareCommit`（先校验后落盘）。新增 `JsonlStorageTests`、`JsonlStorageConformanceTests`、`JsonlStorageAcrossReopenConformanceTests`。 | **未运行**：本轮 shell 不可用，未执行 build/测试。静态核对项：存储契约 20 个成员全部委托/实现；校验文案与 TS 逐条对齐；conformance 以 `LocalExecutionEnv` 临时目录驱动并含跨重开包装器。 | **未提交、未推送**（无法运行 git）。 |
-| 14. 扩展 Overlay 句柄（G3） | `OverlayHandle` 由空占位改为包装 `Pi.Tui.IOverlayHandle` 的七成员契约；`InteractiveMode` 把 `ShowOverlay` 的真实句柄交给扩展回调，不再丢弃。 | **未运行**：未编译、未跑交互测试。静态核对：成员与 TS `OverlayHandle` 一一对应；调用方仅 `InteractiveMode` 一处，构造器 internal 不影响扩展程序集。 | **未提交、未推送**。 |
+| 13. JSONL 存储后端（G1） | 按 `storage/jsonl/storage.ts` 逐段移植：主标记 + `doc-*/task-*` 侧车、严格 UTF-8/撕裂行处理、侧车确认与未确认尾截断、current-only 文档与 terminal 任务的回收、`.reclaim` 原子替换、毒化与重开语义；为 `MemoryStorage` 抽出 `PrepareCommit`（先校验后落盘）。新增 `JsonlStorageTests`、`JsonlStorageConformanceTests`、`JsonlStorageAcrossReopenConformanceTests`。另将 ID 铸造收紧到 JS safe-integer 边界（`2655c56`）。 | `dotnet build Pi.slnx --no-restore -m:1`：0 警告、0 错误；JSONL 定向 46/46（conformance 23 + 跨重开 23，另有定点恢复/回收/损坏用例），完整 `Pi.Durable.Tests` 452/452 连续 3 轮通过；其间修复了 partial 提交竞态导致的偶发失败（`2b53885`）。 | `8535249 feat(durable): 新增 JSONL 存储后端并接通扩展 overlay 句柄`、`2655c56 fix(durable): reject ids beyond the JS safe-integer range`、`2b53885 test(durable): wait for the committed partial before closing`。 |
+| 14. CodeMode 默认引擎（G2） | 新增 `JintCodemodeEngine`：每次执行独立 `Engine`，复用共享 prelude，`bridge` 经 `ClrFunction` 接入 `call/global/output/done/crash` 协议；`SandboxOptions.Engine` 与 `CodemodeExecute.EngineDefaults` 默认使用 Jint，`UnsupportedCodemodeJsEngine` 保留为显式禁用。host 增加延迟回复队列，修复同步工具调用早于 VM 绑定完成的竞态。 | `Pi.Codemode.Tests` 51/51（含 10 个真实 Jint 集成测试），Codemode 输出/默认引擎定向 7/7；solution 0 警告、0 错误。覆盖工具调用与输出、globals、脚本/语法错误、永不 settle 的 promise、工具失败、store 写回、超时停止后复用、递归保护与执行隔离。 | `af67fa0 feat(codemode): run scripts with a default Jint engine`。 |
+| 15. 扩展 Overlay 句柄（G3） | `OverlayHandle` 由空占位改为包装 `Pi.Tui.IOverlayHandle` 的七成员契约；`InteractiveMode` 把 `ShowOverlay` 的真实句柄交给扩展回调，不再丢弃；并修复 TUI `Stop()` 与进行中渲染回调的竞态（`fc56e1b`）。 | `OverlayHandle_ForwardsControlToTuiHandle`：show/hide/setHidden/focus/unfocus/getBounds 逐项转发，移除后重复调用无异常；完整 `Pi.Tui.Tests` 23,875/23,875；solution 0 警告、0 错误。 | 实现 `8535249`，转发/移除测试 `e6ae911`，渲染竞态修复 `fc56e1b`。 |
+| 18. 公开 API 与 wire 审计 | 解析 13 个包的 barrel 导出并逐项分类：1,426 = 442 runtime + 945 type + 39 unknown（36 个 async function、3 个纯类型）；1,014 个同名命中，412 个未同名项归入类型层映射、别名落点或平台排除。新增 OpenAI Chat Completions 32 项、Anthropic Messages 10 项 wire 测试与 MCP 4 项客户端/8 项真实 stdio 测试；修复 OpenAI 工具结果图片与 Anthropic 原生工具变更的 `JsonNode` 重复挂载缺陷。登记 G5 平台排除与 G7 OIDC federation 缺口。 | `dotnet build Pi.slnx --no-restore -m:1 -v:minimal`：0 警告、0 错误；`Pi.Ai.Tests` 402/402；`Pi.Mcp.Tests` 47/47；`git diff --check` 通过。 | 结论见 `docs/public-api-audit.md`，随本阶段提交推送。 |
 
 ## 2026-10-20 独立静态复核
 
@@ -142,6 +145,7 @@
 | **G4** | Evals 容器内权限探针未移植 | `packages/evals/docker/entrypoint.ts:73-101,127-130`（`assertRootOnly` / `assertSandboxCannotRead`） | `src/Pi.Evals/EvalDockerRunner.cs` 的 `VerifyImageLayout` 只静态检查文件模式 | 镜像“评估器源码不可被 sandbox UID 读取”缺少运行时实证；容器级验收本来也被环境阻塞 | **P2**（依赖 Docker） |
 | **G5** | Cloudflare Workers AI binding 路径 | `packages/ai/src/api/cloudflare-ai-binding.ts`、`api/cloudflare.ts` | 无；只有 `Providers/CloudflareWorkersAi.cs` 的 HTTP 路径 | 该模块是 workerd `env.AI.fetch()` 适配，属平台专属；建议按 Node/Bun 适配器同一规则**明确排除**并在文档登记，而不是补建 | **P3** |
 | **G6** | POSIX transport / SSH 端到端 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts` | `Pi.Client`/`Pi.Server`/`Pi.Env` 已实现，仅在 Windows 验证 | Unix socket、发现/握手、sshd 扫描/信任/部署链未在 POSIX 主机验收 | **P1（验收）** |
+| **G7** | Anthropic workload identity federation（OIDC） | `packages/ai/src/api/anthropic-messages.ts`（federation 配置与 SDK token exchange/refresh） | `GetFederationConfig` 构造同一配置，`Providers/Anthropic.cs` 可识别 federation 环境；`Stream` 在仅 federation 认证时抛出 `NotSupportedException`，要求改用 API key/auth token | 使用 federation 的部署无法调用 Anthropic；当前为显式失败而非静默未认证请求。后续可用 `HttpClient` 实现 exchange/refresh，但需要可验证的 federation 凭据 | **P2** |
 
 补充说明：
 - `chord/src/delta/draft.ts` 只是 10 行类型别名，`index.ts` 类桶文件不产生 C# 语义，二者不计为缺口。
@@ -155,11 +159,12 @@
 
 | 阶段 | 目标与文件范围 | 验收标准 | 依赖 | 状态 |
 |---|---|---|---|---|
-| **13. JSONL 存储后端（G1）** | 新增 `src/Pi.Durable/Storage/JsonlStorage.cs`（必要时拆 `JsonlStorageJson.cs`），复用 `IFileSystem`；新增 `tests/Pi.Durable.Tests/JsonlStorageTests.cs` 并注册 storage conformance。 | 1) storage conformance 23 项在 JSONL 后端全通过，含跨重开变体；2) 主日志/侧车文件的格式、`format`/`type` 校验与损坏拒绝文案与 TS 一致（`Malformed complete main.jsonl`、`Confirmed record follows an unconfirmed tail`、`Commit sequence does not strictly increase`、`Missing confirmed sidecar record`、`Invalid document content`）；3) current-only 文档与 terminal 任务的侧车回收、`.reclaim` 临时文件与崩溃恢复语义一致；4) `fsync` 选项、close 后拒绝、毒化后拒绝；5) 0 警告构建。 | 无（纯离线） | **实现与测试已写入，构建/运行未验证** |
-| **14. CodeMode 默认引擎（G2）** | 在 `Pi.Codemode` 提供默认可用的 `ICodemodeJsEngine` 实现（候选：Jint 承载 prelude + 工具桥；或宿主侧子进程引擎），或明确将 `codemode/execute` 标为“需宿主注入”并从默认工具集移除。**先决策，再实现**。 | 1) `codemode/execute` 在默认 CLI 下可执行 `tools.*` 调用并回传文本/图片/console 输出；2) 中止、超时、失控脚本停止、沙箱错误路径有测试；3) prelude 的 `settle/run/stalled` 消息序与 TS worker 一致；4) 若选择“移除默认工具”，需在 README/docs 与工具清单同步，并有测试锁定。 | Stage 13 无依赖；需先定引擎方案 | 未开始（待决策） |
-| **15. 扩展 Overlay 句柄（G3）** | `Placeholders.cs` 的 `OverlayHandle` 换成真实契约（show/hide/setHidden 或等价的 `IOverlayHandle`）；`InteractiveMode` 转交 `ShowOverlay` 返回的句柄并处理关闭后失效。 | 1) 扩展可隐藏/恢复自身 overlay；2) overlay 关闭后调用不抛异常且无副作用；3) 非 overlay 路径不受影响；4) `ExtensionManagerViewTests`/交互测试全绿。 | 无 | **实现已写入，构建/运行未验证**；尚缺“关闭后调用”覆盖测试 |
+| **13. JSONL 存储后端（G1）** | 新增 `src/Pi.Durable/Storage/JsonlStorage.cs`（必要时拆 `JsonlStorageJson.cs`），复用 `IFileSystem`；新增 `tests/Pi.Durable.Tests/JsonlStorageTests.cs` 并注册 storage conformance。 | 1) storage conformance 23 项在 JSONL 后端全通过，含跨重开变体；2) 主日志/侧车文件的格式、`format`/`type` 校验与损坏拒绝文案与 TS 一致（`Malformed complete main.jsonl`、`Confirmed record follows an unconfirmed tail`、`Commit sequence does not strictly increase`、`Missing confirmed sidecar record`、`Invalid document content`）；3) current-only 文档与 terminal 任务的侧车回收、`.reclaim` 临时文件与崩溃恢复语义一致；4) `fsync` 选项、close 后拒绝、毒化后拒绝；5) 0 警告构建。 | 无（纯离线） | **已完成（2026-10-21）**：JSONL 定向 46/46、完整 Durable 452/452；提交 `8535249`。 |
+| **14. CodeMode 默认引擎（G2）** | 在 `Pi.Codemode` 提供默认可用的 `ICodemodeJsEngine` 实现。**决策 A**：Jint 承载 prelude + 工具桥，默认接入 `CodemodeSandbox` 与 `codemode/execute`；QuickJS 专属 WASM 载荷不消费，`UnsupportedCodemodeJsEngine` 保留为显式禁用。 | 1) `codemode/execute` 在默认 CLI 下可执行 `tools.*` 调用并回传文本/图片/console 输出；2) 中止、超时、失控脚本停止、沙箱错误路径有测试；3) prelude 的 `settle/run/stalled` 消息序与 TS worker 一致；4) 同步工具调用在 host 绑定 VM 前完成的回复不丢失。 | 无 | **已完成（2026-10-21）**：`Pi.Codemode.Tests` 51/51（含 10 个真实 Jint 集成测试）、Codemode 输出/默认引擎定向 7/7；提交 `af67fa0`。 |
+| **15. 扩展 Overlay 句柄（G3）** | `Placeholders.cs` 的 `OverlayHandle` 换成真实契约（show/hide/setHidden 或等价的 `IOverlayHandle`）；`InteractiveMode` 转交 `ShowOverlay` 返回的句柄并处理关闭后失效。 | 1) 扩展可隐藏/恢复自身 overlay；2) overlay 关闭后调用不抛异常且无副作用；3) 非 overlay 路径不受影响；4) `ExtensionManagerViewTests`/交互测试全绿。 | 无 | **已完成（2026-10-21）**：代码提交 `8535249`，转发/隐藏/聚焦/边界与移除后重复调用测试 `e6ae911` 通过；TUI `Stop()` 渲染竞态修复 `fc56e1b`。 |
 | **16. Evals 容器验收（G4 + P1）** | 补齐 `assertRootOnly`/`assertSandboxCannotRead` 等价探针；在可用容器运行时构建两镜像并跑隔离 smoke。 | 1) 镜像内以 sandbox UID 读取评估器源码失败、root 读取成功；2) 两镜像 id 不同；3) 隔离 eval smoke 产出报告且失败正确传播。 | Docker/Podman/nerdctl 或 WSL 发行版 | 受环境阻塞 |
-| **17. 公开契约与 POSIX 收口（G6 + P2）** | 逐包导出面与 JSON/wire 形状核验；POSIX runner 上跑 Unix socket/发现/握手与 sshd 端到端。 | 1) 公开 API 差异逐项分类（补建或登记排除）；2) POSIX 传输与 SSH 链路通过；3) `git status` 干净、全部提交已推送。 | POSIX 主机 + sshd | 受环境阻塞 |
+| **17. 公开契约与 POSIX 收口（G6 + P2）** | 逐包导出面与 JSON/wire 形状核验；POSIX runner 上跑 Unix socket/发现/握手与 sshd 端到端。 | 1) 公开 API 差异逐项分类（补建或登记排除）；2) POSIX 传输与 SSH 链路通过；3) `git status` 干净、全部提交已推送。 | POSIX 主机 + sshd | 公开契约部分已完成（Stage 18）；POSIX 部分受环境阻塞。 |
+| **18. 公开 API 与 wire 审计（P2 公开契约部分）** | 解析 13 个包的 barrel 导出；逐项分类 runtime/type/unknown 并核对 C# 落点；为 OpenAI/Anthropic/MCP 序列化边界补 wire 测试；登记排除项与功能缺口。 | 1) 1,426 个导出全部归类，未同名项有类型层/别名/排除理由；2) OpenAI 与 Anthropic 请求体形状有结构断言；3) MCP progress/cancel/工具字段有真实传输测试；4) `Pi.Ai.Tests` 与 `Pi.Mcp.Tests` 全绿、solution 0 警告构建。 | 无（离线） | **已完成（2026-10-21）**：`Pi.Ai.Tests` 402/402、`Pi.Mcp.Tests` 47/47；结论与证据见 [public-api-audit.md](./public-api-audit.md)。 |
 
 ### 环境恢复后必须执行的最小验证
 
@@ -174,19 +179,30 @@ git diff --check
 
 当前 shell 修复方式（任一）：安装 PowerShell 7 并启用 `pwsh` app execution alias；或把 IDE 的默认终端指向 `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` 后重试。
 
-### 本轮变更清单（均未提交）
+### Stage 13–15 变更清单与提交（2026-10-21）
 
-| 文件 | 变更 |
-|---|---|
-| `src/Pi.Durable/Storage/JsonlStorage.cs` | 新增 JSONL 存储后端（提交/恢复/回收/毒化/关闭） |
-| `src/Pi.Durable/Storage/JsonlStorageJson.cs` | 新增主标记与侧车记录的编码/严格校验 |
-| `src/Pi.Durable/Storage/MemoryStorage.cs` | 抽出 `PrepareCommit`（校验 → 落盘 → 应用），`CommitAsync` 保持原子 |
-| `src/Pi.Durable/Storage/SqliteStorageJson.cs` | 暴露共用序列化选项 |
-| `tests/Pi.Durable.Tests/JsonlStorageTests.cs` | 新增 conformance（含跨重开）与 7 个定点测试 |
-| `src/Pi.CodingAgent/Core/Extensions/Types/Placeholders.cs` | `OverlayHandle` 改为真实句柄包装 |
-| `src/Pi.CodingAgent/Modes/Interactive/InteractiveMode.cs` | 转交 `ShowOverlay` 句柄 |
-| `readme.md` / `readme.zh-CN.md` | 存储后端说明 |
-| `docs/migration-execution-status.md` | 本台账 |
+| 文件 | 变更 | 提交 |
+|---|---|---|
+| `src/Pi.Durable/Storage/JsonlStorage.cs` | 新增 JSONL 存储后端（提交/恢复/回收/毒化/关闭） | `8535249` |
+| `src/Pi.Durable/Storage/JsonlStorageJson.cs` | 新增主标记与侧车记录的编码/严格校验 | `8535249` |
+| `src/Pi.Durable/Storage/MemoryStorage.cs` | 抽出 `PrepareCommit`（校验 → 落盘 → 应用）；ID 空间按 JS safe-integer 拒绝 | `8535249`、`2655c56` |
+| `src/Pi.Durable/Storage/SqliteStorageJson.cs` | 暴露共用序列化选项 | `8535249` |
+| `tests/Pi.Durable.Tests/JsonlStorageTests.cs` | 新增 conformance（含跨重开）与定点恢复/回收/损坏测试 | `8535249` |
+| `tests/Pi.Durable.Tests/StorageConformance.cs` | 耗尽用例改用 `9_007_199_254_740_991` | `2655c56` |
+| `tests/Pi.Durable.Tests/HarnessGenerationRecoveryTests.cs` | 等待 partial 实际提交后再关闭，消除竞态 | `2b53885` |
+| `src/Pi.Codemode/Runtime/JintCodemodeEngine.cs` | 新增默认 Jint 引擎（prelude、bridge、settle、停止、栈/内存限制） | `af67fa0` |
+| `src/Pi.Codemode/Runtime/Host.cs` | 默认引擎接入；VM 绑定前的延迟回复队列 | `af67fa0` |
+| `src/Pi.Codemode/Runtime/Engine.cs`、`src/Pi.Codemode/Types.cs`、`src/Pi.CodingAgent/Extensions/Codemode/CodemodeExecute.cs` | 默认引擎切换与文档更新 | `af67fa0` |
+| `src/Pi.Codemode/Pi.Codemode.csproj` | 引入 Jint 4.17.0 | `af67fa0` |
+| `tests/Pi.Codemode.Tests/JintEngineTests.cs` | 10 个真实 Jint 集成测试 | `af67fa0` |
+| `tests/Pi.Codemode.Tests/SandboxTests.cs` | 显式禁用引擎与同步引擎延迟回复回归 | `af67fa0` |
+| `tests/Pi.CodingAgent.Tests/CodemodeOutputLayoutTests.cs` | 默认 Jint 引擎端到端与输出布局 | `af67fa0` |
+| `src/Pi.CodingAgent/Core/Extensions/Types/Placeholders.cs` | `OverlayHandle` 改为真实句柄包装 | `8535249` |
+| `src/Pi.CodingAgent/Modes/Interactive/InteractiveMode.cs` | 转交 `ShowOverlay` 句柄 | `8535249` |
+| `tests/Pi.CodingAgent.Tests/ExtensionContractTests.cs` | overlay 转发/隐藏/边界/移除后调用测试 | `e6ae911` |
+| `src/Pi.Tui/Tui.cs` | `Stop()` 等待进行中渲染（排除调用线程），消除主题重置竞态 | `fc56e1b` |
+| `readme.md` / `readme.zh-CN.md` | 存储后端与 CodeMode 默认引擎说明 | 随本台账 |
+| `docs/migration-execution-status.md` | 本台账 | 随本台账 |
 
 Stage 13 定向验证命令（shell 恢复后执行，先于提交）：
 
@@ -200,12 +216,15 @@ dotnet run --no-restore --project .\tests\Pi.Durable.Tests\Pi.Durable.Tests.cspr
 
 Stage 15 定向验证：`dotnet build .\tests\Pi.CodingAgent.Tests\Pi.CodingAgent.Tests.csproj --no-restore -m:1`，并补一条“overlay 关闭后调用句柄不抛异常”的交互测试。
 
-### 尚未动工的 G2 与可选方案
+### G2 决策与实现（2026-10-21）
 
-G2（CodeMode 默认 JS 引擎）需要先定方案，未在本轮改代码：
+采用方案 **A：Jint 承载 prelude + 工具桥**，未引入 Node/QuickJS 外部进程：
 
-- **A. Jint 承载 prelude + 工具桥**：复用 CodingAgent 插件 host 已有的 Jint 依赖，无新增外部运行时；但 Jint 的微任务/中断模型与 QuickJS worker 不同，`stalled()` 排空与失控脚本终止需要额外实现，风险中等偏高。
-- **B. 从默认工具集移除 `codemode/execute`**：最低风险，但属于行为回退，需要同步工具清单与文档，并加测试锁定。
-- **C. 子进程引擎（Node/QuickJS）**：与 TS 最接近，但给 .NET 宿主增加 Node 依赖，偏离“原生宿主”决策。
+- `JintCodemodeEngine` 每次执行新建独立 `Engine`，求值同一份 prelude，并以 `ClrFunction` 提供 `bridge`；消息经两个 Channel 与 host 的 `call/global/output/done/crash` 协议互通。
+- 脚本在后台任务中运行，`Run` 立即返回 VM 句柄，避免同步工具调用在 host 绑定 VM 前完成时丢失回复；host 侧同时保留延迟回复队列作为兜底。
+- 每次 `settle` 后调用 `Advanced.ProcessTasks()` 再调用 prelude 的 `stalled()`，对应 TS worker 的 `executePendingJobs()` + `stalled()`。
+- `StopAsync` 取消 Jint 的 `CancellationToken`；`Options.Constraints.StackOverflowGuard` 把深递归变成可捕获的 `RangeError`（对应 QuickJS 的 `maxStackSize`）；`LimitMemory` 映射内存上限。
+- 已记录差异：QuickJS WASM 载荷（`CodemodeWorkerData.Wasm`）对 Jint 无意义；Jint 的内存计量与 QuickJS 不同；QuickJS 的 worker 线程终止由取消令牌/进程内取消替代。
+- 方案 B（移除默认工具）和 C（子进程引擎）未采用：A 已满足默认可用且不增加外部运行时依赖。
 
-建议先做 A 的可行性验证（能跑通 prelude + 一次工具调用 + 中止），失败再退回 B。决策后再进入实现阶段。
+定向验证：`JintEngineTests` 10/10（工具调用/输出、globals、脚本与语法错误、永不 settle 的 promise、工具失败、store 写回、超时停止后可复用、递归保护、执行隔离），`SandboxTests` 中同步引擎延迟回复回归通过；`Pi.Codemode.Tests` 51/51。

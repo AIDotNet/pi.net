@@ -61,15 +61,29 @@ public static class ModelOperations
     /// 对应 TS <c>calculateCost</c>。
     /// </summary>
     /// <remarks>
-    /// 与 TS 一致的两处细节：① Anthropic 的 1h 缓存写按 2 倍基础输入价计费
-    /// （<c>rates.cacheWrite * 短写 + rates.input * 2 * 长写</c>）；② 总价由四桶求和得出。
-    /// 未移植：请求级阶梯费率 <c>cost.tiers</c>（<see cref="ModelCostRates"/> 尚无该字段，
-    /// 目录解析与回写同样省略——见 <c>ModelSpecJson</c> 的说明）。
+    /// 与 TS 一致的三处细节：① 请求总输入（<c>input + cacheRead + cacheWrite</c>）超过某个阶梯阈值时
+    /// 整单按该档计价，多档命中取最高的阈值（严格大于）；② Anthropic 的 1h 缓存写按 2 倍基础输入价计费
+    /// （<c>rates.cacheWrite * 短写 + rates.input * 2 * 长写</c>）；③ 总价由四桶求和得出。
     /// </remarks>
     public static Usage CalculateCost(ModelSpec model, Usage usage)
     {
         var rates = model.Cost;
         if (rates is null) return usage with { Cost = UsageCost.Zero };
+
+        var inputTokens = usage.Input + usage.CacheRead + usage.CacheWrite;
+        if (rates.Tiers is { Count: > 0 } tiers)
+        {
+            double matchedThreshold = -1;
+            foreach (var tier in tiers)
+            {
+                if (inputTokens > tier.InputTokensAbove && tier.InputTokensAbove > matchedThreshold)
+                {
+                    matchedThreshold = tier.InputTokensAbove;
+                    rates = new ModelCostRates(
+                        tier.Input, tier.Output, tier.CacheRead ?? 0, tier.CacheWrite ?? 0);
+                }
+            }
+        }
 
         var longWrite = usage.CacheWrite1h ?? 0;
         var shortWrite = usage.CacheWrite - longWrite;

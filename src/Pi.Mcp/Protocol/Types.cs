@@ -42,7 +42,23 @@ public sealed record McpTool(
 
     /// <summary>工具声明的输出 schema（<c>outputSchema</c>）。</summary>
     public JsonObject? OutputSchema { get; init; }
+
+    /// <summary>任务执行提示（<c>execution</c>）。对应 TS <c>ToolExecution</c>。</summary>
+    public JsonObject? Execution { get; init; }
+
+    /// <summary>服务器附带的元数据（<c>_meta</c>）。</summary>
+    public JsonObject? Meta { get; init; }
 }
+
+/// <summary>
+/// <c>notifications/progress</c> 载荷。对应 TS <c>ProgressNotification</c>；
+/// <c>progressToken</c> 由客户端以请求 id 生成。
+/// </summary>
+public sealed record McpProgressNotification(
+    JsonRpcId ProgressToken,
+    double Progress,
+    double? Total = null,
+    string? Message = null);
 
 /// <summary>MCP 资源描述。对应 TS <c>Resource</c>（规范要求 name，但省略时以 uri 代替）。</summary>
 public sealed record McpResource(string Uri, string? Name = null)
@@ -236,7 +252,13 @@ public static class McpProtocol
         var name = (tool["name"] as JsonValue)?.GetValue<string>() ?? "";
         var description = (tool["description"] as JsonValue)?.GetValue<string>();
         var title = (tool["title"] as JsonValue)?.GetValue<string>();
-        return new McpTool(name, (tool["inputSchema"] as JsonObject)!, description, title);
+        return new McpTool(name, (tool["inputSchema"] as JsonObject)!, description, title)
+        {
+            OutputSchema = tool["outputSchema"] as JsonObject,
+            Annotations = tool["annotations"] as JsonObject,
+            Execution = tool["execution"] as JsonObject,
+            Meta = tool["_meta"] as JsonObject,
+        };
     }
 
     /// <summary>把 JsonObject 转为 McpResource（name 缺省取 uri；Raw 保留其余字段）。</summary>

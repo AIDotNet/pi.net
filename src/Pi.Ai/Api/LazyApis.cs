@@ -75,9 +75,130 @@ public static class ProviderStreamOptions
             OnProviderStreamEvent = Get<Func<JsonObject, ModelSpec, Task>>("onProviderStreamEvent"),
             ToolChoice = options.TryGetValue("toolChoice", out var toolChoice) ? toolChoice as JsonNode : null,
             Reasoning = Get<string>("reasoning"),
-            Deferred = options.TryGetValue("deferred", out var deferred) && deferred is true,
-            ThinkingBudgets = Get<ThinkingBudgets>("thinkingBudgets"),
+            ReasoningEffort = Get<string>("reasoningEffort"),
+            Deferred = options.TryGetValue("deferred", out var deferred) && deferred is not null
+                && (deferred is true || deferred is JsonObject),
+            DeferredWindow = options.TryGetValue("deferred", out var deferredValue)
+                && deferredValue is JsonObject deferredObject
+                ? deferredObject.Str("window")
+                : null,
+            ThinkingBudgets = options.TryGetValue("thinkingBudgets", out var budgets)
+                ? budgets switch
+                {
+                    ThinkingBudgets value => value,
+                    JsonObject value => ToThinkingBudgets(value),
+                    _ => null,
+                }
+                : null,
+            ThinkingEnabled = options.TryGetValue("thinkingEnabled", out var thinkingEnabled)
+                ? thinkingEnabled as bool?
+                : null,
+            ThinkingBudgetTokens = options.TryGetValue("thinkingBudgetTokens", out var thinkingBudgetTokens)
+                ? thinkingBudgetTokens as int?
+                : null,
+            Effort = Get<string>("effort"),
+            ThinkingDisplay = Get<string>("thinkingDisplay"),
+            InterleavedThinking = options.TryGetValue("interleavedThinking", out var interleavedThinking)
+                ? interleavedThinking as bool?
+                : null,
         };
+    }
+
+    /// <summary>wire JSON 选项（<see cref="JsonObject"/>）→ 强类型选项。</summary>
+    public static SimpleStreamOptions? FromJson(JsonObject? options)
+    {
+        if (options is null) return null;
+
+        static string? Str(JsonObject source, string key)
+            => source[key] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+
+        static int? Int(JsonObject source, string key)
+            => source[key] switch
+            {
+                JsonValue value when value.TryGetValue<int>(out var number) => number,
+                JsonValue value when value.TryGetValue<long>(out var wide) => (int)wide,
+                _ => null,
+            };
+
+        static bool? Bool(JsonObject source, string key)
+            => source[key] is JsonValue value && value.TryGetValue<bool>(out var flag) ? flag : null;
+
+        static double? Number(JsonObject source, string key)
+            => source[key] is JsonValue value && value.TryGetValue<double>(out var number) ? number : null;
+
+        static JsonObject? Object(JsonObject source, string key)
+            => source[key] is JsonObject value ? (JsonObject)value.DeepClone() : null;
+
+        var headers = options["headers"] is JsonObject headerObject
+            ? headerObject.ToDictionary(
+                entry => entry.Key,
+                entry => entry.Value is JsonValue value && value.TryGetValue<string>(out var text) ? text : null)
+            : null;
+        var env = options["env"] is JsonObject envObject
+            ? envObject
+                .Where(entry => entry.Value is JsonValue value && value.TryGetValue<string>(out _))
+                .ToDictionary(entry => entry.Key, entry => entry.Value!.GetValue<string>())
+            : null;
+        var stopSequences = options["stopSequences"] is JsonArray stops
+            ? stops
+                .Where(node => node is JsonValue value && value.TryGetValue<string>(out _))
+                .Select(node => node!.GetValue<string>())
+                .ToList()
+            : null;
+        var deferredNode = options["deferred"];
+
+        return new SimpleStreamOptions(
+            ApiKey: Str(options, "apiKey"),
+            BaseUrl: Str(options, "baseUrl"),
+            MaxTokens: Int(options, "maxTokens"),
+            Temperature: Number(options, "temperature"),
+            StopSequences: stopSequences,
+            SessionId: Str(options, "sessionId"))
+        {
+            Headers = headers,
+            SamplingParams = Object(options, "samplingParams"),
+            MaxRetries = Int(options, "maxRetries"),
+            MaxRetryDelayMs = Int(options, "maxRetryDelayMs"),
+            TimeoutMs = Int(options, "timeoutMs"),
+            WebsocketConnectTimeoutMs = Int(options, "websocketConnectTimeoutMs"),
+            Transport = Str(options, "transport"),
+            CacheRetention = Str(options, "cacheRetention"),
+            Metadata = Object(options, "metadata"),
+            Env = env,
+            ToolChoice = options["toolChoice"]?.DeepClone(),
+            Reasoning = Str(options, "reasoning"),
+            ReasoningEffort = Str(options, "reasoningEffort"),
+            Deferred = deferredNode switch
+            {
+                null => false,
+                JsonValue value when value.TryGetValue<bool>(out var flag) => flag,
+                _ => true,
+            },
+            DeferredWindow = (deferredNode as JsonObject)?.Str("window"),
+            ThinkingBudgets = options["thinkingBudgets"] is JsonObject budgets ? ToThinkingBudgets(budgets) : null,
+            ThinkingEnabled = Bool(options, "thinkingEnabled"),
+            ThinkingBudgetTokens = Int(options, "thinkingBudgetTokens"),
+            Effort = Str(options, "effort"),
+            ThinkingDisplay = Str(options, "thinkingDisplay"),
+            InterleavedThinking = Bool(options, "interleavedThinking"),
+        };
+    }
+
+    private static ThinkingBudgets ToThinkingBudgets(JsonObject budgets)
+    {
+        static long? Long(JsonObject source, string key)
+            => source[key] switch
+            {
+                JsonValue value when value.TryGetValue<long>(out var number) => number,
+                JsonValue value when value.TryGetValue<int>(out var number) => number,
+                _ => null,
+            };
+
+        return new ThinkingBudgets(
+            Long(budgets, "minimal"),
+            Long(budgets, "low"),
+            Long(budgets, "medium"),
+            Long(budgets, "high"));
     }
 }
 
@@ -89,12 +210,12 @@ public static class ProviderStreamOptions
 public static class LazyApis
 {
     public static ProviderStreams AnthropicMessagesApi()
-        => ProviderStreamsFactory.FromAsyncStream((model, context, options) =>
-            AnthropicMessages.StreamSimple(ToRuntime(model), context, options));
+        => ProviderStreamsFactory.FromStream((model, context, options) =>
+            AnthropicMessages.StreamSimple(model, context, options));
 
     public static ProviderStreams OpenAiCompletionsApi()
-        => ProviderStreamsFactory.FromAsyncStream((model, context, options) =>
-            OpenAiCompletions.StreamSimple(ToRuntime(model), context, options));
+        => ProviderStreamsFactory.FromStream((model, context, options) =>
+            OpenAiCompletions.StreamSimple(model, context, options));
 
     public static ProviderStreams OpenAiResponsesApi()
         => ProviderStreamsFactory.FromStream((model, context, options) =>
@@ -148,8 +269,4 @@ public static class LazyApis
         Classify = (model, context, options, cancellationToken) =>
             CloudflareWorkersAiSystemOne.ClassifyAsync(model, context, options, cancellationToken: cancellationToken),
     };
-
-    /// <summary>把 <see cref="ModelSpec"/> 投影为 anthropic/openai-completions 消费的运行时模型描述。</summary>
-    private static Model ToRuntime(ModelSpec model)
-        => new(model.Id, model.Name, model.Api, model.Provider);
 }

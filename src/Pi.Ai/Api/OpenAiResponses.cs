@@ -112,10 +112,10 @@ public static class OpenAiResponses
         => cacheRetention
            ?? (ProviderEnvValue.Get("PI_CACHE_RETENTION", env) == "long" ? "long" : "short");
 
-    /// <summary>Responses compat 缺省值解析（compat 形状存于目录 Extra）。对应 TS <c>getCompat</c>。</summary>
+    /// <summary>Responses compat 缺省值解析（compat 形状存于 <see cref="ModelSpec.Compat"/>）。对应 TS <c>getCompat</c>。</summary>
     public static JsonObject GetCompat(ModelSpec model)
     {
-        var compat = model.Extra?["compat"] as JsonObject ?? [];
+        var compat = model.Compat ?? [];
         bool? Opt(string key, bool fallback)
             => compat[key] is JsonValue { } value && value.TryGetValue<bool>(out var flag) ? flag : fallback;
         return new JsonObject

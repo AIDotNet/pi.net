@@ -12,8 +12,16 @@ public enum ModelType
     Classifier,
 }
 
-/// <summary>成本费率（美元/百万 token）。对应 TS <c>ModelCostRates</c>。</summary>
-public sealed record ModelCostRates(double Input, double Output, double? CacheRead = null, double? CacheWrite = null);
+/// <summary>成本阶梯（美元/百万 token）。对应 TS <c>ModelCostTier</c>：请求总输入超过阈值时整单按该档计价。</summary>
+public sealed record ModelCostTier(
+    double Input, double Output, double? CacheRead, double? CacheWrite, double InputTokensAbove);
+
+/// <summary>成本费率（美元/百万 token）。对应 TS <c>ModelCostRates</c>（含可选阶梯 <c>tiers</c>）。</summary>
+public sealed record ModelCostRates(double Input, double Output, double? CacheRead = null, double? CacheWrite = null)
+{
+    /// <summary>请求级阶梯费率；最高命中阈值整单生效。对应 TS <c>ModelCost.tiers</c>。</summary>
+    public IReadOnlyList<ModelCostTier>? Tiers { get; init; }
+}
 
 /// <summary>输入模态。对应 TS <c>input: ("text" | "image")[]</c>。</summary>
 public static class ModelInput
@@ -204,17 +212,7 @@ public sealed class ModelCatalog
                 .Where(text => text.Length > 0));
         }
 
-        ModelCostRates? cost = null;
-        if (spec["cost"] is JsonObject costObject)
-        {
-            double Rate(string key)
-                => costObject[key] is JsonValue { } value && value.TryGetValue<double>(out var parsed) ? parsed : 0;
-            cost = new ModelCostRates(Rate("input"), Rate("output"),
-                costObject["cache_read"] is JsonValue { } cr && cr.TryGetValue<double>(out var cacheRead)
-                    ? cacheRead : null,
-                costObject["cache_write"] is JsonValue { } cw && cw.TryGetValue<double>(out var cacheWrite)
-                    ? cacheWrite : null);
-        }
+        ModelCostRates? cost = spec["cost"] is JsonObject costObject ? ParseCost(costObject) : null;
 
         var consumed = new HashSet<string>
         {
@@ -283,6 +281,50 @@ public sealed class ModelCatalog
             MaxTokens = GetLong("maxTokens"),
             InputLimits = inputLimits,
             Extra = extra.Count > 0 ? extra : null,
+        };
+    }
+
+    /// <summary>
+    /// 解析 <c>cost</c> 子树（含 <c>tiers</c>）。费率键接受 TS 目录的 camelCase 与
+    /// 旧别名 snake_case；缺失的缓存费率保持 null（计费时按 0 处理）。
+    /// </summary>
+    public static ModelCostRates ParseCost(JsonObject costObject)
+    {
+        static double? Number(JsonObject owner, params string[] keys)
+        {
+            foreach (var key in keys)
+            {
+                if (owner[key] is JsonValue { } value && value.TryGetValue<double>(out var parsed)) return parsed;
+            }
+            return null;
+        }
+
+        static double Required(JsonObject owner, params string[] keys) => Number(owner, keys) ?? 0;
+
+        IReadOnlyList<ModelCostTier>? tiers = null;
+        if (costObject["tiers"] is JsonArray tierArray)
+        {
+            var parsedTiers = new List<ModelCostTier>();
+            foreach (var node in tierArray)
+            {
+                if (node is not JsonObject tier) continue;
+                parsedTiers.Add(new ModelCostTier(
+                    Required(tier, "input"),
+                    Required(tier, "output"),
+                    Number(tier, "cacheRead", "cache_read"),
+                    Number(tier, "cacheWrite", "cache_write"),
+                    Required(tier, "inputTokensAbove", "input_tokens_above")));
+            }
+            if (parsedTiers.Count > 0) tiers = parsedTiers;
+        }
+
+        return new ModelCostRates(
+            Required(costObject, "input"),
+            Required(costObject, "output"),
+            Number(costObject, "cacheRead", "cache_read"),
+            Number(costObject, "cacheWrite", "cache_write"))
+        {
+            Tiers = tiers,
         };
     }
 

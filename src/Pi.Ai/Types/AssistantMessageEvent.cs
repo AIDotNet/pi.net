@@ -140,11 +140,35 @@ public sealed record SimpleStreamOptions(
     /// <summary>推理档位（off/minimal/low/medium/high/xhigh/max）。对应 TS <c>reasoning</c>。</summary>
     public string? Reasoning { get; init; }
 
-    /// <summary>请求延后句柄。对应 TS <c>deferred</c>（P31 落地，先占位）。</summary>
+    /// <summary>OpenAI Chat Completions 的 <c>reasoning_effort</c> 原样覆盖。对应 TS <c>OpenAICompletionsOptions.reasoningEffort</c>。</summary>
+    public string? ReasoningEffort { get; init; }
+
+    /// <summary>请求延后句柄。对应 TS <c>deferred</c>（对象形态的 window 见 <see cref="DeferredWindow"/>）。</summary>
     public bool Deferred { get; init; }
+
+    /// <summary>延后窗口（15m/1h/24h）。对应 TS <c>deferred: { window }</c>。</summary>
+    public string? DeferredWindow { get; init; }
 
     /// <summary>token 型 provider 的思考预算覆盖。对应 TS <c>thinkingBudgets</c>。</summary>
     public ThinkingBudgets? ThinkingBudgets { get; init; }
+
+    /// <summary>
+    /// 是否启用扩展思考（anthropic-messages）。null 表示不发送 thinking 配置。
+    /// 对应 TS <c>AnthropicOptions.thinkingEnabled</c>。
+    /// </summary>
+    public bool? ThinkingEnabled { get; init; }
+
+    /// <summary>旧式思考预算（token，anthropic 非自适应模型）。对应 TS <c>AnthropicOptions.thinkingBudgetTokens</c>。</summary>
+    public int? ThinkingBudgetTokens { get; init; }
+
+    /// <summary>自适应思考档位覆盖（low/medium/high/xhigh/max）。对应 TS <c>AnthropicOptions.effort</c>。</summary>
+    public string? Effort { get; init; }
+
+    /// <summary>思考内容回传方式（summarized/omitted）。对应 TS <c>AnthropicOptions.thinkingDisplay</c>。</summary>
+    public string? ThinkingDisplay { get; init; }
+
+    /// <summary>非自适应模型是否请求 interleaved-thinking beta。对应 TS <c>AnthropicOptions.interleavedThinking</c>。</summary>
+    public bool? InterleavedThinking { get; init; }
 }
 
 /// <summary>思考档位 token 预算。对应 TS <c>ThinkingBudgets</c>。</summary>

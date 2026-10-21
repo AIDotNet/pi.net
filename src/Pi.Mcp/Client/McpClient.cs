@@ -17,6 +17,8 @@ public sealed class McpClient
     private readonly McpClientOptions _options;
     private readonly object _lock = new();
     private readonly Dictionary<JsonRpcId, PendingRequest> _pending = [];
+    private readonly Dictionary<JsonRpcId, JsonRpcId> _progressRequests = [];
+    private readonly Dictionary<JsonRpcId, CancellationTokenSource> _incoming = [];
     private readonly Dictionary<string, Func<JsonNode?, CancellationToken, Task<JsonNode?>>> _requestHandlers = [];
     private readonly Dictionary<string, List<Func<JsonNode?, Task>>> _notificationListeners = [];
     private readonly List<Action<Exception>> _errorListeners = [];
@@ -295,36 +297,106 @@ public sealed class McpClient
         var transport = RequireTransport(allowConnecting);
         if (_state != ClientState.Connected && !allowConnecting)
             throw new InvalidOperationException($"Cannot send MCP request in {_state} state");
+        if (cancellationToken.IsCancellationRequested)
+            throw new McpAbortError();
+
+        var timeoutMs = options.TimeoutMs ?? _options.RequestTimeoutMs ?? DefaultRequestTimeoutMs;
+        var cancellable = method != "initialize";
 
         JsonRpcId id;
         PendingRequest pending;
         lock (_lock)
         {
             id = JsonRpcId.FromNumber(_nextRequestId++);
-            pending = new PendingRequest();
+            pending = new PendingRequest
+            {
+                TimeoutMs = timeoutMs,
+                OnProgress = options.OnProgress,
+                Cancellable = cancellable,
+            };
+            if (options.OnProgress is not null)
+            {
+                // TS 以请求 id 同时充当 progressToken。
+                pending.ProgressToken = id;
+                _progressRequests[id] = id;
+            }
             _pending[id] = pending;
+        }
+
+        var requestParams = parameters;
+        if (pending.ProgressToken is { } token)
+        {
+            var withMeta = parameters?.DeepClone() as JsonObject ?? new JsonObject();
+            var meta = withMeta["_meta"] as JsonObject ?? new JsonObject();
+            withMeta["_meta"] = meta;
+            meta["progressToken"] = token.ToJson();
+            requestParams = withMeta;
+        }
+
+        using var timeoutSource = timeoutMs > 0 ? new CancellationTokenSource() : null;
+        using var waitSource = timeoutSource is null
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
+        if (timeoutSource is not null)
+        {
+            pending.TimeoutSource = timeoutSource;
+            timeoutSource.CancelAfter(TimeSpan.FromMilliseconds(timeoutMs));
         }
 
         try
         {
-            await transport.SendAsync(new JsonRpcMessage.Request(id, method, parameters), cancellationToken)
+            await transport.SendAsync(new JsonRpcMessage.Request(id, method, requestParams), cancellationToken)
                 .ConfigureAwait(false);
 
-            // 超时：默认 30s；AbortSignal → CancellationToken 外部取消；onProgress 预留进度令牌。
-            var timeoutMs = options.TimeoutMs ?? DefaultRequestTimeoutMs;
-            var completed = await Task.WhenAny(
-                pending.Completion.Task,
-                Task.Delay(TimeSpan.FromMilliseconds(timeoutMs), cancellationToken)).ConfigureAwait(false);
-
+            var cancelled = Task.Delay(Timeout.Infinite, waitSource.Token);
+            var completed = await Task.WhenAny(pending.Completion.Task, cancelled).ConfigureAwait(false);
             if (completed == pending.Completion.Task)
                 return await pending.Completion.Task.ConfigureAwait(false);
+
             if (cancellationToken.IsCancellationRequested)
-                throw new McpAbortError("MCP request aborted");
+            {
+                RemovePending(id, pending);
+                NotifyCancelled(id, cancellable, "Aborted");
+                throw new McpAbortError();
+            }
+
+            RemovePending(id, pending);
+            NotifyCancelled(id, cancellable, "Request timed out");
             throw new McpTimeoutError(timeoutMs);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 传输层在等待阶段之前就观察到了调用方取消。
+            RemovePending(id, pending);
+            NotifyCancelled(id, cancellable, "Aborted");
+            throw new McpAbortError();
         }
         finally
         {
-            lock (_lock) _pending.Remove(id);
+            RemovePending(id, pending);
+        }
+    }
+
+    /// <summary>发送 <c>notifications/cancelled</c>（仅可取消的方法）；失败只报告。</summary>
+    private void NotifyCancelled(JsonRpcId id, bool notifyServer, string? reason)
+    {
+        if (!notifyServer || _transport is not { } transport) return;
+        var parameters = new JsonObject { ["requestId"] = id.ToJson() };
+        if (!string.IsNullOrEmpty(reason)) parameters["reason"] = reason;
+        _ = SendCancellationAsync(transport, parameters);
+    }
+
+    private async Task SendCancellationAsync(IMcpTransport transport, JsonObject parameters)
+    {
+        try
+        {
+            await transport.SendAsync(
+                new JsonRpcMessage.Notification("notifications/cancelled", parameters),
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            EmitError(error);
         }
     }
 
@@ -351,7 +423,15 @@ public sealed class McpClient
             {
                 PendingRequest? pending;
                 lock (_lock) _pending.TryGetValue(success.Id, out pending);
-                if (pending is not null) pending.Completion.TrySetResult(success.Result);
+                if (pending is null)
+                {
+                    EmitError(new InvalidOperationException(
+                        $"Received response for unknown MCP request {success.Id}"));
+                    break;
+                }
+
+                RemovePending(success.Id, pending);
+                pending.Completion.TrySetResult(success.Result);
                 break;
             }
 
@@ -359,15 +439,24 @@ public sealed class McpClient
             {
                 PendingRequest? pending;
                 lock (_lock) _pending.TryGetValue(error.Id, out pending);
-                if (pending is not null)
-                    pending.Completion.TrySetException(
-                        new McpError(error.Error.Code, error.Error.Message, error.Error.Data));
+                if (pending is null)
+                {
+                    EmitError(new InvalidOperationException(
+                        $"Received response for unknown MCP request {error.Id}"));
+                    break;
+                }
+
+                RemovePending(error.Id, pending);
+                pending.Completion.TrySetException(
+                    new McpError(error.Error.Code, error.Error.Message, error.Error.Data));
                 break;
             }
 
             case JsonRpcMessage.Request serverRequest:
             {
                 // 服务器发起的请求：分发到已注册处理器并回发响应；未知方法回 method-not-found。
+                var cancellation = new CancellationTokenSource();
+                lock (_lock) _incoming[serverRequest.Id] = cancellation;
                 _ = Task.Run(async () =>
                 {
                     try
@@ -375,7 +464,7 @@ public sealed class McpClient
                         if (!_requestHandlers.TryGetValue(serverRequest.Method, out var handler))
                             throw new McpError(JsonRpcErrorCodes.MethodNotFound,
                                 $"No handler for {serverRequest.Method}");
-                        var result = await handler(serverRequest.Params, CancellationToken.None).ConfigureAwait(false);
+                        var result = await handler(serverRequest.Params, cancellation.Token).ConfigureAwait(false);
                         var transport = _transport;
                         if (transport is not null)
                             await transport.SendAsync(new JsonRpcMessage.SuccessResponse(serverRequest.Id, result))
@@ -390,12 +479,27 @@ public sealed class McpClient
                             await transport.SendAsync(new JsonRpcMessage.ErrorResponse(serverRequest.Id,
                                 new JsonRpcErrorObject(code, error.Message, data))).ConfigureAwait(false);
                     }
+                    finally
+                    {
+                        lock (_lock)
+                        {
+                            if (_incoming.TryGetValue(serverRequest.Id, out var current)
+                                && ReferenceEquals(current, cancellation))
+                            {
+                                _incoming.Remove(serverRequest.Id);
+                            }
+                        }
+
+                        cancellation.Dispose();
+                    }
                 });
                 break;
             }
 
             case JsonRpcMessage.Notification notification:
             {
+                if (notification.Method == "notifications/progress") HandleProgress(notification.Params);
+                else if (notification.Method == "notifications/cancelled") HandleCancelled(notification.Params);
                 if (_notificationListeners.TryGetValue(notification.Method, out var listeners))
                     foreach (var listener in listeners.ToList())
                         _ = Task.Run(() => listener(notification.Params));
@@ -404,22 +508,130 @@ public sealed class McpClient
         }
     }
 
+    /// <summary><c>notifications/progress</c>：按 token 找回请求、重置超时并回调。对应 TS <c>handleProgress</c>。</summary>
+    private void HandleProgress(JsonNode? parameters)
+    {
+        if (parameters is not JsonObject payload
+            || !payload.TryGetPropertyValue("progressToken", out var tokenNode)
+            || !JsonRpcId.TryParse(tokenNode, out var token)
+            || payload["progress"] is not JsonValue progressValue
+            || !progressValue.TryGetValue<double>(out var progress))
+        {
+            return;
+        }
+
+        PendingRequest? pending;
+        lock (_lock)
+        {
+            if (!_progressRequests.TryGetValue(token, out var requestId)
+                || !_pending.TryGetValue(requestId, out pending))
+            {
+                return;
+            }
+        }
+
+        pending.RearmTimeout();
+        double? total = payload["total"] is JsonValue totalValue
+            && totalValue.TryGetValue<double>(out var parsedTotal)
+                ? parsedTotal
+                : null;
+        var message = payload["message"] is JsonValue messageValue
+            && messageValue.TryGetValue<string>(out var parsedMessage)
+                ? parsedMessage
+                : null;
+        if (pending.OnProgress is { } onProgress)
+        {
+            _ = InvokeProgressAsync(
+                onProgress,
+                new McpProgressNotification(token, progress, total, message));
+        }
+    }
+
+    private async Task InvokeProgressAsync(
+        Func<McpProgressNotification, Task> onProgress,
+        McpProgressNotification progress)
+    {
+        try
+        {
+            await onProgress(progress).ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            EmitError(error);
+        }
+    }
+
+    /// <summary><c>notifications/cancelled</c>：中止正在处理的服务器请求。对应 TS <c>handleCancelled</c>。</summary>
+    private void HandleCancelled(JsonNode? parameters)
+    {
+        if (parameters is not JsonObject payload
+            || !payload.TryGetPropertyValue("requestId", out var idNode)
+            || !JsonRpcId.TryParse(idNode, out var id))
+        {
+            return;
+        }
+
+        CancellationTokenSource? incoming;
+        lock (_lock) _incoming.TryGetValue(id, out incoming);
+        try
+        {
+            incoming?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 处理器已结束并释放。
+        }
+    }
+
+    /// <summary>移除挂起请求及其进度 token；重复调用安全。</summary>
+    private bool RemovePending(JsonRpcId id, PendingRequest pending)
+    {
+        lock (_lock)
+        {
+            if (!_pending.TryGetValue(id, out var current) || !ReferenceEquals(current, pending))
+                return false;
+            _pending.Remove(id);
+            if (pending.ProgressToken is { } token
+                && _progressRequests.TryGetValue(token, out var requestId)
+                && requestId == id)
+            {
+                _progressRequests.Remove(token);
+            }
+            return true;
+        }
+    }
+
     private void HandleTransportClose()
         => MarkClosed(new McpConnectionClosedError());
 
-    /// <summary>关闭落定：拒绝全部挂起请求并触发 close 监听器（仅一次）。</summary>
+    /// <summary>关闭落定：拒绝全部挂起请求、中止在处理的服务器请求并触发 close 监听器（仅一次）。</summary>
     private void MarkClosed(McpConnectionClosedError reason)
     {
         List<PendingRequest> toReject;
+        List<CancellationTokenSource> incoming;
         lock (_lock)
         {
             if (_state == ClientState.Closed) return;
             toReject = [.. _pending.Values];
             _pending.Clear();
+            _progressRequests.Clear();
+            incoming = [.. _incoming.Values];
+            _incoming.Clear();
             _state = ClientState.Closed;
         }
         foreach (var pending in toReject)
             pending.Completion.TrySetException(reason);
+        foreach (var cancellation in incoming)
+        {
+            try
+            {
+                cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // 处理器已结束并释放。
+            }
+        }
 
         foreach (var listener in _closeListeners.ToList()) listener();
     }
@@ -440,6 +652,30 @@ public sealed class McpClient
     {
         public TaskCompletionSource<JsonNode?> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public long TimeoutMs { get; init; }
+
+        public CancellationTokenSource? TimeoutSource { get; set; }
+
+        public Func<McpProgressNotification, Task>? OnProgress { get; init; }
+
+        public JsonRpcId? ProgressToken { get; set; }
+
+        public bool Cancellable { get; init; }
+
+        /// <summary>收到进度后重置超时；已取消/已释放时静默忽略。</summary>
+        public void RearmTimeout()
+        {
+            var source = TimeoutSource;
+            if (source is null || TimeoutMs <= 0) return;
+            try
+            {
+                source.CancelAfter(TimeSpan.FromMilliseconds(TimeoutMs));
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
     }
 
     private sealed class Unsubscriber(Action unsubscribe) : IDisposable

@@ -10,6 +10,12 @@ public sealed record McpRequestOptions
 
     /// <summary>请求超时（毫秒；缺省 30s）。</summary>
     public long? TimeoutMs { get; init; }
+
+    /// <summary>
+    /// 进度回调。非 null 时请求携带 <c>_meta.progressToken</c>，服务器的
+    /// <c>notifications/progress</c> 会重置超时并回调；对应 TS <c>onProgress</c>。
+    /// </summary>
+    public Func<McpProgressNotification, Task>? OnProgress { get; init; }
 }
 
 /// <summary>客户端构造选项。对应 TS <c>McpClientOptions</c>（名称与版本必填）。</summary>

@@ -515,6 +515,9 @@ public static class OpenAiResponsesShared
 
         public string? RawStopReason { get; set; }
 
+        /// <summary>provider 报告的实际模型（与请求不同时）。对应 TS <c>responseModel</c>。</summary>
+        public string? ResponseModel { get; set; }
+
         /// <summary>模型是否自然说完（codex end_turn）。对应 TS <c>output.endTurn</c>。</summary>
         public bool? EndTurn { get; set; }
 
@@ -537,6 +540,7 @@ public static class OpenAiResponsesShared
             {
                 RawStopReason = RawStopReason,
                 ResponseId = ResponseId,
+                ResponseModel = ResponseModel,
                 EndTurn = EndTurn,
                 ProviderThinkingLevel = ProviderThinkingLevel,
                 Diagnostics = Diagnostics.Count > 0 ? [.. Diagnostics] : null,

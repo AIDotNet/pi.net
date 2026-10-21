@@ -11,11 +11,8 @@ namespace Pi.Ai.Models;
 /// <remarks>
 /// 已知差异：
 /// <list type="bullet">
-/// <item>TS <c>ModelCost</c> 的 <c>tiers</c> 与图片模型的 <c>output</c>、chat 模型的
-/// <c>promptCache</c> 在 C# <see cref="ModelSpec"/> 里没有具名字段；它们会经
-/// <see cref="ModelSpec.Extra"/> 原样保留并回写，因此往返不丢失（<c>cost.tiers</c> 例外：
-/// <c>cost</c> 整体被解析成 <see cref="ModelCostRates"/>，tiers 被丢弃——沿用 Pi.Ai 既有的
-/// 成本简化，见 <c>ModelOperations.CalculateCost</c> 的注释）。</item>
+/// <item>图片模型的 <c>output</c>、chat 模型的 <c>promptCache</c> 在 C# <see cref="ModelSpec"/>
+/// 里没有具名字段；它们会经 <see cref="ModelSpec.Extra"/> 原样保留并回写，因此往返不丢失。</item>
 /// <item>TS 用 <c>undefined</c> 表示"字段缺失"，C# 用 <c>null</c>；本类只写非 null 字段。</item>
 /// </list>
 /// </remarks>
@@ -46,6 +43,22 @@ public static class ModelSpecJson
             };
             if (cost.CacheRead is { } cacheRead) costObject["cacheRead"] = cacheRead;
             if (cost.CacheWrite is { } cacheWrite) costObject["cacheWrite"] = cacheWrite;
+            if (cost.Tiers is { Count: > 0 } tiers)
+            {
+                var tiersArray = new JsonArray();
+                foreach (var tier in tiers)
+                {
+                    tiersArray.Add(new JsonObject
+                    {
+                        ["input"] = tier.Input,
+                        ["output"] = tier.Output,
+                        ["cacheRead"] = tier.CacheRead ?? 0,
+                        ["cacheWrite"] = tier.CacheWrite ?? 0,
+                        ["inputTokensAbove"] = tier.InputTokensAbove,
+                    });
+                }
+                costObject["tiers"] = tiersArray;
+            }
             result["cost"] = costObject;
         }
 

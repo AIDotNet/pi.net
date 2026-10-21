@@ -770,7 +770,14 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
             serverCwd);
     }
 
-    private static McpRequestOptions RequestOptions(McpCallOptions options) => new() { TimeoutMs = options.TimeoutMs };
+    private static McpRequestOptions RequestOptions(McpCallOptions options) => new()
+    {
+        TimeoutMs = options.TimeoutMs,
+        OnProgress = options.OnProgress is null
+            ? null
+            : progress => options.OnProgress(
+                new McpProgress(progress.Progress, progress.Total, progress.Message)),
+    };
 
     private static JsonObject ToArguments(IReadOnlyDictionary<string, object?>? args)
     {
