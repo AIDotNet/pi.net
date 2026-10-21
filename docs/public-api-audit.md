@@ -78,11 +78,11 @@
 - **纯导出桶**：各包 `index.ts`、`chord/src/delta/draft.ts` 等类型别名文件不产生独立 C# 语义。
 - **无头环境受限的 OAuth loopback**：浏览器回调测试不作为 CI 通过项，但对应 OAuth 契约有纯函数/流程测试。
 
-## 唯一未实现的功能缺口（G7）
+## 功能缺口收口（G7）
 
 | 项 | TS 行为 | .NET 现状 | 影响与处置 |
 |---|---|---|---|
-| Anthropic workload identity federation（OIDC） | `packages/ai/src/api/anthropic-messages.ts` 构造 `authentication: { type: "oidc_federation", federation_rule_id, service_account_id, identity_token: { source: "file", path } }`，由 Anthropic SDK 完成 token exchange 与刷新 | `AnthropicMessages.GetFederationConfig` 能构造同一配置，`Providers/Anthropic.cs` 能识别 federation 环境；`Stream` 在检测到仅 federation 认证时抛出 `NotSupportedException`，明确要求提供 `ANTHROPIC_API_KEY` 或 `ANTHROPIC_AUTH_TOKEN` | 仅影响使用 federation 的部署；失败是显式的，不会发出未认证请求。优先级 P2（功能缺口，非主路径）。可选后续：用 `HttpClient` 直接实现 token exchange/refresh，需要可验证的 federation 凭据，本轮不伪造实现 |
+| Anthropic workload identity federation（OIDC） | `packages/ai/src/api/anthropic-messages.ts` 构造 `authentication: { type: "oidc_federation", federation_rule_id, service_account_id, identity_token: { source: "file", path } }`，由 Anthropic SDK 的 `lib/credentials` 完成 token exchange 与刷新 | **已实现（2026-10-21）**：`Auth/AnthropicFederation.cs` 直接实现 `POST /v1/oauth/token` 的 RFC 7523 jwt-bearer 交换（`oauth-2025-04-20,oidc-federation-2026-04-01` 双 beta 头、16 KiB assertion 上限、https/环回校验、错误体按 RFC 6749 字段脱敏、`Request-Id` 透出），并按 SDK 语义实现令牌缓存：剩余 >120s 直接使用、30–120s 返回旧令牌并后台刷新（失败退避 5s）、≤30s 阻塞刷新、并发刷新合并；每次交换重新读取身份令牌文件以支持轮换。`AnthropicMessages.Stream` 注入 `Authorization: Bearer` 并追加 `oauth-2025-04-20` beta，`StreamSimple` 的认证预检同步放行 federation | 使用 federation 的部署现在无需 API key 即可调用；API key / `ANTHROPIC_AUTH_TOKEN` / 显式认证头仍然优先，且仅 `anthropic` provider 参与交换。新增 24 项测试（5 项 provider 解析、18 项 token/messages wire、1 项 `Models` 端到端），覆盖交换一次复用、请求形状、可选 id、优先级、其他 provider 拒绝、到期重换、令牌文件轮换、并发合并、错误脱敏、明文端点拒绝与文件校验 |
 
 除 G7 外，本审计未发现公开导出面或 wire 形状的功能缺失；容器级（G4）与 POSIX/SSH（G6）属于验收环境阻塞，已分别在 Stage 16、Stage 17 跟踪。
 
@@ -95,4 +95,4 @@ tests/Pi.Mcp.Tests/bin/Debug/net10.0/Pi.Mcp.Tests.exe
 git diff --check
 ```
 
-本轮实测：solution 构建 0 警告、0 错误；`Pi.Ai.Tests` 402/402；`Pi.Mcp.Tests` 47/47。`dotnet test` 在当前 Microsoft.Testing.Platform 配置下不是有效入口，测试通过各测试项目的可执行文件运行。
+本轮实测：solution 构建 0 警告、0 错误；`Pi.Ai.Tests` 426/426；`Pi.Mcp.Tests` 47/47。`dotnet test` 在当前 Microsoft.Testing.Platform 配置下不是有效入口，测试通过各测试项目的可执行文件运行。

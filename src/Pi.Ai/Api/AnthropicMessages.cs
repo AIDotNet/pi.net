@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Pi.Ai.Auth;
 using Pi.Ai.Auth.OAuth;
 using Pi.Ai.Models;
 using Pi.Ai.Stream;
@@ -945,19 +946,13 @@ public static class AnthropicMessages
             {
                 var apiKey = options?.ApiKey;
                 var hasAuth = HasRequestAuth(apiKey, options?.Headers);
-                var hasFederation = model.Provider == "anthropic"
-                    && !hasAuth
-                    && GetFederationConfig(options?.Env) is not null;
-                if (hasFederation)
+                var federation = model.Provider == "anthropic" && !hasAuth
+                    ? GetFederationConfig(options?.Env)
+                    : null;
+                if (!hasAuth && federation is null)
                 {
-                    // TS delegates the OIDC token exchange and refresh to the Anthropic SDK;
-                    // the .NET port has no SDK, so this must fail loudly instead of silently
-                    // sending unauthenticated requests.
-                    throw new NotSupportedException(
-                        "Anthropic workload identity federation (OIDC token exchange) is not implemented "
-                        + "in the .NET port. Provide ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN.");
+                    throw new InvalidOperationException($"No API key for provider: {model.Provider}");
                 }
-                if (!hasAuth) throw new InvalidOperationException($"No API key for provider: {model.Provider}");
 
                 var isOAuth = IsOAuthToken(apiKey);
                 var isCopilot = model.Provider == "github-copilot";
@@ -1005,6 +1000,15 @@ public static class AnthropicMessages
                 }
 
                 var baseUrl = (options?.BaseUrl ?? model.BaseUrl).TrimEnd('/');
+                if (federation is not null)
+                {
+                    // SDK 在发请求前用身份令牌换取 Bearer token，并追加 OAuth beta；
+                    // 令牌缓存（含 120s/30s 两档预刷新）由 AnthropicFederation 负责。
+                    var accessToken = await AnthropicFederation.GetAccessTokenAsync(
+                        client, baseUrl, federation, signal).ConfigureAwait(false);
+                    headers["Authorization"] = $"Bearer {accessToken}";
+                    AppendBetaFeature(headers, AnthropicFederation.OAuthBetaHeader);
+                }
                 var url = $"{baseUrl}/v1/messages";
 
                 var response = await ProviderRetry.RetryAsync(async () =>
@@ -1411,10 +1415,10 @@ public static class AnthropicMessages
     {
         var compat = GetCompat(model);
         var hasAuth = HasRequestAuth(options?.ApiKey, options?.Headers);
-        var hasFederation = model.Provider == "anthropic"
-            && !hasAuth
-            && GetFederationConfig(options?.Env) is not null;
-        if (!hasAuth && !hasFederation)
+        var federation = model.Provider == "anthropic" && !hasAuth
+            ? GetFederationConfig(options?.Env)
+            : null;
+        if (!hasAuth && federation is null)
         {
             throw new InvalidOperationException($"No API key for provider: {model.Provider}");
         }
@@ -1531,7 +1535,22 @@ public static class AnthropicMessages
            && headers.Any(entry => entry.Key.Equals(name, StringComparison.OrdinalIgnoreCase)
                && entry.Value is null);
 
-    private static JsonObject? GetFederationConfig(IReadOnlyDictionary<string, string>? env)
+    /// <summary>把 beta 特性追加到已有的 <c>anthropic-beta</c> 头（对应 SDK prepareRequest）。</summary>
+    private static void AppendBetaFeature(Dictionary<string, string> headers, string feature)
+    {
+        headers.TryGetValue("anthropic-beta", out var existing);
+        var features = string.IsNullOrWhiteSpace(existing)
+            ? new List<string>()
+            : existing.Split(',')
+                .Select(part => part.Trim())
+                .Where(part => part.Length > 0)
+                .ToList();
+        if (!features.Contains(feature, StringComparer.Ordinal)) features.Add(feature);
+        headers["anthropic-beta"] = string.Join(",", features);
+    }
+
+    private static AnthropicFederationConfig? GetFederationConfig(
+        IReadOnlyDictionary<string, string>? env)
     {
         var ruleId = ProviderEnvValue.Get(AnthropicEnv.FederationRuleId, env);
         var organizationId = ProviderEnvValue.Get(AnthropicEnv.OrganizationId, env);
@@ -1542,22 +1561,12 @@ public static class AnthropicMessages
         {
             return null;
         }
-        return new JsonObject
-        {
-            ["organization_id"] = organizationId,
-            ["workspace_id"] = ProviderEnvValue.Get(AnthropicEnv.WorkspaceId, env),
-            ["authentication"] = new JsonObject
-            {
-                ["type"] = "oidc_federation",
-                ["federation_rule_id"] = ruleId,
-                ["service_account_id"] = ProviderEnvValue.Get(AnthropicEnv.ServiceAccountId, env),
-                ["identity_token"] = new JsonObject
-                {
-                    ["source"] = "file",
-                    ["path"] = identityTokenFile,
-                },
-            },
-        };
+        return new AnthropicFederationConfig(
+            organizationId,
+            ruleId,
+            ProviderEnvValue.Get(AnthropicEnv.ServiceAccountId, env),
+            ProviderEnvValue.Get(AnthropicEnv.WorkspaceId, env),
+            identityTokenFile);
     }
 
     private static Dictionary<string, string> BuildDefaultHeaders(

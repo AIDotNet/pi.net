@@ -22,7 +22,7 @@
 | `mcp` | `Pi.Mcp` | 已迁移 | JSON-RPC、传输与 OAuth 已实现；部分网络测试受本机 loopback/监听限制。 |
 | `server` | `Pi.Server` | 已迁移 | RPC 与本地发现已移植；Unix socket 等平台边界仍需最终跨平台验收。 |
 | `client` | `Pi.Client` | 已迁移 | 客户端协议与传输已实现。 |
-| `ai` | `Pi.Ai` | 已迁移（G7 除外） | Provider 与模型层已广泛移植；公开导出面与 wire 形状已完成审计（[public-api-audit.md](./public-api-audit.md)）。Anthropic OIDC federation 仅构造配置并显式拒绝，见 G7；依赖本地浏览器回调的 OAuth 测试不适合无头环境。 |
+| `ai` | `Pi.Ai` | 已迁移 | Provider 与模型层已广泛移植；公开导出面与 wire 形状已完成审计（[public-api-audit.md](./public-api-audit.md)）。Anthropic OIDC federation 已由 `Auth/AnthropicFederation.cs` 按 SDK 语义实现（Stage 22）；依赖本地浏览器回调的 OAuth 测试不适合无头环境。 |
 | `chord` | `Pi.Chord` | 已迁移 | 核心协议/服务/Facet 已实现；`index.ts` 是导出桶，不要求在 C# 复制。 |
 | `codemode` | `Pi.Codemode` | 已迁移 | 默认由 Jint 承载 prelude、工具桥与 promise 排空；`ICodemodeJsEngine` 可替换引擎，`UnsupportedCodemodeJsEngine` 可显式禁用。QuickJS WASM 载荷与 Jint 内存计量属于已记录的引擎差异。 |
 | `env` | `Pi.Env` | 客户端实现已迁移；Windows conformance 通过 | 协议连接、SSH 引导、远程环境与 watcher 已移植；守护进程按原生产物注入（差异 E-C1）。本轮 `Pi.Env.Tests` 46/46 通过、1 项 sshd 端到端因本机无 sshd 跳过；仍需 POSIX 主机验收。 |
@@ -35,7 +35,7 @@
 
 **P0：2026-10-20 静态复核发现的 G1–G3 已在 2026-10-21 完成实现与运行验证（G1 JSONL、G2 CodeMode 默认 Jint 引擎、G3 Overlay 句柄）；当前没有已知的主模块缺失。** 这不表示所有边界均已完成：Node/Bun 内置模块、全局对象和动态加载仍不提供兼容层，G4 容器验收与 POSIX/SSH（G6）验收仍受环境阻塞（G4 探针本身已实现）。下列运行时和契约验收未完成前，不能宣称迁移已全部验收。
 
-**2026-10-21 收口结论**：可离线验证的迁移与公开契约审计已完成，本机 13 个测试项目共 30,072 项通过、0 失败、5 项平台跳过，solution 0 警告构建。剩余未完成项只有三项：G4 的镜像级权限实证（需容器运行时）、G6 的 POSIX Unix socket/SSH 端到端（需 POSIX 主机），以及 G7 的 Anthropic OIDC federation 功能缺口（显式 `NotSupportedException`）。
+**2026-10-21 收口结论**：可离线验证的迁移、公开契约审计与 G7 Anthropic OIDC federation 均已完成，本机 13 个测试项目共 30,101 项，30,096 通过、0 失败、5 项平台跳过，solution 0 警告构建。剩余未完成项只有两项受环境阻塞的验收：G4 的镜像级权限实证（需容器运行时与镜像构建）、G6 的 POSIX Unix socket/SSH 端到端（需 POSIX 主机与 sshd）。
 
 | 优先级 | 工作项 | 主要源范围 | 依赖 / 理由 |
 |---|---|---|---|
@@ -43,7 +43,7 @@
 | **P1** | CodeMode 默认 JS 引擎（G2） | `packages/coding-agent/src/extensions/codemode/{execute.ts,worker.ts}`、`packages/codemode/src/runtime/worker.ts` | **已完成（2026-10-21）**：默认引擎改为 `JintCodemodeEngine`，`codemode/execute` 无需宿主注入即可执行；新增真实 Jint 集成测试，并修复同步工具调用在 host 绑定 VM 前完成回复的竞态。提交 `af67fa0`。详见 G2。 |
 | **P2** | 扩展 Overlay 句柄接线（G3） | `packages/coding-agent/src/core/extensions/types.ts`、`packages/tui/src/tui.ts` | **已完成（2026-10-21）**：`OverlayHandle` 包装真实 `IOverlayHandle`，`InteractiveMode` 转交 `ShowOverlay` 返回值；新增转发与移除后调用测试。实现提交 `8535249`，行为测试提交 `e6ae911`。 |
 | **P1** | Evals 容器级验收 | `packages/evals` 与 `src/Pi.Evals/Docker` | 实现及单元测试已通过；G4 的 `assertRootOnly`/`assertSandboxCannotRead` 等价探针已移植（Linux-only 测试 2 项，本机 Windows 跳过）。仍需构建两种镜像并运行隔离 eval smoke；本机没有 Docker、Podman、nerdctl 服务，WSL 未安装发行版。 |
-| **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | **已完成（2026-10-21，公开契约部分）**：1,426 个 barrel 导出逐项分类（442 runtime / 945 type / 39 unknown 均已判型），新增 OpenAI 与 Anthropic wire 套件并修复两个 `JsonNode` 归属缺陷；唯一功能缺口为 G7（OIDC federation）。结论见 [public-api-audit.md](./public-api-audit.md)。POSIX 传输验收仍由 Stage 17 跟踪。 |
+| **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | **已完成（2026-10-21，公开契约部分）**：1,426 个 barrel 导出逐项分类（442 runtime / 945 type / 39 unknown 均已判型），新增 OpenAI 与 Anthropic wire 套件并修复两个 `JsonNode` 归属缺陷；审计登记的 G7（OIDC federation）功能缺口已由 Stage 22 补齐。结论见 [public-api-audit.md](./public-api-audit.md)。POSIX 传输验收仍由 Stage 17 跟踪。 |
 | **P2** | POSIX transport 与 SSH 端到端验收 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts`、`Pi.Client` / `Pi.Server` / `Pi.Env` | Windows 定点测试通过，但没有 POSIX .NET runner 或 sshd；需在 POSIX 主机验证 Unix socket、发现/握手，以及 SSH 扫描、信任、部署和远程执行链。 |
 
 文档/示例范围已明确：随包 README 已改为 .NET 10 说明，文档索引和 README 均标明上游 docs/examples 面向 TypeScript/Node/Bun；C# 扩展使用仓库的 .NET 指南。上游示例作为参考保留，不冒充 .NET 示例，也不再作为未决适配项。
@@ -67,6 +67,7 @@
 | **10. Experimental client TUI fullscreen parity** | `ClientTuiTests`、`Pi.Tui.Container` 及 InteractiveMode/selector 的子项访问；接入真实 `TuiAltScreen`/`StringTerminal`，覆盖全屏渲染、滚动与异步结构更新。 | 验证 viewport 高度、长 transcript、PageUp/PageDown follow-end；在并发变更时稳定渲染容器快照；运行完整 `Pi.Tui.Tests` 与 `Pi.CodingAgent.Tests`。 | 本轮已完成本机验收：Pi.Tui 23,875/23,875、Pi.CodingAgent 4,944/4,944；整体阶段 9 仍受上述 P1/P2 项阻塞。 |
 | **11. Jint 插件包与 keyed Context 生命周期** | `Pi.Chord/Context`、Facet service slots、keyed instance directory/remote consumer，以及 `Pi.CodingAgent/Experimental/Plugins` Jint CommonJS host 与 context bridge。 | 对照 TS keyed observation 语义；每个 observer-entry 有独立可取消 Context，关闭/退订/reload/dispose 会取消；旧远程实例失效；CommonJS bundle、同引擎回调、Context key identity 和 AbortSignal 事件有真实集成测试；Chord/CodingAgent 定向与完整测试、solution build 通过。 | 已完成并推送（`a3b7b0c`）。 |
 | **12. Client TUI `/compact` dispatch parity** | `tests/Pi.CodingAgent.Tests/ClientTuiTests.cs` 与 `ClientTuiFixture`；经现有 slash-command/AgentController wire 调用验证，不改生产逻辑。 | 覆盖有/无自定义指令、请求参数形状、pending 时的 `Compacting…` 状态及成功后清理；Client TUI 类测试通过。 | 已完成并推送代码测试（`f9be16f`）。 |
+| **22. Anthropic OIDC federation（G7）** | `src/Pi.Ai/Auth/AnthropicFederation.cs`、`src/Pi.Ai/Api/AnthropicMessages.cs`、`tests/Pi.Ai.Tests/AnthropicFederationTests.cs`。按 Anthropic SDK 0.129 的 exchange/cache 语义以 `HttpClient` 实现，不引入 vendor SDK。 | 1) 无显式认证且 provider 为 `anthropic` 时自动换取令牌并注入 `Authorization: Bearer` 与 `anthropic-beta`；2) exchange 请求体/头形状与 SDK 一致；3) 缓存阈值、顾问式刷新、并发合并、文件轮换与 SDK 一致；4) 非回环明文端点、空/超大身份令牌、畸形响应显式失败且不泄露 assertion；5) 显式 key/token/header 优先；6) `Pi.Ai.Tests` 全绿、solution 0 警告。 | **已完成（2026-10-21）**：`Pi.Ai.Tests` 426/426；实现与台账同批提交推送。 |
 
 ### 特殊范围决策
 
@@ -101,6 +102,7 @@
 - Stage 18（公开契约与 wire 审计）：`dotnet build Pi.slnx --no-restore -m:1 -v:minimal` 通过，0 警告、0 错误；`Pi.Ai.Tests` 402/402（新增 OpenAI wire 32 项、Anthropic wire 10 项）；`Pi.Mcp.Tests` 47/47（新增客户端 4 项、真实 Node stdio 8 项）；`git diff --check` 通过。审计导出面 1,426 项；唯一功能缺口为 G7，容器/POSIX 验收仍受环境阻塞。
 - Stage 19（Evals 权限探针）：`dotnet build tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore -m:1` 通过，0 警告、0 错误；`Pi.Evals.Tests` 54 项，52 通过、0 失败、2 项 Linux-only 权限测试因 Windows 跳过；镜像构建与容器内实证仍未执行。
 - Stage 20（容器/POSIX 验收尝试）：`docker`、`podman`、`nerdctl` 均不存在；`wsl.exe -l -v` 报告未安装发行版；Windows 未安装 sshd 服务，Git Bash 的 `sshd` 按上游 win32 规则不参与测试。`Pi.Env.Tests` 47 项，44 通过、0 失败、3 跳过（2 无 POSIX shell、1 无 sshd）；`ServerClientEndToEndTests` 9/9；`dotnet publish src/Pi.Evals -c Release -r linux-x64 --self-contained false` 成功，产物含 `Pi.Evals.dll` 与 Docker 资源。容器镜像构建/运行、POSIX Unix socket 与 SSH 链路仍未验收。
+- Stage 22（G7 Anthropic OIDC federation，取代上述全量计数）：`dotnet build Pi.slnx --no-restore -m:1 -v:minimal` 通过，0 警告、0 错误；13 个测试项目共 30,101 项，30,096 通过、0 失败、5 跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd）。分布：`Pi.Tui` 23,875、`Pi.CodingAgent` 4,953、`Pi.Durable` 452、`Pi.Ai` 426（较 Stage 21 新增 24 项 federation 测试）、`Pi.Chord` 104、`Pi.Evals` 52+2 跳过、`Pi.Mcp` 47、`Pi.Env` 44+3 跳过、`Pi.Agent` 33、`Pi.Server` 33、`Pi.Protocol` 14、`Pi.Telemetry` 12、`Pi.Codemode` 51；`git diff --check` 通过。
 - AI Radius OAuth 的浏览器 loopback 用例可能在无头环境持续等待；本机 `HttpListener`/Unix socket 测试还受权限和路径长度影响。只有逐项复现并记录后，才能把它们列为环境限制。
 - 旧文档的 package 状态表和总测试数存在过期快照；本文件优先记录当前基线和逐阶段提交，历史记录不覆盖当前实测。
 
@@ -127,6 +129,7 @@
 | 19. Evals 容器权限探针（G4） | 新增 `EvalFileProbe`：`.NET` 镜像不含 TS 源码，评估器定义编译进 `Pi.Evals.dll`，因此对该程序集执行 root 属主 + 无 group/other 位校验；`EnterToolSandbox` 在 `setuid` 后以 sandbox 身份验证程序集不可读。`VerifyImageLayout` 改为调用同一探针。 | `dotnet build tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore -m:1`：0 警告、0 错误；`Pi.Evals.Tests` 54 项，52 通过、0 失败、2 项 Linux-only 跳过（Windows 无 Unix 权限）；`git diff --check` 通过。 | 实现与记录随本阶段提交推送；镜像构建/隔离 smoke 仍待容器运行时。 |
 | 20. 容器与 POSIX/SSH 验收尝试 | 探测容器运行时、WSL 与 sshd；执行 Windows 可运行的环境/传输测试；交叉发布 linux-x64 版 Evals 以验证发布阶段。 | `docker`/`podman`/`nerdctl` 均 not found；WSL 已安装但无发行版；Windows 未安装 sshd 服务（Git Bash 的 sshd 按 TS win32 规则跳过）。`Pi.Env.Tests` 44/47（3 跳过：2 无 POSIX shell、1 无 sshd）；`ServerClientEndToEndTests` 9/9；`dotnet publish src/Pi.Evals -c Release -r linux-x64 --self-contained false` 成功产出 `Pi.Evals.dll`。以上仅为可执行部分，容器与 POSIX 验收未宣称通过。 | 本记录文档提交；无代码变更。 |
 | 21. 最终收口与全量复验 | 修复并行测试类共享 `ModelCatalogRefresh.RefreshOverride` 导致 model selector 无结果路径偶发失败的隔离问题（改为 `AsyncLocal`）；将 Durable 进度节流断言改为以写入开始时刻为基准，匹配 TS 语义。全量构建、13 个测试项目、CLI smoke 与台账收口。 | `dotnet build Pi.slnx -m:1 -v:minimal`：0 警告、0 错误；13 个测试项目共 30,077 项，30,072 通过、0 失败、5 跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd）；Pi CLI 与 Evals CLI `--help` 退出 0，DurableHost/Vacation 按 TS 契约以退出码 1 拒绝未知参数；`git diff --check` 通过。 | 代码修正 `abd3c6a` 与本记录提交推送；G4 镜像级、G6 POSIX、G7 OIDC federation 仍未完成。 |
+| 22. Anthropic OIDC federation（G7） | 新增 `AnthropicFederation`：RFC 7523 jwt-bearer exchange、SDK 等价 token 缓存（>120s 直用 / 30–120s 顾问式刷新 / ≤30s 阻塞刷新、并发合并、失败退避）、身份令牌文件每次重读、16 KiB assertion 与 1 MiB 响应上限、非回环 https 强制与 RFC 6749 错误字段脱敏；`AnthropicMessages.Stream`/`StreamSimple` 在 provider 为 `anthropic` 且无显式认证时注入 federation Bearer 与 `oauth-2025-04-20` beta；显式 API key/auth token/header 保持优先。 | `dotnet build Pi.slnx --no-restore -m:1 -v:minimal`：0 警告、0 错误；`Pi.Ai.Tests` 426/426（新增 federation auth 5、wire 18、`Models` 端到端 1）；13 个测试项目全量复验见验证基线；`git diff --check` 通过。 | 随本台账同批提交推送；G4 镜像级与 G6 POSIX 验收仍受环境阻塞。 |
 
 ## 2026-10-20 独立静态复核
 
@@ -154,7 +157,7 @@
 | **G4** | Evals 容器内权限探针未移植 | `packages/evals/docker/entrypoint.ts:73-101,127-130`（`assertRootOnly` / `assertSandboxCannotRead`） | **已实现（2026-10-21）**：`EvalFileProbe` 以 libc `stat` 校验 root 属主与无 group/other 位，降权后在进程内验证入口程序集不可读；`VerifyImageLayout` 与 `EnterToolSandbox` 均接入。.NET 镜像把评估器定义编译进 `Pi.Evals.dll`，因此探针对象是程序集而非 TS 源码目录。 | 探针逻辑有 Linux-only 单元测试；镜像内“sandbox UID 不可读、root 可读”的实证仍依赖容器运行时与镜像构建 | **P2**（容器验收） |
 | **G5** | Cloudflare Workers AI binding 路径 | `packages/ai/src/api/cloudflare-ai-binding.ts`、`api/cloudflare.ts` | 无；只有 `Providers/CloudflareWorkersAi.cs` 的 HTTP 路径 | 该模块是 workerd `env.AI.fetch()` 适配，属平台专属；建议按 Node/Bun 适配器同一规则**明确排除**并在文档登记，而不是补建 | **P3** |
 | **G6** | POSIX transport / SSH 端到端 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts` | `Pi.Client`/`Pi.Server`/`Pi.Env` 已实现，仅在 Windows 验证；2026-10-21 复核确认 WSL 无发行版、Windows 未安装 sshd 服务，Git Bash 的 `sshd` 按 TS 的 win32 规则不参与测试 | Unix socket、发现/握手、sshd 扫描/信任/部署链未在 POSIX 主机验收；Windows `ServerClientEndToEndTests` 9/9 通过 | **P1（验收）** |
-| **G7** | Anthropic workload identity federation（OIDC） | `packages/ai/src/api/anthropic-messages.ts`（federation 配置与 SDK token exchange/refresh） | `GetFederationConfig` 构造同一配置，`Providers/Anthropic.cs` 可识别 federation 环境；`Stream` 在仅 federation 认证时抛出 `NotSupportedException`，要求改用 API key/auth token | 使用 federation 的部署无法调用 Anthropic；当前为显式失败而非静默未认证请求。后续可用 `HttpClient` 实现 exchange/refresh，但需要可验证的 federation 凭据 | **P2** |
+| **G7** | Anthropic workload identity federation（OIDC） | `packages/ai/src/api/anthropic-messages.ts`（federation 配置与 SDK token exchange/refresh） | **已实现（2026-10-21）**：`Auth/AnthropicFederation.cs` 以 `HttpClient` 实现 SDK 等价的 jwt-bearer exchange 与 token 缓存/刷新，`AnthropicMessages.Stream` 在无显式认证且 provider 为 `anthropic` 时注入 Bearer 令牌与 `oauth-2025-04-20` beta；显式 API key/auth token/header 仍优先 | 无功能缺口；使用 federation 的部署可直接调用 Anthropic。新增 24 项测试覆盖解析、wire 形状、到期/轮换、并发与错误路径 | **已完成** |
 
 补充说明：
 - `chord/src/delta/draft.ts` 只是 10 行类型别名，`index.ts` 类桶文件不产生 C# 语义，二者不计为缺口。
@@ -177,6 +180,7 @@
 | **19. Evals 容器权限探针（G4）** | `EvalDockerRunner` 新增 `EvalFileProbe`：root 属主/权限位校验与降权读取探针；`VerifyImageLayout`、`EnterToolSandbox` 接入；新增 Linux-only 单元测试。 | 1) 组/其他用户可读的文件被拒绝；2) 降权后可读的文件触发失败；3) 非 Linux 显式拒绝执行而非静默通过；4) `Pi.Evals.Tests` 全绿（Linux-only 项在 Windows 跳过）。 | 无（探针逻辑）；镜像级验收需容器 | **已完成探针实现（2026-10-21）**：`Pi.Evals.Tests` 54 项，52 通过、2 项 Linux-only 跳过；镜像构建/隔离 smoke 仍受环境阻塞。 |
 | **20. 容器与 POSIX/SSH 验收尝试（G4 + G6）** | 探测本机容器运行时、WSL 发行版与 sshd；运行可执行的 Windows 传输/环境测试；以 linux-x64 交叉发布验证 Docker 发布阶段产物。 | 1) 有证据说明哪些验收不可执行；2) 可执行部分给出实测结果；3) 不以“不可用”替代通过结论。 | 容器运行时与 POSIX 主机 | **受阻并已取证（2026-10-21）**：docker/podman/nerdctl 均不存在，WSL 无发行版，Windows 未安装 sshd；`Pi.Env.Tests` 44/47（3 项跳过：2 无 POSIX shell、1 无 sshd），`ServerClientEndToEndTests` 9/9；`Pi.Evals` linux-x64 交叉发布成功但未运行。 |
 | **21. 最终收口与全量复验** | 全 solution 构建、13 个测试项目全量执行、CLI smoke、并行测试桩隔离与 Durable 进度时序断言修正、台账收口。 | 1) solution 0 警告、0 错误；2) 全部套件 0 失败，跳过项有平台原因；3) CLI smoke 符合参数契约；4) 工作区干净、提交已推送。 | 无 | **已完成本机验收（2026-10-21）**：30,077 项，30,072 通过、0 失败、5 跳过；G4 镜像、G6 POSIX、G7 OIDC federation 仍为显式未完成项。 |
+| **22. Anthropic OIDC federation（G7）** | 新增 `src/Pi.Ai/Auth/AnthropicFederation.cs`；`Api/AnthropicMessages.cs` 接入 federation 认证路径；新增 `tests/Pi.Ai.Tests/AnthropicFederationTests.cs`。按 SDK 语义实现 exchange 与缓存，不引入 vendor SDK。 | 1) exchange 请求体与 beta 头有结构断言；2) 缓存阈值/顾问式刷新/并发合并/令牌轮换有定向测试；3) 错误体不泄露 assertion，明文端点与超大/空令牌被拒绝；4) `Models` 认证链端到端产生 Bearer；5) `Pi.Ai.Tests` 与 solution 构建全绿。 | 无（离线） | **已完成（2026-10-21）**：24 项新测试，`Pi.Ai.Tests` 426/426；实现与台账同批提交。 |
 
 ### 环境恢复后必须执行的最小验证
 
