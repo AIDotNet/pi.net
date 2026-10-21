@@ -3,4 +3,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Pi.Codemode.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Jint" Version="4.17.0" />
+  </ItemGroup>
 </Project>

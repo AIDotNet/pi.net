@@ -53,14 +53,15 @@ public static class CodemodeExecute
 
     /// <summary>
     /// Sandbox JS engine seam. TS runs QuickJS wasm in a worker; C# carries VM execution by the
-    /// <see cref="ICodemodeJsEngine"/> injection point (see Pi.Codemode). Tests and hosts replace
-    /// this; the default implementation rejects with a clear sandbox failure.
+    /// <see cref="ICodemodeJsEngine"/> injection point (see Pi.Codemode). The default is the Jint
+    /// engine; tests and hosts can replace it, or disable execution with
+    /// <see cref="UnsupportedCodemodeJsEngine"/>.
     /// </summary>
     public static class EngineDefaults
     {
         public static Func<ICodemodeJsEngine>? Override { get; set; }
 
-        public static ICodemodeJsEngine Engine => Override?.Invoke() ?? UnsupportedCodemodeJsEngine.Instance;
+        public static ICodemodeJsEngine Engine => Override?.Invoke() ?? JintCodemodeEngine.Instance;
     }
 
     /// <summary>Kind-safe read of a JSON object's string member (the TS <c>typeof x === "string"</c>).</summary>

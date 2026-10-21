@@ -53,7 +53,7 @@ public sealed partial class CodemodeSandbox
         this.timeoutMs = options.TimeoutMs ?? DefaultTimeoutMs;
         this.memoryLimitBytes = options.MemoryLimitBytes;
         this.wasm = options.Wasm;
-        this.engine = options.Engine ?? UnsupportedCodemodeJsEngine.Instance;
+        this.engine = options.Engine ?? JintCodemodeEngine.Instance;
         foreach (var tool in options.Tools ?? []) this.RegisterTool(tool);
 
         var namespaces = new HashSet<string>(StringComparer.Ordinal);
@@ -213,6 +213,7 @@ public sealed partial class CodemodeSandbox
         private readonly List<CodemodeOutputItem> output = [];
         private readonly List<CallState> calls = [];
         private readonly Dictionary<long, PendingCall> pending = new();
+        private readonly List<HostToWorkerMessage> deferredReplies = [];
         private readonly Timer? timer;
         private readonly CancellationTokenRegistration? registration;
         private ICodemodeVm? vm;
@@ -286,15 +287,29 @@ public sealed partial class CodemodeSandbox
             }
 
             bool alreadyFinished;
+            List<HostToWorkerMessage>? deferred = null;
             lock (this.gate)
             {
                 alreadyFinished = this.finished;
-                if (!alreadyFinished) this.vm = started;
+                if (!alreadyFinished)
+                {
+                    this.vm = started;
+                    if (this.deferredReplies.Count > 0)
+                    {
+                        deferred = [.. this.deferredReplies];
+                        this.deferredReplies.Clear();
+                    }
+                }
             }
             if (alreadyFinished)
             {
                 // 引擎启动期间执行已结束（超时/中止/沙箱关闭）：补上终止，VM 不泄漏。
                 _ = StopAndIgnoreAsync(started);
+            }
+            else if (deferred is not null)
+            {
+                // 同步引擎可在 Run 返回前完成工具调用；此时 VM 句柄尚未绑定，补发排队的回复。
+                foreach (var message in deferred) started.Post(message);
             }
         }
 
@@ -443,6 +458,7 @@ public sealed partial class CodemodeSandbox
                     record.DurationMs = ElapsedMs(pendingCall.StartedAt);
                 }
                 target = this.finished ? null : this.vm;
+                if (target is null && !this.finished) this.deferredReplies.Add(reply);
             }
             target?.Post(reply);
         }
@@ -467,6 +483,7 @@ public sealed partial class CodemodeSandbox
                     pendingCall.Controller.Cancel();
                 }
                 this.pending.Clear();
+                this.deferredReplies.Clear();
 
                 var calls = new List<CodemodeCall>(this.calls.Count);
                 foreach (var call in this.calls)

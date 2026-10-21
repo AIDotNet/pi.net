@@ -47,17 +47,17 @@ public interface ICodemodeVm
 }
 
 /// <summary>
-/// 默认引擎：明确拒绝执行（同 chord 的 <c>UnsupportedFacetModuleHost</c> 约定）。原版以 worker +
-/// QuickJS wasm 执行脚本；本移植不内置 JS 引擎，注入 <see cref="ICodemodeJsEngine"/> 即可运行。
+/// 显式禁用脚本执行（同 chord 的 <c>UnsupportedFacetModuleHost</c> 约定）。默认引擎是
+/// <see cref="JintCodemodeEngine"/>；宿主需要关闭 codemode 能力时可显式注入本实例。
 /// </summary>
 public sealed class UnsupportedCodemodeJsEngine : ICodemodeJsEngine
 {
     public static readonly UnsupportedCodemodeJsEngine Instance = new();
 
     public const string Message =
-        "Executing a codemode script requires a JavaScript engine. " +
-        "This .NET port does not bundle one (the original runs QuickJS wasm in a worker thread); " +
-        "inject an ICodemodeJsEngine into CodemodeSandboxOptions.Engine to run scripts.";
+        "Executing a codemode script is disabled for this sandbox. " +
+        "Use JintCodemodeEngine (the default) or inject another ICodemodeJsEngine " +
+        "into CodemodeSandboxOptions.Engine to run scripts.";
 
     private UnsupportedCodemodeJsEngine()
     {

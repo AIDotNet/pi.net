@@ -59,6 +59,47 @@ public class CodemodeOutputLayoutTests
         new WorkerToHostMessage.Output(new CodemodeOutputItem.Text(text) { Console = true });
 
     [Fact]
+    public void DefaultsToTheJintEngine()
+    {
+        var previous = CodemodeExecute.EngineDefaults.Override;
+        CodemodeExecute.EngineDefaults.Override = null;
+        try
+        {
+            Assert.Same(JintCodemodeEngine.Instance, CodemodeExecute.EngineDefaults.Engine);
+        }
+        finally
+        {
+            CodemodeExecute.EngineDefaults.Override = previous;
+        }
+    }
+
+    [Fact]
+    public async Task RunsThroughTheDefaultJintEngineWithoutAnOverride()
+    {
+        var previous = CodemodeExecute.EngineDefaults.Override;
+        CodemodeExecute.EngineDefaults.Override = null;
+        try
+        {
+            var result = await CodemodeExecute.ExecuteCodemodeAsync(
+                "call-jint",
+                new Dictionary<string, object?> { ["code"] = "text(\"hello\"); return 2;" },
+                CancellationToken.None,
+                null,
+                null);
+
+            Assert.False(result.IsError);
+            var text = string.Concat(result.Content.OfType<TextContent>().Select(block => block.Text));
+            Assert.Contains("Script completed", text, StringComparison.Ordinal);
+            Assert.Contains("hello", text, StringComparison.Ordinal);
+            Assert.Contains("==> text 2/2 <==\n2", text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            CodemodeExecute.EngineDefaults.Override = previous;
+        }
+    }
+
+    [Fact]
     public async Task NumbersEachTextItemAndGroupsConsoleLinesIntoOneTrailingBlock()
     {
         // 脚本：text("one\ntwo"); console.log("a"); console.log("b"); text("three\n"); return 4;

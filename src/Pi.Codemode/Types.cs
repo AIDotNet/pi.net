@@ -150,9 +150,9 @@ public sealed record CodemodeSandboxOptions
     public object? Wasm { get; init; }
 
     /// <summary>
-    /// JS 引擎注入点；缺省 <see cref="UnsupportedCodemodeJsEngine"/>（执行以 <c>kind: "sandbox"</c>
-    /// 失败并提示注入引擎）。对应 TS 的 worker + quickjs-wasi VM——C# 无
-    /// <c>WebAssembly.compile</c> 与 worker 线程模型，故 VM 执行抽成该注入点（设计差异第 18 条）。
+    /// JS 引擎注入点；缺省 <see cref="JintCodemodeEngine"/>。对应 TS 的 worker + quickjs-wasi VM：
+    /// C# 以 Jint 承载 prelude 与脚本，VM 执行仍可替换（设计差异第 18 条）；注入
+    /// <see cref="UnsupportedCodemodeJsEngine"/> 可显式关闭执行。
     /// </summary>
     public ICodemodeJsEngine? Engine { get; init; }
 }

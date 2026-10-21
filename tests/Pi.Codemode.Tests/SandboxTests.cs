@@ -255,13 +255,16 @@ public class SandboxTests
     }
 
     [Fact]
-    public async Task FailsWithGuidanceWhenNoEngineIsInjected()
+    public async Task FailsWithGuidanceWhenTheEngineIsExplicitlyDisabled()
     {
-        var sandbox = new CodemodeSandbox();
+        var sandbox = new CodemodeSandbox(new CodemodeSandboxOptions
+        {
+            Engine = UnsupportedCodemodeJsEngine.Instance,
+        });
 
         var failure = Assert.IsType<CodemodeResult.Failure>(await sandbox.ExecuteAsync("return 1"));
         Assert.Equal(CodemodeErrorKind.Sandbox, failure.Error.Kind);
-        Assert.Contains("requires a JavaScript engine", failure.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("disabled for this sandbox", failure.Error.Message, StringComparison.Ordinal);
         await sandbox.CloseAsync();
     }
 
@@ -558,6 +561,25 @@ public class SandboxTests
         }
     }
 
+    [Fact]
+    public async Task DeliversRepliesQueuedBeforeRunReturns()
+    {
+        // 同步引擎可在 Run 返回前就发出工具调用：host 此时尚未拿到 VM 句柄，回复必须排队后补发，
+        // 否则脚本的 await tools.x() 永远等不到结果（Jint 的同步工具调用会命中这一竞态）。
+        var engine = new SynchronousEngine();
+        var sandbox = Sandbox(engine, Tool("echo", (args, _) => Task.FromResult(args)));
+
+        var execution = sandbox.ExecuteAsync("return 1");
+        var reply = await engine.Vm!.Result.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(reply.Ok);
+        Assert.Equal("""{"a":1}""", reply.Payload);
+
+        await engine.Vm.SendAsync(new WorkerToHostMessage.Done(true, reply.Payload, "[]", null));
+        var result = Assert.IsType<CodemodeResult.Success>(await execution);
+        Assert.Equal("""{"a":1}""", result.Value?.ToJsonString());
+        await sandbox.CloseAsync();
+    }
+
     /// <summary>发起一次调用并等待 host 回复（对应脚本里的 <c>await tools.x(...)</c>）。</summary>
     private static async Task<HostToWorkerMessage.Result> CallAsync(
         FakeVm vm, long id, string target, string name, string? args)
@@ -627,6 +649,38 @@ public class SandboxTests
             lock (this.gate) this.stopped = true;
             return Task.CompletedTask;
         }
+    }
+
+    /// <summary>同步引擎：<see cref="Run"/> 返回前就发出工具调用，复现宿主尚未绑定 VM 的竞态。</summary>
+    private sealed class SynchronousEngine : ICodemodeJsEngine
+    {
+        internal SynchronousVm? Vm { get; private set; }
+
+        public ICodemodeVm Run(CodemodeWorkerData data, Func<WorkerToHostMessage, Task> onMessage)
+        {
+            var vm = new SynchronousVm(onMessage);
+            this.Vm = vm;
+            onMessage(new WorkerToHostMessage.Call(1, "tool", "echo", """{"a":1}"""))
+                .GetAwaiter().GetResult();
+            return vm;
+        }
+    }
+
+    private sealed class SynchronousVm(Func<WorkerToHostMessage, Task> deliver) : ICodemodeVm
+    {
+        private readonly TaskCompletionSource<HostToWorkerMessage.Result> result =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task<HostToWorkerMessage.Result> Result => this.result.Task;
+
+        internal Task SendAsync(WorkerToHostMessage message) => deliver(message);
+
+        public void Post(HostToWorkerMessage message)
+        {
+            if (message is HostToWorkerMessage.Result posted) this.result.TrySetResult(posted);
+        }
+
+        public Task StopAsync() => Task.CompletedTask;
     }
 
     /// <summary>按脚本回放的假引擎：不执行 JavaScript，只按 protocol 与 host 对话。</summary>
