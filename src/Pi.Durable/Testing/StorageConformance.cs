@@ -20,6 +20,8 @@ namespace Pi.Durable.Testing;
 /// </summary>
 public static class StorageConformance
 {
+    private const long MaxSafeInteger = 9_007_199_254_740_991;
+
     /// <summary>创建与运行器无关的存储 conformance 用例。</summary>
     public static IReadOnlyList<StorageConformanceCase> CreateStorageConformance(StorageConformanceOptions options)
     {
@@ -1371,7 +1373,7 @@ public static class StorageConformance
                 $"ID {explicitEntryId.Value} already belongs to entry");
 
             await storage.CommitAsync(
-                [new StorageWrite.Entry(Entry(DurableIds.EntryId(long.MaxValue), rootId, "last-id"))]);
+                [new StorageWrite.Entry(Entry(DurableIds.EntryId(MaxSafeInteger), rootId, "last-id"))]);
             await assert.Rejects(() => storage.MintIdAsync<EntryId>(), "ID space is exhausted");
             await assert.Rejects(() => storage.MintIdAsync<EntryId>(), "ID space is exhausted");
         });

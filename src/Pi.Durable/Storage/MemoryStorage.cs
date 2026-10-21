@@ -122,6 +122,8 @@ public sealed class MemoryState : IDisposable
 /// </summary>
 public sealed class MemoryStorage : IStorage
 {
+    private const long MaximumSafeInteger = 9_007_199_254_740_991;
+
     private readonly object _gate = new();
     private readonly List<Func<CommitPublication, Task>> _publications = [];
     private readonly SortedDictionary<long, ConversationRecord> _conversations = new();
@@ -330,8 +332,9 @@ public sealed class MemoryStorage : IStorage
         lock (_gate)
         {
             AssertOpen();
-            // 对应 TS：!Number.isSafeInteger(nextId) 时拒绝（C# 以 long 回绕到负值表达耗尽）。
-            if (_nextId < 0) throw new InvalidOperationException("ID space is exhausted");
+            // 对应 TS：!Number.isSafeInteger(nextId) 时拒绝。
+            if (_nextId < -MaximumSafeInteger || _nextId > MaximumSafeInteger)
+                throw new InvalidOperationException("ID space is exhausted");
             var id = _nextId++;
             if (typeof(TId) == typeof(ConversationId)) return Task.FromResult((TId)(object)ConversationId.From(id));
             if (typeof(TId) == typeof(EntryId)) return Task.FromResult((TId)(object)EntryId.From(id));
