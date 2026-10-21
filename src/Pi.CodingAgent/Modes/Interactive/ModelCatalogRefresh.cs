@@ -34,7 +34,17 @@ public static class ModelCatalogRefresh
     /// <see cref="ModelRuntime.RefreshAsync"/>. C#'s <see cref="ModelRuntime"/> is <c>sealed</c>,
     /// so the spy must live at this boundary.
     /// </summary>
-    internal static Func<ModelRuntime, CancellationToken, Task<ModelsRefreshResult>>? RefreshOverride;
+    /// <remarks>
+    /// 值放在 <see cref="AsyncLocal{T}"/> 中：xUnit 会并行运行测试类，静态槽位会让一个用例的
+    /// 刷新桩泄漏到另一个用例（例如错误结果覆盖 model selector 的 “No matching models” 路径）。
+    /// </remarks>
+    private static readonly AsyncLocal<Func<ModelRuntime, CancellationToken, Task<ModelsRefreshResult>>?> RefreshOverrideSlot = new();
+
+    internal static Func<ModelRuntime, CancellationToken, Task<ModelsRefreshResult>>? RefreshOverride
+    {
+        get => RefreshOverrideSlot.Value;
+        set => RefreshOverrideSlot.Value = value;
+    }
 
     private sealed class ActiveRefresh(CancellationTokenSource controller, Task<ModelsRefreshResult> promise)
     {

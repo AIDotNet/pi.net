@@ -308,11 +308,12 @@ public sealed class HarnessOutputTests
 
         progress.Mark();
         await HarnessTestSupport.WaitForAsync(() => commits.Count == 1);
-        var first = commits[0];
         progress.Mark();
-        // 用实时间隔，无法像假时钟那样在「刚过 minInterval」处精确卡点；改用轮询捕获第二次提交的时刻并断言其下界。
+        // 节流基准是第一次写入开始时刻，而不是 write 回调执行的时刻；回调可能被调度器推迟，
+        // 两个回调时间差因此可能小于 minInterval。commits 以构造函数前的 started 为原点，
+        // 这里直接断言第二次提交不早于 minInterval。
         await HarnessTestSupport.WaitForAsync(() => commits.Count == 2);
-        Assert.True(commits[1] - first >= minInterval, $"expected ≥{minInterval}ms, got {commits[1] - first}ms");
+        Assert.True(commits[1] >= minInterval, $"expected ≥{minInterval}ms, got {commits[1]}ms");
 
         await progress.Stop();
     }
