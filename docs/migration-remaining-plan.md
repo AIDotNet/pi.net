@@ -1430,3 +1430,12 @@ C# 组件语义手工补齐，不得直接照抄旧版 TS。
   记为该渲染器的后续项。
 - **审计脚本的结论（供后续批次参考）**：`coding-agent` 已无「整文件缺失」的功能性缺口；
   剩下的是平台垫片（4g-3h）与散落的「已折入别处」。
+
+### 0.42 Radius 动态目录持久化收口（2026-10-21，1.0 发布同日）
+
+- **怎么发现的**：独立一致性复审（`docs/review-inconsistencies-2026-10-21.md`）把「Radius 刷新只内存更新」列为唯一可能造成可观察数据损失的行为差异；发布 1.0（`203862e` + tag `v1.0.4`）时用户拍板收口。
+- **实况比登记的更小**：`RefreshModelsContext.Stored/Publish` 与 `ModelsPublication.Persist/PersistDeleted`（`Pi.Ai/Models/ModelsRefresh.cs`）及 ProviderComposer 的钩子接入**早已完整移植**——缺口只在 `RadiusProvider` 未实现 `IProvider.RefreshModels`（自带签名 `RefreshModelsAsync(Credential,...)` 的直调方法全仓库零调用方），是又一例「管道已兑现、末端没接线」。旧直调方法已删除。
+- **实现**：按 TS `radius.ts` 三分支改写为钩子——① `Stored != null` → 过滤本 provider 条目恢复内存（publish 只带 Update，不带 Persist）；② `Stored == null` 且 OAuth 凭据带 `GatewayConfig` → legacy 缓存非空才导入并 `Persist = { models, checkedAt: now }` 写回存储；③ `AllowNetwork` 时拉 `/v1/config`，**无条件**覆盖（含空目录——组织停用全部模型时生效目录就是空）并持久化。发布被取代（publish 返回 false）即终止后续分支。
+- **测试**：`Pi.Ai.Tests/Providers/RadiusRefreshTests` 9 例（恢复只取本 provider、publish 拒绝即停、legacy 导入落库带 CheckedAt、legacy 空目录不发布、网络覆盖含空目录替换基线、网络目录字段保真、offline 短路、ApiKey Bearer 头、钩子已暴露）。
+- **回归**：`Pi.CodingAgent.Tests` 全量 **4953/0**（2m42s→9m30s 含全量重建）；`Pi.Ai.Tests` 全量见下方 flake 记录。
+- **flake 观察名单（A/B 实证为既有问题，与本批无关）**：`git stash -u` 对照实验中，**改动前基线 3 轮挂 2**、改动后 5 轮挂 4，且每轮失败的用例**不同**（`GoogleGenerativeAiTests.StreamParsesSseChunksAndUsage`、`OpenAiCompletionsTests.StreamsTextDeltasAndCompletesWithUsage` / `AggregatesToolCallArgumentFragments`、`AnthropicMessagesTests.StreamsAnthropicContentBlocksAndMapsStopReason`、`AnthropicFederationWireTests.ReExchangesTheIdentityTokenAfterExpiry`、`AnthropicFederationModelsTests.ThreadsFederationEnvThroughModels`），单跑全部即绿——均为 SSE 流/令牌时序类用例在负载下的时序抖动。与 0.40 的 `RadiusLoginMenuComponentTests`/`CoreProviderComposerTests` 同类，并入观察名单。

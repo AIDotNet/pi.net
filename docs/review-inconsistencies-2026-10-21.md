@@ -11,7 +11,7 @@
 
 | # | 位置 | 差异 | 状态/风险 |
 |---|---|---|---|
-| 1 | `Pi.Ai/Providers/Radius.cs:13-16` | 动态模型目录刷新**不做事务化持久化**：TS 经 ModelsStore `context.publish` 落盘，C# `RefreshModelsAsync` 只内存更新 | 代码注释自认、porting-status 第 9 条登记；重启动后动态目录丢失，回落基线目录。**当前唯一被代码注释自认的行为级差异** |
+| 1 | ~~`Pi.Ai/Providers/Radius.cs:13-16`~~ **已收口（2026-10-21，本清单发布后同日修复）** | 动态模型目录刷新**不做事务化持久化**：TS 经 ModelsStore `context.publish` 落盘，C# `RefreshModelsAsync` 只内存更新 | `RadiusProvider` 已实现 `IProvider.RefreshModels` 钩子（TS 三分支 + Persist 写回），9 例 `RadiusRefreshTests` 钉住 |
 | 2 | C152 | `_replaceMessageInPlace` 引用同一性：C# 消息是不可变快照，`AgentLoopRunner` 自己的局部变量**观察不到**就地替换后的新内容（其余观察者经 `ConditionalWeakTable` 覆盖） | 结构性限制，登记为真实缺口；R6 复核项仍挂起 |
 | 3 | C154 | 扩展**不能就地改写 `tool_call` 入参**（TS 直接改 `input` 即生效），C# 只能 `Block`/`Terminate` | 真实缺口，R6 复核项仍挂起 |
 | 4 | C258 | mermaid 渲染引擎（grok-mermaid）不移植，`IMermaidRenderer` 缺省 null → mermaid 图**回落原文不渲染** | 永久豁免/挂起；功能上仍是缺口 |
