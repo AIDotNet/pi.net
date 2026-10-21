@@ -193,15 +193,19 @@ public sealed class HarnessGenerationRecoveryTests
         {
             Progress = AgentDocs.DefaultProgressPolicy with { PartialIntervalMs = 0 },
         };
+        const int deltaCount = 5;
         var (interrupted, reached, _) = HarnessTestSupport.FakeStep.GatedAfterTextDelta(
-            HarnessTestSupport.AssistantReply(new string('z', 400)), deltaCount: 5);
+            HarnessTestSupport.AssistantReply(new string('z', 400)), deltaCount);
         provider.SetResponses(interrupted);
         var storage = new MemoryStorage();
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(storage, setup);
         var submission = await root.SubmitAsync(
             new SubmissionDraft.Input { Content = [new TextContent("hi")] }, Ctx);
         await reached.WaitAsync(TimeSpan.FromSeconds(5));
-        await HarnessTestSupport.WaitForAsync(async () => await LivePartialAsync(harness, root.Id) is not null);
+        // reached 在第 deltaCount 个事件被产出时触发，消费者可能还没提交该增量；等 live 快照
+        // 真正包含全部增量后再读取，否则 close 前落盘的 partial 可能比这里捕获的多一个字符。
+        await HarnessTestSupport.WaitForAsync(
+            async () => await LivePartialAsync(harness, root.Id) is { Length: >= deltaCount });
         var partial = await LivePartialAsync(harness, root.Id);
         Assert.NotNull(partial);
         await harness.CloseAsync(Ctx);
