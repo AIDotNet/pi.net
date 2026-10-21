@@ -34,7 +34,7 @@ Pi's philosophy is "make Pi fit your workflow, not the other way around": each l
 | **Pi.DurableHost** | Separate durable-session host (`pi-durable`) built on the coding-agent runtime, with the `subagent` tool and per-directory execution environments |
 | **Pi.Evals** | Native .NET host and documentation eval runner; paired documentation evals use Docker |
 
-The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and remaining platform checks are in [migration-execution-status.md](docs/migration-execution-status.md).
+The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and documented TypeScript/.NET differences are in [migration-execution-status.md](docs/migration-execution-status.md).
 
 ## Getting Started
 
@@ -53,4 +53,4 @@ dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 
 ## Migration Status
 
-Implementation progress, phase-by-phase evidence, known TypeScript/.NET differences, and environment-blocked checks are tracked in [docs/migration-execution-status.md](docs/migration-execution-status.md).
+Implementation progress, phase-by-phase evidence, and known TypeScript/.NET differences are tracked in [docs/migration-execution-status.md](docs/migration-execution-status.md).

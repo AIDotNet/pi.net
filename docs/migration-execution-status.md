@@ -84,8 +84,6 @@
 - `index.ts` 纯导出桶、Node/Bun 专属测试启动器等无独立 C# 语义的文件可不产生一一对应文件，但要在最终公开 API/平台矩阵中有可复核的逐项说明。
 - 2026-10-20 复核确认：C362 的 SQLite-backed harness/session-worker 接线已存在；codemode 扩展 renderer 已实现；4g-3h 中 Bun sandbox/启动垫片、Node 动态加载钩子和 re-export barrel 没有可直接照搬的 .NET 运行时语义。`experimental/durable` 与 `experimental/vacation` 共用实现由 `ExperimentalProfile` 表达，不重复移植两份相同 TS 文件。
 - `tools/` 下被 `.gitignore` 排除的覆盖/导出面脚本仅作启发式线索；未匹配文件名或导出 token 不等价于功能缺失，也不代表公开契约已核验完成。
-- 2026-10-20 复核确认：C362 的 SQLite-backed harness/session-worker 接线已存在；codemode 扩展 renderer 已实现；4g-3h 中 Bun sandbox/启动垫片、Node 动态加载钩子和 re-export barrel 没有可直接照搬的 .NET 运行时语义。`experimental/durable` 与 `experimental/vacation` 共用实现由 `ExperimentalProfile` 表达，不重复移植两份相同 TS 文件。
-- `tools/` 下被 `.gitignore` 排除的覆盖/导出面脚本仅作启发式线索；未匹配文件名或导出 token 不等价于功能缺失，也不代表公开契约已核验完成。
 
 ## 验证基线、风险与限制
 

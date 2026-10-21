@@ -34,7 +34,7 @@ Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只�
 | **Pi.DurableHost** | 基于 coding-agent runtime 的独立 durable 会话宿主（`pi-durable`），带 `subagent` 工具与按目录缓存的执行环境 |
 | **Pi.Evals** | 原生 .NET host/documentation 评测工具；配对文档评测使用 Docker |
 
-TypeScript monorepo 仍是行为参考；随包提供的上游 docs/examples 保留为 TypeScript 参考资料，C# 扩展 API 请看 [.NET 扩展指南](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)。权威迁移阶段、验收证据和未完成的平台检查见 [migration-execution-status.md](docs/migration-execution-status.md)。
+TypeScript monorepo 仍是行为参考；随包提供的上游 docs/examples 保留为 TypeScript 参考资料，C# 扩展 API 请看 [.NET 扩展指南](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)。权威迁移阶段、验收证据与已记录的 TypeScript/.NET 差异见 [migration-execution-status.md](docs/migration-execution-status.md)。
 
 ## 快速开始
 
@@ -53,4 +53,4 @@ dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 
 ## 迁移状态
 
-实施进度、逐阶段验收证据、已记录的 TypeScript/.NET 差异和环境受限的检查统一维护在 [docs/migration-execution-status.md](docs/migration-execution-status.md)。
+实施进度、逐阶段验收证据与已记录的 TypeScript/.NET 差异统一维护在 [docs/migration-execution-status.md](docs/migration-execution-status.md)。
