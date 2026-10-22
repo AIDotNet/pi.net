@@ -517,6 +517,7 @@ public sealed class Transaction : ITx
                 Owner = owner?.Id,
                 Background = options.Background,
                 AbortRequested = false,
+                AbandonOnRestart = options.AbandonOnRestart,
                 State = new TaskState { Status = Types.TaskStatus.Pending, Checkpoint = checkpoint },
             };
             _tasksById[record.Id] = new TransactionTask { Write = new StagedTaskWrite("create", record) };

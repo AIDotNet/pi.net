@@ -311,8 +311,12 @@ public sealed record SchedulerOutcome
     public static SchedulerOutcome Orphaned(string reason)
         => new() { Status = TaskOutcomeStatus.Orphaned, Reason = reason };
 
-    public static SchedulerOutcome Faulted(string message)
-        => new() { Status = TaskOutcomeStatus.Faulted, Error = new TaskOutcomeError { Message = message } };
+    public static SchedulerOutcome Faulted(string message, object? detail = null)
+        => new()
+        {
+            Status = TaskOutcomeStatus.Faulted,
+            Error = new TaskOutcomeError { Message = message, Detail = detail },
+        };
 
     public static SchedulerOutcome From(TaskOutcome outcome)
         => new() { Status = outcome.Status, Error = outcome.Error, Reason = outcome.Reason };
@@ -743,6 +747,14 @@ public sealed record HarnessSettings
 
     /// <summary>空闲对话保留最近上下文读取的时长；0 表示进入空闲时立即丢弃。对应 TS <c>contextRetentionMs</c>。</summary>
     public double? ContextRetentionMs { get; init; }
+
+    /// <summary>
+    /// 一个任务连续被崩溃、驱逐或重置切断多少次后停放而不再重跑（关闭不计）；停放的任务显示为
+    /// blocked（<c>restart_limit</c>），直到 <c>Harness.RetryTaskAsync()</c> 让它再跑。默认 5；
+    /// <see cref="int.MaxValue"/> 表示从不停放（对应 TS 的 <c>Infinity</c>）。
+    /// 对应 TS <c>HarnessSettings.restartLimit</c>。
+    /// </summary>
+    public int? RestartLimit { get; init; }
 }
 
 /// <summary>已解析设置：每个字段都有其内建默认值，对象字段合并。对应 TS <c>Settings</c>。</summary>
@@ -767,6 +779,9 @@ public sealed record Settings
 
     /// <summary>空闲对话缓存上下文读取的毫秒数。对应 TS <c>Settings.contextRetentionMs</c>。</summary>
     public required double ContextRetentionMs { get; init; }
+
+    /// <summary>已解析的重启上限（≥ 1）。对应 TS <c>Settings.restartLimit</c>。</summary>
+    public required int RestartLimit { get; init; }
 }
 
 /// <summary><see cref="HarnessOptions.EnvFactory"/> 为其构建环境。对应 TS <c>EnvTarget</c>。</summary>
@@ -875,7 +890,11 @@ public abstract record TaskInspection
     /// <summary>结果保持到其普通自有工作排空。</summary>
     public sealed record Completing : TaskInspection;
 
-    /// <summary>没有注册的定义能接手；中止它将以 orphaned 结算。</summary>
+    /// <summary>
+    /// 它在这里不能运行：没有注册的定义能接手（<c>missing_task</c> / <c>task_too_old</c> /
+    /// <c>migration_failed</c>，中止它将以 orphaned 结算），或被重启上限停放（<c>restart_limit</c>，
+    /// <c>RetryTaskAsync()</c> 让它再跑）。
+    /// </summary>
     public sealed record Blocked(string Reason, object? Error = null) : TaskInspection;
 }
 
@@ -1004,6 +1023,12 @@ public interface IHarness : ISession
     /// 提交中止标记、发信号并加入活跃运行调用，再调度 abort 调用。定义不能接手的任务以 orphaned 结算。
     /// </summary>
     Task<string> AbortTaskAsync(TaskId<object?> id, Context context);
+
+    /// <summary>
+    /// 重跑被 <see cref="HarnessSettings.RestartLimit"/> 停放的任务：清除其重启计数并启用调度。
+    /// 对未停放的任务不做任何事；未知任务报错。
+    /// </summary>
+    Task RetryTaskAsync(TaskId<object?> id, Context context);
 
     /// <summary>以终态回执完成；取消 context 只取消本等待。</summary>
     Task<SettledTask> WaitForTaskAsync(TaskId<object?> id, Context context);

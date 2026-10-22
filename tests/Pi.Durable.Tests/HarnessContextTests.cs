@@ -147,7 +147,11 @@ public class HarnessContextTests
     {
         var storage = new MemoryStorage();
         var session = new DurableSession(storage);
-        var view = new TaskGraphView(session, storage);
+        var view = new TaskGraphView(session, storage, new TaskGraphBlocking
+        {
+            Blocked = _ => null,
+            SubscribeBlocked = _ => new NoopUnsubscribe(),
+        });
 
         // 输入与 checkpoint 必须是 JSON 安全形状（存储按严格 JSON 克隆）。
         Dictionary<string, object?> Checkpoint() => new() { ["phase"] = "call" };
@@ -222,7 +226,11 @@ public class HarnessContextTests
     {
         var storage = new MemoryStorage();
         var session = new DurableSession(storage);
-        var view = new TaskGraphView(session, storage);
+        var view = new TaskGraphView(session, storage, new TaskGraphBlocking
+        {
+            Blocked = _ => null,
+            SubscribeBlocked = _ => new NoopUnsubscribe(),
+        });
 
         // 输入与 checkpoint 必须是 JSON 安全形状（存储按严格 JSON 克隆）。
         Dictionary<string, object?> Checkpoint() => new() { ["phase"] = "call" };
@@ -266,5 +274,13 @@ public class HarnessContextTests
         watch.Cancel();
         await watch.Closed;
         lock (frames) Assert.Contains(1, frames);
+    }
+}
+
+/// <summary>测试用空退订。</summary>
+internal sealed class NoopUnsubscribe : IDisposable
+{
+    public void Dispose()
+    {
     }
 }

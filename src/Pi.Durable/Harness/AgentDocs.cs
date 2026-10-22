@@ -43,6 +43,9 @@ public static class AgentDocs
     /// <summary>TS <c>settings.contextRetentionMs</c> 的缺省值：十分钟。</summary>
     public const double DefaultContextRetentionMs = 600_000;
 
+    /// <summary>TS <c>DEFAULT_RESTART_LIMIT</c>：连续被切断五次即停放。</summary>
+    public const int DefaultRestartLimit = 5;
+
     /// <summary>
     /// 内建 agent 文档；rewindable 使 fork 从其 fork 条目处的 agent 起步。
     /// </summary>
@@ -78,7 +81,16 @@ public static class AgentDocs
         SteeringMode = settings?.SteeringMode ?? QueueMode.OneAtATime,
         FollowUpMode = settings?.FollowUpMode ?? QueueMode.OneAtATime,
         ContextRetentionMs = settings?.ContextRetentionMs ?? DefaultContextRetentionMs,
+        RestartLimit = ResolveRestartLimit(settings?.RestartLimit),
     };
+
+    /// <summary>
+    /// 重启上限按给定的重启次数解释：<c>1</c> 或更大时向下取整；否则（含未设置）取
+    /// <see cref="DefaultRestartLimit"/>。对应 TS <c>restartLimit()</c>；TS 的 <c>Infinity</c> 在 C# 中由
+    /// <see cref="int.MaxValue"/> 表示。
+    /// </summary>
+    public static int ResolveRestartLimit(int? limit)
+        => limit is { } value && value >= 1 ? value : DefaultRestartLimit;
 
     // ─── 配置变更 ───────────────────────────────────────────────────────────
 

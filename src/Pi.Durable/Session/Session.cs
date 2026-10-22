@@ -351,6 +351,24 @@ public class DurableSession : ISession
     protected virtual Task OnBeforeCloseAsync() => Task.CompletedTask;
 
     /// <summary>
+    /// 供 <see cref="OnBeforeCloseAsync"/> 使用：在线上、在每个在封印之前被受理的提交结算之后，
+    /// 把 <paramref name="writes"/> 当时返回的批次直接写入 Storage。不发布任何内容（Session 正在关闭）；
+    /// 已失败的 Session 什么都不写。对应 TS protected <c>writeAtClose</c>。
+    /// </summary>
+    protected Task WriteAtCloseAsync(Func<IReadOnlyList<StorageWrite>> writes)
+        => Enqueue<object?>(async () =>
+        {
+            if (_poison is not null) return null;
+            var batch = writes();
+            if (batch.Count > 0)
+            {
+                await _storage.CommitAsync(batch, static _ => { }, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            return null;
+        });
+
+    /// <summary>
     /// 上报一个宿主回调或观察者的意外失败，不得抛出。普通 Session 丢弃它；Harness 覆盖它以转发给宿主。
     /// 对应 TS <c>report(error)</c>。
     /// </summary>

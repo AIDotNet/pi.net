@@ -619,6 +619,12 @@ public sealed record TaskOptions
 
     /// <summary>仅对话所有任务：排除在普通空闲等待、对话中止与级联之外。</summary>
     public bool Background { get; init; }
+
+    /// <summary>
+    /// 崩溃后放弃：下一次 open 为它打上 <c>restart</c> 中止标记而不是重跑阶段，使可能已经发生过副作用的调用不重试。对应 TS
+    /// <c>TaskOptions.abandonOnRestart</c>。
+    /// </summary>
+    public bool AbandonOnRestart { get; init; }
 }
 
 /// <summary>一个持久任务状态机的完整替换记录。对应 TS <c>TaskRecord&lt;I, S, R&gt;</c>。</summary>
@@ -646,11 +652,29 @@ public sealed record TaskRecord
     /// <summary>run 模式进展提交前检查的持久化中止标记。</summary>
     public required bool AbortRequested { get; init; }
 
+    /// <summary>
+    /// 标记不是中止请求设置时的原因：<c>restart</c> 表示任务在崩溃后被放弃
+    /// （<c>AbandonOnRestart</c>）或低于这样的任务。这样的任务等待其定义而不是被 orphaned；
+    /// 后续中止请求清除它。对应 TS <c>TaskRecordBase.abortReason</c>。
+    /// </summary>
+    public string? AbortReason { get; init; }
+
+    /// <summary>由 <see cref="TaskOptions.AbandonOnRestart"/> 写入。不可变。</summary>
+    public bool AbandonOnRestart { get; init; }
+
     /// <summary>当前状态。</summary>
     public required TaskState State { get; init; }
 
     /// <summary>任务可运行期间保留的小型首写必胜值。</summary>
     public IReadOnlyDictionary<string, object?>? Memos { get; init; }
+
+    /// <summary>
+    /// 崩溃、驱逐或重置在任务运行期间连续切断了它多少次（任务自那以后没有改变状态）；
+    /// 由 open 计数，close 不计。达到 <see cref="HarnessSettings.RestartLimit"/> 时任务作为
+    /// blocked（<c>restart_limit</c>）停放，直到 <c>Harness.RetryTaskAsync()</c> 或 <c>settings.restartLimit</c> 上调。
+    /// 对应 TS <c>TaskRecordBase.restarts</c>。
+    /// </summary>
+    public int? Restarts { get; init; }
 }
 
 /// <summary>一次原子存储提交中的一条记录或文档变更。对应 TS <c>StorageWrite</c>。</summary>

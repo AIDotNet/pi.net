@@ -584,6 +584,8 @@ public class HarnessSleepTests
             Settings = () => AgentDocs.ResolveSettings(null),
             Env = (_, _) => Task.FromResult<Pi.Durable.Env.IExecutionEnv?>(null),
             Now = now,
+            // 关闭时的写回直落 Storage（Session 已封印受理）。
+            WriteAtClose = writes => storage.CommitAsync(writes(), static _ => { }),
             OnWake = onWake,
             Timers = HostTimers.Create(timers?.SetTimer, reports.Add),
             Report = reports.Add,

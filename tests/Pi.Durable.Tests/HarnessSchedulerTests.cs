@@ -65,6 +65,8 @@ public class SchedulerTests
             Settings = () => AgentDocs.ResolveSettings(null),
             Env = (_, _) => Task.FromResult<Pi.Durable.Env.IExecutionEnv?>(null),
             Now = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            // 关闭时的写回直落 Storage（Session 已封印受理）。
+            WriteAtClose = writes => storage.CommitAsync(writes(), static _ => { }),
             Timers = HostTimers.Create(null, reports.Add),
             Report = reports.Add,
             SettleOutcome = (_, record, outcome) =>

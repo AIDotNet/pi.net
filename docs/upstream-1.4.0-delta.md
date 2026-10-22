@@ -126,14 +126,14 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | durable sleeps：`runtime.sleepUntil()`、`{status:"sleeping"}`、`sleeping` 状态 | 1.4.0 | 睡眠期间不占 invocation、跨重启恢复、按时醒来 | 本次移植（第三十一批，见 §6.aa） |
 | `HarnessOptions.setTimer` / `now` / `ToolExecutionApi.now()` | 1.4.0 | 宿主/假时钟接管定时器与脚本超时 | 本次移植（第三十一批，见 §6.aa） |
 | `Harness.wake()` / `HarnessOptions.onWake` | 1.4.0 | Cloudflare Durable Object 等宿主可休眠 | 本次移植（第三十一批，见 §6.aa） |
-| Crash-loop guard：`TaskRecord.restarts`、`settings.restartLimit`、parked、`Harness.retryTask()` | 1.4.0 | 连续崩溃的任务不再无限重跑 | 待办（需要存储列 + 迁移） |
-| `onReport(error, info)` 的 `ReportInfo`（`task_parked` / `task_outdated` / `extension_error` / `host_error` / `listener_error` / `migration_failed`） | 1.4.0 | 上报分类 | 待办（`task_parked` 依赖 crash-loop guard） |
+| Crash-loop guard：`TaskRecord.restarts`、`settings.restartLimit`、parked、`Harness.retryTask()` | 1.4.0 | 连续崩溃的任务不再无限重跑 | 本次移植（第三十二批，见 §6.ab） |
+| `onReport(error, info)` 的 `ReportInfo`（`task_parked` / `task_outdated` / `extension_error` / `host_error` / `listener_error` / `migration_failed`） | 1.4.0 | 上报分类 | 待办（crash-loop guard 已在第三十二批落地，上报点已就位，只缺 info 形状） |
 | `settings.afterFailedRun`（`keep` / `continue` / `withdraw`） | 1.4.0 | 失败运行后排队输入的去向 | 待办 |
-| Task graph `blocked` 原因（`missing_task` / `task_too_old` / `migration_failed` / `restart_limit`） | 1.4.0 | `/tree` 里能看出任务为何跑不了 | 待办 |
+| Task graph `blocked` 原因（`missing_task` / `task_too_old` / `migration_failed` / `restart_limit`） | 1.4.0 | `/tree` 里能看出任务为何跑不了 | 本次移植（第三十二批，见 §6.ab） |
 | `IndexedDbStorage`（浏览器存储） | 1.4.0 | 浏览器侧持久化 | 不适用（端口没有浏览器宿主） |
 | telemetry span / metrics / trace 传播 | 1.4.0 | 可观测性 | 不适用（按此前判定，端口不接 OpenTelemetry） |
 | 生成重试、延迟轮询、压缩重试改走 sleep | 1.4.0 | 退避期间可休眠 | 本次移植（第三十一批，见 §6.aa） |
-| SQLite 迁移到 schema v2（重建 task 表） | 1.4.0 | 存储格式 | 本次移植（第三十一批：先加 `sleeping`；`restarts` 列随 crash-loop guard 一起） |
+| SQLite 迁移到 schema v2（重建 task 表） | 1.4.0 | 存储格式 | 本次移植（第三十一批：`status` 增加 `sleeping`；`restarts` / `abortReason` / `abandonOnRestart` 是记录内 JSON 字段，不占列，第三十二批无需再迁移） |
 
 - **durable 观察面（同一提交 92ab53602）—— 本次移植（第二十批）**：移除 `Session.documentState()` /
   `Conversation.viewState()` / `Harness.taskGraph()` 与 `DocumentState<T>`，统一走
@@ -177,6 +177,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `7f225f25d`（1.4.0） | System One 分类器图像输入（`assets` / `images` / `state-image-urls`），新增 `SystemOneCompat`；`models.json` 的 provider `compat` 作用于分类器 | `Pi.Ai/Types/Classifier.cs`、`Api/{SystemOne,SystemOneTransports,LlamaCppClassify}.cs`、`Pi.CodingAgent/Core/{ProviderComposer,ProviderConfig,ModelConfig}.cs` | `SystemOneImageTests`（14）、`CoreProviderComposerTests.ModelsJsonAppliesProviderCompatToClassifierModels` |
 | `c5f5b3282` | 无元数据时拒绝 `iss`（RFC 9207） | `Pi.Mcp/OAuth/{OAuthFlow,OAuthErrors}.cs` | `OAuthFlowTests.IssWithoutDiscoveredMetadataIsRejectedBeforeTheExchange` |
 | `f75b3240a`（1.4.0） | durable 持久睡眠：`runtime.sleepUntil()`、`{status:"sleeping"}`、`Harness.wake()` / `onWake` / `setTimer`、`ToolExecutionApi.now()`、SQLite v2 | `Pi.Durable/Timers.cs`（新）、`Harness/{Scheduler,HarnessTypes,Harness,Generation,Compaction,ToolOutput,ToolTask*}.cs`、`Types/{DurableTypes,TaskRuntime}.cs`、`Harness/TaskGraphView.cs`、`Storage/SqliteStorageMigrations.cs` | `HarnessSleepTests`（12）、`StorageConformance`「stores and scans sleeping tasks by status」（4 后端） |
+| crash-loop guard（1.4.0，`scheduler.ts` / `task-graph.ts`） | `TaskRecord.restarts` / `abortReason` / `abandonOnRestart`、`settings.restartLimit`、parked + `retryTask()`、任务图 `blocked` 原因、close 写回 `pending` | `Pi.Durable/Types/DurableTypes.cs`、`Session/{Session,Transaction}.cs`、`Harness/{Scheduler,Harness,HarnessTypes,AgentDocs,TaskGraphView}.cs` | `HarnessRestartTests`（10） |
 | `da0eadf04` | 已取消的请求不再在授权刷新后重发 | `Pi.Mcp/Transports/StreamableHttpTransport.cs` | —（.NET 侧 SendAsync 已按 token 取消，仅补齐 MCP 中止错误语义） |
 
 **语料同步说明**（上游行为变更导致的期望更新，非放宽断言）：
@@ -203,7 +204,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 480 / 480 通过（第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
+| `Pi.Durable.Tests` | 490 / 490 通过（第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
@@ -268,8 +269,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    stdin 回复串~~（第二十七批）→ ~~coding-agent：配置文件 JSON Schema 产物、Kitty 移位符号键位~~
    （第二十八批）→ ~~coding-agent：并发扩展对话框堆叠（`38847563f`）、overlay 归属修复（`a4f67eb65`）~~
    （第二十九批）→ ~~durable：按模型压缩阈值~~（第三十批）→ ~~durable：持久睡眠 + 宿主时钟/唤醒~~
-   （第三十一批）→ durable 剩余项按 §3.5.1 的表推进（crash-loop guard → `onReport` info →
-   `afterFailedRun` → task graph blocked）。
+   （第三十一批）→ ~~durable：crash-loop guard + task graph `blocked` 原因~~（第三十二批）→ durable
+   剩余项按 §3.5.1 的表推进（`onReport` info → `afterFailedRun`）。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1198,6 +1199,78 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.ab 第三十二批（durable：crash-loop guard 与阻塞原因）落地明细
+
+上游同批引入（`scheduler.ts` 的 `restarts` / `parked` / `retry` 与 `task-graph.ts` 的 `blocked`）。目标：一个在
+运行中被反复切断、却从未改变状态的任务不再无限重跑，而是停放成 `restart_limit` 并可从外部放行。
+
+**1. 记录与设置**
+
+- `TaskRecord` 新增三个字段：`Restarts`（`int?`，连续被切断次数）、`AbortReason`（`string?`，只有 `"restart"`
+  一种值）、`AbandonOnRestart`（`bool`，来自 `TaskOptions`，不可变）。
+- `TaskOptions.AbandonOnRestart` → `Tx.CreateTaskAsync` 写入记录。**与上游差异**：上游 `tool.ts` 对不可重放的
+  工具把子任务设成 `abandonOnRestart`；端口没有嵌套工具调用/子调用任务，因此本批只开放 `TaskOptions` 这个入口，
+  由宿主与测试使用。
+- `HarnessSettings.RestartLimit`（`int?`）+ `Settings.RestartLimit`（必填）；`AgentDocs.DefaultRestartLimit = 5`
+  与 `AgentDocs.ResolveRestartLimit(int?)`（`>= 1` 取原值，否则缺省）。**与上游差异**：TS 用 `Infinity` 表示
+  “永不停放”，C# 用 `int.MaxValue`。
+- `restarts` / `abortReason` / `abandonOnRestart` 都是记录内 JSON 字段（序列化随 `TaskRecord` 走），
+  因此 SQLite 不需要第三段迁移；第三十一批的 v2 表已经容纳 `sleeping`。
+
+**2. 调度器（`src/Pi.Durable/Harness/Scheduler.cs`）**
+
+- `RestartLimit()`（设置抛出时上报并回落缺省）、`Parked(record)`（`!abortRequested && restarts >= limit`）、
+  `UnparkRaised()`（每遍保留前把“上限上调后不再停放”的任务移出 `_parkedTasks` 并通知任务图）、
+  `NotifyBlocked()` / `SubscribeBlocked(listener)`（阻塞原因可在不提交的情况下改变的通道）。
+- `OpenAsync`：幸存的 `running` 记录 `restarts + 1` 并改回 `pending`；达到上限且没有 abort 标记的任务在提交后
+  逐个上报 `Task ... was cut off N times without progress; it is parked until retryTask()`。`abandonOnRestart`
+  的记录进 `_abandoned`。
+- `ReserveAsync`：第一遍只为 `_abandoned` 打 `restart` 标记（并置 `_dirty` 再跑一遍），后续遍才看到标记；
+  每遍先 `UnparkRaised()`；停放的任务略过并登记（新停放时通知任务图）；带 abort 标记且 `restarts >= limit`
+  的任务直接 fault（`detail.reason = "restart_limit"`），因为 abort 处理器被切断会永远重跑，没有东西能停放它；
+  abort 模式下 `abortReason` 为空的放行任务以 orphaned 结算，带 `restart` 标记的等定义。
+- `RetryAsync(id, ctx)`：清 `Restarts` 后 `Resume()`；未停放的任务什么也不做，未知任务报错。
+  `IHarness.RetryTaskAsync` / `HarnessImpl.RetryTaskAsync` 暴露它。
+- `AbortAsync(id, ctx, keepRestart = false)` 与 `AbortConversationAsync` / 级联标记统一走
+  `WithAbortMark(record, reason?)`：不给原因为中止请求，替换 `restart` 标记；两者都把 `restarts` 归零，
+  此后计数改计 abort 处理器被切断的次数。
+- `CommitStateAsync` 用 `SameState(current.State, next)`（JSON 形状比较）判断进展：只有真正不同的状态才
+  `Progressed(record)` 清零计数，同一 checkpoint 再提交（副作用前的意图）不算。
+- `WithState` 在终态/completing 时同时丢掉 memos 与 `restarts`（回执不带计数）。
+- `ComputeActive`/`Wake` 略过停放任务：停放的工作不需要进程，宿主的唤醒因此可以落下（上游同语义）。
+- **`writeAtClose`（关闭写回）**：`TaskSchedulerOptions.WriteAtClose` + `Session.WriteAtCloseAsync(writes)`
+  （protected，线上、封印后直接落库、不发布）。`JoinAsync` 先取消并加入每个调用，再把仍是 `running` 的任务
+  写回 `pending`——关闭不是崩溃，下次 open 不计重启。写回失败保持 `running`，按被切断计。
+- `Resolve` 的迁移失败分支补上 `NotifyBlocked()` + `ScheduleWake()`：阻塞原因不提交就变了，任务图与宿主必须听到。
+
+**3. 任务图（`src/Pi.Durable/Harness/TaskGraphView.cs`）**
+
+- `TaskGraphNode.Blocked`（`string?`）+ `TaskGraphReader` 读取；`NodeOf(record, conversations, blocked)`。
+- `TaskGraphBlocking`（`Blocked` + `SubscribeBlocked`）由 `HarnessImpl` 接到调度器的 `BlockedReasonOf` /
+  `SubscribeBlocked`；`BlockedReasonOf` 实现上游 `blockedReason()`：`running`/`completing`/`terminal` 永不阻塞，
+  纯中止请求不阻塞，`Parked` → `restart_limit`，否则按注册表产生 `missing_task` / `task_too_old` /
+  `migration_failed`（注册表快照失败只上报一次）。
+- `Mount.Records`（key → 记录）+ `RefreshBlocked()`：注册表变化或取消停放时在 Session 线上重新派生每个节点的
+  原因并发布差量；`Publish(mount, ops, context)` 从 `Advance` 抽出来复用。
+
+**4. 测试（`tests/Pi.Durable.Tests/HarnessRestartTests.cs`，10 例）**
+
+停放后显示原因并 `RetryTaskAsync` 重跑、close 不计重启、abort 处理器被切断即 fault、上调 `restartLimit` 放行、
+`abort_reason` 为 restart 的放弃任务等待定义、abort 处理器照常运行、进展清零、同 checkpoint 再提交不算进展、
+无定义任务的 `missing_task` 与注册表变化后的唤醒、迁移失败的 `migration_failed` 与宿主唤醒。
+崩溃用「放弃旧 Harness（不关闭）+ `MemoryStorage.Reopen()` 快照里仍是 `running`」模拟，与上游的存储代理挂死等价。
+顺带更新三处 fixture：`TaskSchedulerOptions.WriteAtClose`（测试直落 Storage）、`TaskGraphView` 的三参构造、
+`Settings.RestartLimit`。
+
+**与上游差异（4 条）**
+
+1. 报告信息：端口 `Report` 仍是 `Action<Exception>`，本批上报停放/迁移失败的错误文本，`ReportInfo`
+   （`task_parked` / `migration_failed` 的 `type`、`task`、`extension`）留到下一批。
+2. `Infinity` 用 `int.MaxValue`；`restartLimit` 的 `Math.floor` 无对应（C# 已是整数）。
+3. `abandonOnRestart` 只经 `TaskOptions` 开放：端口没有嵌套工具调用的子任务。
+4. `writeAtClose` 以 `TaskSchedulerOptions` 委托 + `Session.WriteAtCloseAsync` 表达；上游是同一份代码里的
+   protected 方法，端口按既有分层（Session ← Harness ← Scheduler）拆开。
 
 ### 6.aa 第三十一批（durable：持久睡眠与宿主定时器）落地明细
 

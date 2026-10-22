@@ -200,6 +200,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
                     ? null
                     : BoundConversations.BoundConversation(id, binding, submissionsRef!, tasksRef!);
             },
+            WriteAtClose = WriteAtCloseAsync,
             Context = ContextSignals.WithoutAbortSignal(context),
         });
         _submissions = new Submissions(
@@ -209,7 +210,11 @@ public sealed class HarnessImpl : DurableSession, IHarness
             () => _tasks.Resume());
         submissionsRef = _submissions;
         tasksRef = _tasks;
-        _taskGraph = new TaskGraphView(this, storage);
+        _taskGraph = new TaskGraphView(this, storage, new TaskGraphBlocking
+        {
+            Blocked = _tasks.BlockedReasonOf,
+            SubscribeBlocked = _tasks.SubscribeBlocked,
+        });
         // 视图挂载必须在 ConversationHost 之前创建：其构造函数把自身注册进 Harness→Views 表
         // （对应 TS 的 conversationViews() 惰性检索）。
         _views = new ConversationViews(this, storage);
@@ -308,6 +313,12 @@ public sealed class HarnessImpl : DurableSession, IHarness
         => _submissions.AbortAsync(id, context, conversationId);
 
     public Task<string> AbortTaskAsync(TaskId<object?> id, Context context) => _tasks.AbortAsync(id, context);
+
+    public Task RetryTaskAsync(TaskId<object?> id, Context context)
+    {
+        AssertOpen();
+        return _tasks.RetryAsync(id, context);
+    }
 
     public Task<SettledTask> WaitForTaskAsync(TaskId<object?> id, Context context)
     {

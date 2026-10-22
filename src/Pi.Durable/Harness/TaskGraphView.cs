@@ -45,8 +45,25 @@ public sealed record TaskGraphNode
 
     public required TaskGraphState State { get; init; }
 
+    /// <summary>
+    /// 它在这里不能运行的原因（若有）：没有注册的定义能接手（<c>missing_task</c> / <c>task_too_old</c> /
+    /// <c>migration_failed</c>），或被重启上限停放（<c>restart_limit</c>）。随注册表变化。
+    /// </summary>
+    public string? Blocked { get; init; }
+
     /// <summary>本任务拥有的对话，按 ID 序。</summary>
     public required IReadOnlyList<ConversationId> Conversations { get; init; }
+}
+
+/// <summary>
+/// 图向调度器询问的两件事：任务的阻塞原因，以及原因可能在不提交的情况下改变的时刻。
+/// 对应 TS <c>TaskGraphBlocking</c>。
+/// </summary>
+public sealed record TaskGraphBlocking
+{
+    public required Func<TaskRecord, string?> Blocked { get; init; }
+
+    public required Func<Action, IDisposable> SubscribeBlocked { get; init; }
 }
 
 /// <summary>图值的形状常量。挂载值是严格 JSON（DeltaApply 要求），节点形状对应 TS JSON 节点。</summary>
@@ -104,6 +121,7 @@ public static class TaskGraphReader
         Background = Convert.ToBoolean(node["background"]),
         AbortRequested = Convert.ToBoolean(node["abortRequested"]),
         State = StateFrom((IReadOnlyDictionary<string, object?>)node["state"]!),
+        Blocked = node.TryGetValue("blocked", out var blocked) ? blocked as string : null,
         Conversations = [.. ((IReadOnlyList<object?>)node["conversations"]!)
             .Select(v => ConversationId.From(Convert.ToInt64(v)))],
     };
@@ -142,6 +160,7 @@ public sealed class TaskGraphView
 
     private readonly DurableSession _session;
     private readonly IStorage _storage;
+    private readonly TaskGraphBlocking _blocking;
     private readonly object _gate = new();
     private Mount? _mount;
     private bool _closed;
@@ -155,12 +174,16 @@ public sealed class TaskGraphView
         };
 
         public readonly HashSet<object> Observers = [];
+
+        /// <summary>每个节点对应的记录，使注册表变化能让图不重扫载荷就重新派生阻塞原因。</summary>
+        public readonly Dictionary<string, TaskRecord> Records = [];
     }
 
-    public TaskGraphView(DurableSession session, IStorage storage)
+    public TaskGraphView(DurableSession session, IStorage storage, TaskGraphBlocking blocking)
     {
         _session = session;
         _storage = storage;
+        _blocking = blocking;
         _session.SubscribeCommits((publication, context) =>
         {
             lock (_gate)
@@ -168,6 +191,7 @@ public sealed class TaskGraphView
                 if (_mount is not null) Advance(_mount, publication, context);
             }
         });
+        blocking.SubscribeBlocked(RefreshBlocked);
         _session.SubscribeClose(() =>
         {
             object[] observers;
@@ -211,10 +235,11 @@ public sealed class TaskGraphView
             lock (_gate) mount = _mount;
             if (mount is null)
             {
-                var value = await BuildAsync(context).ConfigureAwait(false);
+                var built = new Mount();
+                built.Value = await BuildAsync(built, context).ConfigureAwait(false);
                 lock (_gate)
                 {
-                    _mount ??= new Mount { Value = value };
+                    _mount ??= built;
                     mount = _mount;
                 }
             }
@@ -261,9 +286,11 @@ public sealed class TaskGraphView
         return (observer, detach);
     }
 
-    private async Task<IReadOnlyDictionary<string, object?>> BuildAsync(Context context)
+    private async Task<IReadOnlyDictionary<string, object?>> BuildAsync(Mount mount, Context context)
     {
         var tasks = new Dictionary<string, object?>();
+        var records_of = mount.Records;
+        records_of.Clear();
         var records = new List<TaskRecord>();
         foreach (var status in LiveStatuses)
         {
@@ -283,14 +310,15 @@ public sealed class TaskGraphView
                 .Select(conversation => (object?)conversation.Id.Value)
                 .OrderBy(value => value)
                 .ToList();
-            tasks[IdKey(record.Id)] = NodeOf(record, conversations);
+            tasks[IdKey(record.Id)] = NodeOf(record, conversations, _blocking.Blocked(record));
+            records_of[IdKey(record.Id)] = record;
         }
 
         return new Dictionary<string, object?> { [TaskGraphShape.TasksKey] = tasks };
     }
 
     /// <summary>从一次发布派生挂载的操作，应用后交给每个观察者。对应 TS <c>advance</c>。</summary>
-    private static void Advance(Mount mount, CommitPublication publication, Context context)
+    private void Advance(Mount mount, CommitPublication publication, Context context)
     {
         var ops = new List<DeltaOp>();
         // 本次发布设置或删除的节点，覆盖挂载值之上。
@@ -317,16 +345,18 @@ public sealed class TaskGraphView
             var previous = Node(key);
             if (record.State.Status == TaskStatus.Terminal)
             {
+                mount.Records.Remove(key);
                 if (previous is null) continue;
                 ops.Add(new DeltaOp.Delete(TasksPath.Append(Seg.Key(key))));
                 changed[key] = null;
                 continue;
             }
 
+            mount.Records[key] = record;
             var previousConversations = previous is null
                 ? []
                 : (IReadOnlyList<object?>)previous["conversations"]!;
-            var next = NodeOf(record, previousConversations);
+            var next = NodeOf(record, previousConversations, _blocking.Blocked(record));
             if (previous is not null && JsonEquals(next, previous)) continue;
             ops.Add(new DeltaOp.Set(TasksPath.Append(Seg.Key(key)), next));
             changed[key] = next;
@@ -354,6 +384,13 @@ public sealed class TaskGraphView
                 conversations));
         }
 
+        Publish(mount, ops, context);
+    }
+
+    /// <summary>把操作应用到挂载，并把新修订交给每个观察者。对应 TS <c>publish</c>。</summary>
+    private static void Publish(
+        Mount mount, IReadOnlyList<DeltaOp> ops, Context context)
+    {
         if (ops.Count == 0) return;
         mount.Value = (IReadOnlyDictionary<string, object?>)DeltaApply.Apply(ops, mount.Value)!;
         var frameContext = ContextSignals.WithoutAbortSignal(context);
@@ -368,12 +405,70 @@ public sealed class TaskGraphView
         }
     }
 
+    /// <summary>
+    /// 在 Session 线上重新派生每个节点的阻塞原因，并发布变化。只会在 Session 关闭或失败时被拒绝。
+    /// 对应 TS <c>#refreshBlocked</c>。
+    /// </summary>
+    private void RefreshBlocked()
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _session.ReadOnLineAsync(() =>
+                {
+                    Mount? mount;
+                    lock (_gate)
+                    {
+                        mount = _closed ? null : _mount;
+                    }
+
+                    if (mount is null) return Task.FromResult(false);
+                    var ops = new List<DeltaOp>();
+                    foreach (var (key, record) in mount.Records)
+                    {
+                        var blocked = _blocking.Blocked(record);
+                        if (BlockedOf(mount.Value, key) == blocked) continue;
+                        var path = TasksPath.Append(Seg.Key(key)).Append(Seg.Key("blocked"));
+                        ops.Add(blocked is null ? new DeltaOp.Delete(path) : new DeltaOp.Set(path, blocked));
+                    }
+
+                    Publish(mount, ops, Context.Background);
+                    return Task.FromResult(true);
+                }).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException)
+            {
+                // Session 正在关闭或已失败：没有可发布的。
+            }
+            catch (Exception error)
+            {
+                _session.Report(error);
+            }
+        });
+    }
+
+    /// <summary>挂载值里某节点的 <c>blocked</c>（没有为 null）。</summary>
+    private static string? BlockedOf(IReadOnlyDictionary<string, object?> value, string key)
+    {
+        if (!value.TryGetValue(TaskGraphShape.TasksKey, out var tasksValue)
+            || tasksValue is not IReadOnlyDictionary<string, object?> tasks
+            || !tasks.TryGetValue(key, out var node)
+            || node is not IReadOnlyDictionary<string, object?> nodeValue
+            || !nodeValue.TryGetValue("blocked", out var blocked))
+        {
+            return null;
+        }
+
+        return blocked as string;
+    }
+
     private static string IdKey(TaskId<object?> id)
         => id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>节点 → 严格 JSON 形状（id/conversationId/owner/conversations 为十进制数值）。</summary>
     internal static IReadOnlyDictionary<string, object?> NodeOf(
-        TaskRecord record, IReadOnlyList<object?> conversations)
+        TaskRecord record, IReadOnlyList<object?> conversations, string? blocked = null)
     {
         var json = new Dictionary<string, object?>
         {
@@ -386,6 +481,7 @@ public sealed class TaskGraphView
             ["conversations"] = conversations.ToList(),
         };
         if (record.Owner is { } owner) json["owner"] = owner.Value;
+        if (blocked is not null) json["blocked"] = blocked;
         return json;
     }
 

@@ -38,6 +38,12 @@ public sealed record TaskSchedulerOptions
 
     public required Func<long> Now { get; init; }
 
+    /// <summary>
+    /// 关闭时把 <c>writes()</c> 直接写入 Storage（Session 的 <c>writeAtClose</c>）：关闭不是崩溃，
+    /// 被它止住的任务写回 <c>pending</c>，于是下次 open 不为它计重启。对应 TS <c>TaskSchedulerOptions.writeAtClose</c>。
+    /// </summary>
+    public required Func<Func<IReadOnlyList<StorageWrite>>, Task> WriteAtClose { get; init; }
+
     /// <summary><c>HarnessOptions.onWake</c>：替代睡眠任务的定时器。</summary>
     public Action<Wake>? OnWake { get; init; }
 
@@ -94,6 +100,7 @@ public sealed class TaskScheduler
     private readonly Func<Settings> _settings;
     private readonly Func<ConversationId, Context, Task<IExecutionEnv?>> _env;
     private readonly Func<long> _now;
+    private readonly Func<Func<IReadOnlyList<StorageWrite>>, Task> _writeAtClose;
     private readonly Action<Wake>? _onWake;
     private readonly Timers _timers;
     private readonly Action<Exception> _report;
@@ -136,6 +143,18 @@ public sealed class TaskScheduler
     /// </summary>
     private readonly HashSet<TaskId<object?>> _failFastChecks = [];
 
+    /// <summary>一遍调度作为停放任务略过的任务；每一遍都再检查，因为 <c>settings.restartLimit</c> 可能已上调。</summary>
+    private readonly HashSet<TaskId<object?>> _parkedTasks = [];
+
+    /// <summary>阻塞原因可能已在不提交的情况下改变的监听器：注册表变化、迁移失败、取消停放。</summary>
+    private readonly List<Action> _blockedListeners = [];
+
+    /// <summary>崩溃后被放弃（<c>TaskOptions.AbandonOnRestart</c>）的任务：首遍调度只打 <c>restart</c> 标记。</summary>
+    private readonly HashSet<TaskId<object?>> _abandoned = [];
+
+    /// <summary>注册表快照失败已经上报过：每个任务每次查询都上报会淹没宿主。</summary>
+    private bool _snapshotReported;
+
     /// <summary>最早尚未到点的睡眠时刻，-1 表示没有；在线上随提交重算，故在线外读也安全。</summary>
     private long _earliestSleep = -1;
 
@@ -165,6 +184,7 @@ public sealed class TaskScheduler
         _settings = options.Settings;
         _env = options.Env;
         _now = options.Now;
+        _writeAtClose = options.WriteAtClose;
         _onWake = options.OnWake;
         _timers = options.Timers;
         _report = options.Report;
@@ -181,7 +201,13 @@ public sealed class TaskScheduler
     {
         _session.SubscribeCommits(Observe);
         _session.SubscribeClose(Seal);
-        _unsubscribeRegistry = _registry.Subscribe(Kick);
+        _unsubscribeRegistry = _registry.Subscribe(() =>
+        {
+            NotifyBlocked();
+            Kick();
+        });
+        var limit = RestartLimit();
+        var parked = new List<TaskRecord>();
         await _session.CommitWithAsync<object?>(async tx =>
         {
             // 每张表读都在首次写之前。
@@ -197,12 +223,17 @@ public sealed class TaskScheduler
                 foreach (var record in records)
                 {
                     _live[record.Id] = record;
+                    if (record.AbandonOnRestart) _abandoned.Add(record.Id);
                     if (record.State.Status == TaskStatus.Running)
                     {
+                        // 幸存的 running 记录意味着宿主在它运行期间死亡：计一次重启。
+                        var restarts = (record.Restarts ?? 0) + 1;
                         tx.SetTask(record with
                         {
                             State = new TaskState { Status = TaskStatus.Pending, Checkpoint = record.State.Checkpoint },
+                            Restarts = restarts,
                         });
+                        if (restarts >= limit && !record.AbortRequested) parked.Add(record);
                     }
 
                     if (record.State is { Status: TaskStatus.Waiting, Policy: JoinPolicy.FailFast })
@@ -215,6 +246,14 @@ public sealed class TaskScheduler
             RefreshEarliestSleep();
             return null;
         }, context).ConfigureAwait(false);
+
+        foreach (var record in parked)
+        {
+            var restarts = (record.Restarts ?? 0) + 1;
+            _report(new InvalidOperationException(
+                $"Task {record.Id.Value} ({record.Kind}) was cut off {restarts} times without progress; "
+                + "it is parked until retryTask()"));
+        }
 
         // 补派崩溃遗留的、低于已取消属主的 abort 标记，并终结保持的结果。
         _cascadePending = true;
@@ -280,6 +319,8 @@ public sealed class TaskScheduler
 
             // 尚未到点的睡眠：它的定时器会唤醒，本身不算“现在能跑”。
             if (NotDue(record)) continue;
+            // 停放的任务不需要进程：它要等 retry() 或上调的上限。
+            if (Parked(record)) continue;
             // abort 调用等待其下的存活工作，那份工作会自己计入。
             if (record.AbortRequested && WaitingOn(record, OwnedLive()).Count > 0) continue;
             // 没有定义能接手的任务在等注册表变化，带 abort 标记的除外（它会被 orphaned）。
@@ -318,26 +359,57 @@ public sealed class TaskScheduler
     private void RefreshEarliestSleep()
         => Interlocked.Exchange(ref _earliestSleep, ComputeEarliestSleep() ?? -1);
 
-    /// <summary>等待被 <see cref="Seal"/> 发信号的每个调用。不写任何内容。</summary>
+    /// <summary>
+    /// 给每个调用发信号并等待它们，然后把它们跑过的任务写回 <c>pending</c>（<c>writeAtClose</c>）：
+    /// 关闭不是崩溃。写回发生在本调用的线上，因此它保留了关闭前已受理的提交（例如 abort 标记）。
+    /// </summary>
     public async Task JoinAsync()
     {
-        var tasks = _invocations.Values.Select(invocation => invocation.Done).ToList();
+        var stopped = _invocations.Values.ToList();
+        foreach (var invocation in stopped) invocation.Controller.Cancel();
+        if (stopped.Count == 0) return;
         try
         {
-            await Task.WhenAll(tasks).ConfigureAwait(false);
+            await Task.WhenAll(stopped.Select(invocation => invocation.Done)).ConfigureAwait(false);
         }
         catch
         {
             // Promise.allSettled：吞掉所有结局。
+        }
+
+        try
+        {
+            await _writeAtClose(() =>
+            {
+                var writes = new List<StorageWrite>();
+                foreach (var invocation in stopped)
+                {
+                    var record = _live.GetValueOrDefault(invocation.TaskId);
+                    if (record is null || record.State.Status != TaskStatus.Running) continue;
+                    writes.Add(new StorageWrite.Task(WithState(record, new TaskState
+                    {
+                        Status = TaskStatus.Pending,
+                        Checkpoint = record.State.Checkpoint,
+                    })));
+                }
+
+                return writes;
+            }).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 写回失败时记录留在 running，按被切断计；Storage 守卫会使 Session 失败并上报。
         }
     }
 
     /// <summary>
     /// 写入 abort 标记；或当没有已注册定义能接手且其拥有的工作无存活时以 <c>orphaned</c> 结算，
     /// 然后加入在线上看到的 run 调用（提交监听器已发信号）。abort 调用在该任务的普通自有工作消失后启动。
-    /// <c>completing</c> 任务只被标记。返回 "marked" / "terminal"。
+    /// <c>completing</c> 任务只被标记。中止请求替换 <c>restart</c> 标记，因此等待定义的、崩溃后放弃的任务
+    /// 会被 orphaned；带 <paramref name="keepRestart"/>（如属主自身清理）时它保留标记并继续等待。
+    /// 返回 "marked" / "terminal"。
     /// </summary>
-    public async Task<string> AbortAsync(TaskId<object?> id, Context context)
+    public async Task<string> AbortAsync(TaskId<object?> id, Context context, bool keepRestart = false)
     {
         var (result, run) = await _session.CommitWithAsync(async tx =>
         {
@@ -345,6 +417,8 @@ public sealed class TaskScheduler
             if (current is null) throw new InvalidOperationException($"Task {id.Value} does not exist");
             if (current.State.Status == TaskStatus.Terminal) return ("terminal", (Invocation?)null);
             var invocation = _invocations.GetValueOrDefault(id);
+            // 带 restart 标记的任务没有 run 调用；它只等自己的 abort。
+            if (keepRestart && current.AbortReason == RestartReason) return ("marked", (Invocation?)null);
             if (invocation is null && current.State.Status != TaskStatus.Completing)
             {
                 await LoadScopesAsync(false).ConfigureAwait(false);
@@ -360,7 +434,7 @@ public sealed class TaskScheduler
                 }
             }
 
-            if (!current.AbortRequested) tx.SetTask(current with { AbortRequested = true });
+            if (!current.AbortRequested || current.AbortReason is not null) tx.SetTask(WithAbortMark(current));
             return ("marked", invocation is { Mode: "run" } ? invocation : null);
         }, context).ConfigureAwait(false);
 
@@ -371,6 +445,23 @@ public sealed class TaskScheduler
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// 重跑被重启上限停放的任务：清除其重启计数并启用调度。未停放的任务什么也不做；未知任务拒绝。
+    /// </summary>
+    public async Task RetryAsync(TaskId<object?> id, Context context)
+    {
+        await _session.CommitWithAsync<object?>(async tx =>
+        {
+            var current = await tx.GetTaskAsync(id).ConfigureAwait(false);
+            if (current is null) throw new InvalidOperationException($"Task {id.Value} does not exist");
+            var status = current.State.Status;
+            if (status is TaskStatus.Terminal or TaskStatus.Completing || !Parked(current)) return null;
+            tx.SetTask(Progressed(current));
+            return null;
+        }, context).ConfigureAwait(false);
+        Resume();
     }
 
     /// <summary>以终态回执完成；检查与注册同在线上，使终态发布不落在两者之间。</summary>
@@ -415,7 +506,7 @@ public sealed class TaskScheduler
                 if (record.Background && !background) continue;
                 if (InScope(ParentOf(record), scope, background) != true) continue;
                 reachedIds.Add(record.Id);
-                if (!record.AbortRequested) tx.SetTask(record with { AbortRequested = true });
+                if (!record.AbortRequested || record.AbortReason is not null) tx.SetTask(WithAbortMark(record));
             }
 
             foreach (var id in queued)
@@ -697,7 +788,7 @@ public sealed class TaskScheduler
                 void Mark(TaskRecord record)
                 {
                     if (record.AbortRequested || !marked.Add(record.Id)) return;
-                    tx.SetTask(record with { AbortRequested = true });
+                    tx.SetTask(WithAbortMark(record));
                 }
 
                 // 加载边可能揭示一个已取消的属主，因此每次遍历都重新派生标记。
@@ -1116,6 +1207,101 @@ public sealed class TaskScheduler
     /// </summary>
     private void WakeDue() => Kick();
 
+    /// <summary>连续被切断 <c>restartLimit</c> 次的任务；带 abort 标记的任务仍运行其 abort 处理器。</summary>
+    private bool Parked(TaskRecord record)
+        => !record.AbortRequested && record.Restarts is { } restarts && restarts >= RestartLimit();
+
+    /// <summary><c>settings.restartLimit</c>；宿主的设置抛出时用缺省值。</summary>
+    private int RestartLimit()
+    {
+        try
+        {
+            return _settings().RestartLimit;
+        }
+        catch (Exception error)
+        {
+            _report(error);
+            return AgentDocs.DefaultRestartLimit;
+        }
+    }
+
+    /// <summary>让上调的 <c>settings.restartLimit</c> 不再停放的任务重新成为候选，并告知任务图。</summary>
+    private void UnparkRaised()
+    {
+        var unparked = false;
+        foreach (var id in _parkedTasks.ToArray())
+        {
+            var record = _live.GetValueOrDefault(id);
+            if (record is not null && Parked(record)) continue;
+            _parkedTasks.Remove(id);
+            if (record is null) continue;
+            unparked = true;
+        }
+
+        if (unparked) _ = Task.Run(NotifyBlocked);
+    }
+
+    /// <summary>告知每个阻塞原因监听器；一个监听器抛出被上报，其余仍运行。</summary>
+    private void NotifyBlocked()
+    {
+        Action[] listeners;
+        lock (_blockedListeners) listeners = [.. _blockedListeners];
+        foreach (var listener in listeners)
+        {
+            try
+            {
+                listener();
+            }
+            catch (Exception error)
+            {
+                _report(error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 当阻塞原因可能已在不提交的情况下改变时调用 <paramref name="listener"/>：注册表变化、迁移失败、取消停放。
+    /// 返回退订。对应 TS <c>subscribeBlocked</c>。
+    /// </summary>
+    public IDisposable SubscribeBlocked(Action listener)
+    {
+        lock (_blockedListeners) _blockedListeners.Add(listener);
+        return new Unsubscribe(() =>
+        {
+            lock (_blockedListeners) _blockedListeners.Remove(listener);
+        });
+    }
+
+    /// <summary>
+    /// 存活任务在这里不能运行的原因（若有）：其定义（缺失、过旧、迁移失败）或重启上限。运行中、持有结局、
+    /// 以及带 abort 请求标记的任务从不阻塞：中止请求会运行其处理器或将任务 orphaned；带 <c>restart</c> 标记的
+    /// 任务等待其定义，因此算阻塞。对应 TS <c>blockedReason()</c>。
+    /// </summary>
+    public string? BlockedReasonOf(TaskRecord record)
+    {
+        var status = record.State.Status;
+        if (status is TaskStatus.Running or TaskStatus.Completing or TaskStatus.Terminal) return null;
+        if (record.AbortRequested && record.AbortReason is null) return null;
+        if (Parked(record)) return "restart_limit";
+        IRegistrySnapshot snapshot;
+        try
+        {
+            snapshot = _registry.Snapshot();
+        }
+        catch (Exception error)
+        {
+            // 读注册表取调度时上报；每次查询都上报会淹没宿主。
+            if (!_snapshotReported) _report(error);
+            _snapshotReported = true;
+            return null;
+        }
+
+        var fit = FitOf(record, snapshot.Task(record.Kind));
+        if (fit is Fit.No no) return no.Reason;
+        var fits = (Fit.Fits)fit;
+        return fits.Migrates && fits.Task.Migrate is null ? "migration_failed" : null;
+    }
+
     /// <summary>时钟尚未到达其 <c>until</c> 的睡眠；abort 标记结束睡眠。</summary>
     private bool NotDue(TaskRecord record)
     {
@@ -1123,16 +1309,35 @@ public sealed class TaskScheduler
         return state.Status == TaskStatus.Sleeping && !record.AbortRequested && (state.Until ?? 0) > _now();
     }
 
-    /// <summary>一次提交保留每个合格任务；没有定义能接手的 abort 标记任务以 orphaned 结算。</summary>
+    /// <summary>
+    /// 一次提交保留每个合格任务；没有定义能接手的 abort 标记任务以 orphaned 结算。open 之后的第一遍只为
+    /// 崩溃后放弃的任务打 <c>restart</c> 标记，后续几遍才看到这些标记。
+    /// </summary>
     private async Task<List<Reservation>> ReserveAsync()
     {
         var reservations = new List<Reservation>();
+        var faulted = new List<(TaskRecord Record, string Message)>();
+        var abandoned = new List<TaskId<object?>>();
         try
         {
             await _session.CommitWithAsync<object?>(async tx =>
             {
                 if (!_enabled || _closing) return null;
+                if (_abandoned.Count > 0)
+                {
+                    foreach (var id in _abandoned)
+                    {
+                        var record = _live.GetValueOrDefault(id);
+                        if (record is not null && !record.AbortRequested) tx.SetTask(WithAbortMark(record, RestartReason));
+                    }
+
+                    abandoned.AddRange(_abandoned);
+                    return null;
+                }
+
                 await LoadScopesAsync(false).ConfigureAwait(false);
+                // 任一遍都可能在上调上限后第一次运行停放的任务：每一遍先取消不再成立的停放。
+                UnparkRaised();
                 var owned = OwnedLive();
                 // 每遍取一次，且仅当有任务是候选时。
                 IRegistrySnapshot? snapshot = null;
@@ -1142,12 +1347,33 @@ public sealed class TaskScheduler
                     if (record.State.Status == TaskStatus.Completing) continue;
                     // 到点才回到候选：由睡眠定时器或 Resume() 的 WakeDue() 重新发起一遍。
                     if (NotDue(record)) continue;
+                    // 取消停放（retry()）或 settings.restartLimit 上调后的某一遍才重新成为候选。
+                    if (Parked(record))
+                    {
+                        // 没有提交就新停放（例如上限被下调）：任务图必须听到。
+                        if (_parkedTasks.Add(record.Id)) _ = Task.Run(NotifyBlocked);
+                        continue;
+                    }
+
                     var mode = record.AbortRequested ? "abort" : "run";
+                    // abort 处理器连续被切断 restartLimit 次会永远运行下去；没有东西能再停放它。
+                    if (mode == "abort" && (record.Restarts ?? 0) >= RestartLimit())
+                    {
+                        var message = $"Abort handler of task {record.Id.Value} ({record.Kind}) was cut off "
+                            + $"{record.Restarts} times";
+                        await TerminateAsync(tx, record, SchedulerOutcome.Faulted(
+                            message, new Dictionary<string, object?> { ["reason"] = "restart_limit" }))
+                            .ConfigureAwait(false);
+                        faulted.Add((record, message));
+                        continue;
+                    }
+
                     snapshot ??= _registry.Snapshot();
                     var resolution = Resolve(record, snapshot);
                     if (resolution is Resolution.Blocked blocked)
                     {
-                        if (mode == "abort")
+                        // 放弃的任务等待其定义，好让 abort 处理器清理。
+                        if (mode == "abort" && record.AbortReason is null)
                         {
                             await TerminateAsync(tx, record, SchedulerOutcome.Orphaned(blocked.Reason))
                                 .ConfigureAwait(false);
@@ -1187,6 +1413,14 @@ public sealed class TaskScheduler
             throw;
         }
 
+        foreach (var (record, message) in faulted)
+        {
+            _report(new InvalidOperationException(message));
+        }
+
+        // 已标记、已带标记或已消失：都不再需要，重新保留一次以看到标记。
+        foreach (var id in abandoned) _abandoned.Remove(id);
+        if (abandoned.Count > 0) _dirty = true;
         return reservations;
     }
 
@@ -1224,6 +1458,9 @@ public sealed class TaskScheduler
         catch (Exception error)
         {
             _failedMigrations[record.Id] = (fits.Task, error);
+            // 不提交就阻塞了：任务图与宿主的唤醒都必须听到。
+            _ = Task.Run(NotifyBlocked);
+            ScheduleWake();
             _report(error);
             return new Resolution.Blocked("migration_failed");
         }
@@ -1275,6 +1512,7 @@ public sealed class TaskScheduler
         var on = WaitingOn(record, owned);
         if (on.Count > 0) return new TaskInspection.Waiting(on) { Record = record };
         if (NotDue(record)) return new TaskInspection.Sleeping(record.State.Until ?? 0) { Record = record };
+        if (Parked(record)) return new TaskInspection.Blocked("restart_limit") { Record = record };
         var fit = FitOf(record, snapshot.Task(record.Kind));
         if (fit is Fit.No no) return new TaskInspection.Blocked(no.Reason, no.Error) { Record = record };
         var fits = (Fit.Fits)fit;
@@ -1537,7 +1775,10 @@ public sealed class TaskScheduler
             }
         }
 
-        tx.SetTask(WithState(current, next));
+        // 任务提交的、与其当前状态不同的状态就是进展：其重启计数从零开始。同一 checkpoint 再提交一次
+        //（例如作为副作用前的意图）不算。
+        var same = SameState(current.State, next);
+        tx.SetTask(WithState(same ? current : Progressed(current), next));
     }
 
     /// <summary>
@@ -2147,11 +2388,50 @@ public sealed class TaskScheduler
     private static InvalidOperationException MissingMigration(TaskRecord record, AnyDurableTask definition)
         => new($"Task {record.Kind} version {definition.Version} has no migration from {record.Version}");
 
-    /// <summary>替换存活记录的状态；结局一定后 memo 消失。</summary>
+    /// <summary>一次性退订。</summary>
+    private sealed class Unsubscribe(Action dispose) : IDisposable
+    {
+        private Action? _dispose = dispose;
+
+        public void Dispose() => Interlocked.Exchange(ref _dispose, null)?.Invoke();
+    }
+
+    /// <summary>替换存活记录的状态；结局一定后 memo 与重启计数消失。</summary>
     private static TaskRecord WithState(TaskRecord record, TaskState state)
         => state.Status is TaskStatus.Terminal or TaskStatus.Completing
-            ? record with { State = state, Memos = null }
+            ? record with { State = state, Memos = null, Restarts = null }
             : record with { State = state };
+
+    /// <summary>
+    /// 带上 abort 标记的记录：<paramref name="reason"/> 为 <c>restart</c> 表示崩溃后的放弃；不给原因即中止请求，
+    /// 它替换 <c>restart</c> 标记。重启计数归零：此后它计的是 abort 处理器被切断的次数。
+    /// </summary>
+    private static TaskRecord WithAbortMark(TaskRecord record, string? reason = null)
+        => record with { AbortRequested = true, AbortReason = reason, Restarts = null };
+
+    /// <summary>任务提交了（不同的）状态之后去掉重启计数的记录。</summary>
+    private static TaskRecord Progressed(TaskRecord record)
+        => record.Restarts is null ? record : record with { Restarts = null };
+
+    /// <summary>
+    /// 两个状态在 JSON 形状上相同：同一 checkpoint 再提交一次（例如副作用前的意图）不是进展。
+    /// 无法序列化的状态退回记录相等。
+    /// </summary>
+    private static bool SameState(TaskState left, TaskState right)
+    {
+        try
+        {
+            return System.Text.Json.JsonSerializer.SerializeToElement(left).ToString()
+                == System.Text.Json.JsonSerializer.SerializeToElement(right).ToString();
+        }
+        catch (NotSupportedException)
+        {
+            return Equals(left, right);
+        }
+    }
+
+    /// <summary>崩溃后放弃的标记原因（<c>abortReason</c>）。</summary>
+    private const string RestartReason = "restart";
 
     /// <summary>定义能否在保留时接手任务：同版本，或更新且带迁移。</summary>
     private static bool CanReserve(AnyDurableTask task, TaskRecord record)
