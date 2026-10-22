@@ -70,6 +70,12 @@ public sealed record ClassifierContext
 {
     public required JsonObject State { get; init; }
 
+    /// <summary>
+    /// 与 <see cref="State"/> 一起判读的图片。只有 <c>input</c> 含 <c>image</c> 的模型接受它们，
+    /// 其余模型返回错误结果。
+    /// </summary>
+    public IReadOnlyList<ImageContent>? Images { get; init; }
+
     public required IReadOnlyDictionary<string, ClassifierQuestion> Questions { get; init; }
 }
 

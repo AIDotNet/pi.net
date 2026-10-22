@@ -420,8 +420,17 @@ public sealed class ModelConfig
                 ("cost", ModelCostSchema, false)),
             maxItems: 3), true));
 
+    /// <summary>System One 分类器服务的兼容设置。对应 TS <c>SystemOneCompatSchema</c>。</summary>
+    private static readonly JsonSchema SystemOneCompatSchema = JsonSchemaBuilder.Obj(
+        ("imageInput", JsonSchemaBuilder.Union(
+            JsonSchemaBuilder.Lit("assets"),
+            JsonSchemaBuilder.Lit("images"),
+            JsonSchemaBuilder.Lit("state-image-urls")), true),
+        ("sendImageOptInHeader", JsonSchemaBuilder.Bool, true));
+
     private static readonly JsonSchema ProviderCompatSchema = JsonSchemaBuilder.Union(
-        OpenAiCompletionsCompatSchema, OpenAiResponsesCompatSchema, AnthropicMessagesCompatSchema);
+        OpenAiCompletionsCompatSchema, OpenAiResponsesCompatSchema, AnthropicMessagesCompatSchema,
+        SystemOneCompatSchema);
 
     private static readonly JsonSchema ModelDefinitionSchema = JsonSchemaBuilder.Obj(
         ("id", JsonSchemaBuilder.Str(minLength: 1), false),

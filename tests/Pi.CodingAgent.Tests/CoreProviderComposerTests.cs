@@ -263,6 +263,32 @@ public class CoreProviderComposerTests
         Assert.Null(image.Compat);
     }
 
+    /// <summary>
+    /// 1.4.0（#10160 之后的 `7f225f25d`）：分类器 API 读自己的 compat 字段，因此 provider 级
+    /// `compat` 也要落到分类器模型上（图片模型仍然只有 baseUrl）。
+    /// </summary>
+    [Fact]
+    public async Task ModelsJsonAppliesProviderCompatToClassifierModels()
+    {
+        var classifier = Model("clf", type: ModelType.Classifier) with { Input = ["text", "image"] };
+        var baseProvider = BaseWithKey("p", Model("a"), Model("i", type: ModelType.Image), classifier);
+        var config = await LoadConfigAsync(
+            "{\"providers\":{\"p\":{\"baseUrl\":\"https://cfg.invalid\","
+            + "\"compat\":{\"imageInput\":\"images\",\"sendImageOptInHeader\":false}}}}");
+
+        var models = Compose("p", baseProvider, config, null).GetAllModels();
+
+        var merged = models.Single(model => model.Id == "clf");
+        Assert.Equal("https://cfg.invalid", merged.BaseUrl);
+        Assert.Equal("images", merged.Compat?["imageInput"]?.GetValue<string>());
+        Assert.False(merged.Compat?["sendImageOptInHeader"]?.GetValue<bool>());
+
+        // 图片模型不受影响：分类器的 compat 词汇与它无关。
+        var image = models.Single(model => model.Id == "i");
+        Assert.Equal("https://cfg.invalid", image.BaseUrl);
+        Assert.Null(image.Compat);
+    }
+
     [Fact]
     public async Task ModelsJsonUpsertsCustomModelsInPlaceAndAppendsNewOnes()
     {

@@ -55,7 +55,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `personalizeOpenRouterCatalog()`、`RefreshModelsContext.baseUrl`、按 key 的模型列表 | 1.2.0 #10353 | 新增 `openrouter-api.ts`，重写远端目录 provider | 本次移植（第六批） |
 | 客户端身份 `identity` / `User-Agent` 格式重构 | 1.4.0 | 破坏性：`telemetryContext`→`telemetry`、`getPiUserAgent` 移除 | 本次移植（第五批） |
 | `resolveTranscriptTools` 由布尔改为 `TranscriptToolSupport`（含 #11142 前缀缓存） | 1.4.0 `caa6967b6` | 破坏性 API：`anchorsAdditions` → `foldedSystemMessages` | 本次移植（第十七批） |
-| System One 分类器图像输入、`compat`、llama.cpp 决策模型 | 1.1.0–1.4.0 | codemode + 分类器链路 | 待办 |
+| System One 分类器图像输入、`compat`、llama.cpp 决策模型 | 1.1.0–1.4.0 | codemode + 分类器链路 | 本次移植（第二十二批；llama.cpp 决策模型此前已落地） |
 | 模型目录更新（Claude Haiku 5.5、MiniMax-M3.1-Flash、Grok `xhigh` 等） | 1.1.0–1.4.0 | 纯数据 | 不适用（数据不在上游仓库，见 §6.6） |
 | Anthropic `strict:"prefer"` 重试、Mistral 超时范围 | 1.2.0 #10409 / #10609 | provider 兼容细节 | 本次移植（第十三批） |
 | OpenAI Responses `additional_tools` 延迟工具输入项 | 1.0.5 `e47b8e37a` #7709 | 缓存命中率与工具延迟加载 | 本次移植（第十六批） |
@@ -147,6 +147,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `92ab53602`（1.4.0，观察面） | 显式退休、watch 类型入 chord、删 `documentState`/`viewState`/`taskGraph` | `Pi.Chord/Services/Watch.cs`（新）、`Pi.Durable/Session/{Observation,Session}.cs`、`Pi.Durable/Harness/*`、`Pi.CodingAgent/Experimental/WatchState.cs`（新）+ 4 处调用点 | `SessionTests`（新增 2 例：null 不退休、`retire` 投递后结束）、`HarnessViewTests` / `HarnessTaskGraphTests` / `HarnessContextTests` 迁到 watch |
 | `67996ab75` | `structuredContent` 接受任意 JSON 值 | `Pi.Mcp/Protocol/{Types,Content}.cs`、`Pi.CodingAgent/Extensions/Mcp/Tools.cs` | `ProtocolContentTests`（4）、`McpToolsTests.CreateMcpResultSchema_WithoutStructuredSchema_DeclaresUnknown` |
 | `d7f7e0dfe`（1.3.0，`#10160`） | `--model` / `--models` / 凭据打印共用一套 provider 选择策略；`findInitialModel` 不再解析 CLI | `Pi.CodingAgent/Core/ModelResolver.cs`、`Cli/CredentialPrint.cs`、`Cli/Main.cs` | 语料重算（`model-resolver-corpus.json`，语料生成器重建）+ `ModelResolverTests`（删 1 例、加 1 例） |
+| `7f225f25d`（1.4.0） | System One 分类器图像输入（`assets` / `images` / `state-image-urls`），新增 `SystemOneCompat`；`models.json` 的 provider `compat` 作用于分类器 | `Pi.Ai/Types/Classifier.cs`、`Api/{SystemOne,SystemOneTransports,LlamaCppClassify}.cs`、`Pi.CodingAgent/Core/{ProviderComposer,ProviderConfig,ModelConfig}.cs` | `SystemOneImageTests`（14）、`CoreProviderComposerTests.ModelsJsonAppliesProviderCompatToClassifierModels` |
 | `c5f5b3282` | 无元数据时拒绝 `iss`（RFC 9207） | `Pi.Mcp/OAuth/{OAuthFlow,OAuthErrors}.cs` | `OAuthFlowTests.IssWithoutDiscoveredMetadataIsRejectedBeforeTheExchange` |
 | `da0eadf04` | 已取消的请求不再在授权刷新后重发 | `Pi.Mcp/Transports/StreamableHttpTransport.cs` | —（.NET 侧 SendAsync 已按 token 取消，仅补齐 MCP 中止错误语义） |
 
@@ -169,8 +170,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 486 / 486 通过（第十七批 6 例替代 4 例；此前 484） |
-| `Pi.CodingAgent.Tests` | 5019 / 5019 通过（第二十一批删 1 例 `findInitialModel` 的 CLI 退出路径、加 1 例「CLI 被忽略」，数量不变；第二十批只改夹具） |
+| `Pi.Ai.Tests` | 500 / 500 通过（第二十二批新增 14 例分类器图片；此前 486） |
+| `Pi.CodingAgent.Tests` | 5020 / 5020 通过（第二十二批新增 1 例「provider 级 `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 459 / 459 通过（第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
@@ -229,7 +230,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
 3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
 4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`--model` provider 选择策略统一~~（第二十一批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
-5. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
+5. ~~ai：System One 分类器图像输入~~（第二十二批）→ tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -852,6 +853,51 @@ provider 选择逻辑，且都受目录顺序影响：同一个 id 落在多个 
 | `cliModels` | 0 改 / +1440 条 | 新增 `inlineApiKey` 维度：原 1440 条即 `false` 分支，期望值未变 |
 | `defaultModelPerProvider` | 5 项 | 见上 |
 
+
+### 6.i 第二十二批（System One 分类器图像输入）落地明细
+
+对应上游 `7f225f25d`（1.4.0；19 文件 / +687 −36，其中 `packages/ai` 的 `system-one-shared.ts` 占 110 行）。
+`ClassifierContext` 自 1.4.0 起可带 `images`，三个 System One 服务各有自己的线上形态，由新增的
+`SystemOneCompat` 选择。
+
+**为什么不是「加上 images 就完了」**
+
+三家服务的接收方式互不兼容，写错不会报错、只会静默失效：
+
+| `imageInput` | 形态 | 服务 | 约束 |
+| --- | --- | --- | --- |
+| `assets` | `assets` 表 + 状态前插资源名（`state: ["<image-1>", …]`） | TypeSafe、Workers AI 上的 Jev | 仅 PNG / JPEG；TypeSafe 还要 `TypeSafe-Danger-Zone-Images: true` |
+| `images` | 顶层 `images` 的 data URL 列表 | Workers AI 上的 Clef | PNG / JPEG / WebP，最多四张 |
+| `state-image-urls` | 状态前的 `image_url` 片段 | OpenRouter | 任意格式，由 OpenRouter 按模型校验；OpenRouter 对 `assets` 应答 200 但丢弃 |
+
+**ai 层**
+
+- `ClassifierContext.Images`；`SystemOneWireRequest` 从记录变成类（`State` 可能是数组，另有
+  `Assets` / `Images`），`ToJsonObject()` 按 wire 顺序投影，两个 transport 的 payload 都改用它，
+  避免靠手抄字段而漏掉新键。
+- `SystemOneTransport.DetectCompat`：TypeSafe 按 provider id（`openrouter`，能躲过 baseUrl 覆盖）
+  或主机名（`openrouter.ai`，覆盖区域端点）判定；Workers AI 按 `@cf/cloudflare/clef` 前缀判定。
+- `compat` 逐字段覆盖检测值（`model.compat?.imageInput ?? detected.imageInput`），因此只改头不改形态
+  是合法写法。
+- 校验先于发送：模型 `input` 不含 `image` 报 `${label} does not support image input for ${id}`；
+  格式不支持报 `${label} accepts PNG and JPEG images for ${id}, got ${mimeType}`；Clef 超四张报
+  `accepts at most 4 images`。三条文案与上游逐字一致。
+- `llama-cpp-classify` 现在显式拒绝图片（此前端口没有 `Images`，等于静默忽略）：
+  `${label} classification does not support image input`。
+
+**coding-agent 层**
+
+- `ProviderClassifierModelConfig.Compat` 与 `ModelConfig` 的 `SystemOneCompatSchema`：`models.json`
+  的 provider 级 `compat` 现在也落到分类器模型上（图片模型仍然只吃 `baseUrl`——分类器的 compat 词汇
+  与它无关）。合并是浅合并（后者覆盖前者），与 TS 的 `{...model.compat, ...config.compat}` 一致。
+- 端口此前把 provider 级 `compat` 当纯 chat 概念，`ApplyModelsJson` 只对 chat 合并；本批改成三分支。
+
+**测试**
+
+新增 `tests/Pi.Ai.Tests/Api/SystemOneImageTests.cs`（14 例）覆盖：三家的形态与状态改写、opt-in 头
+的有无、格式与张数上限的三条错误文案、provider id 与主机名两条 OpenRouter 检测路径、compat 逐字段
+覆盖、compat 指定形态（代理场景）、以及 llama.cpp 的拒绝。`CoreProviderComposerTests` 新增一例
+钉住「provider 级 compat 落到分类器、且不影响图片模型」。
 
 ### 6.l 第十九批（`before_agent_start` 覆盖自定义触发轮次）落地明细
 

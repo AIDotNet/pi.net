@@ -80,6 +80,9 @@ public sealed record ProviderClassifierModelConfig : ProviderModelConfig
     public override ModelType Type => ModelType.Classifier;
 
     public required double ContextWindow { get; init; }
+
+    /// <summary>System One 服务的兼容覆盖（例如怎么接收图片）。对应 TS 的 <c>ClassifierModel["compat"]</c>。</summary>
+    public JsonObject? Compat { get; init; }
 }
 
 /// <summary>

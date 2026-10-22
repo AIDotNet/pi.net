@@ -23,15 +23,20 @@ public static class CloudflareWorkersAiSystemOne
     {
         Api = ApiName,
         Label = Label,
+        // Clef 用 images 列表（data URL），TypeSafe 的模型用 assets 且不需要 opt-in 头。目录会显式设
+        // compat.imageInput；这里的模型 id 判断只兜住没设 compat 的模型。
+        DetectCompat = model => new SystemOneCompat
+        {
+            ImageInput = model.Id.StartsWith("@cf/cloudflare/clef", StringComparison.Ordinal)
+                ? SystemOneImageInput.Images
+                : SystemOneImageInput.Assets,
+            SendImageOptInHeader = false,
+        },
         Url = model => new Uri($"{model.BaseUrl.TrimEnd('/')}/run"),
         Payload = (model, request) => new JsonObject
         {
             ["model"] = model.Id,
-            ["input"] = new JsonObject
-            {
-                ["state"] = request.State.DeepClone(),
-                ["questions"] = request.Questions.DeepClone(),
-            },
+            ["input"] = request.ToJsonObject(),
         },
         Output = body =>
         {
@@ -95,15 +100,26 @@ public static class TypesafeSystemOne
     {
         Api = ApiName,
         Label = "System One API",
+        // OpenRouter 按 provider id 识别（baseUrl 覆盖也挡不住），或按主机名识别（覆盖区域端点）。
+        // OpenRouter 会静默丢弃 assets，只认状态里的 image_url 片段。
+        DetectCompat = model => model.Provider == "openrouter"
+            || model.BaseUrl.Contains("openrouter.ai", StringComparison.Ordinal)
+                ? new SystemOneCompat
+                {
+                    ImageInput = SystemOneImageInput.StateImageUrls,
+                    SendImageOptInHeader = false,
+                }
+                : new SystemOneCompat
+                {
+                    ImageInput = SystemOneImageInput.Assets,
+                    SendImageOptInHeader = true,
+                },
         Url = model => new Uri($"{model.BaseUrl.TrimEnd('/')}/systemone"),
         Payload = (model, request) =>
         {
-            var payload = new JsonObject
-            {
-                ["state"] = request.State.DeepClone(),
-                ["questions"] = request.Questions.DeepClone(),
-            };
-            payload["model"] = model.Id;
+            // TS 是 `{ model: model.id, ...request }`：model 在前，其余按 wire 顺序展开。
+            var payload = new JsonObject { ["model"] = model.Id };
+            foreach (var (key, value) in request.ToJsonObject()) payload[key] = value?.DeepClone();
             return payload;
         },
         Output = body => body

@@ -504,6 +504,10 @@ public static class LlamaCppClassify
             {
                 throw new InvalidOperationException($"Unsupported classifier API: {model.Api}");
             }
+            if (context.Images is { Count: > 0 })
+            {
+                throw new InvalidOperationException($"{Label} classification does not support image input");
+            }
             var temperature = options?.Temperature ?? 1;
             if (temperature <= 0 || !double.IsFinite(temperature))
             {

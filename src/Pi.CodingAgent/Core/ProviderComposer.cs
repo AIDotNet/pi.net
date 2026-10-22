@@ -458,9 +458,17 @@ public static class ProviderComposer
             return SetExtraValue(model, "output", output);
         }
 
-        return type == ModelType.Classifier
-            ? model with { ContextWindow = (long)((ProviderClassifierModelConfig)definition).ContextWindow }
-            : ApplyChatDefinition(model, (ProviderChatModelConfig)definition);
+        if (type == ModelType.Classifier)
+        {
+            var classifier = (ProviderClassifierModelConfig)definition;
+            return model with
+            {
+                ContextWindow = (long)classifier.ContextWindow,
+                Compat = classifier.Compat,
+            };
+        }
+
+        return ApplyChatDefinition(model, (ProviderChatModelConfig)definition);
     }
 
     private static ModelSpec ApplyChatDefinition(ModelSpec model, ProviderChatModelConfig definition)
@@ -514,9 +522,23 @@ public static class ProviderComposer
         foreach (var model in baseModels)
         {
             var baseUrl = config.OAuth == "radius" ? model.BaseUrl : config.BaseUrl ?? model.BaseUrl;
-            models.Add(model.Type == ModelType.Chat
-                ? model with { BaseUrl = baseUrl, Compat = MergeCompat(model.Compat, config.Compat) }
-                : model with { BaseUrl = baseUrl });
+            if (model.Type == ModelType.Chat)
+            {
+                models.Add(model with { BaseUrl = baseUrl, Compat = MergeCompat(model.Compat, config.Compat) });
+            }
+            else if (model.Type == ModelType.Classifier && config.Compat is not null)
+            {
+                // 分类器 API 读自己的 compat 字段（例如 System One 服务如何接收图片）。
+                models.Add(model with
+                {
+                    BaseUrl = baseUrl,
+                    Compat = MergeJsonObjects(model.Compat, config.Compat),
+                });
+            }
+            else
+            {
+                models.Add(model with { BaseUrl = baseUrl });
+            }
         }
 
         foreach (var definition in config.Models ?? [])

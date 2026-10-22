@@ -8,8 +8,59 @@ using Pi.Ai.Utils;
 
 namespace Pi.Ai.Api;
 
-/// <summary>TypeSafe System One 请求体（不含传输层信封）。对应 TS <c>SystemOneWireRequest</c>。</summary>
-public sealed record SystemOneWireRequest(JsonObject State, JsonObject Questions);
+/// <summary>
+/// System One 请求体（不含传输层信封）。对应 TS <c>SystemOneWireRequest</c>。带图片时
+/// <see cref="State"/> 变成「图片或其资源名」在前、原状态在后的数组，并填 <see cref="Assets"/> 或
+/// <see cref="Images"/>。
+/// </summary>
+public sealed class SystemOneWireRequest
+{
+    public required JsonNode State { get; set; }
+
+    public required JsonObject Questions { get; init; }
+
+    /// <summary>以 System One 资源形式承载的图片，键为状态里引用的名字。</summary>
+    public JsonObject? Assets { get; set; }
+
+    /// <summary>以 data URL 承载的图片（Clef 对 System One 的扩展）。</summary>
+    public List<string>? Images { get; set; }
+
+    /// <summary>按 wire 顺序（state、questions、assets、images）投影成 JSON 对象。</summary>
+    public JsonObject ToJsonObject()
+    {
+        var value = new JsonObject
+        {
+            ["state"] = State.DeepClone(),
+            ["questions"] = Questions.DeepClone(),
+        };
+        if (Assets is not null) value["assets"] = Assets.DeepClone();
+        if (Images is not null) value["images"] = new JsonArray([.. Images.Select(image => (JsonNode)image)]);
+        return value;
+    }
+}
+
+/// <summary>
+/// 服务接收分类图片的方式（<c>SystemOneCompat.imageInput</c>）。对应 TS <c>SystemOneImageInput</c>。
+/// </summary>
+public enum SystemOneImageInput
+{
+    /// <summary>TypeSafe 的 <c>assets</c> 表：图片作为资源、其名字放在状态之前。仅 PNG / JPEG。</summary>
+    Assets,
+
+    /// <summary>Clef 的 <c>images</c> 列表（data URL），模型先读图片再读状态。PNG / JPEG / WebP，最多四张。</summary>
+    Images,
+
+    /// <summary>OpenRouter 的形式：<c>image_url</c> 片段放在状态之前。OpenRouter 会静默丢弃 <c>assets</c>。</summary>
+    StateImageUrls,
+}
+
+/// <summary>字段全部落定的 System One 兼容设置。对应 TS <c>ResolvedSystemOneCompat</c>。</summary>
+public sealed record SystemOneCompat
+{
+    public required SystemOneImageInput ImageInput { get; init; }
+
+    public required bool SendImageOptInHeader { get; init; }
+}
 
 /// <summary>各服务承载 System One 模型的传输差异。对应 TS <c>SystemOneTransport</c>。</summary>
 public sealed record SystemOneTransport
@@ -19,6 +70,9 @@ public sealed record SystemOneTransport
 
     /// <summary>错误信息里的服务名。</summary>
     public required string Label { get; init; }
+
+    /// <summary>模型未在 <c>compat</c> 里指定时使用的兼容设置。</summary>
+    public required Func<ModelSpec, SystemOneCompat> DetectCompat { get; init; }
 
     /// <summary>绝对请求 URL。</summary>
     public required Func<ModelSpec, Uri> Url { get; init; }
@@ -68,7 +122,31 @@ public static class SystemOne
                 throw new InvalidOperationException($"No API key for provider: {model.Provider}");
             }
             var apiKey = options.ApiKey;
-            var payload = transport.Payload(model, WireRequest(context));
+            var request = WireRequest(context);
+            var headers = options.Headers;
+            if (context.Images is { Count: > 0 } images)
+            {
+                if (!model.Input.Contains("image", StringComparer.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"{transport.Label} does not support image input for {model.Id}");
+                }
+                var (imageInput, sendOptIn) = ResolveCompat(model, transport.DetectCompat(model));
+                AddImages(transport.Label, model, imageInput, images, request);
+                if (sendOptIn)
+                {
+                    var merged = new Dictionary<string, string?>(StringComparer.Ordinal)
+                    {
+                        [ImageOptInHeader] = "true",
+                    };
+                    if (options.Headers is not null)
+                    {
+                        foreach (var (key, value) in options.Headers) merged[key] = value;
+                    }
+                    headers = merged;
+                }
+            }
+            var payload = transport.Payload(model, request);
             if (options.OnPayload is { } onPayload)
             {
                 var transformed = await onPayload(payload, model).ConfigureAwait(false);
@@ -87,7 +165,7 @@ public static class SystemOne
                 {
                     Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
                 };
-                foreach (var (key, value) in RequestHeaders(model, apiKey, options.Headers))
+                foreach (var (key, value) in RequestHeaders(model, apiKey, headers))
                 {
                     if (value is not null) request.Headers.TryAddWithoutValidation(key, value);
                 }
@@ -160,7 +238,119 @@ public static class SystemOne
             if (question.Kind == "bool") serialized["type"] = "noul";
             questions[id] = serialized;
         }
-        return new SystemOneWireRequest(context.State, questions);
+        return new SystemOneWireRequest
+        {
+            State = context.State.DeepClone(),
+            Questions = questions,
+        };
+    }
+
+    /// <summary>TypeSafe 的实验性图片输入所需的 opt-in 头。</summary>
+    private const string ImageOptInHeader = "TypeSafe-Danger-Zone-Images";
+
+    private static readonly Dictionary<string, string> AssetFormats = new(StringComparer.Ordinal)
+    {
+        ["image/png"] = "png",
+        ["image/jpeg"] = "jpeg",
+    };
+
+    private static readonly HashSet<string> DataUrlTypes = new(StringComparer.Ordinal)
+    {
+        "image/png", "image/jpeg", "image/webp",
+    };
+
+    /// <summary>Clef 每次请求最多接收的图片数。</summary>
+    private const int MaxDataUrlImages = 4;
+
+    /// <summary>按服务的形态把上下文图片加进 <paramref name="request"/>。对应 TS <c>addImages</c>。</summary>
+    private static void AddImages(
+        string label,
+        ModelSpec model,
+        SystemOneImageInput input,
+        IReadOnlyList<ImageContent> images,
+        SystemOneWireRequest request)
+    {
+        if (input == SystemOneImageInput.Images)
+        {
+            if (images.Count > MaxDataUrlImages)
+            {
+                throw new InvalidOperationException(
+                    $"{label} accepts at most {MaxDataUrlImages} images for {model.Id}, got {images.Count}");
+            }
+            request.Images = [.. images.Select(image =>
+            {
+                var mimeType = image.MimeType ?? string.Empty;
+                if (!DataUrlTypes.Contains(mimeType))
+                {
+                    throw new InvalidOperationException(
+                        $"{label} accepts PNG, JPEG, and WebP images for {model.Id}, got {mimeType}");
+                }
+                return $"data:{mimeType};base64,{image.Data}";
+            })];
+            return;
+        }
+
+        if (input == SystemOneImageInput.StateImageUrls)
+        {
+            // OpenRouter validates the images against the model that serves the request.
+            var parts = new JsonArray();
+            foreach (var image in images)
+            {
+                parts.Add(new JsonObject
+                {
+                    ["type"] = "image_url",
+                    ["image_url"] = new JsonObject
+                    {
+                        ["url"] = $"data:{image.MimeType ?? string.Empty};base64,{image.Data}",
+                    },
+                });
+            }
+            parts.Add(request.State.DeepClone());
+            request.State = parts;
+            return;
+        }
+
+        var assets = new JsonObject();
+        for (var index = 0; index < images.Count; index++)
+        {
+            var image = images[index];
+            if (!AssetFormats.TryGetValue(image.MimeType ?? string.Empty, out var format))
+            {
+                throw new InvalidOperationException(
+                    $"{label} accepts PNG and JPEG images for {model.Id}, got {image.MimeType ?? string.Empty}");
+            }
+            assets[$"<image-{index + 1}>"] = new JsonObject
+            {
+                ["type"] = "image",
+                ["format"] = format,
+                ["data_base64"] = image.Data,
+            };
+        }
+        request.Assets = assets;
+        // Every asset must be referenced from the request. The names go before the state, where Clef
+        // also places its images.
+        var state = new JsonArray();
+        foreach (var (name, _) in assets) state.Add(name);
+        state.Add(request.State.DeepClone());
+        request.State = state;
+    }
+
+    /// <summary>读取 <c>compat.imageInput</c> / <c>compat.sendImageOptInHeader</c>，缺省回落到检测值。</summary>
+    private static (SystemOneImageInput ImageInput, bool SendImageOptInHeader) ResolveCompat(
+        ModelSpec model, SystemOneCompat detected)
+    {
+        var imageInput = model.Compat?["imageInput"]?.GetValue<string>() switch
+        {
+            "images" => SystemOneImageInput.Images,
+            "state-image-urls" => SystemOneImageInput.StateImageUrls,
+            "assets" => SystemOneImageInput.Assets,
+            _ => detected.ImageInput,
+        };
+        var optIn = model.Compat?["sendImageOptInHeader"] is JsonValue value
+            && value.TryGetValue<bool>(out var enabled)
+                ? enabled
+                : detected.SendImageOptInHeader;
+        return (imageInput, optIn);
     }
 
     private static Dictionary<string, string?> RequestHeaders(
