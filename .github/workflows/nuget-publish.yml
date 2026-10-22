@@ -160,27 +160,33 @@ jobs:
             exit 1
           fi
           echo "::notice::已取到 API key（${#NUGET_API_KEY} 字符）"
+          # 必须逐个文件推：dotnet nuget push 在 Windows 上不展开通配符，加引号又会让 bash
+          # 不展开，最后它会把 "artifacts/*.nupkg" 当成字面文件名报 File does not exist。
           set +e
-          # --skip-duplicate 让重复运行变成幂等操作：已存在的版本跳过，不报错。
-          dotnet nuget push "artifacts/*.nupkg" \
-            --api-key "${NUGET_API_KEY}" \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate 2>&1 | tee push.log
-          status="${PIPESTATUS[0]}"
+          : > push.log
+          failed=0
+          for f in artifacts/*.nupkg artifacts/*.snupkg; do
+            [[ -e "${f}" ]] || continue
+            echo "== ${f}" >> push.log
+            # --skip-duplicate 让重复运行变成幂等操作：已存在的版本跳过，不报错。
+            dotnet nuget push "${f}" \
+              --api-key "${NUGET_API_KEY}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate >> push.log 2>&1
+            rc=$?
+            if [[ "${rc}" -ne 0 ]]; then
+              failed=1
+            fi
+          done
           set -e
-          if [[ "${status}" -ne 0 ]]; then
-            # 把真正的失败原因抬到 annotation，否则只能看到一句 exit code 1。
+          if [[ "${failed}" -ne 0 ]]; then
             grep -iE "error|403|401|forbidden|unauthorized|conflict|invalid" push.log | head -6 | sed 's/%/%25/g' | while IFS= read -r line; do
               echo "::error title=push::${line}"
             done
-            exit "${status}"
+            tail -20 push.log
+            exit 1
           fi
-          if compgen -G "artifacts/*.snupkg" > /dev/null; then
-            dotnet nuget push "artifacts/*.snupkg" \
-              --api-key "${NUGET_API_KEY}" \
-              --source https://api.nuget.org/v3/index.json \
-              --skip-duplicate
-          fi
+          echo "推送完成，共 $(grep -c '^== ' push.log) 个文件"
 
       - name: Create GitHub release
         if: github.ref_type == 'tag'
