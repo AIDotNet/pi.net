@@ -38,6 +38,9 @@ public sealed record Settings
 
     public string? Transport { get; init; }
 
+    /// <summary><c>/share</c> destination: <c>auto</c> (default), <c>gist</c> or <c>radius</c>.</summary>
+    public string? SessionShareDestination { get; init; }
+
     public string? SteeringMode { get; init; }
 
     public string? FollowUpMode { get; init; }
@@ -158,6 +161,27 @@ internal static class SettingsJson
 
     /// <summary>Serialize with a two-space indent, matching <c>JSON.stringify(value, null, 2)</c>.</summary>
     public static string Stringify(object? value) => JsonSerializer.Serialize(value, Options);
+}
+
+/// <summary>
+/// The <c>sessionShareDestination</c> values. TS models this as the union
+/// <c>"auto" | "gist" | "radius"</c>; the port carries the setting as a string (see the
+/// <see cref="Settings"/> remarks) and keeps the spellings here for the getter, the settings selector
+/// and the <c>/share</c> flow.
+/// </summary>
+public static class SessionShareDestinations
+{
+    /// <summary>Radius when authenticated, otherwise a GitHub gist.</summary>
+    public const string Auto = "auto";
+
+    /// <summary>Always a secret GitHub gist; Radius is not probed.</summary>
+    public const string Gist = "gist";
+
+    /// <summary>Always Radius; a missing login is an error rather than a gist fallback.</summary>
+    public const string Radius = "radius";
+
+    /// <summary>The values the settings selector cycles through, in the upstream order.</summary>
+    public static readonly IReadOnlyList<string> All = [Auto, Gist, Radius];
 }
 
 /// <summary>

@@ -2079,6 +2079,26 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         }
     }
 
+    [Fact]
+    public async Task ShareWhenForcedToRadiusReportsTheMissingLogin()
+    {
+        // 上游 #10870 的第二条用例：`sessionShareDestination: "radius"` 且没有 Radius 登录时，
+        // 应该报「先去登录」而不是悄悄退回 gist。测试宿主没有 Radius 凭据，所以
+        // tryShareViaRadius 必然返回 false，走到的就是这条分支。
+        var host = await CreateHostAsync();
+        await host.Session.PromptAsync("hello world");
+        host.Session.SettingsManager.SetSessionShareDestination(SessionShareDestinations.Radius);
+        var mode = await CreateModeAsync(host: host);
+
+        await mode.HandleShareCommandAsync();
+
+        var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
+        Assert.Contains(
+            "Radius authentication is not configured. Run '/login radius' first.",
+            rendered,
+            StringComparison.Ordinal);
+    }
+
     // ==================================================================
     // 4f-4m-5c 余量：/bug 全链路（TS modes/interactive/bug-report.ts）
     // ==================================================================

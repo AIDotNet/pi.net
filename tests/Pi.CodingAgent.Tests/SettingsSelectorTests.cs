@@ -8,6 +8,7 @@
 
 using System.Text.Json.Nodes;
 using Pi.Ai.Models;
+using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Modes.Interactive.Components;
 using Pi.Tui;
 using Pi.Tui.Components;
@@ -409,6 +410,23 @@ public sealed class SettingsSelectorTests : SelectorTestFixture
         Assert.Equal([0L], recorder);
         list.HandleInput("\r"); // disabled → 30 sec
         Assert.Equal([0L, 30_000L], recorder);
+    }
+
+    [Fact]
+    public void CyclesThroughShareDestinations()
+    {
+        var changes = new List<string>();
+        var config = new SettingsConfig { SessionShareDestination = SessionShareDestinations.Auto };
+        var callbacks = new SettingsCallbacks { OnSessionShareDestinationChange = changes.Add };
+        var list = new SettingsSelectorComponent(config, callbacks).GetSettingsList();
+
+        list.SelectItem("share-destination");
+        for (var i = 0; i < 3; i++)
+        {
+            list.HandleInput("\r");
+        }
+
+        Assert.Equal(["gist", "radius", "auto"], changes);
     }
 
     [Fact]

@@ -44,6 +44,7 @@ public partial class InteractiveMode
                     SteeringMode = Session.SteeringMode,
                     FollowUpMode = Session.FollowUpMode,
                     Transport = SettingsManager.GetTransport(),
+                    SessionShareDestination = SettingsManager.GetSessionShareDestination(),
                     HttpIdleTimeoutMs = SettingsManager.GetHttpIdleTimeoutMs(),
                     CacheWarmingMode = SettingsManager.GetCacheWarmingMode(),
                     ThinkingLevel = SettingsManager.GetDefaultThinkingLevel()
@@ -118,6 +119,7 @@ public partial class InteractiveMode
                         SettingsManager.SetTransport(transport);
                         Session.Agent.Transport = transport;
                     },
+                    OnSessionShareDestinationChange = destination => SettingsManager.SetSessionShareDestination(destination),
                     OnHttpIdleTimeoutMsChange = timeoutMs =>
                     {
                         SettingsManager.SetHttpIdleTimeoutMs(timeoutMs);

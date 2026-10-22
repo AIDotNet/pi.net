@@ -44,9 +44,22 @@ public partial class InteractiveMode
                 return;
             }
 
-            if (await TryShareViaRadiusAsync(jsonlFile).ConfigureAwait(true))
+            // TS: `const destination = context.session.settingsManager.getSessionShareDestination()`.
+            // "gist" never probes Radius (users who want a persistent gist keep it even when a Radius
+            // login exists); "radius" turns a missing login into an error instead of a gist fallback.
+            var destination = SettingsManager.GetSessionShareDestination();
+            if (destination != SessionShareDestinations.Gist)
             {
-                return;
+                if (await TryShareViaRadiusAsync(jsonlFile).ConfigureAwait(true))
+                {
+                    return;
+                }
+
+                if (destination == SessionShareDestinations.Radius)
+                {
+                    ShowError("Radius authentication is not configured. Run '/login radius' first.");
+                    return;
+                }
             }
 
             try

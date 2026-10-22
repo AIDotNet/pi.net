@@ -535,7 +535,7 @@
     },
     {
       "name": "share",
-      "description": "Share session as a secret GitHub gist",
+      "description": "Share session via a Radius artifact or a GitHub gist",
       "argumentHint": null
     },
     {

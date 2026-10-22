@@ -57,7 +57,7 @@ public static class SlashCommands
         new("scoped-models", "Enable/disable models for Ctrl+P cycling"),
         new("export", "Export session (HTML default, or specify path: .html/.jsonl)"),
         new("import", "Import and resume a session from a JSONL file"),
-        new("share", "Share session as a secret GitHub gist"),
+        new("share", "Share session via a Radius artifact or a GitHub gist"),
         new("bug", "Report a bug to the Pi developers") { ArgumentHint = "<description>" },
         new("copy", "Copy last agent message to clipboard"),
         new("name", "Set session display name"),

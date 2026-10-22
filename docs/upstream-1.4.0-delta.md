@@ -79,7 +79,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 打印模式截断时告警并退出 1 | 1.2.0 #10799 | 脚本把截断当成功 | 本次移植 |
 | `PI_CLIPBOARD_OSC52=1` 强制 OSC 52 | 1.2.0 #10826 | 多路复用器/远程 IDE 复制失效 | 本次移植 |
 | 摘要不再按 `reserveTokens` 折算输出上限 | 1.4.0 #9512 | 思考占满预算时压缩直接失败 | 本次移植 |
-| `sessionShareDestination` 设置 | 1.3.0 #10870 | 新增设置项 + `/share` 分支（14 文件） | 待办 |
+| `sessionShareDestination` 设置 | 1.3.0 #10870 | 新增设置项 + `/share` 分支（14 文件） | 本次移植（第七批） |
 | 恢复会话时恢复活动工具集 | 1.3.0 #10785 | 影响 `--tools` 与 resume 交互 | 待办 |
 | `--model` 的 provider 选择策略统一 | 1.3.0 #10160 | 663 行重写，风险较高 | 待办 |
 | codemode worker 排队与 `PI_CODEMODE_MAX_WORKERS` | 1.4.0 #11184 | 并发脚本从失败改为等待 | 待办 |
@@ -148,6 +148,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 **语料同步说明**（上游行为变更导致的期望更新，非放宽断言）：
 
 - `prompt-corpus.json`：2 条向量按 1.3.0 新语义更新（`"a '' b"` → `["a","","b"]`、`'""'` → `[""]`）。
+- `prompt-corpus.json` 的 `builtinSlashCommands`：`share` 的描述按上游第 27 行改为
+  `Share session via a Radius artifact or a GitHub gist`（第七批）。语料生成器本次无法直跑
+  （上游 1.4.0 的 `child-process.ts` 引入 `cross-spawn`，本地 `node_modules` 没有该包），
+  故按上游源码逐字更新该字段，其余向量未动。
 - `compaction-corpus.json`：5 处 `captured[].options.maxTokens` 移除（摘要不再带输出上限）。
 
 ## 5. 验证结果
@@ -156,7 +160,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 470 / 470 通过 |
-| `Pi.CodingAgent.Tests` | 4971 / 4971 通过 |
+| `Pi.CodingAgent.Tests` | 4980 / 4980 通过 |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过 |
 | `Pi.Mcp.Tests` | 52 / 52 通过 |
@@ -190,7 +194,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：`sessionShareDestination` → resume 活动工具 → codemode worker 排队。
+3. coding-agent：~~`sessionShareDestination`~~（第七批已完成）→ resume 活动工具 → codemode worker 排队。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -257,3 +261,32 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   base URL 跟随、OAuth 凭据、失败与非 JSON body、阶梯价与负价归零）；其中「原样返回」按上游
   `toBe(catalog)` 断言同一实例。
 
+### 6.z 第七批（`sessionShareDestination`）落地明细
+
+上游 `cea257439`（#10870）让 `/share` 的上传目标可配置：默认仍是「有 Radius 登录就用 Radius，
+否则建私有 gist」，但可以强制成 `gist`（想要永久链接的人不希望被 Radius 抢走）或 `radius`
+（要求必须有登录，而不是悄悄退回 gist）。
+
+- `Settings.SessionShareDestination`（`string?`），取值拼写集中在 `SessionShareDestinations`
+  （`Auto`/`Gist`/`Radius` + `All`），因为端口把 TS 的字符串联合一律当 `string` 承载。
+- `SettingsManager.GetSessionShareDestination()`：只认 `gist`/`radius`，其余（包括 `auto`、拼错、
+  新版 pi 写入的值）一律归到默认 `auto` —— 与上游 getter 的 `destination === "gist" || "radius"`
+  判定一致；`SetSessionShareDestination` 写全局段、`MarkModified` 后保存。
+- `InteractiveMode.HandleShareCommandAsync`：`destination != "gist"` 时才探测 Radius；探测失败且
+  `destination == "radius"` 时报 `Radius authentication is not configured. Run '/login radius' first.`
+  并结束，不再落到 gist；`gist` 分支完全跳过 Radius（连凭据都不读）。
+- 设置界面：`SettingsConfig.SessionShareDestination`、`SettingsCallbacks.OnSessionShareDestinationChange`、
+  列表项 `share-destination`（紧跟在 `transport` 之后，循环 `auto → gist → radius`），
+  `InteractiveMode.ShowSettingsSelector` 接上读取与回写。
+- `/share` 的命令描述改为 `Share session via a Radius artifact or a GitHub gist`。
+- 随包文档同步上游三处：`Assets/docs/settings.md` 新增 `sessionShareDestination` 行、
+  `sessions.md` / `usage.md` 的 `/share` 段落改为「默认行为 + 可强制」。
+- 与上游差异：①上游同时新增 `schemas/settings.schema.json` 条目与 TypeBox `SettingsSchema`，
+  端口没有 JSON Schema 产物、设置也刻意不在加载时校验（坏值在 getter 处兜底），故只做 getter；
+  ②上游 `test/session-share.test.ts` 的「`gist` 不探测 Radius」用例靠 mock `child_process.spawn`，
+  端口的子进程层没有测试缝，端到端跑会真的调用 `gh`（在已登录 gh 的机器上会创建真实 gist），
+  因此只端到端覆盖「强制 radius 且无登录时报错」这条确定路径；`gist` 分支的入口条件由
+  `SessionShareDestinationTests`（5 例）与 `SettingsSelectorTests.CyclesThroughShareDestinations` 覆盖。
+- 测试：`SessionShareDestinationTests` 7 例（缺省 → `auto`、`gist`/`radius` 原样、`auto`/拼错/空串
+  归到默认、setter 回读）、`SettingsSelectorTests.CyclesThroughShareDestinations`、
+  `InteractiveModeTests.ShareWhenForcedToRadiusReportsTheMissingLogin`。

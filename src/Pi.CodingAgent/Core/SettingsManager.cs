@@ -936,6 +936,23 @@ public sealed class SettingsManager
         Save();
     }
 
+    /// <summary>
+    /// TS <c>getSessionShareDestination()</c>: only <c>gist</c> and <c>radius</c> are accepted; anything
+    /// else (including <c>auto</c>, a typo or a value written by a newer pi) coerces to the default.
+    /// </summary>
+    public string GetSessionShareDestination()
+    {
+        var destination = AsString(Raw("sessionShareDestination"));
+        return destination is "gist" or "radius" ? destination : SessionShareDestinations.Auto;
+    }
+
+    public void SetSessionShareDestination(string destination)
+    {
+        _globalSettings["sessionShareDestination"] = destination;
+        MarkModified("sessionShareDestination");
+        Save();
+    }
+
     // ---- compaction -------------------------------------------------------
 
     public bool GetCompactionEnabled() => AsBool(AsObject(Raw("compaction"))?["enabled"], true);

@@ -44,6 +44,7 @@ public sealed class SettingsConfig
     public string SteeringMode { get; init; } = "one-at-a-time";
     public string FollowUpMode { get; init; } = "one-at-a-time";
     public string Transport { get; init; } = "auto";
+    public string SessionShareDestination { get; init; } = SessionShareDestinations.Auto;
     public long HttpIdleTimeoutMs { get; init; } = HttpDispatcher.DefaultHttpIdleTimeoutMs;
     public string CacheWarmingMode { get; init; } = "streaming";
     public string ThinkingLevel { get; init; } = "off";
@@ -88,6 +89,7 @@ public sealed class SettingsCallbacks
     public Action<string>? OnSteeringModeChange { get; init; }
     public Action<string>? OnFollowUpModeChange { get; init; }
     public Action<string>? OnTransportChange { get; init; }
+    public Action<string>? OnSessionShareDestinationChange { get; init; }
     public Action<long>? OnHttpIdleTimeoutMsChange { get; init; }
     public Action<string>? OnCacheWarmingModeChange { get; init; }
     public Action<string, string, string>? OnModelThinkingLevelChange { get; init; }
@@ -547,6 +549,15 @@ public sealed class SettingsSelectorComponent : Container
             },
             new()
             {
+                Id = "share-destination",
+                Label = "Session share destination",
+                Description =
+                    "Where to upload sessions with /share (auto prefers Radius when authenticated, otherwise GitHub Gist)",
+                CurrentValue = config.SessionShareDestination,
+                Values = [.. SessionShareDestinations.All],
+            },
+            new()
+            {
                 Id = "http-idle-timeout",
                 Label = "HTTP idle timeout",
                 Description =
@@ -987,6 +998,9 @@ public sealed class SettingsSelectorComponent : Container
                         break;
                     case "transport":
                         callbacks.OnTransportChange?.Invoke(newValue);
+                        break;
+                    case "share-destination":
+                        callbacks.OnSessionShareDestinationChange?.Invoke(newValue);
                         break;
                     case "http-idle-timeout":
                     {
