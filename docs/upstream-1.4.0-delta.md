@@ -57,7 +57,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `resolveTranscriptTools` 由布尔改为 `TranscriptToolSupport` | 1.4.0 | 破坏性 API | 待办 |
 | System One 分类器图像输入、`compat`、llama.cpp 决策模型 | 1.1.0–1.4.0 | codemode + 分类器链路 | 待办 |
 | 模型目录更新（Claude Haiku 5.5、MiniMax-M3.1-Flash、Grok `xhigh` 等） | 1.1.0–1.4.0 | 纯数据 | 待办（随目录同步脚本） |
-| Anthropic `strict:"prefer"` 重试、Mistral 超时范围 | 1.2.0 | provider 兼容细节 | 待办（OpenRouter 负价归零已随第六批完成） |
+| Anthropic `strict:"prefer"` 重试、Mistral 超时范围 | 1.2.0 #10409 / #10609 | provider 兼容细节 | 本次移植（第十三批） |
 | OpenAI Responses `additional_tools` 前缀缓存 | 1.4.0 #10940 | 缓存命中率 | 待办 |
 
 ### 3.2 `packages/agent`
@@ -161,7 +161,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 470 / 470 通过 |
+| `Pi.Ai.Tests` | 480 / 480 通过（第十三批新增 10 例；第十三批前为 470） |
 | `Pi.CodingAgent.Tests` | 4990 / 4990 通过（第十二批新增 1 例；第十一批为 4989） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过（第十二批改了 1 例断言，数量不变） |
@@ -207,7 +207,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）。
+3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -408,3 +408,45 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   文本/工具调用/工具结果还在」），`Pi.Durable.Tests` 的
   `SerializeConversationFormatsTranscriptOmitsThinkingAndTruncatesToolResults`（原断言 `Contains`
   改为 `DoesNotContain`，方法名一并改）。
+### 6.r 第十三批（Anthropic strict 工具降级 + Mistral 超时范围）落地明细
+
+约束采样本体（`Tool.constrainedSampling`、`resolveJsonSchemaStrictSampling`、grammar 工具、
+各 provider 的 strict 分支）端口早已移植，缺的是这两条**兼容性兜底**。
+
+**Anthropic strict 容量拒绝降级重试**（上游 `d4d53612b`，#10409）：Anthropic 会因为 strict 工具集
+超出容量回 400 —— 编译出的语法太大、strict 工具太多、union 类型参数太多。这类拒绝只跟 strict 有关。
+
+- `BuildParams` 拆成 `BuildParamsForRequest(...) → AnthropicBuiltParams(Params, HasPreferredStrictTools)`；
+  `BuildParams` 保留原签名、委托给它（调用方与既有测试不受影响）。
+- `ConvertTools(..., disablePreferredStrictTools)`：该开关为真时，声明为
+  `{type:"json_schema", strict:"prefer"}` 的工具按**原始** schema 发送；`strict:"require"` 仍走 strict。
+- 判定「有没有可降级的工具」用的是**转换结果**：`definitions[i].strict == true` **且** 该工具的声明是
+  `prefer`。这样 `supportsStrictTools` 为假、或 schema 命中 Anthropic 不接受的 keyword 而自行降级的
+  工具，都不会误触发重试。
+- `Stream`：`retryProviderRequest` 外面套一层循环。捕获 `ProviderHttpException` 且
+  `!signal.IsCancellationRequested && !disablePreferredStrictTools && built.HasPreferredStrictTools &&
+  IsStrictToolLimitRejection(error)` 时置开关、追加诊断
+  `anthropic_strict_tools_fallback`（`details.reason = "strict_tool_limits_exceeded"`）、重发一次。
+  **已经开始的流永不重试**（异常只会来自发请求阶段）。
+- `IsStrictToolLimitRejection`：`status == 400` + body 里 `error.type == "invalid_request_error"` +
+  文案命中 `The compiled grammar is too large` / `Too many strict tools (` /
+  `Schemas contains too many parameters with union types (`。非 JSON body 直接判否。
+
+**Mistral 超时范围**（上游 `6b07b4e57`，#10609）：超时只覆盖「等响应头」，长流不能因为固定截止时间
+被砍断，中途卡住交给 HTTP 客户端的空闲超时。
+
+- `RequestMistralStreamAsync`：CTS 改名 `headerTimeoutCts`，`SendAsync` 成功后立刻
+  `CancelAfter(Timeout.Infinite)`，明确撤掉截止时间；错误文案改成
+  `Mistral response headers timed out after {ms}ms`（原 `Request timed out after …`），
+  且取消过滤器补上 `!cancellationToken.IsCancellationRequested`，不让调用方取消被误报成超时。
+- **顺带修掉一个端口真 bug**：原来 `await using var content = await response.Content.ReadAsStreamAsync(…)`
+  在方法返回时就把正文流 Dispose 了 —— 而 `ReadMistralEvents` 是异步迭代器，真正读取发生在之后。
+  于是 Mistral 的**流式路径从来没有成功过**（一片 delta 都读不到），因为没有 Mistral 流式测试所以一直
+  没暴露。现在把 `HttpContent` 交给迭代器，在**枚举开始时**打开、枚举结束 `await using` 释放。
+- 与上游差异：无。上游用 `combineAbortSignals` + 单独的 header 信号；端口用 `CreateLinkedTokenSource`
+  + `CancelAfter(Infinite)`，语义一致。
+- 测试：`AnthropicStrictToolFallbackTests` 9 例（400 后重发一次且 prefer 降级、require 保持 strict、
+  诊断条目、无 prefer 工具时不重试而把 400 原样上抛、6 组 `IsStrictToolLimitRejection` 判定矩阵、
+  非 JSON body 判否）；`MistralStreamTests.AStreamThatOutlivesTheTimeoutKeepsGoing`（`TimeoutMs = 100`，
+  正文两片间隔 400ms，断言 delta 与 `StopReason.Stop` 都到位 —— 这条同时钉住了上面那个 Dispose bug，
+  修之前它一片 delta 都收不到）。

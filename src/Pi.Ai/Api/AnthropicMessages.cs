@@ -162,15 +162,54 @@ public static class AnthropicMessages
         return result.Count > 0 ? result : null;
     }
 
-    /// <summary>构建请求参数。对应 TS <c>buildParams</c>（<c>betas</c> 以数组返回，HTTP 层转成头）。</summary>
+    /// <summary>
+    /// 构建请求参数。对应 TS <c>buildParams</c>（<c>betas</c> 以数组返回，HTTP 层转成头）。
+    /// </summary>
     public static JsonObject BuildParams(
         ModelSpec model,
         TranscriptContext context,
         bool isOAuthToken,
         SimpleStreamOptions? options,
         AnthropicMessagesCompat? compat = null)
+        => BuildParamsForRequest(model, context, isOAuthToken, options, compat).Params;
+
+    /// <summary>请求参数与「是否含 <c>strict: "prefer"</c> 工具」的打包结果。</summary>
+    /// <param name="Params">请求体。</param>
+    /// <param name="HasPreferredStrictTools">
+    /// 本次请求里有没有工具真的以 strict 发送、且它的声明是 <c>strict: "prefer"</c> ——
+    /// 只有这类工具可以在 provider 拒绝后降级重试。
+    /// </param>
+    public sealed record AnthropicBuiltParams(JsonObject Params, bool HasPreferredStrictTools);
+
+    /// <summary>
+    /// 构建请求参数，并报告是否含可降级的 <c>strict: "prefer"</c> 工具。
+    /// <paramref name="disablePreferredStrictTools"/> 为真时，所有 <c>prefer</c> 工具按原始（非 strict）
+    /// schema 发送，<c>require</c> 工具仍保持 strict。对应 TS <c>buildParams(..., disablePreferredStrictTools)</c>。
+    /// </summary>
+    public static AnthropicBuiltParams BuildParamsForRequest(
+        ModelSpec model,
+        TranscriptContext context,
+        bool isOAuthToken,
+        SimpleStreamOptions? options,
+        AnthropicMessagesCompat? compat = null,
+        bool disablePreferredStrictTools = false)
     {
         compat ??= GetCompat(model);
+        var hasPreferredStrictTools = false;
+
+        // 建立工具定义时顺便记下「有没有真的以 strict 发出的 prefer 工具」——只有它们能降级重试。
+        JsonArray ConvertDefinitions(IReadOnlyList<ToolDefinition>? toolsToConvert, JsonObject? cache)
+        {
+            var definitions = ConvertTools(
+                toolsToConvert, isOAuthToken, compat.SupportsEagerToolInputStreaming,
+                compat.SupportsStrictTools, cache, disablePreferredStrictTools);
+            if (toolsToConvert is not null && HasPreferredStrictTool(definitions, toolsToConvert))
+            {
+                hasPreferredStrictTools = true;
+            }
+
+            return definitions;
+        }
         var cacheControl = GetCacheControl(model, options?.CacheRetention, options?.Env, compat);
         var initialSystemMessage = Transcript.GetInitialSystemMessage(context.Messages);
         var initialSystemText = initialSystemMessage is not null
@@ -197,8 +236,7 @@ public static class AnthropicMessages
             compat.AllowEmptySignature,
             compat.SupportsMidConvoEffort ? model.Provider : null,
             nativeToolChanges
-                ? tools => ConvertTools(tools, isOAuthToken, compat.SupportsEagerToolInputStreaming,
-                    compat.SupportsStrictTools, null)
+                ? tools => ConvertDefinitions(tools, null)
                 : null);
 
         var activeEffort = options?.Effort ?? "high";
@@ -265,9 +303,7 @@ public static class AnthropicMessages
         var toolCacheControl = compat.SupportsCacheControlOnTools ? cacheControl : null;
         if (nativeToolChanges)
         {
-            var tools = ConvertTools(
-                initialTools, isOAuthToken, compat.SupportsEagerToolInputStreaming,
-                compat.SupportsStrictTools, toolCacheControl);
+            var tools = ConvertDefinitions(initialTools, toolCacheControl);
             tools.Add(DeferredToolPlaceholder());
             parameters["tools"] = tools;
         }
@@ -276,9 +312,7 @@ public static class AnthropicMessages
             var tools = Transcript.GetCurrentTools(context.Messages);
             if (tools.Count > 0)
             {
-                parameters["tools"] = ConvertTools(
-                    tools, isOAuthToken, compat.SupportsEagerToolInputStreaming,
-                    compat.SupportsStrictTools, toolCacheControl);
+                parameters["tools"] = ConvertDefinitions(tools, toolCacheControl);
             }
         }
 
@@ -355,7 +389,7 @@ public static class AnthropicMessages
                 .ToArray());
         }
 
-        return parameters;
+        return new AnthropicBuiltParams(parameters, hasPreferredStrictTools);
     }
 
     /// <summary>
@@ -800,7 +834,8 @@ public static class AnthropicMessages
         bool isOAuthToken,
         bool supportsEagerToolInputStreaming,
         bool supportsStrictTools,
-        JsonObject? cacheControl)
+        JsonObject? cacheControl,
+        bool disablePreferredStrictTools = false)
     {
         var result = new JsonArray();
         if (tools is null) return result;
@@ -808,8 +843,11 @@ public static class AnthropicMessages
         for (var index = 0; index < tools.Count; index++)
         {
             var tool = tools[index];
-            var strict = ConstrainedSampling.ResolveJsonSchemaStrictSampling(
-                tool, supportsStrictTools, IsAnthropicStrictUnsupportedKeyword);
+            // 降级重试：prefer 工具按原始 schema 发送；require 工具仍走 strict（上游同一语义）。
+            var strict = disablePreferredStrictTools && IsPreferredStrictConfig(tool.ConstrainedSampling)
+                ? (bool?)null
+                : ConstrainedSampling.ResolveJsonSchemaStrictSampling(
+                    tool, supportsStrictTools, IsAnthropicStrictUnsupportedKeyword);
             var parameters = ConstrainedSampling.GetJsonSchemaToolParameters(tool, strict) ?? new JsonObject();
 
             JsonObject inputSchema;
@@ -845,6 +883,67 @@ public static class AnthropicMessages
             result.Add(definition);
         }
         return result;
+    }
+
+    /// <summary>该工具的 constrainedSampling 声明是不是 <c>{type:"json_schema", strict:"prefer"}</c>。</summary>
+    private static bool IsPreferredStrictConfig(JsonObject? config)
+        => config is not null && config.Str("type") == "json_schema" && config.Str("strict") == "prefer";
+
+    /// <summary>Anthropic 明确因「strict 工具集超出容量」而拒绝时的文案片段（上游 #10409）。</summary>
+    private static readonly string[] AnthropicStrictToolLimitRejections =
+    [
+        "The compiled grammar is too large",
+        "Too many strict tools (",
+        "Schemas contains too many parameters with union types (",
+    ];
+
+    /// <summary>
+    /// 这个 400 是不是「strict 工具集超出容量」——只有这种拒绝值得把 prefer 工具降级重发一次。
+    /// Anthropic 的错误体是 <c>{"type":"error","error":{"type":"invalid_request_error","message":"…"}}</c>。
+    /// </summary>
+    internal static bool IsStrictToolLimitRejection(ProviderHttpException error)
+    {
+        if (error.Status != 400) return false;
+
+        var errorType = "";
+        var message = error.Message;
+        try
+        {
+            if (JsonNode.Parse(error.Body) is JsonObject body && body["error"] is JsonObject inner)
+            {
+                errorType = inner.Str("type") ?? "";
+                message = inner.Str("message") ?? message;
+            }
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        if (errorType != "invalid_request_error") return false;
+        return AnthropicStrictToolLimitRejections.Any(entry => message.Contains(entry, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 转换结果里有没有「真的以 strict 发出、且声明为 prefer」的工具。
+    /// 只有这类工具能被 provider 的容量拒绝降级掉，<c>require</c> 不在此列。
+    /// </summary>
+    private static bool HasPreferredStrictTool(JsonArray definitions, IReadOnlyList<ToolDefinition> tools)
+    {
+        var count = Math.Min(definitions.Count, tools.Count);
+        for (var index = 0; index < count; index++)
+        {
+            if (definitions[index] is JsonObject definition
+                && definition["strict"] is JsonValue strictValue
+                && strictValue.TryGetValue<bool>(out var strict)
+                && strict
+                && IsPreferredStrictConfig(tools[index].ConstrainedSampling))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsAnthropicStrictUnsupportedKeyword(string key, JsonNode? value)
@@ -960,14 +1059,6 @@ public static class AnthropicMessages
                 var cacheSessionId = cacheRetention == "none" ? null : options?.SessionId;
                 var currentTools = Transcript.GetCurrentTools(normalizedContext.Messages);
 
-                var payload = BuildParams(model, normalizedContext, isOAuth, options, compat);
-                if (options?.OnPayload is { } onPayload)
-                {
-                    var transformed = await onPayload(payload, model).ConfigureAwait(false);
-                    if (transformed is not null) payload = transformed;
-                    payload["stream"] = true;
-                }
-
                 var headers = BuildDefaultHeaders(
                     model, normalizedContext, options, isOAuth, isCopilot, compat, cacheSessionId);
                 if (!string.IsNullOrEmpty(apiKey))
@@ -985,19 +1076,6 @@ public static class AnthropicMessages
                 {
                     headers["anthropic-version"] = ApiVersion;
                 }
-                if (payload["betas"] is JsonArray betaArray)
-                {
-                    payload.Remove("betas");
-                    var features = betaArray
-                        .OfType<JsonValue>()
-                        .Select(value => value.TryGetValue<string>(out var feature) ? feature : null)
-                        .Where(feature => !string.IsNullOrEmpty(feature))
-                        .ToList();
-                    if (features.Count > 0 && !IsHeaderSuppressed(options?.Headers, "anthropic-beta"))
-                    {
-                        headers["anthropic-beta"] = string.Join(",", features!);
-                    }
-                }
 
                 var baseUrl = (options?.BaseUrl ?? model.BaseUrl).TrimEnd('/');
                 if (federation is not null)
@@ -1011,48 +1089,102 @@ public static class AnthropicMessages
                 }
                 var url = $"{baseUrl}/v1/messages";
 
-                var response = await ProviderRetry.RetryAsync(async () =>
+                // Anthropic 会用 400 拒绝「strict 工具集超出容量」的请求（语法太大、工具太多、
+                // union 参数太多）。这类拒绝只跟 strict 有关，所以先按原样发一次，命中后用
+                // prefer 工具的原始 schema 再发一次；require 工具保持 strict（上游 #10409）。
+                var disablePreferredStrictTools = false;
+                JsonObject payload;
+                HttpResponseMessage response;
+                while (true)
                 {
-                    using var perCallCts = CancellationTokenSource.CreateLinkedTokenSource(signal);
-                    if (options?.TimeoutMs is { } timeout) perCallCts.CancelAfter(timeout);
-                    var request = new HttpRequestMessage(HttpMethod.Post, url)
+                    signal.ThrowIfCancellationRequested();
+                    var built = BuildParamsForRequest(
+                        model, normalizedContext, isOAuth, options, compat, disablePreferredStrictTools);
+                    payload = built.Params;
+                    if (options?.OnPayload is { } onPayload)
                     {
-                        Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
-                    };
-                    foreach (var (key, value) in headers)
-                    {
-                        request.Headers.TryAddWithoutValidation(key, value);
+                        var transformed = await onPayload(payload, model).ConfigureAwait(false);
+                        if (transformed is not null) payload = transformed;
+                        payload["stream"] = true;
                     }
+
+                    if (payload["betas"] is JsonArray betaArray)
+                    {
+                        payload.Remove("betas");
+                        var features = betaArray
+                            .OfType<JsonValue>()
+                            .Select(value => value.TryGetValue<string>(out var feature) ? feature : null)
+                            .Where(feature => !string.IsNullOrEmpty(feature))
+                            .ToList();
+                        if (features.Count > 0 && !IsHeaderSuppressed(options?.Headers, "anthropic-beta"))
+                        {
+                            headers["anthropic-beta"] = string.Join(",", features!);
+                        }
+                    }
+
                     try
                     {
-                        var httpResponse = await client.SendAsync(
-                            request, HttpCompletionOption.ResponseHeadersRead, perCallCts.Token)
-                            .ConfigureAwait(false);
-                        if (!httpResponse.IsSuccessStatusCode)
+                        response = await ProviderRetry.RetryAsync(async () =>
                         {
-                            var body = await httpResponse.Content.ReadAsStringAsync(perCallCts.Token)
-                                .ConfigureAwait(false);
-                            throw new ProviderHttpException(
-                                (int)httpResponse.StatusCode, body,
-                                $"{(int)httpResponse.StatusCode}: {body}",
-                                headers: ResponseHeaders(httpResponse));
-                        }
-                        return httpResponse;
+                            using var perCallCts = CancellationTokenSource.CreateLinkedTokenSource(signal);
+                            if (options?.TimeoutMs is { } timeout) perCallCts.CancelAfter(timeout);
+                            var request = new HttpRequestMessage(HttpMethod.Post, url)
+                            {
+                                Content = new StringContent(
+                                    payload.ToJsonString(), Encoding.UTF8, "application/json"),
+                            };
+                            foreach (var (key, value) in headers)
+                            {
+                                request.Headers.TryAddWithoutValidation(key, value);
+                            }
+                            try
+                            {
+                                var httpResponse = await client.SendAsync(
+                                    request, HttpCompletionOption.ResponseHeadersRead, perCallCts.Token)
+                                    .ConfigureAwait(false);
+                                if (!httpResponse.IsSuccessStatusCode)
+                                {
+                                    var body = await httpResponse.Content.ReadAsStringAsync(perCallCts.Token)
+                                        .ConfigureAwait(false);
+                                    throw new ProviderHttpException(
+                                        (int)httpResponse.StatusCode, body,
+                                        $"{(int)httpResponse.StatusCode}: {body}",
+                                        headers: ResponseHeaders(httpResponse));
+                                }
+                                return httpResponse;
+                            }
+                            catch (OperationCanceledException) when (signal.IsCancellationRequested)
+                            {
+                                throw new OperationCanceledException("Request aborted", signal);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                throw new TimeoutException(
+                                    $"Request timed out after {options?.TimeoutMs}ms");
+                            }
+                        }, new ProviderRetryOptions
+                        {
+                            MaxRetries = options?.MaxRetries,
+                            MaxRetryDelayMs = options?.MaxRetryDelayMs,
+                            Signal = signal,
+                        }).ConfigureAwait(false);
+                        break;
                     }
-                    catch (OperationCanceledException) when (signal.IsCancellationRequested)
+                    catch (ProviderHttpException error) when (
+                        // 只降级「被拒绝的请求」，绝不重试已经开始流的请求。
+                        !signal.IsCancellationRequested
+                        && !disablePreferredStrictTools
+                        && built.HasPreferredStrictTools
+                        && IsStrictToolLimitRejection(error))
                     {
-                        throw new OperationCanceledException("Request aborted", signal);
+                        disablePreferredStrictTools = true;
+                        output.Diagnostics.Add(new AssistantMessageDiagnostic(
+                            "anthropic_strict_tools_fallback",
+                            DateTimeOffset.Now.ToUnixTimeMilliseconds(),
+                            new DiagnosticErrorInfo(null, error.Message, null, null),
+                            new JsonObject { ["reason"] = "strict_tool_limits_exceeded" }));
                     }
-                    catch (OperationCanceledException)
-                    {
-                        throw new TimeoutException($"Request timed out after {options?.TimeoutMs}ms");
-                    }
-                }, new ProviderRetryOptions
-                {
-                    MaxRetries = options?.MaxRetries,
-                    MaxRetryDelayMs = options?.MaxRetryDelayMs,
-                    Signal = signal,
-                }).ConfigureAwait(false);
+                }
 
                 if (options?.OnResponse is { } onResponse)
                 {

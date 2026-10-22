@@ -289,8 +289,11 @@ public static class MistralConversations
         var headers = BuildMistralHeaders(model, apiKey, options);
         var timeoutMs = options?.TimeoutMs ?? DefaultTimeoutMs;
 
-        using var perCallCts = CancellationTokenSource.CreateLinkedTokenSource(signal, cancellationToken);
-        perCallCts.CancelAfter(timeoutMs);
+        // 超时只管「等响应头」这一段。长流（比如长时间思考）不能因为固定截止时间被砍断；
+        // 流中途卡住交给 HTTP 客户端的空闲超时。上游 #10609 的语义。
+        using var headerTimeoutCts =
+            CancellationTokenSource.CreateLinkedTokenSource(signal, cancellationToken);
+        headerTimeoutCts.CancelAfter(timeoutMs);
         var request = new System.Net.Http.HttpRequestMessage(
             System.Net.Http.HttpMethod.Post, url)
         {
@@ -305,13 +308,17 @@ public static class MistralConversations
         try
         {
             response = await client.SendAsync(
-                request, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, perCallCts.Token)
+                request, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, headerTimeoutCts.Token)
                 .ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!signal.IsCancellationRequested)
+        catch (OperationCanceledException)
+            when (!signal.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException($"Request timed out after {timeoutMs}ms");
+            throw new TimeoutException($"Mistral response headers timed out after {timeoutMs}ms");
         }
+
+        // 响应头已到，撤掉截止时间：后续读 body 只用调用方的 token。
+        headerTimeoutCts.CancelAfter(Timeout.Infinite);
 
         if (options?.OnResponse is { } onResponse)
         {
@@ -325,12 +332,12 @@ public static class MistralConversations
 
         if (!response.IsSuccessStatusCode)
         {
-            var body = await response.Content.ReadAsStringAsync(perCallCts.Token).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new MistralHttpError((int)response.StatusCode, body, response.ReasonPhrase ?? "");
         }
 
-        await using var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        return ReadMistralEvents(content, signal, cancellationToken);
+        // 正文流在**枚举时**才打开：请求方法返回时若把流 Dispose 掉，调用方还没开始读就已经断了。
+        return ReadMistralEvents(response.Content, signal, cancellationToken);
     }
 
     private static Dictionary<string, string?> BuildMistralHeaders(
@@ -445,10 +452,11 @@ public static class MistralConversations
     // ============================================================================
 
     private static async IAsyncEnumerable<JsonObject> ReadMistralEvents(
-        System.IO.Stream body,
+        System.Net.Http.HttpContent content,
         CancellationToken signal,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        await using var body = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(body, Encoding.UTF8);
         var buffer = new StringBuilder();
         while (true)
