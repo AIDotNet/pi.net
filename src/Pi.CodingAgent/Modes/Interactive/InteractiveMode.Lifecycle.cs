@@ -115,6 +115,7 @@ public partial class InteractiveMode
         // Start the UI before initializing extensions so session_start handlers can use interactive dialogs
         _ui.Start();
         _isInitialized = true;
+        _programStatus.Report();
         EnsurePngTranscoder();
 
         _themeController.ApplyFromSettings();

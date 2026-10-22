@@ -109,6 +109,9 @@ public partial class InteractiveMode
     private readonly Container _footerContainer;
     private readonly FooterDataProvider _footerDataProvider;
 
+    /// <summary>Reports working, blocked, done, and error states to terminals that support OSC 7501.</summary>
+    private readonly ProgramStatusReporter _programStatus;
+
     // Stored so the same manager can be injected into custom editors, selectors, and extension UI.
     private readonly Core.KeybindingsManager _keybindings;
     private readonly string _version;
@@ -321,6 +324,7 @@ public partial class InteractiveMode
         });
         _ui = TuiRenderer.CreateInteractiveTuiReference(() => _renderer);
         _ui.SetClearOnShrink(SettingsManager.GetClearOnShrink());
+        _programStatus = new ProgramStatusReporter(() => _ui.Terminal, () => SessionManager.GetSessionName());
         _headerContainer = new Container();
         _loadedResourcesContainer = new Container();
         _chatContainer = new Container();
@@ -636,6 +640,7 @@ public partial class InteractiveMode
 
         _unsubscribe?.Dispose();
         _unsubscribe = null;
+        _programStatus.Reset();
         ApplyRuntimeSettings();
 
         if (renderBeforeBind)
@@ -1017,13 +1022,13 @@ public partial class InteractiveMode
 
     // ---------------------------------------------------------------- extension dialogs (L2681-2854)
 
-    internal Task<string?> ShowExtensionSelectorAsync(string title, IReadOnlyList<string> options, ExtensionUIDialogOptions? opts = null)
+    internal async Task<string?> ShowExtensionSelectorAsync(string title, IReadOnlyList<string> options, ExtensionUIDialogOptions? opts = null)
     {
         var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (opts?.Signal is { IsCancellationRequested: true })
         {
             completion.TrySetResult(null);
-            return completion.Task;
+            return await completion.Task.ConfigureAwait(true);
         }
 
         CancellationTokenRegistration abortRegistration = default;
@@ -1063,8 +1068,24 @@ public partial class InteractiveMode
         _editorContainer.AddChild(_extensionSelector);
         _ui.SetFocus(_extensionSelector);
         _ui.RequestRender();
-        return completion.Task;
+
+        // The visible dialog blocks the program: terminals that support OSC 7501 show that state.
+        var blockedKey = NextExtensionDialogKey();
+        _programStatus.SetBlocked(blockedKey, new BlockedStatus(ProgramStatusKind.Question, title));
+        try
+        {
+            return await completion.Task.ConfigureAwait(true);
+        }
+        finally
+        {
+            _programStatus.SetBlocked(blockedKey, null);
+        }
     }
+
+    private int _extensionDialogSequence;
+
+    private string NextExtensionDialogKey() =>
+        $"extension-dialog:{Interlocked.Increment(ref _extensionDialogSequence)}";
 
     /// <summary>Hide the extension selector.</summary>
     internal void HideExtensionSelector()
@@ -1087,13 +1108,13 @@ public partial class InteractiveMode
         return InteractiveModeExtensions.IsConfirmed(result);
     }
 
-    internal Task<string?> ShowExtensionInputAsync(string title, string? placeholder = null, ExtensionUIDialogOptions? opts = null)
+    internal async Task<string?> ShowExtensionInputAsync(string title, string? placeholder = null, ExtensionUIDialogOptions? opts = null)
     {
         var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (opts?.Signal is { IsCancellationRequested: true })
         {
             completion.TrySetResult(null);
-            return completion.Task;
+            return await completion.Task.ConfigureAwait(true);
         }
 
         CancellationTokenRegistration abortRegistration = default;
@@ -1132,7 +1153,17 @@ public partial class InteractiveMode
         _editorContainer.AddChild(_extensionInput);
         _ui.SetFocus(_extensionInput);
         _ui.RequestRender();
-        return completion.Task;
+
+        var blockedKey = NextExtensionDialogKey();
+        _programStatus.SetBlocked(blockedKey, new BlockedStatus(ProgramStatusKind.Question, title));
+        try
+        {
+            return await completion.Task.ConfigureAwait(true);
+        }
+        finally
+        {
+            _programStatus.SetBlocked(blockedKey, null);
+        }
     }
 
     /// <summary>Hide the extension input.</summary>
@@ -1147,7 +1178,7 @@ public partial class InteractiveMode
     }
 
     /// <summary>Show a multi-line editor for extensions (with Ctrl+G support).</summary>
-    internal Task<string?> ShowExtensionEditorAsync(string title, string? prefill = null)
+    internal async Task<string?> ShowExtensionEditorAsync(string title, string? prefill = null)
     {
         var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         _extensionEditor = new ExtensionEditorComponent(
@@ -1173,7 +1204,17 @@ public partial class InteractiveMode
         _editorContainer.AddChild(_extensionEditor);
         _ui.SetFocus(_extensionEditor);
         _ui.RequestRender();
-        return completion.Task;
+
+        var blockedKey = NextExtensionDialogKey();
+        _programStatus.SetBlocked(blockedKey, new BlockedStatus(ProgramStatusKind.Question, title));
+        try
+        {
+            return await completion.Task.ConfigureAwait(true);
+        }
+        finally
+        {
+            _programStatus.SetBlocked(blockedKey, null);
+        }
     }
 
     /// <summary>Hide the extension editor.</summary>

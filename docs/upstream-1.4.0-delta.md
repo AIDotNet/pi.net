@@ -88,7 +88,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `serializeConversation` 省略 thinking | 1.2.0 #15e7bdc14 | 摘要请求体积 | 本次移植（第十二批） |
 | 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 本次移植（第十批） |
 | `agent_settled` 增加 `aborted` | 1.1.0 #10607 | 事件字段 | 本次移植（第十一批） |
-| 程序状态上报（OSC 7501） | 1.1.0 #10607 | 终端集成 | 待办 |
+| 程序状态上报（OSC 7501） | 1.1.0 #10607 | 终端集成 | 本次移植（第二十五批，见 §6.f） |
 | Windows shell 探测补充（Store 别名、非 `C:\Windows`） | 1.1.0–1.4.0 #9501/#9504 | 端口已有同类逻辑，需逐条比对 | 本次移植（第十四批，Store 别名部分不适用） |
 | 移除 `@earendil-works/chord` 依赖、移除实验性 server/client/plugin 栈 | 1.2.0 | 上游删除，端口保留自有实现 | 不适用 |
 
@@ -171,15 +171,16 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 500 / 500 通过（第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5020 / 5020 通过（第二十二批新增 1 例「provider 级 `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
+| `Pi.CodingAgent.Tests` | 5029 / 5029 通过（第二十五批新增 9 例状态上报器；第二十二批新增 1 例
+  「provider 级 `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 459 / 459 通过（第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
-| `Pi.Tui.Tests` | 23882 / 23882 通过（第二十三批新增 3 例 CJK 强调：1 例 40 向量的内联 token 语料、
-  2 例上游渲染断言；第二十四批新增 1 例 Rex/Herdr 探测） |
+| `Pi.Tui.Tests` | 23895 / 23895 通过（第二十三批 +3 CJK 强调、第二十四批 +1 Rex/Herdr、
+  第二十五批 +13 程序状态协议） |
 
 说明：两例时序敏感的偶发已确认与改动无交集，隔离运行均通过——
 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）与
@@ -232,8 +233,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
 4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`--model` provider 选择策略统一~~（第二十一批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 5. ~~ai：System One 分类器图像输入~~（第二十二批）→ ~~tui：CJK 强调（先补语料生成脚本）~~（第二十三批）
-   → ~~tui：Rex / Herdr 终端探测~~（第二十四批）→ tui：OSC 7501 程序状态、`showHardwareCursor`
-   假光标、其余 TUI 细节。
+   → ~~tui：Rex / Herdr 终端探测~~（第二十四批）→ ~~tui + coding-agent：OSC 7501 程序状态~~（第二十五批）
+   → tui：`showHardwareCursor` 假光标、其余 TUI 细节。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1057,3 +1058,57 @@ Rex 与 Herdr 都是**套在别的终端里跑**的（Rex 是自己的终端应�
 Rex 带 `KITTY_WINDOW_ID=1` 仍判 Rex（hyperlinks/kitty/truecolor 全开）、`COLORTERM=256` 不影响
 truecolor、`PI_HYPERLINKS=0` 能关掉超链接；Herdr 带 `KITTY_WINDOW_ID=1` 拿到 kitty 图像但
 truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真。
+
+### 6.f 第二十五批（OSC 7501 程序状态上报）落地明细
+
+上游 1.1.0 / #10607 的一半：让程序把「空闲 / 忙碌 / 等用户 / 完成 / 失败」告诉终端。
+协议本体是 `packages/tui/src/program-status.ts`（53 行），其余是接入：`terminal.ts` 的探测与
+重发、`stdin-buffer.ts` 的回复头、`coding-agent` 的 `program-status-reporter.ts` 与交互模式接线。
+
+**协议**（`src/Pi.Tui/ProgramStatus.cs`）
+
+- 线上格式 `ESC ] 7501 ; key=value:key=value ESC \`，键序 `state` → `app` → `kind` → `msg`。
+- `kind` 只在 `state=blocked` 时输出；`app` 必须匹配 `[A-Za-z0-9_.+-]{1,32}`，不匹配就整段省略
+  （不是转义，是丢弃）。
+- `msg` 是 base64 的 UTF-8，解码后最多 2048 字节，按**码点**截断（对应 TS 的 `for…of`）；
+  控制字符 `[\u0000-\u001f\u007f-\u009f]+` 每段替换成一个空格再 `trim()`——终端会丢弃带控制字符的
+  报告，所以是替换而不是转义。
+- `IsReply` 匹配 `ESC ] 7501 ; ?` 开头、BEL 或 ST 收尾的回复；`?` 之后可以再带键值对（后续修订）。
+
+**终端**（`Terminal.cs`）
+
+- `ITerminal.SetProgramStatus` 带默认空实现：测试里的假终端不需要跟着改；`StringTerminal` 覆写成
+  「记录 + 写出」，供状态上报器的用例断言。
+- `ProcessTerminal.Start()` 发查询并把 `PI_PROGRAM_STATUS` 落到 `1`（声明支持、不查询）/ `0`
+  （完全不碰）/ 未设（查询）三态；`SetProgramStatus` 只在确认支持后写，`Stop()` 先发 `clear`
+  再复位，`Start()` 重发最后一条。
+- **偏差（回复装配）**：上游在 `stdin-buffer` 里把终端回复当整条序列投递，端口这个 reader 是
+  `Console.ReadKey` 逐键的，回复会拆成 `ESC` + `]` + 其余。因此 `TryConsumeProgramStatusReply`
+  在「查询未落地」期间对 ESC 做一次 30ms/64 字符的装配：命中回复就吞掉并翻支持标志；命中 DA1
+  （`ESC [ ?`）就把待定标志收掉；其余情况把装配结果**原样**交给输入处理器，不丢键。窗口只在启动后
+  那一次查询期间打开，稳态下不参与输入。
+- `stdin-buffer.ts` 的 `TERMINAL_REPLY_HEADER_PATTERN`（把 `7501;?` 加进回复头）没有跟：端口的
+  `StdinBuffer` 尚未接进 `ProcessTerminal`，这一项要等那条路径落地时一起改。
+
+**交互模式**（`Modes/Interactive/ProgramStatusReporter.cs`）
+
+- 状态推导与上游同构：`blocked`（最近打开的对话框）> `compacting`（固定文案 `Compacting context`）
+  > `working`/`resting`；`working` 与 `done` 带会话名，`error` 带错误首行，`idle` 什么都不带；
+  `app` 一律取 `Config.AppName`。
+- 事件映射：`agent_start` 清结果、`message_end` 只看助手消息（`stopReason=error` → error，否则 done，
+  后一条覆盖前一条所以重试成功会顶掉错误）、`compaction_start/end`（运行中的失败/中止改写本轮结果，
+  运行外的 `manual` 压缩落到 done/error）、`agent_settled`（中止回到 idle，否则用本轮结果）、
+  `session_info_changed` 只触发一次重报。
+- 去重按「线上可见字段」做键（等价于上游的 `JSON.stringify` 比较）；`SetBlocked(source, …)` 后写
+  覆盖先写，与上游那个有序 `Map` 一致。
+- 接线：启动后 `Report()`、事件分发最前面 `HandleEvent(event)`、`RebindCurrentSessionAsync` 里
+  `Reset()`、三个扩展对话框（选择/输入/编辑器）用一次性 key 包住 `setBlocked`、登录流程按
+  `{kind:"auth", message:"Log in to <provider>"}` 标阻塞（`LoginProviderAsync` 因此多收一个
+  `providerName`）。自定义组件的对话框不上报——上游那一处 `pushExtensionDialog(c)` 也没传 blocked。
+
+**测试**
+
+`ProgramStatusTests`（13 例）：格式（键序、`app` 白名单、`kind` 只在 blocked）、控制字符替换与 trim、
+2048 字节按码点截断（4 字节与 3 字节两种边界）、`IsReply` 的 8 条正反例、三个枚举的线上拼写。
+`ProgramStatusReporterTests`（9 例）：启动 idle、运行 working + 会话名 → settled done、错误首行与重试
+覆盖、中止回 idle、压缩文案与运行内/外分支、阻塞优先级与替换/清理、去重与 reset、无关事件不重报。

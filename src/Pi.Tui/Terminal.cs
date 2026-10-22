@@ -42,6 +42,15 @@ public interface ITerminal
 
     /// <summary>Indeterminate progress indicator (OSC 9;4).</summary>
     void SetProgress(bool active);
+
+    /// <summary>
+    /// Report what the program is doing (OSC 7501). Sent only to terminals that support it; the latest
+    /// status is re-sent when support is confirmed or the terminal restarts.
+    /// </summary>
+    void SetProgramStatus(ProgramStatus status)
+    {
+        // Terminals that cannot report status ignore it; fakes need not implement this.
+    }
 }
 
 /// <summary>
@@ -66,6 +75,15 @@ public sealed class ProcessTerminal : ITerminal
     private Timer? _progressTimer;
     private bool _started;
     private bool _rawModeSet;
+
+    /// <summary>Latest program status, kept across <see cref="Stop"/> so <see cref="Start"/> can report it again.</summary>
+    private ProgramStatus? _programStatus;
+
+    /// <summary>Whether the terminal confirmed OSC 7501 support since the last start, or <c>PI_PROGRAM_STATUS=1</c>.</summary>
+    private bool _programStatusSupported;
+
+    /// <summary>The support query was sent and neither a reply nor the DA1 sentinel has arrived yet.</summary>
+    private bool _programStatusQueryPending;
 
     public bool KittyProtocolActive => Keys.IsKittyProtocolActive();
 
@@ -101,6 +119,18 @@ public sealed class ProcessTerminal : ITerminal
         // Bracketed paste mode.
         Write("\x1b[?2004h");
 
+        // OSC 7501 support: a supporting terminal echoes the query before anything else arrives.
+        // PI_PROGRAM_STATUS=1 claims support without asking, =0 leaves the protocol alone.
+        var programStatusOverride = Environment.GetEnvironmentVariable("PI_PROGRAM_STATUS");
+        _programStatusSupported = programStatusOverride == "1";
+        _programStatusQueryPending = programStatusOverride is not ("1" or "0");
+        if (_programStatusQueryPending)
+        {
+            Write(ProgramStatusProtocol.Query);
+        }
+
+        WriteProgramStatus();
+
         _readCts = new CancellationTokenSource();
         _readTask = Task.Run(() => ReadLoop(_readCts.Token));
     }
@@ -133,12 +163,90 @@ public sealed class ProcessTerminal : ITerminal
                 break;
             }
 
+            if (TryConsumeProgramStatusReply(keyInfo))
+            {
+                continue;
+            }
+
             var sequence = MapKey(keyInfo);
             if (sequence is not null)
             {
                 _inputHandler?.Invoke(sequence);
             }
         }
+    }
+
+    /// <summary>
+    /// Consumes the reply to <see cref="ProgramStatusProtocol.Query"/>.
+    /// </summary>
+    /// <remarks>
+    /// The console reader hands escape sequences over key by key, so a reply arrives as
+    /// <c>ESC</c> followed by <c>]</c> and the rest. While the query is still pending, an ESC is
+    /// reassembled with the bytes behind it (bounded by a short window and by the BEL/ST terminator);
+    /// the reassembled string is forwarded unchanged when it turns out not to be a reply, so no input is
+    /// lost. A DA1 reply means the terminal answered something else and will not answer the query.
+    /// </remarks>
+    private bool TryConsumeProgramStatusReply(ConsoleKeyInfo key)
+    {
+        if (!_programStatusQueryPending || key.Key != ConsoleKey.Escape || key.KeyChar != '\x1b')
+        {
+            return false;
+        }
+
+        var buffer = new StringBuilder("\x1b");
+        var deadline = Environment.TickCount64 + 30;
+        while (buffer.Length < 64 && Environment.TickCount64 < deadline)
+        {
+            bool available;
+            try
+            {
+                available = Console.KeyAvailable;
+            }
+            catch (InvalidOperationException)
+            {
+                break;
+            }
+
+            if (!available)
+            {
+                break;
+            }
+
+            var next = Console.ReadKey(intercept: true);
+            buffer.Append(next.KeyChar);
+            if (next.KeyChar == '\x07')
+            {
+                break; // BEL terminates an OSC reply
+            }
+
+            if (buffer.Length >= 2 && next.KeyChar == '\\' && buffer[^2] == '\x1b')
+            {
+                break; // ST terminates an OSC reply
+            }
+
+            if (buffer.Length == 2 && next.KeyChar != ']')
+            {
+                break; // not an OSC reply
+            }
+        }
+
+        var sequence = buffer.ToString();
+        if (ProgramStatusProtocol.IsReply(sequence))
+        {
+            _programStatusQueryPending = false;
+            _programStatusSupported = true;
+            WriteProgramStatus();
+            return true;
+        }
+
+        if (sequence.StartsWith("\x1b[?", StringComparison.Ordinal))
+        {
+            // DA1: the terminal does not implement OSC 7501 (or answers it later than DA1).
+            _programStatusQueryPending = false;
+        }
+
+        _inputHandler?.Invoke(sequence);
+        return true;
     }
 
     /// <summary>Map a <see cref="ConsoleKeyInfo"/> to the terminal escape sequence the framework expects.</summary>
@@ -214,6 +322,15 @@ public sealed class ProcessTerminal : ITerminal
 
         Write("\x1b[?2004l");
 
+        // Remove the status while stopped, for example after exit or while suspended. Start() reports it again.
+        if (_programStatusSupported && _programStatus is not null)
+        {
+            Write(ProgramStatusProtocol.Format(new ProgramStatus(ProgramStatusState.Clear)));
+        }
+
+        _programStatusSupported = false;
+        _programStatusQueryPending = false;
+
         try
         {
             _readCts?.Cancel();
@@ -284,6 +401,23 @@ public sealed class ProcessTerminal : ITerminal
             _progressTimer?.Dispose();
             _progressTimer = null;
             Write(ProgressClear);
+        }
+    }
+
+    public void SetProgramStatus(ProgramStatus status)
+    {
+        _programStatus = status.State == ProgramStatusState.Clear ? null : status;
+        if (_programStatusSupported)
+        {
+            Write(ProgramStatusProtocol.Format(status));
+        }
+    }
+
+    private void WriteProgramStatus()
+    {
+        if (_programStatusSupported && _programStatus is not null)
+        {
+            Write(ProgramStatusProtocol.Format(_programStatus));
         }
     }
 
@@ -439,6 +573,16 @@ public sealed class StringTerminal : ITerminal
     public void SetTitle(string title) => Write($"\x1b]0;{title}\x07");
 
     public void SetProgress(bool active) => Write(active ? "\x1b]9;4;3\x07" : "\x1b]9;4;0\x07");
+
+    /// <summary>Every status reported through <see cref="SetProgramStatus"/>, in order.</summary>
+    public List<ProgramStatus> ProgramStatuses { get; } = [];
+
+    /// <summary>Records the status and writes it, i.e. behaves like a terminal that supports OSC 7501.</summary>
+    public void SetProgramStatus(ProgramStatus status)
+    {
+        ProgramStatuses.Add(status);
+        Write(ProgramStatusProtocol.Format(status));
+    }
 }
 
 /// <summary>Session-level terminal helpers (port of <c>terminal.ts</c> free functions).</summary>

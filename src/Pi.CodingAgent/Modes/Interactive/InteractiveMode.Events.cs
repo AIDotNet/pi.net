@@ -1040,6 +1040,7 @@ public partial class InteractiveMode
         }
 
         _footer.Invalidate();
+        _programStatus.HandleEvent(@event);
 
         switch (@event)
         {

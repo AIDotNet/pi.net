@@ -579,7 +579,7 @@ public partial class InteractiveMode
 
         try
         {
-            await LoginProviderAsync(dialog, providerId, CredentialKind.ApiKey).ConfigureAwait(true);
+            await LoginProviderAsync(dialog, providerId, providerName, CredentialKind.ApiKey).ConfigureAwait(true);
             RestoreEditor();
             await CompleteProviderAuthenticationAsync(
                 providerId, providerName, CredentialKind.ApiKey, previousModel).ConfigureAwait(true);
@@ -709,14 +709,23 @@ public partial class InteractiveMode
     }
 
     /// <summary>TS <c>loginProvider</c> (L6294-6309).</summary>
-    private async Task LoginProviderAsync(LoginDialogComponent dialog, string providerId, CredentialKind method)
+    private async Task LoginProviderAsync(LoginDialogComponent dialog, string providerId, string providerName, CredentialKind method)
     {
-        var interaction = new DialogAuthInteraction(dialog, this, providerId);
-        await Session.ModelRuntime.LoginAsync(
-            providerId,
-            method,
-            new ProviderAuthInteraction(interaction, dialog.Signal),
-            new LoginOptions { GetDeviceId = () => SettingsManager.GetOrCreateDeviceId() }).ConfigureAwait(true);
+        // The login flow waits on the user, so the terminal shows `blocked` for its duration.
+        _programStatus.SetBlocked("login", new BlockedStatus(ProgramStatusKind.Auth, $"Log in to {providerName}"));
+        try
+        {
+            var interaction = new DialogAuthInteraction(dialog, this, providerId);
+            await Session.ModelRuntime.LoginAsync(
+                providerId,
+                method,
+                new ProviderAuthInteraction(interaction, dialog.Signal),
+                new LoginOptions { GetDeviceId = () => SettingsManager.GetOrCreateDeviceId() }).ConfigureAwait(true);
+        }
+        finally
+        {
+            _programStatus.SetBlocked("login", null);
+        }
     }
 
     /// <summary>
@@ -752,7 +761,7 @@ public partial class InteractiveMode
 
         try
         {
-            await LoginProviderAsync(dialog, providerId, CredentialKind.OAuth).ConfigureAwait(true);
+            await LoginProviderAsync(dialog, providerId, providerName, CredentialKind.OAuth).ConfigureAwait(true);
             RestoreEditor();
             await CompleteProviderAuthenticationAsync(
                 providerId, providerName, CredentialKind.OAuth, previousModel).ConfigureAwait(true);
