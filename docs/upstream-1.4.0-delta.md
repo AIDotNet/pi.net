@@ -177,9 +177,20 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 ## 6. 未移植项与判断依据
 
 1. **CJK 标点相邻的强调渲染（#10730）**：上游通过第三方包 `marked-cjk-friendly@0.1.2` 替换 marked 的
-   `emStrong` 分词器（含 CJK 区间表与 flanking 判定）。端口有自研 `MarkedTokenizer.EmStrong` 与
-   4,990 条语料基线；直接改会与旧语料冲突，须先从 TS 侧重新生成 `markdown-corpus.json` 才能保证等价。
-   属于"需要配套语料基建"的改动，不宜与本次小修混做。
+   `emStrong` 与 `del` 两个分词器。已把该包（204 行的 `dist/index.js`，无构建期依赖）取下来读过，移植要点：
+   - 一张 CJK 区间表（含 `\u{20000}-\u{3fffd}` 这类增补平面区间）；CJK 在这里被**当成标点**参与
+     flanking，而不是按 CommonMark 的「非标点非空白」。据此生成四张带 6 个捕获组的右定界符正则
+     （`emStrongRDelimAstCjk` / `...AstCjkGfm` / `...UndCjk` / `delRDelimCjk`），GFM 变体额外排除 `~`。
+   - 判定入口：`!nextChar || !prevChar || punctuation.test(prevChar) || prevIsCjk || cjkTest(nextChar)`
+     —— 比 marked 原版多出 `prevIsCjk` 与 `cjkTest(nextChar)` 两项。
+   - `isPrevCharCjk` 要处理 marked 只传一个 UTF-16 code unit 的老行为：`prevChar` 可能落在代理对或
+     变体选择符（65024–65038）上，需回退到 `maskedSrc` 里取真正的码点。
+   - 命中右定界符后还多一层 `isCjkAdjacentToDelimiter`：定界符紧邻 CJK（前或后）时按 "both" 处理，
+     以便跨 CJK 标点收尾。
+   最后一段仍是障碍：端口有自研 `MarkedTokenizer.EmStrong` 与约 4,990 条 `markdown-corpus.json` 基线，
+   而仓库里**没有**这份语料的生成器（`tools/` 下只有 prompt / compaction / codemode / toolrenderers
+   等）。要照上游等价移植，需先补一个 `gen-tui-markdown-corpus.mjs`（驱动 `packages/tui` 的 marked
+   管线，依赖 `marked` 与 `marked-cjk-friendly`），再改 C# 分词器；否则只能手工推导向量，风险过高。
 2. **telemetry span**：`observeModelRequest` 观察器在 ai 层没有对应端口（`LazyStream` 也没有 observer
    参数），要接就得先重建整条流式观察链，收益与改动量不成比例，暂不移植。per-key OpenRouter 目录
    已在第六批完成，客户端身份已在第五批完成。
