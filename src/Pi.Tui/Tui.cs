@@ -314,6 +314,37 @@ public abstract partial class TuiBase : Container, ITui
 
     protected bool HasOverlayEntries => _overlayStack.Count > 0;
 
+    /// <summary>Mode resets written before the terminal's own resets when the process exits without stop.</summary>
+    protected virtual string GetExitRestorePrefix() =>
+        (_terminalColorSchemeNotificationsEnabled ? "\x1b[?2031l" : "") + "\x1b[?25h";
+
+    /// <summary>Mode resets written after the terminal's own resets when the process exits without stop.</summary>
+    protected virtual string GetExitRestoreSuffix() => "";
+
+    /// <summary>
+    /// Last-resort restore for exit paths that skip <see cref="Stop"/>, e.g. a direct
+    /// <c>Environment.Exit</c> (#11170). Hard kills and native aborts run no managed code and cannot be
+    /// covered. Registered on <see cref="Start"/> and unregistered on <see cref="Stop"/>; tests call it
+    /// directly instead of exiting the process.
+    /// </summary>
+    internal void HandleProcessExit()
+    {
+        if (_stopped)
+        {
+            return;
+        }
+        try
+        {
+            Terminal.RestoreOnExit(GetExitRestorePrefix(), GetExitRestoreSuffix());
+        }
+        catch
+        {
+            // Never throw from an exit handler.
+        }
+    }
+
+    private void OnProcessExit(object? sender, EventArgs e) => HandleProcessExit();
+
     private static long NowMs() => Clock.ElapsedMilliseconds;
 
     // ------------------------------------------------------------------
@@ -775,6 +806,8 @@ public abstract partial class TuiBase : Container, ITui
     public void Start()
     {
         _stopped = false;
+        AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
         BeforeTerminalStart();
         Terminal.Start(HandleTerminalInput, () => RequestRender());
         AfterTerminalStart();
@@ -792,6 +825,7 @@ public abstract partial class TuiBase : Container, ITui
         lock (_renderLock)
         {
             _stopped = true;
+            AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
             CancelRenderTimerLocked();
             // TS 的单线程事件循环保证 stop() 之后不会再跑渲染回调；.NET 的 Timer 回调可能已在
             // 另一个线程上越过 _stopped 检查，故等待进行中的渲染结束，避免 Stop 返回后仍访问终端/主题。

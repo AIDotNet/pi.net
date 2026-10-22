@@ -37,7 +37,7 @@
 | `oklab.ts` | 233 | `Oklab.cs` | Oklab / OKHSL ↔ sRGB（Björn Ottosson 参考实现的移植） |
 | `wheel-scroll.ts` | 82 | `WheelScroll.cs` | 滚轮事件 → 行数，含速度加速 |
 | `keybindings.ts` | 320 | `Keybindings.cs` | 键位注册表、用户覆盖、冲突检测、全局单例 |
-| `stdin-buffer.ts` | 444 | `StdinBuffer.cs` | 跨块转义序列缓冲、括号粘贴、序列超时冲刷 |
+| `stdin-buffer.ts` | 444 | `StdinBuffer.cs` | 跨块转义序列缓冲、括号粘贴、序列超时冲刷、终端回复串（OSC/APC/DCS）不按超时切碎 |
 | `native-platform.ts` + `native-modifiers.ts` + `native-module-path.ts` | 109 | `NativePlatform.cs` | 三文件合一（见差异 T1） |
 | `components/text.ts` | 113 | `Components/Text.cs` | 文本组件 |
 | `components/spacer.ts` | 28 | `Components/Spacer.cs` | 空白行 |
@@ -130,6 +130,7 @@
 | T31 | **终端配色查询的「迟到回复只回调一次」** | `queryTerminalColors` 在开始时给查询装 `onResult`，超时时把它换成 `options.onLateReply`，`complete()` 再置空——所以迟到的答复**不是每条各触发一次**，而是在查询最终完成（DA1 或 18 条回复齐）时回调一次。测试首版按「每条一次」写，断言 `Assert.Single()` 失败；已按 TS 语义修正，并补两条用例区分「单条迟到回复不触发」与「迟到补齐调色板后触发一次」。另：DA1 对**最老的查询**收尾（`Available` 队列 FIFO），重复 target 由 `Replied` 去重，`palette.Index >= 16` 计数但不存储。 |
 | T32 | **CJK 强调的星平面码点只能进谓词，进不了分隔符正则** | `marked-cjk-friendly` 用来判「旁边的字算不算 CJK」的字符类含 `\u{16FE0}`–`\u{3FFFD}`（emoji、CJK 扩展 B 及以后）。.NET 字符类按 UTF-16 码元工作，写不出星平面区间，所以 `MarkedCjk` 的做法是：区间表（34 BMP + 30 星平面）作为唯一真源，**BMP 部分**拼成 `[^\s\p{P}\p{S}…]` 之类的类供两条右分隔符正则使用，而逐码点判定的两个函数（`IsPrevCharCjk` 恢复变体选择符/低位代理前面的真实码点、`IsCjkAdjacentToDelimiter` 取匹配前后的首码点）走 `Rune`，覆盖全表。偏差仅在「星平面 CJK 紧贴分隔符」时：正则把它当普通字符（等于改动前的行为），谓词判定仍正确。区间表按包内 `src/index.ts` 的 CJK 常量逐段抄录，`tools/gen-tui-cjk-corpus.mjs` 的星平面用例（`𠀀` 在强调内外两侧）钉住了谓词那一半。 |
 | T33 | **假光标标记只能靠测试侧还原成录制字节** | 上游 `1cedd3272` 把光标格的绘制权从组件收到渲染器：`Editor` / `Input` 不再写 `ESC[7m…ESC[0m`，改发零宽 APC 标记 `<c>FAKE_CURSOR_START</c>` / `<c>FAKE_CURSOR_END</c>`，由 `TuiBase.ResolveFakeCursors` 在「OSC 133 剥离之后、高亮与合成之前」一次性换成 `ESC[7m` / `ESC[27m`（硬件光标模式下先把「`CURSOR_MARKER` + 标记对」折叠成只有文本）。组件输出的字节因此变了，而 `editor` / `input` / `extra-components` / `alt-screen-search` 四份语料的生成器（`gen.mjs` + harness）并未入库，无法按新源码重录，所以这四处比对在测试侧经 `LegacyCursorEncoding.Resolve` 把标记还原成录制时的字节。对 `Input` 及其派生组件（设置列表、搜索框）**无损**——渲染器产出的正是 `ESC[7m`/`ESC[27m`；只有 `Editor` 的光标格从 `ESC[0m`（全重置）变成 `ESC[27m`（只关反显），这是上游的刻意改动，用 `EditorLegacyEnd` 单独映射，并在 `FakeCursorTests` 里以真实渲染器输出钉住新形式。`stripAnsi` 不管 APC，所以凡是「剥 ANSI 后整行比较」的断言（如 `LoginDialogTests.RenderDialog`）都要先剥 `\x1b_[^\x07]*\x07`（上游 `21d1dcd4d` 的同一处修正）。 |
+| T34 | **退出复原与 stdin 回复串的三处载体差异** | 1.4.0 的两处修复依赖 Node 侧独有的载体，C# 侧换成等价物：① **进程退出兜底**——上游 `process.on("exit")` 直接改成 `AppDomain.CurrentDomain.ProcessExit`，并在 `Start()` 里 `-=` 后 `+=`（委托按 target+method 去重，否则重复 `Start()` 会叠加回调）、`Stop()` 的锁内 `-=`；退出路径必须同步 `Flush`，且外层 `try/catch` 吞异常（上游同样不抛）。② **撤掉终端模式**——上游记了 `modifyOtherKeysPushed` 与 `keyboardProtocolPushed` 两个标志位，端口从未推送过 `modifyOtherKeys`（`ESC[>4;1m`），因此没有对应的 `ESC[>4;0m`；kitty 撤栈一律以 `Keys.IsKittyProtocolActive()` 判定（与上游 `keyboardProtocolPushed` 同义）。③ **`StdinBuffer` 尚未接进 `ProcessTerminal`**——端口的读取走 `Console.ReadKey`，OSC 7501 之类的回复由 `ProcessTerminal.TryConsumeProgramStatusReply` 做有界装配。所以回复串修复只把 `StdinBuffer` 这一类本身对齐到 1.4.0（`TERMINAL_REPLY_HEADER_PATTERN`、`\x18`/`\x1a` 取消、未终结回复的重同步），真实读取路径不经过它；上游在 `#10256`/`#10657` 里修的那个「OSC 的 BEL 变成 Ctrl+G」在端口这边的等价物是 `TryConsumeProgramStatusReply` 的缓冲策略，已单独覆盖。 |
 
 ## 差分验证（latex.ts）
 
@@ -375,7 +376,7 @@ node --experimental-strip-types --no-warnings --test test/tui-alt-screen.test.ts
 
 ## 测试覆盖
 
-`tests/Pi.Tui.Tests`（23,812 项，已禁用并行化——多个用例共享进程级全局状态：能力缓存、Kitty 元数据注册表、环境变量探测、全局键位注册表、native helper）：
+`tests/Pi.Tui.Tests`（23,929 项，已禁用并行化——多个用例共享进程级全局状态：能力缓存、Kitty 元数据注册表、环境变量探测、全局键位注册表、native helper）：
 
 | 测试文件 | 项数 | 覆盖 |
 |---|---|---|
@@ -383,12 +384,12 @@ node --experimental-strip-types --no-warnings --test test/tui-alt-screen.test.ts
 | `KeysAndUtilTests.cs` | 15 | 传统与 Kitty 按键匹配、`parseKey`、释放/重复判定、可打印解码、模糊匹配、kill ring、undo 栈、词导航（含 CJK 近似与 JS 空白集）、鼠标派发的重定位/结果归类/焦点目标 |
 | `ComponentTests.cs` | 17 | Text/Spacer/Box/TruncatedText/VStack/HStack 渲染、栈可见性、`TuiMainScreen` 差分渲染与同步输出、宽度变更全量重绘、超宽行守卫、overlay 合成 |
 | `ColorAndUtilTests.cs` | 25 | 颜色解析（hex/oklch/okhsl）、调色板索引、JS 舍入、OKLCH/OKHSL 转换与往返、混色、ANSI 序列、样式嵌套顺序、滚轮加速、native helper 缺失路径 |
-| `InputTests.cs` | 27 | 键位注册表（默认/覆盖/冲突/形状/全局单例）、stdin 缓冲（分块 CSI、SGR 鼠标、WezTerm ESC 对、括号粘贴、kitty 可打印去重、超时冲刷、字节与 UTF-8 入口） |
+| `InputTests.cs` | 50 | 键位注册表（默认/覆盖/冲突/形状/全局单例）、stdin 缓冲（分块 CSI、SGR 鼠标、WezTerm ESC 对、括号粘贴、kitty 可打印去重、超时冲刷、字节与 UTF-8 入口）、终端回复串（6 类 OSC/APC 头在任意位置分块都整条送达、多条回复跨多次超时仍不切碎、裸 `ESC ]` 仍按 Alt 键超时、批量 legacy Alt 在序列超时内可恢复、回复头在歧义超时内拼齐也能识别、未终结回复遇到新转义序列时的重同步、`0x18`/`0x1a` 取消后不吞后续输入） |
 | `LatexTests.cs` | 2,824 | 2,822 条差分向量逐条对照 TS 参考实现（含 display 模式的分数堆叠、运算符上下限、矩阵/分段函数布局），另 2 项语料完整性守卫（条数下界、同时覆盖两种 display 模式与 `undefined` 结果） |
 | `LoaderTests.cs` | 21 | Loader 默认帧与着色函数、`setIndicator` 的 verbatim/空帧/自定义帧、`setMessage`、`invalidate` 刷新、单帧不动画、多帧动画与 `stop` 冻结、重复 `start` 不叠加计时器、render 前置空行与宽度填充；CancellableLoader 的 Esc/Ctrl-C 取消、`OnAbort` 回调、其他按键不取消、`dispose` 停表且 token 仍可用 |
 | `LayoutTests.cs` | 48 | 叶子盒的固有高度与裁剪、仅绘制有源行、光标标记行滚动入视、vstack 纵向堆叠/间距/`grow` 填充/隐藏条目不留空隙、hstack 并排/center/end/stretch 对齐/零宽子项、布局节点暴露；ScrollView 的视口裁剪、滚动平移、`scrollBy` 边界与未消费余量、follow-end、`disableFollow`、`scrollToStart/End`、内容收缩时的钳制、子项变异拒绝、非 vertical 轴拒绝、always/auto/hidden 滚动条与延迟隐藏；滚动条几何与绘制、`replaceScrollbarCell`；命中测试的深度排序与嵌套滚动视图；OSC 133 区域前缀剥离 |
 | `TerminalImageTests.cs` | 46 | Kitty/iTerm2 编码与 base64 长度、单元格尺寸与宽高比优化、行数换算、PNG/JPEG/GIF/WebP 尺寸解析、Kitty 元数据注册/查询/FIFO 淘汰、跨块放置重建、`cropKittyImageLine`、`renderImage` 的 Kitty/iTerm2/降级分支、`imageFallback` 与 OSC 8 超链接、能力探测（Kitty/Ghostty/WezTerm/iTerm2/tmux 转发） |
-| `AutocompleteTests.cs` | 5,259 | 5,244 条差分向量逐条对照 TS 参考实现（2,051 条路径补全/`applyCompletion`、290 条斜杠命令、597 条私有纯函数、234 条打分、769 条 `node:path`、28 条 `fd` 模糊搜索、45 条 Tab 触发、1,225 条 `localeCompare`），另 15 项守卫（语料条数与覆盖分布、分隔符区间表逐条边界、CJK 字母不参与分隔、`JsString` 的 trim/slice 语义） |
+| `AutocompleteTests.cs` | 5,260 | 5,244 条差分向量逐条对照 TS 参考实现（2,051 条路径补全/`applyCompletion`、290 条斜杠命令、597 条私有纯函数、234 条打分、769 条 `node:path`、28 条 `fd` 模糊搜索、45 条 Tab 触发、1,225 条 `localeCompare`），另 16 项守卫（语料条数与覆盖分布、分隔符区间表逐条边界、单段 fd 查询转义正则元字符、CJK 字母不参与分隔、`JsString` 的 trim/slice 语义） |
 | `InputCorpusTests.cs` | 5,453 | 5,450 条差分向量逐条对照 TS 参考实现（3,329 条 `render`、476 条按键序列逐步重放——含上游 36 个用例的 84 条断言、1,642 条 `handleMouse`、1 条 `/\s/` 码点全表），另 3 项：覆盖分布守卫（滚动窗口、提示符超宽早返回、两种焦点态、6 种鼠标事件类型与 4 个按钮都被取到）、语料规模守卫（含「`icuFrom` 标记恒为 7 条」） |
 | `SelectListCorpusTests.cs` | 2,728 | 2,598 条差分向量逐条对照 TS 参考实现（1,492 条 `render`、5 条上游场景复刻、570 条按键序列逐步重放、656 条 `handleMouse`），加 3 项大小写映射向量（1,488 条单码点映射、7,621 条 Final_Sigma 上下文串、U+0000–U+10FFFF 全码点比对 `Cased` / `Case_Ignorable` 两个谓词），另 2 项守卫：语料规模与覆盖分布（无匹配行、滚动提示、四种样式回调、`selectedPrefix` 恒为 0、按键三类事件与鼠标三类事件都被取到、两个大小写结构特例都在语料里） |
 | `EditorCorpusTests.cs` | 115 | 7,040 条差分向量逐条对照 TS 参考实现（6,327 条场景——`api` 55 / `render` 183 / `padding` 150 / `focus` 24 / `scroll` 18 / `mouse` 15 / `paste` 70 / `sequences` 78 / `keys` 3,321 / `keysMoved` 1,476 / `keysRender` 861 / `autocomplete` 76，每步比对文本、光标、补全标志、内边距、`maxVisible` 与渲染输出；713 条 `wordWrapLine` 纯函数向量），另 4 项守卫：语料规模、覆盖分布（12 个区段、提交历史、三种渲染模式都被取到）、「`icuFrom` 标记恒为 23 条」、超宽字素簇不递归 |
@@ -398,3 +399,5 @@ node --experimental-strip-types --no-warnings --test test/tui-alt-screen.test.ts
 | `AltScreenSearchCorpusTests.cs` | 520 | 备用屏搜索语料逐条对照 TS 参考实现（索引构建、匹配定位、`getAltScreenSearchMatchKey`、大小写不敏感路径） |
 | `AltScreenCorpusTests.cs` | 39 | 37 条备用屏渲染场景逐条对照 TS 参考实现（每步比对屏幕行、`viewportTop`、跟随输出、选择态、overlay 栈与输入、`start`/`stop` 写入、剪贴板、打开 URL），另 2 项守卫：语料规模（37 条、id 唯一）与覆盖分布（1×1 与 80×24、鼠标开/关的启动序列、`viewportTop` 0 与非 0、选择态开/关、非空剪贴板与两种复制结果、overlay 显示后隐藏且 `overlayInputs` 非空、打开 URL、`scrollToEndIndicator`、搜索样式、自定义键位） |
 | `FakeCursorTests.cs` | 6 | 假光标（上游 `tui-render.test.ts` 的 `TUI fake cursor` 套件）：聚焦 Input 在反显里画出光标格、`SetShowHardwareCursor(true)` 后丢掉这一格且不泄漏 `\x1b_pi:`、未聚焦 Input 在硬件光标模式下仍画、裁剪切掉 `FAKE_CURSOR_END` 时同样丢掉（硬件光标列仍为 3）、overlay 正好结束在光标左侧时两种模式都保留光标（列固定为 4，钉住 `ExtractSegments` 保留零宽 APC 的那条例外）、备用屏在搜索/选择高亮与合成之前解析标记 |
+| `TerminalRestoreTests.cs` | 3 | 退出复原（上游 `#11170`）：主屏 `Stop()` 与进程退出兜底都只写一次 `\x1b[?25h\x1b[?2004l`、已在 `Stop()` 复原后 `ProcessExit` 不再重复写、备用屏额外补 `\x1b[?1049l\x1b[?25h`、`ProcessTerminal.RestoreOnExit` 的前后缀拼接顺序 |
+| `AltScreenTests.cs` | 1 | 备用屏未处理输入的落点：聚焦 overlay 时向上滚轮仍滚转写（`\x1b[<64;3;2M` 后 `ViewportTop` 变小、`IsFollowingOutput` 转 false），且该序列不再下发给 overlay 的 `handleInput` |

@@ -51,6 +51,16 @@ public interface ITerminal
     {
         // Terminals that cannot report status ignore it; fakes need not implement this.
     }
+
+    /// <summary>
+    /// Synchronously restore terminal modes from a process exit handler when <see cref="Stop"/> did not
+    /// run. Writes <paramref name="before"/>, then this terminal's own mode resets, then
+    /// <paramref name="after"/>.
+    /// </summary>
+    void RestoreOnExit(string before, string after)
+    {
+        // Fakes that never touch the real terminal need no reset.
+    }
 }
 
 /// <summary>
@@ -345,6 +355,35 @@ public sealed class ProcessTerminal : ITerminal
         _resizeHandler = null;
     }
 
+    /// <summary>
+    /// Last-resort restore for exit paths that skip <see cref="Stop"/>, e.g. a direct
+    /// <c>Environment.Exit</c> (#11170). Hard kills and native aborts run no managed code and cannot be
+    /// covered.
+    /// </summary>
+    public void RestoreOnExit(string before, string after)
+    {
+        var sequence = new StringBuilder(before);
+        if (_progressTimer is not null)
+        {
+            sequence.Append(ProgressClear);
+        }
+        sequence.Append("\x1b[?2004l");
+        if (Keys.IsKittyProtocolActive())
+        {
+            sequence.Append("\x1b[<u");
+        }
+        sequence.Append(after);
+        try
+        {
+            // Write() flushes synchronously, which the exit path needs: a buffered write would be lost.
+            Write(sequence.ToString());
+        }
+        catch
+        {
+            // The terminal may already be gone.
+        }
+    }
+
     public async Task DrainInputAsync(int maxMs = 1000, int idleMs = 50)
     {
         _inputHandler = null;
@@ -582,6 +621,15 @@ public sealed class StringTerminal : ITerminal
     {
         ProgramStatuses.Add(status);
         Write(ProgramStatusProtocol.Format(status));
+    }
+
+    /// <summary>Every exit-path restore, in order.</summary>
+    public List<string> ExitRestores { get; } = [];
+
+    public void RestoreOnExit(string before, string after)
+    {
+        ExitRestores.Add(before + "\x1b[?2004l" + after);
+        Write(before + "\x1b[?2004l" + after);
     }
 }
 

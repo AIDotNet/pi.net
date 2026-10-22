@@ -234,6 +234,13 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
 
     private ScrollView GetPrimaryScrollView() => _currentLayout?.PrimaryScrollView ?? _implicitScrollView;
 
+    /// <summary>
+    /// Kitty keyboard flags are per screen, so the terminal pops them before the alternate screen is
+    /// left.
+    /// </summary>
+    protected override string GetExitRestoreSuffix() =>
+        base.GetExitRestoreSuffix() + (_altScreenActive ? $"{ExitAltScreen}\x1b[?25h" : "");
+
     protected override void BeforeTerminalStart()
     {
         StopSelectionAutoScroll();
@@ -728,10 +735,8 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
                 }
                 return true;
             }
-            if (ShouldDeferViewportInputToOverlay())
-            {
-                return null;
-            }
+            // Overlays that scroll with the wheel must implement handleMouse; an unhandled wheel event
+            // scrolls the transcript even while an overlay has focus.
             RouteWheel(wheelEvent, wheelDelta);
             return true;
         }

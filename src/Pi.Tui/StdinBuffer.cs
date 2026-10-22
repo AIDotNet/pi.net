@@ -14,7 +14,11 @@ internal enum SequenceStatus
 /// <summary>Options for <see cref="StdinBuffer"/>.</summary>
 public sealed record StdinBufferOptions
 {
-    /// <summary>Maximum time to wait for an incomplete sequence such as CSI or mouse (default: 50 ms).</summary>
+    /// <summary>
+    /// Maximum time to wait for an incomplete keyboard or mouse sequence (default: 50 ms). Strings with
+    /// a recognized terminal reply header wait for their terminator instead, so delayed replies cannot
+    /// become keypresses. Ambiguous legacy Alt-key input still uses this timeout.
+    /// </summary>
     public int Timeout { get; init; } = StdinBuffer.DefaultSequenceTimeoutMs;
 
     /// <summary>
@@ -78,6 +82,18 @@ public sealed partial class StdinBuffer : IDisposable
 
     [GeneratedRegex(@"^\x1b\[([0-9]+)(?::[0-9]*)?(?::[0-9]+)?u$")]
     private static partial Regex KittyPrintablePattern();
+
+    /// <summary>
+    /// Color and program-status OSC replies, XTVersion, and Kitty graphics replies. Until their header
+    /// is complete, the input may be batched legacy Alt keystrokes.
+    /// </summary>
+    [GeneratedRegex(@"^\x1b(?:\](?:1[01];|4;[0-9]{1,3};|7501;\?)|P>\||_G(?:[a-z]=[0-9]+,)*[a-z]=[0-9]+;)")]
+    private static partial Regex TerminalReplyHeaderPattern();
+
+    private static bool IsControlString(string data) =>
+        data.StartsWith($"{Esc}]", StringComparison.Ordinal) ||
+        data.StartsWith($"{Esc}P", StringComparison.Ordinal) ||
+        data.StartsWith($"{Esc}_", StringComparison.Ordinal);
 
     /// <summary>Check if a string is a complete escape sequence or needs more data.</summary>
     private static SequenceStatus IsCompleteSequence(string data)
@@ -258,10 +274,29 @@ public sealed partial class StdinBuffer : IDisposable
             // Try to extract a sequence starting at this position
             if (remaining.StartsWith(Esc, StringComparison.Ordinal))
             {
+                var terminalReply = IsControlString(remaining) && TerminalReplyHeaderPattern().IsMatch(remaining);
                 // Find the end of this escape sequence
                 var seqEnd = 1;
                 while (seqEnd <= remaining.Length)
                 {
+                    if (terminalReply && seqEnd > 2)
+                    {
+                        var ch = remaining[seqEnd - 1];
+                        if (ch is '\x18' or '\x1a')
+                        {
+                            // CAN and SUB cancel the string, not subsequent keyboard input.
+                            pos += seqEnd;
+                            break;
+                        }
+                        if (ch == '\x1b' && seqEnd < remaining.Length && remaining[seqEnd] != '\\')
+                        {
+                            // A new escape sequence aborts an unterminated reply. Keep a trailing ESC
+                            // buffered until we can distinguish it from ST.
+                            pos += seqEnd - 1;
+                            break;
+                        }
+                    }
+
                     var candidate = remaining.Substring(0, seqEnd);
                     var status = IsCompleteSequence(candidate);
 
@@ -431,6 +466,14 @@ public sealed partial class StdinBuffer : IDisposable
 
         if (_buffer.Length > 0)
         {
+            // Only a recognizable reply header establishes a delimited string. Flushing it would turn a
+            // delayed tail into text and an OSC's BEL terminator into Ctrl+G (the external editor
+            // shortcut). Other input, including Alt+] followed by text, keeps bounded recovery.
+            if (TerminalReplyHeaderPattern().IsMatch(_buffer))
+            {
+                return;
+            }
+
             var timeoutMs = _buffer == Esc ? _escapeTimeoutMs : _timeoutMs;
             _timeout = new Timer(
                 _ =>
@@ -439,7 +482,17 @@ public sealed partial class StdinBuffer : IDisposable
                     {
                         foreach (var sequence in Flush())
                         {
-                            EmitDataSequence(sequence);
+                            if (sequence.Length > 2 && IsControlString(sequence))
+                            {
+                                // Recover the Alt key and reparse its tail so batched text, Enter, and
+                                // control keys are not swallowed as one event.
+                                EmitDataSequence(sequence.Substring(0, 2));
+                                ProcessCore(sequence.Substring(2));
+                            }
+                            else
+                            {
+                                EmitDataSequence(sequence);
+                            }
                         }
                     }
                 },

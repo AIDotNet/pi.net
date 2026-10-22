@@ -99,7 +99,11 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 未闭合 `$$` 不再吞掉 Markdown 表格 | 1.4.0 #11159 | 流式输出时表格消失 | 本次移植 |
 | CJK 标点相邻的粗体/斜体渲染（`marked-cjk-friendly`） | 1.4.0 #10730 | 中文排版可见缺陷 | 本次移植（第二十三批，见 §6.h） |
 | Rex 终端支持（OSC 8 / truecolor / 内联图） | 1.4.0 | 终端能力探测 | 本次移植（第二十四批，见 §6.g） |
-| 退出时终端模式未复原、重复对话框、主题 schema 校验等 | 1.2.0–1.4.0 | 多为 TUI 细节修复 | 待办 |
+| 单段 fd 查询未转义正则元字符（#11212） | 1.4.0 | `@pages/[` 这类补全查不到 | 本次移植（第二十七批，见 §6.d） |
+| 进程直接退出时未复原终端模式（#11170） | 1.4.0 | 退出后终端留在鼠标/粘贴模式 | 本次移植（第二十七批，见 §6.d） |
+| 聚焦 overlay 时未处理的滚轮应滚动转写（#10769） | 1.4.0 | 滚轮被塞给 overlay 的 `handleInput` | 本次移植（第二十七批，见 §6.d） |
+| 延迟到达的终端回复被当成按键（#10256 / #10657） | 1.4.0 | OSC 的 BEL 变成 Ctrl+G | 本次移植（第二十七批，见 §6.d） |
+| 重复对话框、主题 schema 校验等其余零碎修复 | 1.2.0–1.4.0 | 待逐条核对 | 待办 |
 | `showHardwareCursor` 语义变化 | 1.2.0 | 光标绘制 | 本次移植（第二十六批，见 §6.e） |
 
 ### 3.5 其他包
@@ -179,8 +183,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
-| `Pi.Tui.Tests` | 23901 / 23901 通过（第二十六批 +6 假光标、第二十三批 +3 CJK 强调、
-  第二十四批 +1 Rex/Herdr、第二十五批 +13 程序状态协议） |
+| `Pi.Tui.Tests` | 23929 / 23929 通过（第二十七批 +28：23 例 stdin 回复串、3 例退出复原、1 例滚轮
+  路由、1 例 fd 转义；第二十六批 +6 假光标、第二十三批 +3 CJK 强调、第二十四批 +1 Rex/Herdr、
+  第二十五批 +13 程序状态协议） |
 
 说明：两例时序敏感的偶发已确认与改动无交集，隔离运行均通过——
 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）与
@@ -234,7 +239,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`--model` provider 选择策略统一~~（第二十一批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 5. ~~ai：System One 分类器图像输入~~（第二十二批）→ ~~tui：CJK 强调（先补语料生成脚本）~~（第二十三批）
    → ~~tui：Rex / Herdr 终端探测~~（第二十四批）→ ~~tui + coding-agent：OSC 7501 程序状态~~（第二十五批）
-   → ~~tui：`showHardwareCursor` 假光标~~（第二十六批）→ tui：其余 TUI 细节。
+   → ~~tui：`showHardwareCursor` 假光标~~（第二十六批）→ ~~tui：fd 转义 / 退出复原 / 滚轮路由 /
+   stdin 回复串~~（第二十七批）→ tui：其余 TUI 细节（重复对话框、主题 schema 校验）。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1162,3 +1168,71 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.d 第二十七批（TUI 零碎修复：fd 转义 / 退出复原 / 滚轮路由 / 回复串）落地明细
+
+四个互不相干的小修，合批是为了保持「一次验证、一次提交」的节奏。
+
+**① fd 单段查询转义正则元字符**（`612a172e6`，#11212 / #10972）
+
+- `CombinedAutocompleteProvider.BuildFdPathQuery` 的「不含分隔符」分支原来直接返回原串，而这条串是
+  交给 `fd` 的正则：`@pages/[` 于是被 `fd` 当成字符类，永远补不出 `pages/[id].tsx`。
+- 改法是这一支也走 `EscapeRegex`，并删掉 `segments.Count == 0` 的死分支（`trimmed` 为空时上面已经
+  返回过）。多段路径的 `\` / `[` / `(` 一并被转义。
+- **语料**：`autocomplete-corpus.json` 的 44 条 `buildFdPathQuery` 向量里有 4 条期望值随之变化
+  （`(@REA` / `foo(@REA` / `see (` / `x [y]`）。生成器（`gen.mjs`）不在仓库里，改用
+  `tools/regen-autocomplete-fdquery.mjs` 重算：脚本里是 v1.4.0 那三个纯函数的逐字副本，只重算
+  `expected`、不动输入与顺序，写回前先确认 `JSON.stringify(JSON.parse(raw)) === raw`（文件是压缩
+  单行格式，重序列化逐字节一致）。
+- 另加 `EscapesRegexMetacharactersInSingleSegmentFdQueries` 钉住上游 #10972 的三个场景
+  （`@pages/[` / `@pages/(` / `@[id`）与多段路径的分隔符类。
+
+**② 进程直接退出时复原终端模式**（`9df819de3`，#11170）
+
+- 上游在 `TuiBase.start()` 注册 `process.on("exit")`，在 `stop()` 注销；端口对应
+  `AppDomain.CurrentDomain.ProcessExit`（`-=` 后 `+=`，委托按 target+method 相等，所以能正确去重）。
+- `ITerminal.RestoreOnExit(before, after)`（带默认空实现，测试替身不必实现）：
+  `ProcessTerminal` 写「进度条清除（仅进度计时器在跑时）+ `ESC[?2004l` 关括号粘贴 + KitKat 键盘
+  `ESC[<u`（仅协议启用时）+ `after`」，然后走既有的 `Write`（本来就是同步 `Flush`）。
+  `StringTerminal` 记到 `ExitRestores`。
+- 前缀/后缀由 `TuiBase.GetExitRestorePrefix/Suffix` 提供：前缀是「关配色通知（若曾开）+ `ESC[?25h`」，
+  `TuiAltScreen` 覆写后缀追加 `ESC[?1049l ESC[?25h`——Kitty 键盘标志是按屏的，必须先弹键盘协议再
+  退出备用屏。
+- **偏差**：端口从未推送 `modifyOtherKeys`（`ESC[>4;1m`），所以没有上游那一句 `ESC[>4;0m`；
+  `keyboardProtocolPushed` 在端口不存在，用 `Keys.IsKittyProtocolActive()` 代替。
+- 硬杀 / 原生崩溃不跑托管代码，与上游的「JS 也跑不到」是同一类缺口。
+
+**③ 聚焦 overlay 时未处理的滚轮改滚动转写**（`11f991145`，#10769）
+
+- 端口 `HandleViewportInput` 的滚轮分支删掉 `ShouldDeferViewportInputToOverlay()` 早返回。
+  语义：滚轮先给 overlay 的 `handleMouse`，命中但没处理（或没命中）就滚转写，而不是把裸序列
+  转给焦点组件的 `handleInput`。想用滚轮的 overlay 必须实现 `handleMouse`。
+  键盘路径（`\x1b[5~` 这类）仍然 defer，行为不变。
+- **语料**：`alt-screen-corpus.json` 的 `overlay-focused-routing` 场景整段受影响——滚轮那一步之后
+  `viewportTop` 少 1、屏幕行整体上移一行、`isFollowingOutput` 由 true 变 false，且 overlay 不再收到
+  `ESC[<64;10;3M`。生成器同样不在仓库，处理方式是把该场景的 `observations` 与 `overlayInputs`
+  按新语义重录（压缩格式下的定点更新），并逐条核对差异只有上述三类。
+  `search-navigate-buttons` 在这个修复前偶发失败过一次，隔离与全量复跑均通过——它是
+  `GlobalKeybindings` / `TerminalImage.SetCapabilities` 这两个静态缝在并行套件下的老问题，与滚轮无关。
+
+**④ 延迟到达的终端回复不再变成按键**（`edb2eb966`，#10256 / #10657）
+
+- `StdinBuffer` 新增 `TerminalReplyHeaderPattern`（OSC 10/11、OSC 4;n;、OSC 7501;?、XTVersion
+  `ESC P>|`、Kitty 图形 `ESC _G…;`）与 `IsControlString`；`ExtractCompleteSequences` 在识别出回复头
+  之后，遇 `CAN`/`SUB` 直接丢弃整条串、遇新的 `ESC`（非 `ESC \`）回退到它之前重新解析；
+  `ProcessCore` 的兜底超时对「回复头已成立」的缓冲**不再冲刷**（原来会把尾巴当文字，OSC 的 BEL
+  还会变成 Ctrl+G，即外编辑器快捷键），而其它输入（含 `Alt+]` 后跟文字）仍按超时恢复，
+  冲刷时把 `ESC]` 两个字符单独发出去、余下重新解析成按键。
+- 端口 `StdinBuffer` 至今没有接进 `ProcessTerminal`（读取走 `Console.ReadKey`，见 §6.f），所以这条
+  修复目前只让这个类与上游 1.4.0 对齐；`docs/upstream-1.4.0-delta.md` §6.f 里「`stdin-buffer.ts` 的
+  `TERMINAL_REPLY_HEADER_PATTERN` 改动未跟」这一条到此关闭。
+- 测试 23 例：6 条回复串 × 表头之后的每一个切分点都能整条保住；跨多次超时仍缓存；裸 `ESC]` /
+  `ESC P` / `ESC _` 仍按 Alt 键超时；11 条歧义输入在超时后恢复成「Alt + 逐键」；表头在歧义窗口内
+  拼齐；未终结的回复遇到新转义序列让位；`CAN`/`SUB` 取消不吞后续输入。
+
+**测试**
+
+`Pi.Tui.Tests` 23929 / 23929（+28：23 例 `StdinBufferTests`、3 例 `TerminalRestoreTests`、
+1 例 `AltScreenTests.UnhandledWheelInputScrollsTheTranscriptUnderAFocusedOverlay`、
+1 例 `AutocompleteTests.EscapesRegexMetacharactersInSingleSegmentFdQueries`），
+`Pi.CodingAgent.Tests` 5029 / 5029，其余 11 个测试项目全绿。

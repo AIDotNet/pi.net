@@ -338,7 +338,8 @@ public sealed class CombinedAutocompleteProvider : IAutocompleteProvider
         var normalized = ToDisplayPath(query);
         if (!normalized.Contains('/'))
         {
-            return normalized;
+            // A single segment is still a regex: `fd` would read `.` / `[` / `(` from it literally.
+            return EscapeRegex(normalized);
         }
 
         var hasTrailingSeparator = normalized.EndsWith('/');
@@ -354,10 +355,6 @@ public sealed class CombinedAutocompleteProvider : IAutocompleteProvider
             .Where(segment => segment.Length > 0)
             .Select(EscapeRegex)
             .ToList();
-        if (segments.Count == 0)
-        {
-            return normalized;
-        }
 
         var pattern = string.Join(separatorPattern, segments);
         if (hasTrailingSeparator)

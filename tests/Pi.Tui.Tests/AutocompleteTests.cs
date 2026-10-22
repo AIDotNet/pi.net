@@ -411,6 +411,27 @@ public class AutocompleteCorpusTests
     // Character classification and collation
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// #10972 / upstream 612a172e6: a single-segment fd query is a regex too, so `[`, `(` and friends
+    /// used to reach fd unescaped and turn into a character class / group.
+    /// </summary>
+    [Fact]
+    public void EscapesRegexMetacharactersInSingleSegmentFdQueries()
+    {
+        Assert.Equal("\\(@REA", CombinedAutocompleteProvider.BuildFdPathQuery("(@REA"));
+        Assert.Equal("see \\(", CombinedAutocompleteProvider.BuildFdPathQuery("see ("));
+        Assert.Equal("x \\[y\\]", CombinedAutocompleteProvider.BuildFdPathQuery("x [y]"));
+        Assert.Equal("@\\[id", CombinedAutocompleteProvider.BuildFdPathQuery("@[id"));
+
+        // More than one segment: every segment is escaped and joined with the separator class.
+        Assert.Equal("pages[\\\\/]\\[id", CombinedAutocompleteProvider.BuildFdPathQuery("pages/[id"));
+        Assert.Equal("pages[\\\\/]\\(group", CombinedAutocompleteProvider.BuildFdPathQuery("pages/(group"));
+        Assert.Equal("app[\\\\/]\\[slug\\][\\\\/]pa", CombinedAutocompleteProvider.BuildFdPathQuery("app/[slug]/pa"));
+
+        // A separator-only query keeps its shape instead of collapsing to an empty pattern.
+        Assert.Equal("/", CombinedAutocompleteProvider.BuildFdPathQuery("/"));
+    }
+
     [Fact]
     public void SeparatorAndPunctuationTablesMatchTheTypeScriptRegexes()
     {

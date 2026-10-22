@@ -4298,70 +4298,70 @@
 			},
 			{
 				"screen": [
+					"line 6              \u001b[0m\u001b]8;;\u0007",
 					"line 7              \u001b[0m\u001b]8;;\u0007",
-					"line 8              \u001b[0m\u001b]8;;\u0007",
 					"\u001b[0m\u001b]8;;\u0007overlay             \u001b[0m\u001b]8;;\u0007\u001b[0m\u001b]8;;\u0007",
-					"line 10             \u001b[0m\u001b]8;;\u0007",
-					"line 11             \u001b[0m\u001b]8;;\u0007",
-					"line 12             \u001b[0m\u001b]8;;\u0007"
-				],
-				"viewportTop": 6,
-				"isFollowingOutput": true,
-				"hasActiveSelection": false,
-				"hasOverlay": true
-			},
-			{
-				"screen": [
-					"line 7              \u001b[0m\u001b]8;;\u0007",
-					"line 8              \u001b[0m\u001b]8;;\u0007",
-					"\u001b[0m\u001b]8;;\u0007overlay             \u001b[0m\u001b]8;;\u0007\u001b[0m\u001b]8;;\u0007",
-					"line 10             \u001b[0m\u001b]8;;\u0007",
-					"line 11             \u001b[0m\u001b]8;;\u0007",
-					"line 12             \u001b[0m\u001b]8;;\u0007"
-				],
-				"viewportTop": 6,
-				"isFollowingOutput": true,
-				"hasActiveSelection": false,
-				"hasOverlay": true
-			},
-			{
-				"screen": [
-					"line 7              \u001b[0m\u001b]8;;\u0007",
-					"line 8              \u001b[0m\u001b]8;;\u0007",
 					"line 9              \u001b[0m\u001b]8;;\u0007",
 					"line 10             \u001b[0m\u001b]8;;\u0007",
-					"line 11             \u001b[0m\u001b]8;;\u0007",
-					"line 12             \u001b[0m\u001b]8;;\u0007"
+					"line 11             \u001b[0m\u001b]8;;\u0007"
 				],
-				"viewportTop": 6,
-				"isFollowingOutput": true,
+				"viewportTop": 5,
+				"isFollowingOutput": false,
 				"hasActiveSelection": false,
-				"hasOverlay": false
+				"hasOverlay": true
 			},
 			{
 				"screen": [
-					"line 5              \u001b[0m\u001b]8;;\u0007",
+					"line 6              \u001b[0m\u001b]8;;\u0007",
+					"line 7              \u001b[0m\u001b]8;;\u0007",
+					"\u001b[0m\u001b]8;;\u0007overlay             \u001b[0m\u001b]8;;\u0007\u001b[0m\u001b]8;;\u0007",
+					"line 9              \u001b[0m\u001b]8;;\u0007",
+					"line 10             \u001b[0m\u001b]8;;\u0007",
+					"line 11             \u001b[0m\u001b]8;;\u0007"
+				],
+				"viewportTop": 5,
+				"isFollowingOutput": false,
+				"hasActiveSelection": false,
+				"hasOverlay": true
+			},
+			{
+				"screen": [
 					"line 6              \u001b[0m\u001b]8;;\u0007",
 					"line 7              \u001b[0m\u001b]8;;\u0007",
 					"line 8              \u001b[0m\u001b]8;;\u0007",
 					"line 9              \u001b[0m\u001b]8;;\u0007",
-					"line 10             \u001b[0m\u001b]8;;\u0007"
+					"line 10             \u001b[0m\u001b]8;;\u0007",
+					"line 11             \u001b[0m\u001b]8;;\u0007"
 				],
-				"viewportTop": 4,
+				"viewportTop": 5,
 				"isFollowingOutput": false,
 				"hasActiveSelection": false,
 				"hasOverlay": false
 			},
 			{
 				"screen": [
+					"line 4              \u001b[0m\u001b]8;;\u0007",
 					"line 5              \u001b[0m\u001b]8;;\u0007",
 					"line 6              \u001b[0m\u001b]8;;\u0007",
 					"line 7              \u001b[0m\u001b]8;;\u0007",
 					"line 8              \u001b[0m\u001b]8;;\u0007",
-					"line 9              \u001b[0m\u001b]8;;\u0007",
-					"line 10             \u001b[0m\u001b]8;;\u0007"
+					"line 9              \u001b[0m\u001b]8;;\u0007"
 				],
-				"viewportTop": 4,
+				"viewportTop": 3,
+				"isFollowingOutput": false,
+				"hasActiveSelection": false,
+				"hasOverlay": false
+			},
+			{
+				"screen": [
+					"line 4              \u001b[0m\u001b]8;;\u0007",
+					"line 5              \u001b[0m\u001b]8;;\u0007",
+					"line 6              \u001b[0m\u001b]8;;\u0007",
+					"line 7              \u001b[0m\u001b]8;;\u0007",
+					"line 8              \u001b[0m\u001b]8;;\u0007",
+					"line 9              \u001b[0m\u001b]8;;\u0007"
+				],
+				"viewportTop": 3,
 				"isFollowingOutput": false,
 				"hasActiveSelection": false,
 				"hasOverlay": false
@@ -4374,7 +4374,6 @@
 		"overlayInputs": {
 			"main": [
 				"\u001b[5~",
-				"\u001b[<64;10;3M",
 				"\u001bOH"
 			]
 		}

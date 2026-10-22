@@ -356,4 +356,149 @@ public class StdinBufferTests
         buffer.Process(System.Text.Encoding.UTF8.GetBytes("你"));
         Assert.Equal(new[] { "你" }, data);
     }
+
+    // ------------------------------------------------------------------
+    // Terminal reply strings (#10256 / #10657, upstream edb2eb966)
+    // ------------------------------------------------------------------
+
+    private static readonly (string Header, string Reply)[] TerminalReplies =
+    [
+        ("\x1b]4;1;", "\x1b]4;1;rgb:eaea/6c6c/6d6d\x07"), // Ghostty's Ayu Light palette color 1.
+        ("\x1b]10;", "\x1b]10;rgb:ffff/ffff/ffff\x1b\\"),
+        ("\x1b]11;", "\x1b]11;rgb:0000/0000/0000\x07"),
+        ("\x1bP>|", "\x1bP>|Ghostty 1.3.1\x1b\\"),
+        ("\x1b_Gi=1;", "\x1b_Gi=1;OK\x1b\\"),
+        ("\x1b]7501;?", "\x1b]7501;?\x1b\\"),
+    ];
+
+    /// <summary>
+    /// A reply split anywhere after its header must stay buffered until the terminator arrives, i.e. it
+    /// must never be flushed as text plus Ctrl+G.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void KeepsDelayedTerminalRepliesIntactAtEverySplitAfterTheHeader(int replyIndex)
+    {
+        var (header, reply) = TerminalReplies[replyIndex];
+        for (var split = header.Length; split < reply.Length; split++)
+        {
+            var (buffer, data, _) = Create(new StdinBufferOptions { Timeout = 20, EscapeTimeout = 10 });
+            try
+            {
+                buffer.Process(reply.Substring(0, split));
+                Thread.Sleep(40);
+                buffer.Process(reply.Substring(split) + "x");
+
+                Assert.Equal([reply, "x"], data);
+            }
+            finally
+            {
+                buffer.Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public void KeepsAnOscReplyBufferedAcrossMultipleExpiredSequenceTimeouts()
+    {
+        var (buffer, data, _) = Create(new StdinBufferOptions { Timeout = 20, EscapeTimeout = 10 });
+        buffer.Process("\x1b]4;1;rgb:eaea/6c");
+        Thread.Sleep(60);
+        Assert.Empty(data);
+
+        buffer.Process("6c/6d6d");
+        Thread.Sleep(60);
+        Assert.Empty(data);
+
+        buffer.Process("\x07");
+        Assert.Equal(["\x1b]4;1;rgb:eaea/6c6c/6d6d\x07"], data);
+    }
+
+    [Fact]
+    public void StillTimesOutBareStringIntroducersAsAltKeys()
+    {
+        var (buffer, data, _) = Create(new StdinBufferOptions { Timeout = 20, EscapeTimeout = 10 });
+        var prefixes = new[] { "\x1b]", "\x1bP", "\x1b_" };
+        for (var i = 0; i < prefixes.Length; i++)
+        {
+            buffer.Process(prefixes[i]);
+            var expected = i + 1;
+            Assert.True(WaitFor(() => data.Count >= expected));
+        }
+
+        Assert.Equal(prefixes, data);
+    }
+
+    [Theory]
+    [InlineData("\x1b]a")]
+    [InlineData("\x1b]1")]
+    [InlineData("\x1b]10")]
+    [InlineData("\x1b]0;title")]
+    [InlineData("\x1b]4;")]
+    [InlineData("\x1b]4;a;")]
+    [InlineData("\x1bPa")]
+    [InlineData("\x1bP>")]
+    [InlineData("\x1b_a")]
+    [InlineData("\x1b_G")]
+    [InlineData("\x1b_Gi=1")]
+    public void RecoversBatchedLegacyAltInputWithinTheSequenceTimeout(string ambiguous)
+    {
+        var (buffer, data, _) = Create(new StdinBufferOptions { Timeout = 20, EscapeTimeout = 10 });
+        buffer.Process(ambiguous);
+        buffer.Process("x\r\x03\x04");
+
+        Assert.True(WaitFor(() => data.Count > 0));
+        Thread.Sleep(60);
+
+        // The Alt key is recovered on its own and the tail is reparsed key by key.
+        Assert.Equal([ambiguous.Substring(0, 2), .. ambiguous.Substring(2).Select(c => c.ToString()), "x", "\r", "\x03", "\x04"], data);
+        Assert.Equal("", buffer.GetBuffer());
+
+        data.Clear();
+        buffer.Process("y\r\x03\x04");
+        Assert.Equal(["y", "\r", "\x03", "\x04"], data);
+    }
+
+    [Fact]
+    public void RecognizesAReplyHeaderAssembledWithinTheAmbiguousInputTimeout()
+    {
+        var (buffer, data, _) = Create(new StdinBufferOptions { Timeout = 20, EscapeTimeout = 10 });
+        buffer.Process("\x1b]1");
+        Thread.Sleep(5);
+        buffer.Process("0;");
+        Thread.Sleep(80);
+        Assert.Empty(data);
+
+        buffer.Process("rgb:ffff/ffff/ffff\x1b\\");
+        Assert.Equal(["\x1b]10;rgb:ffff/ffff/ffff\x1b\\"], data);
+    }
+
+    [Fact]
+    public void RecoversFromAnUnterminatedReplyWhenANewEscapeSequenceArrives()
+    {
+        var (buffer, data, _) = Create(new StdinBufferOptions { Timeout = 20, EscapeTimeout = 10 });
+        buffer.Process("\x1b]4;1;rgb:eaea/6c");
+        Thread.Sleep(60);
+        buffer.Process("\x1b");
+        Thread.Sleep(60);
+        buffer.Process("[Ahello");
+
+        Assert.Equal(["\x1b[A", "h", "e", "l", "l", "o"], data);
+    }
+
+    [Theory]
+    [InlineData("\x18")]
+    [InlineData("\x1a")]
+    public void DiscardsACanceledReplyWithoutSwallowingSubsequentInput(string cancel)
+    {
+        var (buffer, data, _) = Create();
+        buffer.Process($"\x1b]11;rgb:0000{cancel}x");
+
+        Assert.Equal(["x"], data);
+    }
 }
