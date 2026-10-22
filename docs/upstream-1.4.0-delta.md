@@ -104,9 +104,17 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 
 ### 3.5 其他包
 
-- **durable（1.3.0–1.4.0，171 文件）**：`Storage.commit(writes, adopt, context)` 引入 `adopt(seq)`
-  回调、`mintId()` 契约收窄 —— **破坏性 API**，需要同步改所有内置存储与一致性测试套件，单独立项。
-- **chord（1.3.0）**：`traceIn(options, fn, context)` 参数顺序变更 —— 破坏性但机械，可顺手做。
+- **durable（1.3.0–1.4.0，171 文件）**：`Storage.commit(writes, adopt, context)` 的 `adopt(seq)`
+  回调、`mintId()` 契约收窄 —— **已移植（第三批）**：存储负责在批次持久后、下一次提交开始前
+  同步采纳一次，Session 不再自己 `tx.adopt(seq)`，改为发现「已提交却没采纳」即毒化。
+  其余 169 个文件的改动（sleeping state、crash-loop guard、IndexedDB、search、images 等）仍待办。
+- **durable 观察面（同一提交 92ab53602）**：移除 `Session.documentState()` /
+  `Conversation.viewState()` / `Harness.taskGraph()`，`WatchHandle`/`WatchEnd` 迁往 chord，
+  结束原因为 `ended`（原 `session_closed`）/ `failed`（原 `session_failed`）。
+  端口仍保留旧 API 且被 `Pi.CodingAgent.Experimental` 直接使用 —— 需与观察/退休重构整批做，
+  单独改名只会得到半套实现。
+- **chord（1.3.0）**：`traceIn(options, fn, context)` 参数顺序变更 —— **暂不适用**：端口 chord
+  尚无 `telemetry` 成员与 `TelemetrySpan`，`traceIn` 本身不存在；与 telemetry 一起落地。
 - **telemetry（1.4.0）**：`telemetryContext`→`telemetry?: TelemetrySpan`，与 ai 的 identity 同批。
 - **mcp（1.2.0）**：连接时不再列资源、`structuredContent` 非对象修复 —— 影响端口 MCP 适配层。
 - **env / codemode**：`codemode` 的输出分隔、`@options` 首行校验、输入约束声明等属 codemode 子系统，
@@ -128,6 +136,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `6e491cfa9` + 1.3.0/1.4.0 文案 | 重试判定 | `Pi.Ai/Utils/Retry.cs` | `RetryableClassificationMatchesUpstream1_4_0` |
 | `2ed3118b0` | 显示公式 vs 表格 | `Pi.Tui/Marked/MarkedExtensions.cs` | `MarkdownLatexTableTests`（3） |
 | `#10897`（1.3.0） | 畸形最终参数上报 `argumentsError` | `Pi.Ai/Utils/JsonParse.cs`（`ParseToolCallArguments`）、`Types/Messages.cs`（`ToolCallContent.ArgumentsError`）、5 个 API 实现、`Utils/Validation.cs`、`Pi.Agent/ToolExecution.cs` | `JsonParseTests`（5）、`OpenAiResponsesTests`（2）、`ValidationTests`（2）、`AgentLoopTests`（3） |
+| `92ab53602`（1.4.0） | `Storage.commit(writes, adopt, context)`：持久后同步采纳一次 | `Pi.Durable/Storage/{IStorage,MemoryStorage,JsonlStorage,SqliteStorage}.cs`、`Session/Session.cs` | `StorageConformance`「adopts a durable commit once…」（4 后端）、`SessionTests.CommitWithoutAdoptionPoisonsTheSession` |
 
 **语料同步说明**（上游行为变更导致的期望更新，非放宽断言）：
 
@@ -155,15 +164,18 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 2. **per-key OpenRouter 目录 / 客户端身份 / telemetry span**：都是新增模块级能力（`openrouter-api.ts`
    77 行 + `remote-catalog-provider` 重写 136 行 + 破坏性选项改名），应作为一个独立阶段整体落地，
    避免半套实现导致 provider 归因与缓存键不一致。
-3. **durable `adopt(seq)` / chord `traceIn` 参数顺序**：上游破坏性 API 变更，端口需同步全部存储实现
-   与一致性测试；单独立项评审更安全。
+3. **durable 观察面 / chord `traceIn`**：`adopt(seq)` 已在第三批完成；剩下的观察面重构
+   （`watchDoc`/`watch`/`watchTaskGraph` 取代 `documentState`/`viewState`/`taskGraph`、
+   WatchEnd 迁 chord 并改 `ended`/`failed`）必须与 Experimental 运行时一起改，`traceIn`
+   则等 telemetry 落地后才有对象可改。
 4. **模型目录新增条目**：纯数据更新，随目录同步脚本一起做，避免手改 `models.json` 漂移。
 5. **`sessionShareDestination` / resume 活动工具 / `--model` 选择策略**：均属 coding-agent 中等规模
    行为变更（14 / 4 / 7 文件），本轮已完成 11 项低风险修复，继续保持小步验证的节奏更稳。
 
 ## 7. 建议的后续顺序
 
-1. durable + chord 破坏性 API 对齐（有明确契约与一致性测试兜底）。
+1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
+   `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ai：identity/telemetry → per-key OpenRouter 目录（`argumentsError` 已在第二批完成）。
 3. coding-agent：`sessionShareDestination` → resume 活动工具 → codemode worker 排队。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。

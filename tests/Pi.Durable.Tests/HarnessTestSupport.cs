@@ -724,7 +724,8 @@ internal sealed class ControlledHarnessStorage(IStorage inner) : IStorage
 
     private HarnessTestSupport.Deferred<Unit>? EnteredSignal { get; set; }
 
-    public async Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
+    public async Task<Seq> CommitAsync(
+        IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal = default)
     {
         AdmittedCommits.Add(writes);
         Commits.Add([.. writes]);
@@ -741,7 +742,7 @@ internal sealed class ControlledHarnessStorage(IStorage inner) : IStorage
             throw failure;
         }
 
-        return await inner.CommitAsync(writes, signal).ConfigureAwait(false);
+        return await inner.CommitAsync(writes, adopt, signal).ConfigureAwait(false);
     }
 
     public Task<TId> MintIdAsync<TId>() where TId : struct => inner.MintIdAsync<TId>();

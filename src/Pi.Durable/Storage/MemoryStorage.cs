@@ -145,14 +145,22 @@ public sealed class MemoryStorage : IStorage
     // ─── 提交 ────────────────────────────────────────────────────────────────
 
     /// <inheritdoc />
-    public Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
+    public Task<Seq> CommitAsync(
+        IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal = default)
     {
-        // 外层锁保证“取序列 → 校验 → 应用”对并发调用是原子的；内层锁可重入。
+        // 外层锁保证“取序列 → 校验 → 应用 → 采纳”对并发调用是原子的；内层锁可重入。
+        // 内存存储在应用完成的同一临界区内采纳：批次已生效，下一次提交不可能插进来。
         lock (_gate)
         {
-            return Task.FromResult(PrepareCommit(writes).Apply());
+            var seq = PrepareCommit(writes).Apply();
+            adopt(seq);
+            return Task.FromResult(seq);
         }
     }
+
+    /// <summary>没有内存所有者的调用方（基准测试、存储用例）的便捷重载。</summary>
+    public Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
+        => CommitAsync(writes, static _ => { }, signal);
 
     /// <summary>
     /// 校验并分离一次提交，但不改变可观察状态。对应 TS <c>MemoryStorage.prepareCommit</c>：

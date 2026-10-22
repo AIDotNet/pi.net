@@ -44,6 +44,45 @@ public static class StorageConformance
                 $"ID {RootConversationId.Value} already belongs to conversation");
         });
 
+        AddCase("adopts a durable commit once before resolving, and never a failed one", async storage =>
+        {
+            // 上游 1.4.0 破坏性契约：存储必须在批次持久后、解析前同步采纳一次；
+            // 持久前失败的提交绝不采纳。TS 用 Proxy 包住所有用例的 commit，C# 无等价物，
+            // 故用一个专职用例把契约逐点钉死（对每种存储后端都会跑一遍）。
+            var rootId = await CreateRootAsync(storage);
+            var events = new List<string>();
+            var entryId = await storage.MintIdAsync<EntryId>();
+            Task<StoredEntry?>? read = null;
+            var seq = await storage.CommitAsync(
+                [new StorageWrite.Entry(Entry(entryId, rootId))],
+                adopted =>
+                {
+                    events.Add($"adopt {adopted.Value}");
+                    // 采纳时批次已持久：此刻发起的读必须能看到它。
+                    read = storage.GetEntryAsync(entryId);
+                });
+            events.Add($"resolve {seq.Value}");
+            Assert.Equal(assert, events, new[] { $"adopt {seq.Value}", $"resolve {seq.Value}" });
+            Assert.IsDefined(assert, read, "adopt must have run during the commit");
+            var stored = await read!;
+            Assert.Be(assert, stored?.CommitSeq, seq);
+
+            // 持久前失败的提交（重复对话 ID）不采纳。
+            events.Clear();
+            await assert.Rejects(
+                () => storage.CommitAsync(
+                    [new StorageWrite.Conversation(new ConversationRecord { Id = rootId })],
+                    adopted => events.Add($"adopt {adopted.Value}")),
+                $"ID {rootId.Value} already belongs to conversation");
+            Assert.Equal(assert, events, Array.Empty<string>());
+
+            var next = await storage.CommitAsync(
+                [new StorageWrite.Entry(Entry(await storage.MintIdAsync<EntryId>(), rootId))],
+                adopted => events.Add($"adopt {adopted.Value}"));
+            Assert.Equal(assert, events, new[] { $"adopt {next.Value}" });
+            Assert.IsGreaterThan(assert, next.Value, seq.Value);
+        });
+
         AddCase("commits mixed table writes atomically and rolls all of them back on failure", async storage =>
         {
             var rootId = await CreateRootAsync(storage);

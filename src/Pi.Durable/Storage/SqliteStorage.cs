@@ -102,8 +102,13 @@ public sealed class SqliteStorage : IStorage, IAsyncDisposable
     }
 
     /// <inheritdoc />
+    public Task<Seq> CommitAsync(
+        IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal = default)
+        => EnqueueAsync(() => CommitCoreAsync(writes, adopt, signal));
+
+    /// <summary>没有内存所有者的调用方（基准测试、存储用例）的便捷重载。</summary>
     public Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
-        => EnqueueAsync(() => CommitCoreAsync(writes, signal));
+        => CommitAsync(writes, static _ => { }, signal);
 
     /// <inheritdoc />
     public Task<TId> MintIdAsync<TId>() where TId : struct
@@ -379,7 +384,8 @@ public sealed class SqliteStorage : IStorage, IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync() => await CloseAsync().ConfigureAwait(false);
 
-    private async Task<Seq> CommitCoreAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal)
+    private async Task<Seq> CommitCoreAsync(
+        IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal)
     {
         signal.ThrowIfCancellationRequested();
         var detachedWrites = CloneWrites(writes);
@@ -414,6 +420,8 @@ public sealed class SqliteStorage : IStorage, IAsyncDisposable
         _nextId = Math.Max(_nextId, candidateNextId);
         UpdateAttachedStates(actions);
         QueuePublication(publication);
+        // 事务已 COMMIT：批次已持久，采纳后才解析；此时排队中的下一次提交尚未开始。
+        adopt(seq);
         return seq;
     }
 

@@ -25,10 +25,25 @@ public sealed record StoredEntry
 /// </summary>
 public interface IStorage
 {
-    /// <summary>原子提交一个批次并返回其序列；解决后经此存储的读取即可见。</summary>
-    Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default);
+    /// <summary>
+    /// 原子持久化一个批次并返回其序列。批次一旦持久，存储必须在本存储的下一次提交开始之前
+    /// **同步调用一次** <paramref name="adopt"/>(seq)，然后才以该 seq 完成；在持久之前失败的
+    /// 提交绝不调用。<paramref name="adopt"/> 是调用方对批次的内存采纳，因此内存始终显示日志的
+    /// 完整前缀；它不会抛错。解决后经此存储的读取即可见。
+    /// 对应 TS <c>Storage.commit(writes, adopt, context)</c>（1.4.0 破坏性变更）。
+    /// </summary>
+    Task<Seq> CommitAsync(
+        IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal = default);
 
-    /// <summary>从 Session 全局数字 ID 命名空间取一个新品牌 ID 候选。对应 TS <c>mintId&lt;I&gt;()</c>。</summary>
+    /// <summary>没有内存所有者的调用方（基准测试、存储一致性用例）的便捷重载：采纳回调为空操作。</summary>
+    Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
+        => CommitAsync(writes, static _ => { }, signal);
+
+    /// <summary>
+    /// 从 Session 全局数字 ID 命名空间取一个新品牌 ID 候选：大于本存储打开以来铸造过的每个 ID，
+    /// 也大于已存储的每个 ID（跨重新打开亦然）——扫描按 ID 序即创建序，Harness 依赖这一点。
+    /// 对应 TS <c>mintId&lt;I&gt;()</c>。
+    /// </summary>
     Task<TId> MintIdAsync<TId>() where TId : struct;
 
     /// <summary>按精确 ID 读对话。</summary>

@@ -54,7 +54,13 @@ public class SessionTests
 
         public void FailNextCommit(Exception error) => _commitFailure = error;
 
-        public async Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
+        private bool _forgetAdoption;
+
+        /// <summary>令下一次提交报告成功却不调用采纳回调（模拟违约存储）。</summary>
+        public void ForgetNextAdoption() => _forgetAdoption = true;
+
+        public async Task<Seq> CommitAsync(
+            IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal = default)
         {
             AdmittedCommits.Add(writes);
             var failure = _commitFailure;
@@ -63,7 +69,13 @@ public class SessionTests
                 _commitFailure = null;
                 throw failure;
             }
-            return await inner.CommitAsync(writes, signal).ConfigureAwait(false);
+            if (_forgetAdoption)
+            {
+                _forgetAdoption = false;
+                // 批次照常持久，但采纳回调被吞掉：Session 必须发现这份“已提交却没采纳”。
+                return await inner.CommitAsync(writes, static _ => { }, signal).ConfigureAwait(false);
+            }
+            return await inner.CommitAsync(writes, adopt, signal).ConfigureAwait(false);
         }
 
         public Task<TId> MintIdAsync<TId>() where TId : struct => inner.MintIdAsync<TId>();
@@ -580,6 +592,20 @@ public class SessionTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             test.Session.CommitAsync(tx => tx.CreateConversationAsync(new ConversationOwnership.Ownerless()), Ctx));
         // 已受理失败后的提交拒绝：Session 被毒化。
+        var poisoned = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            test.Session.CommitAsync(tx => tx.CreateConversationAsync(new ConversationOwnership.Ownerless()), Ctx));
+        Assert.Contains("Session is poisoned", poisoned.Message);
+    }
+
+    [Fact]
+    public async Task CommitWithoutAdoptionPoisonsTheSession()
+    {
+        // 1.4.0 契约：存储在持久后必须采纳。报告成功却没采纳，说明内存已无法与持久状态对齐。
+        var test = OpenTestSession();
+        test.Storage.ForgetNextAdoption();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            test.Session.CommitAsync(tx => tx.CreateConversationAsync(new ConversationOwnership.Ownerless()), Ctx));
+        Assert.Equal("Storage committed without adopting the batch", error.Message);
         var poisoned = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             test.Session.CommitAsync(tx => tx.CreateConversationAsync(new ConversationOwnership.Ownerless()), Ctx));
         Assert.Contains("Session is poisoned", poisoned.Message);

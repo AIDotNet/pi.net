@@ -87,7 +87,8 @@ public sealed class JsonlStorage : IStorage
     // ─── 提交 ────────────────────────────────────────────────────────────────
 
     /// <inheritdoc />
-    public async Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
+    public async Task<Seq> CommitAsync(
+        IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal = default)
     {
         await commitGate.WaitAsync(signal).ConfigureAwait(false);
         try
@@ -119,6 +120,8 @@ public sealed class JsonlStorage : IStorage
 
             var seq = prepared.Apply();
             AdoptSidecarState(prepared.Writes);
+            // 主日志标记已追加：批次已持久。回收 sidecar 放在采纳之后。
+            adopt(seq);
             await ReclaimSidecarsAsync(reclamations).ConfigureAwait(false);
             return seq;
         }
@@ -127,6 +130,10 @@ public sealed class JsonlStorage : IStorage
             commitGate.Release();
         }
     }
+
+    /// <summary>没有内存所有者的调用方（基准测试、存储用例）的便捷重载。</summary>
+    public Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
+        => CommitAsync(writes, static _ => { }, signal);
 
     /// <inheritdoc />
     public Task<TId> MintIdAsync<TId>() where TId : struct => Store().MintIdAsync<TId>();

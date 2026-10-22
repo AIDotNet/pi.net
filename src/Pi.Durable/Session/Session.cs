@@ -476,32 +476,55 @@ public class DurableSession : ISession
             tx.Discard();
             return result;
         }
+        // Storage 在批次持久后同步采纳（早于它的下一次提交）；这里不能让异常穿到 Storage，
+        // 所以回调自己留住错误，等提交解析后再决定如何失败。
+        List<DocumentCommitChange>? adoptedDocuments = null;
+        Exception? adoptionError = null;
+        var adopted = false;
+        void Adopt(Seq committed)
+        {
+            try
+            {
+                adoptedDocuments = tx.Adopt(committed);
+                adopted = true;
+            }
+            catch (Exception error)
+            {
+                adoptionError = error;
+                adopted = true;
+            }
+        }
+
         Seq seq;
         try
         {
             // 一旦受理，调用方取消不会中断 Storage 结算。
-            seq = await _storage.CommitAsync(writes, ContextSignals.WithoutAbortSignal(context).AbortSignal ?? default)
+            seq = await _storage.CommitAsync(
+                writes, Adopt, ContextSignals.WithoutAbortSignal(context).AbortSignal ?? default)
                 .ConfigureAwait(false);
         }
         catch (Exception error)
         {
-            tx.Discard();
+            // 采纳之前失败：没有已提交批次需要丢弃。采纳之后失败则没有暂存可丢。
+            if (!adopted) tx.Discard();
             // 回调错误从不进入此分支；只有 StorageRejected 能保证无批次效果被提交。
             if (error is not StorageRejected) _poison = error;
             throw;
         }
-        List<DocumentCommitChange> documents;
-        try
+        if (!adopted)
         {
-            documents = tx.Adopt(seq);
+            // Storage 已报告提交，却没采纳批次：内存与持久状态已经无法对齐。
+            var error = new InvalidOperationException("Storage committed without adopting the batch");
+            _poison = error;
+            throw error;
         }
-        catch (Exception error)
+        if (adoptionError is not null)
         {
             // Storage 已提交；采纳失败使内存落后于持久状态。
-            _poison = error;
-            throw;
+            _poison = adoptionError;
+            throw adoptionError;
         }
-        Publish(seq, writes, documents, context);
+        Publish(seq, writes, adoptedDocuments!, context);
         return result;
     }
 

@@ -494,12 +494,13 @@ internal sealed class ReopeningStorage : IStorage
         this.fs = fs;
     }
 
-    public async Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
+    public async Task<Seq> CommitAsync(
+        IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal = default)
     {
-        if (closed) return await current.CommitAsync(writes, signal);
+        if (closed) return await current.CommitAsync(writes, adopt, signal);
         try
         {
-            return await current.CommitAsync(writes, signal);
+            return await current.CommitAsync(writes, adopt, signal);
         }
         finally
         {

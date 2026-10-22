@@ -328,8 +328,9 @@ public sealed class HarnessContextCacheTests
 
         public int ScannedRows => Volatile.Read(ref _scannedRows);
 
-        public Task<Seq> CommitAsync(IReadOnlyList<StorageWrite> writes, CancellationToken signal = default)
-            => inner.CommitAsync(writes, signal);
+        public Task<Seq> CommitAsync(
+            IReadOnlyList<StorageWrite> writes, Action<Seq> adopt, CancellationToken signal = default)
+            => inner.CommitAsync(writes, adopt, signal);
 
         public Task<TId> MintIdAsync<TId>() where TId : struct => inner.MintIdAsync<TId>();
 
