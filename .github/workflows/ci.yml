@@ -73,35 +73,43 @@ jobs:
         run: dotnet build Pi.slnx -c Release --no-restore -p:ContinuousIntegrationBuild=true
 
       - name: Test
-        # -m:1 串行执行各测试项目，降低争抢。
-        # 仍保留一次整体重试：ModelSelectorTests / ThemeRuntimeTests 有已知的负载敏感 flake
-        # （见 docs/coding-agent-porting-status.md 的观测名单），单独跑必绿，全量并发下偶发。
-        # 真实失败会在两次都失败后暴露，不影响信号。
+        # 不要加 -m:1：串行执行时测试项目之间会互相干扰（本地实测 Pi.Ai.Tests 出现并行时没有的
+        # 2 个失败，Pi.CodingAgent.Tests 更是 18 分钟不结束）。并行跑 30103 项约 3.5 分钟。
+        # 首轮失败会重跑一次，用来排除 ModelSelectorTests / ThemeRuntimeTests 这两个已知的
+        # 负载敏感 flake（见 docs/coding-agent-porting-status.md 观测名单）。
         run: |
           set -uo pipefail
-          # runner 的 bash 默认带 -e；这里必须显式关掉，否则测试一失败脚本就退出，
-          # 下面的失败用例上报永远不会执行。
           set +e
-          dotnet test Pi.slnx -c Release --no-build -m:1 > test.log 2>&1
+          dotnet test Pi.slnx -c Release --no-build > test.log 2>&1
           status=$?
           set -e
-          # 失败详情集中在末尾；完整输出可能有几十 MB，只回放尾部避免撑爆页面。
-          tail -200 test.log
-          if [[ "${status}" -ne 0 ]]; then
-            # 直接把尾部若干行提升为 annotation，这样在 run 页面和 API 上都能读到失败原因，
-            # 不必下载日志（逐行转义 % 以免破坏 annotation 语法）。
-            tail -12 test.log | sed 's/%/%25/g' | while IFS= read -r line; do
-              echo "::error title=test::${line}"
-            done
-            exit "${status}"
+          if [[ "${status}" -eq 0 ]]; then
+            tail -30 test.log
+            exit 0
           fi
+          echo "::warning::首轮测试失败，重跑一次以排除已知负载敏感 flake"
+          set +e
+          dotnet test Pi.slnx -c Release --no-build > test-retry.log 2>&1
+          status=$?
+          set -e
+          tail -40 test-retry.log
+          if [[ "${status}" -eq 0 ]]; then
+            echo "::warning::重跑通过，首轮失败属负载敏感 flake"
+            exit 0
+          fi
+          grep -E "Failed!|error run failed" test-retry.log | head -10 | sed 's/%/%25/g' | while IFS= read -r line; do
+            echo "::error title=test::${line}"
+          done
+          exit "${status}"
 
       - name: Upload test log on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: test-log
-          path: test.log
+          path: |
+            test.log
+            test-retry.log
           retention-days: 7
           if-no-files-found: ignore
 
