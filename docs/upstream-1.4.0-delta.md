@@ -200,8 +200,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 500 / 500 通过（第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5042 / 5042 通过（第二十九批新增 5 例对话框栈 / overlay 归属；第二十八批
+| `Pi.Ai.Tests` | 502 / 502 通过（第三十五批新增 2 例：ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
+| `Pi.CodingAgent.Tests` | 5050 / 5050 通过（第三十五批新增 8 例：恢复 loadout 的扩展工具激活 / 切树 / 压缩前删除 4 例、
+  拆分回合的前缀摘要 focus 2 例、剪贴板进程组 2 例；第二十九批新增 5 例对话框栈 / overlay 归属；第二十八批
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
@@ -271,8 +272,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    （第二十八批）→ ~~coding-agent：并发扩展对话框堆叠（`38847563f`）、overlay 归属修复（`a4f67eb65`）~~
    （第二十九批）→ ~~durable：按模型压缩阈值~~（第三十批）→ ~~durable：持久睡眠 + 宿主时钟/唤醒~~
    （第三十一批）→ ~~durable：crash-loop guard + task graph `blocked` 原因~~（第三十二批）→ ~~durable：
-   `onReport` info（`ReportInfo`）~~（第三十三批）→ ~~durable：`settings.afterFailedRun`~~（第三十四批）。
-   至此 §3.5.1 表中除已判不适用的两项外无待办项。
+   `onReport` info（`ReportInfo`）~~（第三十三批）→ ~~durable：`settings.afterFailedRun`~~（第三十四批）→
+   ~~收尾审计：四项遗漏修复（`/compact` 前缀摘要、扩展工具 loadout 激活、剪贴板进程组、ChatGPT 限额文案、
+   增量工具提示的移除登记）~~（第三十五批）。至此 §3.5.1 表中除已判不适用的两项外无待办项，
+   `v1.0.4..v1.4.0` 全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -442,8 +445,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 - 文档：`Assets/docs/json.md` 的示例记录与事件表同步成
   `{"type":"agent_settled","aborted":false}` / `| agent_settled | aborted |`。
 - 与上游差异：无。OSC 7501 那半段（`packages/tui/src/program-status.ts`、
-  `coding-agent/src/modes/interactive/program-status-reporter.ts` 等 20 余文件）**未做**，
-  仍留在待办里 —— 它要先给端口终端层加能力查询与 `PI_PROGRAM_STATUS` 覆盖，属于 TUI 批次。
+  `coding-agent/src/modes/interactive/program-status-reporter.ts` 等 20 余文件）当时未做，
+  已在**第二十五批**补齐（见 §6.f）。
 - 测试：`AgentSessionPromptTests.AgentSettledReportsAbortedWhenTheRunWasAborted`（新增）与
   `RunAgentPromptAsync_AgentRunFailure_StillSettlesWithoutThrowing`（强化为断言 `Aborted == false`）。
   新用例用一条阻塞式 `StreamFn`（TCS 放行）把 run 卡在流里，再 `AbortAsync()` —— 中止标志是同步
@@ -1201,6 +1204,59 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.ae 第三十五批（1.4.0 收尾审计：四项遗漏修复）落地明细
+
+§3.5.1 的表清空后，按 `v1.0.4..v1.4.0` 的 278 个提交逐条复核，发现四项**适用但漏移植**的行为修复（另有一处判定
+为纯重构、无行为差异）。本批补齐它们，1.4.0 对齐到此收尾。
+
+**1. `/compact` 的自定义指令漏作用于拆分回合的前缀摘要（`adfc14461`，#11058）**
+
+`Compaction.CompactAsync` 把 `customInstructions` 传给主摘要，却没传给 `GenerateTurnPrefixSummaryAsync`，
+于是拆分回合时用户写的关注点只作用于历史部分。端口补上该参数，并在提示末尾追加
+`\n\nAdditional focus: {customInstructions}`（仅在给出时）。新增 `CompactionSummaryPromptTests`（2 例）：
+拆分回合的唯一请求带上 `Additional focus`，未给指令时不出现该段。
+
+**2. 分支未记录过的扩展工具在 resume / `/tree` 后不激活（`bd3c9b823`，#11062 / #11075）**
+
+`RestoreToolsFromTranscript` 原先只重放「当前系统消息」的 `toolsAdded`，因此恢复后只会有分支当时记下的工具：
+记录 loadout 之后才注册的扩展工具永远不活跃。改为：
+
+- 取**整条分支**的系统消息（含压缩之前的——压缩快照由它们派生），`Transcript.GetCurrentTools` 重放出当时的工具集；
+- 收集分支曾经 `toolsAdded`/`toolsRemoved` 过的全部名字，从未出现过的注册工具视为「记录之后才注册」，
+  按 `IsActivatedOnRegistration`（`defaultActive: false` 除外）激活；内建工具仍跟随 `defaultTools`；
+- 记录过但还没注册的工具（如仍在连接的 MCP 服务器）留待注册时激活；被排除的工具不进待定集合。
+
+`AgentSessionResumeToolsTests` 从 6 例扩到 10 例：新增「激活分支从未提过的扩展工具」「压缩前删掉的工具保持
+不活跃」「切树按目标分支恢复 loadout」「allowlist 外的注册工具切树后仍不活跃」，并把三处既有用例改用
+`ChangedSession()`（记录过增删的会话）。
+
+**3. 剪贴板命令与 pi 共享进程组（`f8ab362cc`，#11179）**
+
+剪贴板写入器常自我守护化，与 pi 同进程组时 `Ctrl+Z`（向整组发 `SIGTSTP`）会把真正的剪贴板属主一起停掉。
+上游在非 Windows 上加 `detached: true`；端口对应 `SpawnOptions.Detached`（Unix 经 `setsid`），Windows 上仍为
+`false`（与上游一致，Windows 没有进程组语义）。新增 `ClipboardCommandTests`（2 例，进程组那条在 Windows 上
+`Assert.Skip`）。
+
+**4. ChatGPT Business 工作区的用量限额没有提示（`cedefc532`）**
+
+Business 计划的 `subscription_sharing_workplace_individual_usage_limit_exceeded` 只有工作区管理员能提高，
+重试无意义。端口此前只在 retry 判定里把它标成不可重试，但失败文案没有提示。抽出
+`OpenAiResponses.DescribeChatGptError`：共享限额附用量页链接，工作区限额提示去找管理员。
+
+**5. 增量工具提示提前把同条消息要删的工具算作「仍然不可用」（`530015d93`）**
+
+`convertResponsesMessages` 原先在 `additional_tools` 之前就把本条消息的 `toolsRemoved` 记进
+`unavailableTools`，于是排在它后面的移除通报被提前复述。改为在渲染完本条移除通报之后再登记，
+增量提示因此只复述更早消息宣布过的移除。新增 `DoesNotListAToolAsStillUnavailableBeforeItsRemovalIsAnnounced`。
+
+**判为无需移植（1 条）**
+
+`transcript.ts` 的 `hasNonAdditiveToolChanges` / `resolveTranscriptTools` 合并成一次扫描（同一提交）：
+端口两处逻辑本就等价，只是没有共享循环，属重构而非行为变更，不动。
+
+**验证**：`dotnet build` 0 警告 0 错误；`Pi.Ai.Tests` 502 / 502（+2）、`Pi.CodingAgent.Tests` 5050 / 5050（+8，
+`ClipboardCommandTests` 2、`CompactionSummaryPromptTests` 2、`AgentSessionResumeToolsTests` +4）。
 
 ### 6.ad 第三十四批（durable：`settings.afterFailedRun`）落地明细
 

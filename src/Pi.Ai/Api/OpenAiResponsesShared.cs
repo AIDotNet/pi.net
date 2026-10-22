@@ -231,7 +231,6 @@ public static class OpenAiResponsesShared
         void AppendSystemToolAdditions(SystemMessage message, string seed)
         {
             var tools = message.ToolsAdded ?? [];
-            foreach (var name in message.ToolsRemoved ?? []) unavailableTools.Add(name);
             foreach (var tool in tools) unavailableTools.Remove(tool.Name);
             if (tools.Count == 0) return;
             if (toolSupport == Transcript.TranscriptToolSupport.Changes)
@@ -312,6 +311,9 @@ public static class OpenAiResponsesShared
                                 text = text.Length > 0
                                     ? $"{text}\n\n{RenderToolRemovalNotice(removed)}"
                                     : RenderToolRemovalNotice(removed);
+                                // 在本次新增之后登记：本条消息的增量工具提示先于这条移除通报，
+                                // 因此它只能复述更早消息宣布过的移除。
+                                foreach (var name in removed) unavailableTools.Add(name);
                             }
                         }
 

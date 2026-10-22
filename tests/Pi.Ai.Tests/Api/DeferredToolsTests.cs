@@ -219,4 +219,33 @@ public class DeferredToolsTests
         Assert.All(notices, notice => Assert.Contains(
             "Still unavailable: drop_tool.", notice.Str("content"), StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// 同一条消息既新增又删除：增量提示排在它自己的删除通报**之前**，因此不能提前把该工具
+    /// 算作「仍然不可用」（上游 530015d93）。
+    /// </summary>
+    [Fact]
+    public void DoesNotListAToolAsStillUnavailableBeforeItsRemovalIsAnnounced()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new SystemMessage("base prompt", Timestamp: 0, ToolsAdded: [Tool("base_tool"), Tool("drop_tool")]),
+            new SystemMessage("", Timestamp: 1, ToolsAdded: [Tool("late_tool")], ToolsRemoved: ["drop_tool"]),
+            new UserMessage([new TextContent("go")], 2),
+        };
+
+        var items = Items(Convert(messages, midConvo: true, additionalTools: true, toolSearch: false));
+
+        // 顺序同 Codex：提示、工具，然后才是删除通报。
+        var notice = Assert.Single(items, item => item.Str("content")?.Contains(
+            "incremental tools update", StringComparison.Ordinal) == true);
+        Assert.DoesNotContain("Still unavailable", notice.Str("content"), StringComparison.Ordinal);
+
+        Assert.Equal("additional_tools", items[^3].Str("type"));
+        Assert.Equal("late_tool", items[^3]["tools"]!.AsArray()[0]!.AsObject().Str("name"));
+        Assert.Contains(
+            "no longer available. Do not call them:\n- drop_tool",
+            items[^2].Str("content"), StringComparison.Ordinal);
+        Assert.Equal("user", items[^1].Str("role"));
+    }
 }

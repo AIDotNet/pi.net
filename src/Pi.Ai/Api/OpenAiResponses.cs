@@ -79,6 +79,10 @@ public static class OpenAiResponses
     private const int MinOutputTokens = 16;
     private const string ChatGptUsageUrl = "https://chatgpt.com/settings/usage";
 
+    private const string ChatGptWorkspaceLimitHint =
+        "You've reached your ChatGPT workspace's usage limit. Ask your workspace admin to increase it at "
+        + "admin.openai.com → Workspace → Usage limits.";
+
     /// <summary>OpenAI API key 以 sk- 开头；其它凭据直连 OpenAI 是 ChatGPT 登录令牌。</summary>
     private static bool IsChatGptSignIn(ModelSpec model, string? apiKey)
         => model.Provider == "openai"
@@ -403,10 +407,9 @@ public static class OpenAiResponses
                 var errorMessage = ProviderError.Format(
                     ProviderError.Normalize(error),
                     $"{(model.Provider == "openai" ? "OpenAI" : model.Provider)} API error");
-                // Sign in with ChatGPT 与其它应用共享订阅用量上限。
-                output.ErrorMessage = errorMessage.Contains("subscription_sharing_usage_limit_exceeded")
-                    ? $"{errorMessage}\nCheck your ChatGPT usage: {ChatGptUsageUrl}"
-                    : errorMessage;
+                // Sign in with ChatGPT 与其它应用共享订阅用量上限；
+                // ChatGPT Business 还叠加了工作区管理员设置的每用户限额。
+                output.ErrorMessage = DescribeChatGptError(errorMessage);
                 var failed = output.Snapshot();
                 stream.Push(new AssistantMessageEvent.Error(output.StopReason, output.ErrorMessage ?? "", failed));
                 stream.End(failed);
@@ -414,6 +417,23 @@ public static class OpenAiResponses
         }, CancellationToken.None);
 
         return stream;
+    }
+
+    /// <summary>
+    /// 失败文案：Sign in with ChatGPT 的订阅共享限额附上用量页链接，Business 计划的工作区管理员
+    /// 限额则提示去找管理员（只有管理员能提高，重试无用）。对应 TS <c>stream</c> 的 errorMessage 分支。
+    /// </summary>
+    internal static string DescribeChatGptError(string errorMessage)
+    {
+        if (errorMessage.Contains("subscription_sharing_usage_limit_exceeded", StringComparison.Ordinal))
+        {
+            return $"{errorMessage}\nCheck your ChatGPT usage: {ChatGptUsageUrl}";
+        }
+
+        return errorMessage.Contains(
+            "subscription_sharing_workplace_individual_usage_limit_exceeded", StringComparison.Ordinal)
+            ? $"{errorMessage}\n{ChatGptWorkspaceLimitHint}"
+            : errorMessage;
     }
 
     /// <summary>service tier 成本乘数。对应 TS <c>getServiceTierCostMultiplier</c>。</summary>

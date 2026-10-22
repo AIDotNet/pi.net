@@ -479,4 +479,24 @@ public class OpenAiResponsesTests
         Assert.Null(toolCall.ArgumentsError);
         Assert.Equal("/tmp/a.txt", ((JsonObject)toolCall.Arguments!).Str("path"));
     }
+
+    /// <summary>
+    /// ChatGPT 限额类失败文案：订阅共享限额附用量页，Business 工作区限额提示找管理员（上游 cedefc532）。
+    /// </summary>
+    [Fact]
+    public void DescribesChatGptUsageLimitErrors()
+    {
+        const string shared = "subscription_sharing_usage_limit_exceeded";
+        Assert.Contains(
+            "Check your ChatGPT usage: https://chatgpt.com/settings/usage",
+            OpenAiResponses.DescribeChatGptError(shared),
+            StringComparison.Ordinal);
+
+        const string workspace = "subscription_sharing_workplace_individual_usage_limit_exceeded";
+        var message = OpenAiResponses.DescribeChatGptError(workspace);
+        Assert.Contains("ChatGPT workspace's usage limit", message, StringComparison.Ordinal);
+        Assert.Contains("Ask your workspace admin to increase it", message, StringComparison.Ordinal);
+
+        Assert.Equal("plain failure", OpenAiResponses.DescribeChatGptError("plain failure"));
+    }
 }

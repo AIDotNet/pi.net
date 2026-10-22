@@ -44,9 +44,12 @@ public static class ClipboardCommand
         var captureStdout = options.Input is null;
 
         // Clipboard writers can daemonize, so they must not be given output pipes to retain.
+        // Detach on POSIX so the daemon leaves pi's process group and Ctrl+Z suspend
+        // (SIGTSTP to the group) does not stop the clipboard owner (#11179).
         var child = ChildProcess.SpawnProcess(command, args, new SpawnOptions
         {
             Stdio = [StdioMode.Pipe, captureStdout ? StdioMode.Pipe : StdioMode.Ignore, StdioMode.Ignore],
+            Detached = !OperatingSystem.IsWindows(),
             WindowsHide = true,
         });
 

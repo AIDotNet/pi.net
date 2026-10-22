@@ -879,7 +879,8 @@ public static class Compaction
                 streamFn,
                 retry,
                 callbacks,
-                sessionId).ConfigureAwait(false);
+                sessionId,
+                customInstructions).ConfigureAwait(false);
 
             summary =
                 $"{historyText}\n\n---\n\n**Turn Context (split turn):**\n\n{turnPrefixResult.Text}";
@@ -938,13 +939,18 @@ public static class Compaction
         StreamFn? streamFn,
         RetryPolicy? retry,
         RetryCallbacks? callbacks,
-        string? sessionId)
+        string? sessionId,
+        string? customInstructions = null)
     {
         // 回合前缀不再使用折算预算，与主摘要一致由 provider 层定尺寸（上游 #9512）。
         _ = reserveTokens;
         var llmMessages = AgentMessages.ConvertToLlm(messages);
         var conversationText = CompactionUtils.SerializeConversation(llmMessages);
         var promptText = $"# Conversation\n{conversationText}\n\n# Instructions\n{TurnPrefixSummarizationPrompt}";
+        if (customInstructions is not null)
+        {
+            promptText = $"{promptText}\n\nAdditional focus: {customInstructions}";
+        }
 
         var response = await CompleteSummarizationAsync(
             model,

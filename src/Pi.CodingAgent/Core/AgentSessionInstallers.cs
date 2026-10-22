@@ -632,15 +632,51 @@ public partial class AgentSession
     private void RestoreToolsFromTranscript(IReadOnlyList<string>? modifiers = null)
     {
         _pendingToolNames.Clear();
-        var current = Transcript.GetCurrentSystemMessage(SessionManager.BuildSessionContext().Messages);
-        if (current is null)
+
+        // 分支上全部系统消息（含压缩之前的）：压缩快照由它们派生，重放即得当前 loadout。
+        var systemMessages = SessionManager.GetBranch()
+            .OfType<SessionMessageEntry>()
+            .Select(entry => entry.Message)
+            .OfType<SystemMessage>()
+            .ToList();
+
+        // 没有记录过 loadout：保持当前工具集。
+        if (systemMessages.Count == 0)
         {
             return;
         }
 
-        var names = SettingsManager.ApplyToolModifiers(
-            (current.ToolsAdded ?? []).Select(tool => tool.Name).ToList(),
-            modifiers ?? []);
+        // 分支曾经加过或删过的工具。删掉的工具保持不活跃。
+        var mentioned = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var message in systemMessages)
+        {
+            foreach (var tool in message.ToolsAdded ?? [])
+            {
+                mentioned.Add(tool.Name);
+            }
+
+            foreach (var name in message.ToolsRemoved ?? [])
+            {
+                mentioned.Add(name);
+            }
+        }
+
+        // 分支从未提及的扩展工具是在它记录 loadout 之后注册的，因此按新注册的工具激活。
+        // 内建工具则跟随 `defaultTools`。
+        var newTools = _toolRegistry.Keys
+            .Where(name =>
+                !mentioned.Contains(name) && !_baseToolDefinitions.ContainsKey(name) && IsActivatedOnRegistration(name))
+            .ToList();
+
+        // 记录过的 loadout 加上新工具，再应用 `--tools +name` / `-name`。
+        var restored = Transcript.GetCurrentTools(systemMessages.Cast<ChatMessage>().ToList())
+            .Select(tool => tool.Name)
+            .Concat(newTools)
+            .ToList();
+        var names = SettingsManager.ApplyToolModifiers(restored, modifiers ?? []);
+
+        // 尚未注册的记录工具（如还在连接的服务器的 MCP 工具）在注册时激活；
+        // 被排除的工具永不注册，因此不留在待定集合里。
         foreach (var name in names.Where(IsAllowedTool))
         {
             _pendingToolNames.Add(name);
