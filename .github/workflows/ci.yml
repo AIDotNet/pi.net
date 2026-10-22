@@ -88,12 +88,22 @@ jobs:
           # 失败详情集中在末尾；完整输出可能有几十 MB，只回放尾部避免撑爆页面。
           tail -200 test.log
           if [[ "${status}" -ne 0 ]]; then
-            # 把失败用例提升为 annotation，这样在 run 页面和 API 上都能直接看到是哪些用例挂了。
-            grep -iE "(failed|失败) +Pi\." test.log | head -15 | while IFS= read -r line; do
+            # 直接把尾部若干行提升为 annotation，这样在 run 页面和 API 上都能读到失败原因，
+            # 不必下载日志（逐行转义 % 以免破坏 annotation 语法）。
+            tail -12 test.log | sed 's/%/%25/g' | while IFS= read -r line; do
               echo "::error title=test::${line}"
             done
             exit "${status}"
           fi
+
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-log
+          path: test.log
+          retention-days: 7
+          if-no-files-found: ignore
 
       # 打包冒烟：不推送，只确认 13 个库仍能产出包（防止 Assets/Pack 元数据回归）。
       - name: Pack (smoke)
