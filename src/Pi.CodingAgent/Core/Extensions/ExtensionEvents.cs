@@ -410,7 +410,8 @@ public abstract record ExtensionEvent
     public sealed record AgentBeforeSettle : BoundaryState;
 
     /// <summary>TS <c>AgentSettledEvent</c>.</summary>
-    public sealed record AgentSettled : ExtensionEvent;
+    /// <param name="Aborted">本轮是否因中止（例如按 Escape）而结束。</param>
+    public sealed record AgentSettled(bool Aborted) : ExtensionEvent;
 
     /// <summary>TS <c>UIPromptStartEvent</c>.</summary>
     public sealed record UiPromptStart(string Kind, string? Title = null) : ExtensionEvent;

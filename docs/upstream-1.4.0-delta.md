@@ -87,7 +87,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `before_agent_start` 覆盖自定义触发轮次（破坏性） | 1.2.0 #10267 | 事件语义变更 | 待办 |
 | `serializeConversation` 省略 thinking | 1.2.0 | 摘要请求体积 | 待办 |
 | 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 本次移植（第十批） |
-| `agent_settled` 增加 `aborted` | 1.1.0 #10607 | 事件字段 | 待办 |
+| `agent_settled` 增加 `aborted` | 1.1.0 #10607 | 事件字段 | 本次移植（第十一批） |
 | 程序状态上报（OSC 7501） | 1.1.0 #10607 | 终端集成 | 待办 |
 | Windows shell 探测补充（Store 别名、非 `C:\Windows`） | 1.1.0–1.4.0 #9501/#9504 | 端口已有同类逻辑，需逐条比对 | 待办 |
 | 移除 `@earendil-works/chord` 依赖、移除实验性 server/client/plugin 栈 | 1.2.0 | 上游删除，端口保留自有实现 | 不适用 |
@@ -162,7 +162,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 470 / 470 通过 |
-| `Pi.CodingAgent.Tests` | 4988 / 4988 通过（第十批新增 2 例；第九批为 4986） |
+| `Pi.CodingAgent.Tests` | 4989 / 4989 通过（第十一批新增 1 例；第十批为 4988） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过 |
 | `Pi.Mcp.Tests` | 52 / 52 通过 |
@@ -207,7 +207,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）。
+3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -366,3 +366,21 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   - 反向断言：剔除范围正好是「截断的调用 + 应答它的结果」两条 `context_edit`（都是 `replacement` 为
     null 的剔除），避免以后把范围放宽悄悄丢上下文。
   - 这两例在去掉结果查找后会失败（请求里会重新出现 `ToolResultMessage`），已实测确认。
+### 6.t 第十一批（`agent_settled.aborted`）落地明细
+
+上游 `503c60552`（#10607）的前半段。`agent_settled` 原先不带任何字段，界面分不清「这轮正常收尾」
+和「这轮被 Escape 中止」，中止也就没法回到 idle。
+
+- `AgentSessionEvent.AgentSettledEvent(bool Aborted)` 与扩展侧的 `ExtensionEvent.AgentSettled(bool Aborted)`
+  各加一个必填字段（TS 同样是必填，不是可选）。
+- `EmitAgentSettledAsync`：在派发前取一次 `_agentRunAbortRequested`，扩展事件与会话事件用**同一个**
+  快照值（TS 的 `const aborted = this._agentRunAbortRequested`）。
+- 文档：`Assets/docs/json.md` 的示例记录与事件表同步成
+  `{"type":"agent_settled","aborted":false}` / `| agent_settled | aborted |`。
+- 与上游差异：无。OSC 7501 那半段（`packages/tui/src/program-status.ts`、
+  `coding-agent/src/modes/interactive/program-status-reporter.ts` 等 20 余文件）**未做**，
+  仍留在待办里 —— 它要先给端口终端层加能力查询与 `PI_PROGRAM_STATUS` 覆盖，属于 TUI 批次。
+- 测试：`AgentSessionPromptTests.AgentSettledReportsAbortedWhenTheRunWasAborted`（新增）与
+  `RunAgentPromptAsync_AgentRunFailure_StillSettlesWithoutThrowing`（强化为断言 `Aborted == false`）。
+  新用例用一条阻塞式 `StreamFn`（TCS 放行）把 run 卡在流里，再 `AbortAsync()` —— 中止标志是同步
+  置位的，所以「先中止、后放行」不会死锁。

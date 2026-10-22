@@ -820,8 +820,9 @@ public partial class AgentSession
         _isEmittingAgentSettled = true;
         try
         {
-            await _extensionRunner.EmitAsync(new ExtensionEvent.AgentSettled()).ConfigureAwait(false);
-            Emit(new AgentSessionEvent.AgentSettledEvent());
+            var aborted = _agentRunAbortRequested;
+            await _extensionRunner.EmitAsync(new ExtensionEvent.AgentSettled(aborted)).ConfigureAwait(false);
+            Emit(new AgentSessionEvent.AgentSettledEvent(aborted));
         }
         finally
         {

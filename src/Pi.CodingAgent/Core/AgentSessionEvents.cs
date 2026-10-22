@@ -146,7 +146,8 @@ public abstract record AgentSessionEvent
     // -------------------------------------------------------------------------
 
     /// <summary>TS <c>agent_settled</c>：本轮 prompt 循环完全落定（含排队/重试/压缩后续）。</summary>
-    public sealed record AgentSettledEvent : AgentSessionEvent
+    /// <param name="Aborted">本轮是否因中止（例如按 Escape）而结束。TS <c>aborted</c>。</param>
+    public sealed record AgentSettledEvent(bool Aborted) : AgentSessionEvent
     {
         public override string Type => "agent_settled";
     }

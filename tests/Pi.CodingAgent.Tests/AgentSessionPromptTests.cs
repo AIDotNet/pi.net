@@ -2,6 +2,7 @@ using Pi.Agent;
 using Pi.Agent.Types;
 using Pi.Ai.Auth;
 using Pi.Ai.Providers;
+using Pi.Ai.Stream;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
@@ -284,8 +285,48 @@ public sealed class AgentSessionPromptTests : IDisposable
 
         await session.RunAgentPromptAsync(new UserMessage("hi", 0));
 
-        Assert.Contains(events, e => e is AgentSessionEvent.AgentSettledEvent);
+        var settled = Assert.Single(events.OfType<AgentSessionEvent.AgentSettledEvent>());
+        Assert.False(settled.Aborted);
         Assert.False(session.IsStreaming);
+        Assert.True(session.IsIdle);
+    }
+
+    [Fact]
+    public async Task AgentSettledReportsAbortedWhenTheRunWasAborted()
+    {
+        // 上游 503c60552（#10607）：agent_settled 带上 aborted，让界面知道这轮是「被中止」
+        // 而不是正常收尾（中止要回到 idle，而不是 done/error）。
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        StreamFn blockingStreamFn = (_, _, _, _) =>
+        {
+            var stream = new AssistantMessageEventStream();
+            return Task.Run(async () =>
+            {
+                entered.TrySetResult();
+                await release.Task.ConfigureAwait(false);
+                var message = new AssistantMessage([], StopReason.Aborted);
+                stream.Push(new AssistantMessageEvent.Done(StopReason.Aborted, message));
+                stream.End(message);
+                return (IAssistantMessageEventStream)stream;
+            });
+        };
+
+        var session = await CreateSessionAsync(initialActiveToolNames: [], streamFn: blockingStreamFn);
+        var events = new List<AgentSessionEvent>();
+        using var _ = session.Subscribe(events.Add);
+
+        var promptTask = session.RunAgentPromptAsync(new UserMessage("hi", 0));
+        await entered.Task;
+        // AbortAsync 先把中止标志同步置位、再去等空闲，因此这里可以「先中止、后放开流」。
+        var abortTask = session.AbortAsync();
+        release.TrySetResult();
+        await abortTask;
+        await promptTask;
+
+        var settled = Assert.Single(events.OfType<AgentSessionEvent.AgentSettledEvent>());
+        Assert.True(settled.Aborted);
         Assert.True(session.IsIdle);
     }
 }
