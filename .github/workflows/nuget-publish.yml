@@ -149,13 +149,17 @@ jobs:
       - name: Push to nuget.org
         if: github.event_name == 'push' || inputs.dry_run == false
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          # 兼容三种配置来源：推荐的 secrets.NUGET_API_KEY、沿用 GraphRag.Net 习惯命名的
+          # secrets.XUZEYU，以及 variables 里的 XUZEYU。
+          # 注意：Variables 是明文存储，如果用到了那条兜底，建议尽快迁到 Secrets。
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.XUZEYU || vars.XUZEYU }}
         run: |
           set -euo pipefail
           if [[ -z "${NUGET_API_KEY:-}" ]]; then
-            echo "::error::仓库 Secrets 中缺少 NUGET_API_KEY（Settings -> Secrets and variables -> Actions）"
+            echo "::error::没取到 NuGet API key。请在 Settings -> Secrets and variables -> Actions 的 Secrets 中新增 NUGET_API_KEY（也接受 XUZEYU）"
             exit 1
           fi
+          echo "::notice::已取到 API key，长度 ${#NUGET_API_KEY}"
           # --skip-duplicate 让重复运行变成幂等操作：已存在的版本跳过，不报错。
           dotnet nuget push "artifacts/*.nupkg" \
             --api-key "${NUGET_API_KEY}" \
