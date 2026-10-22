@@ -18,12 +18,40 @@ Pi.CodingAgent
 
 ## 一次性配置
 
-1. 在 nuget.org 生成 API Key：
-   - Scopes 选 `Push new packages and package versions`；
-   - Glob pattern 填 `Pi.*`（只允许改 Pi 前缀的包）；
-   - 有效期按需选择（最长 365 天），到期需重新生成并更新 secret。
-2. 在 GitHub 仓库 `Settings -> Secrets and variables -> Actions -> New repository secret`
-   添加 `NUGET_API_KEY`，值为上一步的 key。
+### 1. nuget.org 生成 API Key
+
+登录 nuget.org → 右上角用户名 → **API Keys** → **Create**：
+
+- **Key name**：随意，例如 `pi-net-github-actions`；
+- **Select Scopes**：勾 `Push`（即 Push new packages and package versions）；
+- **Select Packages → Glob Pattern**：填 `Pi.*`（只允许改动 Pi 前缀的包）；
+- **Expiration**：按需，最长 365 天，到期需重新生成并更新 secret。
+
+点 **Create** 后立刻 **Copy**——key 只显示这一次，关掉页面就只能重新生成。
+
+### 2. 存进 GitHub Secrets（不是 Variables）
+
+仓库 → `Settings` → `Secrets and variables` → `Actions` → **Secrets** 标签 → `New repository secret`：
+
+- Name: `NUGET_API_KEY`
+- Secret: 上一步复制的 key
+
+> **务必用 Secrets，不要用 Variables。** Variables 是明文，workflow 引用 `${{ vars.X }}` 时
+> 任何能看仓库的人都能读到值；Secrets 加密存储且日志里自动脱敏。
+> （GraphRag.Net 里那条 `${{ vars.XUZEYU }}` 就是配在 Variables 上的，属于要避免的写法。）
+>
+> 另一个选择是 nuget.org 的 **Trusted Publishing**（OIDC，不用长期 key），但需要额外的
+> OIDC 配置；先用 Secret 起步更直接。
+
+### 3. 允许 workflow 创建 Release
+
+仓库 → `Settings` → `Actions` → `General` → **Workflow permissions**：
+
+选中 **Read and write permissions**，然后 Save。
+
+这一步不能省：打 tag 发布时用 `gh release create` 建 Release，需要 `contents: write`。
+如果仓库级设置停在 read-only，workflow 里写的 `permissions: contents: write` 会被压回
+只读，推包可能成功但建 Release 会 403。
 
 > 首次发布时 nuget.org 会把 `Pi.` 前缀归到该账号名下。若返回 403 且提示前缀已被保留，
 > 说明该前缀已被其他账号占用，需要给包 ID 加自己的前缀（例如 `xuzeyu91.Pi.Ai`），
