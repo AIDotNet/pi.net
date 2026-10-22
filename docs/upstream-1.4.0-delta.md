@@ -54,7 +54,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 畸形最终参数上报 `argumentsError`（不再保留解析前缀） | 1.3.0 #10897 | 5 个 API 实现 + 校验层 + agent 预检 | 本次移植（第二批） |
 | `personalizeOpenRouterCatalog()`、`RefreshModelsContext.baseUrl`、按 key 的模型列表 | 1.2.0 #10353 | 新增 `openrouter-api.ts`，重写远端目录 provider | 本次移植（第六批） |
 | 客户端身份 `identity` / `User-Agent` 格式重构 | 1.4.0 | 破坏性：`telemetryContext`→`telemetry`、`getPiUserAgent` 移除 | 本次移植（第五批） |
-| `resolveTranscriptTools` 由布尔改为 `TranscriptToolSupport` | 1.4.0 | 破坏性 API | 待办 |
+| `resolveTranscriptTools` 由布尔改为 `TranscriptToolSupport`（含 #11142 前缀缓存） | 1.4.0 `caa6967b6` | 破坏性 API：`anchorsAdditions` → `foldedSystemMessages` | 本次移植（第十七批） |
 | System One 分类器图像输入、`compat`、llama.cpp 决策模型 | 1.1.0–1.4.0 | codemode + 分类器链路 | 待办 |
 | 模型目录更新（Claude Haiku 5.5、MiniMax-M3.1-Flash、Grok `xhigh` 等） | 1.1.0–1.4.0 | 纯数据 | 不适用（数据不在上游仓库，见 §6.6） |
 | Anthropic `strict:"prefer"` 重试、Mistral 超时范围 | 1.2.0 #10409 / #10609 | provider 兼容细节 | 本次移植（第十三批） |
@@ -161,7 +161,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 484 / 484 通过（第十六批新增 4 例；此前 480） |
+| `Pi.Ai.Tests` | 486 / 486 通过（第十七批 6 例替代 4 例；此前 484） |
 | `Pi.CodingAgent.Tests` | 5014 / 5014 通过（第十六批新增 1 例；第十五批为 5013） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过（第十四批同步了 shell 探测，数量不变）。
@@ -218,7 +218,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）。
+3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
 4. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 5. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
@@ -592,3 +592,47 @@ Windows 上会额外 stat，让可正常执行的 Store 应用别名（`WindowsA
 - **踩坑**：测试上下文必须给 `SupportsMidConvoSystemMessages = true`。否则 `Transcript.ResolveTranscript`
   会把后续系统消息折叠进首条，「迟到的工具」就成了请求级变更，`ResolveTranscriptTools` 返回
   `anchorsAdditions = false`，两种就地补发都不会发生 —— 一开始四个用例里有三个因此失败。
+
+### 6.n 第十七批（`TranscriptToolSupport` 与响应前缀缓存）落地明细
+
+上游 `caa6967b6`（#11142，fixes #10940）把「工具变化能不能就地表达」从布尔改成三值，并顺手修掉
+「每次后续加载都重发顶层工具列表、缓存整段失效」的问题。
+
+**`Transcript.ResolveTranscriptTools` 的契约变了**
+
+- 参数：`bool supportsToolAdditions` → `TranscriptToolSupport`（`None` / `Additions` / `Changes`）。
+- 返回：`(RequestTools, bool AnchorsAdditions)` → `(RequestTools, int FoldedSystemMessages)`。
+  「前多少条系统消息的工具变化已被顶层列表吸收」比「能不能锚定」更精确：`Additions` 下删除或同名
+  重声明会把吸收点前移一次，之后的纯新增仍就地锚定 —— 于是缓存前缀每次删除只失效一次，
+  而不是每次后续新增都失效。
+- 同名在先即算重声明（即使中间被删过）：Kimi K3 会忽略「被删掉又被后来的工具消息重新声明」的工具。
+
+**`OpenAiResponsesShared`**
+
+- 新增 `GetResponsesToolSupport(options)`：`midConvo && additionalTools` → `Changes`；
+  否则 `toolSearch` → `Additions`；否则 `None`。
+- `Changes` 下**所有**工具都进 `additional_tools`（含首条系统消息，像 Codex），顶层 `tools` 留空：
+  后来的 `additional_tools` 项无法替换顶层工具，混用会让重定义失效。
+- 首条之后的每个 `additional_tools` 前加一句「这是增量」；通报过删除后还要重申
+  `Still unavailable: …`，否则模型会把最新一项当成完整工具集，小模型会在后续加载后重新调用已删工具。
+- 删除改成文本通报 `renderToolRemovalNotice`；重定义（删同名 + 加同名）**不**通报删除。
+
+**调用点**
+
+`OpenAiResponses` / `AzureOpenAiResponses` / `OpenAiCodexResponses` 改成先建
+`ConvertResponsesMessagesOptions`，再用 `GetResponsesToolSupport(同一份 options)` 决定顶层列表；
+`OpenAiCompletions`（两处 + `ConvertMessages`）用 `Additions`/`None` 二值，并按系统消息序号
+`systemIndex++ >= FoldedSystemMessages` 决定是否就地发 Kimi 的 `system{tools}` 消息。
+
+**测试**（`tests/Pi.Ai.Tests/Api/DeferredToolsTests.cs` 重写为 6 例，对应上游
+`transcript-tool-changes.test.ts` 的 Responses 部分）
+
+- `Changes`：顶层工具为空；`additional_tools` 依次是 `base_tool`、`late_tool`，且「增量」提示排在第二条之前。
+- `Additions`：顶层只有 `base_tool`；`late_tool` 走 `tool_search_call/output`（`defer_loading=true`）。
+- `None`：顶层就是 `[base_tool, late_tool]`，没有任何就地标记。
+- 删除以文本通报；重定义只发新的 `additional_tools`，不通报删除。
+- **前缀稳定（#10940）**：分四步累积同一段对话（初始 → 删除 → 两次加载），断言每次请求的 `input`
+  以上一次的 `input` 为前缀、`additional_tools` 序列为
+  `[base_tool, drop_tool] / [late_tool] / [later_tool]`、两次增量提示都带 `Still unavailable: drop_tool.`。
+- `TranscriptAndUtilsTests` 的旧用例改写为四值断言（`Additions` 吸收点 1、删除后 2，`Changes` 0 且顶层空，
+  `None` 2 且顶层为当前工具集）。

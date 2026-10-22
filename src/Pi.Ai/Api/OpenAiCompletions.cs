@@ -593,10 +593,13 @@ public static class OpenAiCompletions
             normalizedContext.Messages, model, (id, _, _) => NormalizeToolCallId(model, id));
         var transcriptTools = Transcript.ResolveTranscriptTools(
             normalizedContext.Messages,
-            compat.SupportsMidConvoSystemMessages && compat.SupportsMidConvoToolAdditions);
+            compat.SupportsMidConvoSystemMessages && compat.SupportsMidConvoToolAdditions
+                ? Transcript.TranscriptToolSupport.Additions
+                : Transcript.TranscriptToolSupport.None);
         var instructionRole = model.Reasoning && compat.SupportsDeveloperRole ? "developer" : "system";
 
         string? lastRole = null;
+        var systemIndex = 0;
 
         for (var i = 0; i < transformedMessages.Count; i++)
         {
@@ -615,7 +618,8 @@ public static class OpenAiCompletions
             {
                 case SystemMessage systemMessage:
                 {
-                    var addedTools = i > 0 && transcriptTools.AnchorsAdditions
+                    // TransformMessages 保持系统消息顺序，所以它们的序号与 transcript 一致。
+                    var addedTools = systemIndex++ >= transcriptTools.FoldedSystemMessages
                         ? systemMessage.ToolsAdded ?? []
                         : [];
                     if (addedTools.Count > 0)
@@ -1042,7 +1046,9 @@ public static class OpenAiCompletions
 
         var transcriptTools = Transcript.ResolveTranscriptTools(
             context.Messages,
-            compat.SupportsMidConvoSystemMessages && compat.SupportsMidConvoToolAdditions);
+            compat.SupportsMidConvoSystemMessages && compat.SupportsMidConvoToolAdditions
+                ? Transcript.TranscriptToolSupport.Additions
+                : Transcript.TranscriptToolSupport.None);
         var messages = ConvertMessages(model, context, compat, grammarToolInputProperties);
         var cacheControl = GetCompatCacheControl(compat, cacheRetention);
 

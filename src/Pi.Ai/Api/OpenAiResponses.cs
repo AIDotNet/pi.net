@@ -170,22 +170,22 @@ public static class OpenAiResponses
 
         var supportsMidConvo = CompatBool(compat, "supportsMidConvoSystemMessages");
         var normalizedContext = Transcript.ResolveTranscript(context, supportsMidConvo);
-        var transcriptTools = Transcript.ResolveTranscriptTools(
-            normalizedContext.Messages,
-            CompatBool(compat, "supportsAdditionalTools") || CompatBool(compat, "supportsToolSearch"));
-        var messages = OpenAiResponsesShared.ConvertResponsesMessages(
-            model, normalizedContext, OpenAiToolCallProviders, new ConvertResponsesMessagesOptions
+        var messageOptions = new ConvertResponsesMessagesOptions
+        {
+            GrammarToolInputProperties = grammarToolInputProperties,
+            SupportsMidConvoSystemMessages = supportsMidConvo,
+            SupportsAdditionalTools = CompatBool(compat, "supportsAdditionalTools"),
+            SupportsToolSearch = CompatBool(compat, "supportsToolSearch"),
+            ToolOptions = new ConvertResponsesToolsOptions
             {
-                GrammarToolInputProperties = grammarToolInputProperties,
-                SupportsMidConvoSystemMessages = supportsMidConvo,
-                SupportsAdditionalTools = CompatBool(compat, "supportsAdditionalTools"),
-                SupportsToolSearch = CompatBool(compat, "supportsToolSearch"),
-                ToolOptions = new ConvertResponsesToolsOptions
-                {
-                    SupportsStrictMode = CompatBool(compat, "supportsStrictMode"),
-                    SupportsOpenAiGrammarTools = CompatBool(compat, "supportsOpenAIGrammarTools"),
-                },
-            });
+                SupportsStrictMode = CompatBool(compat, "supportsStrictMode"),
+                SupportsOpenAiGrammarTools = CompatBool(compat, "supportsOpenAIGrammarTools"),
+            },
+        };
+        var transcriptTools = Transcript.ResolveTranscriptTools(
+            normalizedContext.Messages, OpenAiResponsesShared.GetResponsesToolSupport(messageOptions));
+        var messages = OpenAiResponsesShared.ConvertResponsesMessages(
+            model, normalizedContext, OpenAiToolCallProviders, messageOptions);
 
         var cacheRetention = ResolveCacheRetention(options?.CacheRetention, options?.Env);
         var cacheSessionId = cacheRetention == "none" ? null : options?.SessionId;

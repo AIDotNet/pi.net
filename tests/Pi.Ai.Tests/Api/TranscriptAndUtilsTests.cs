@@ -70,18 +70,32 @@ public class TranscriptTests
             new SystemMessage(ToolsAdded: [Tool("a")]),
             new SystemMessage(ToolsAdded: [Tool("b")]),
         };
-        var (requestTools, anchorsAdditions) = Transcript.ResolveTranscriptTools(additive, supportsToolAdditions: true);
-        Assert.True(anchorsAdditions);
-        Assert.Equal(["a"], requestTools.Select(t => t.Name).ToList()); // 首条声明
+        var (requestTools, folded) = Transcript.ResolveTranscriptTools(
+            additive, Transcript.TranscriptToolSupport.Additions);
+        Assert.Equal(1, folded); // 只有首条被顶层吸收，第二条就地新增
+        Assert.Equal(["a"], requestTools.Select(t => t.Name).ToList());
 
         var nonAdditive = new List<ChatMessage>
         {
             new SystemMessage(ToolsAdded: [Tool("a")]),
             new SystemMessage(ToolsRemoved: ["a"]),
         };
-        var (requestTools2, anchors2) = Transcript.ResolveTranscriptTools(nonAdditive, supportsToolAdditions: true);
-        Assert.False(anchors2);
+        var (requestTools2, folded2) = Transcript.ResolveTranscriptTools(
+            nonAdditive, Transcript.TranscriptToolSupport.Additions);
+        Assert.Equal(2, folded2); // 删除无法就地表达，顶层前移到删除之后
         Assert.Empty(requestTools2); // 删除后无工具
+
+        // changes：顶层留空，所有工具都在就地声明。
+        var (requestTools3, folded3) = Transcript.ResolveTranscriptTools(
+            additive, Transcript.TranscriptToolSupport.Changes);
+        Assert.Empty(requestTools3);
+        Assert.Equal(0, folded3);
+
+        // none：顶层就是当前工具集。
+        var (requestTools4, folded4) = Transcript.ResolveTranscriptTools(
+            additive, Transcript.TranscriptToolSupport.None);
+        Assert.Equal(["a", "b"], requestTools4.Select(t => t.Name).ToList());
+        Assert.Equal(2, folded4);
     }
 
     [Fact]

@@ -217,14 +217,59 @@ public static class Transcript
         return false;
     }
 
-    /// <summary>顶层请求字段与就地增量的工具声明拆分。对应 TS <c>TranscriptTools</c> + <c>resolveTranscriptTools</c>。</summary>
-    public static (IReadOnlyList<ToolDefinition> RequestTools, bool AnchorsAdditions) ResolveTranscriptTools(
-        IReadOnlyList<ChatMessage> messages, bool supportsToolAdditions)
+    /// <summary>
+    /// 传输层如何表达首请求之后的工具变化。对应 TS <c>TranscriptToolSupport</c>。
+    /// </summary>
+    public enum TranscriptToolSupport
     {
-        var anchorsAdditions = supportsToolAdditions && !HasNonAdditiveToolChanges(messages);
-        var requestTools = anchorsAdditions
-            ? GetInitialSystemMessage(messages)?.ToolsAdded ?? []
-            : GetCurrentTools(messages);
-        return (requestTools, anchorsAdditions);
+        /// <summary>只有顶层工具列表，它始终是当前工具集。</summary>
+        None,
+
+        /// <summary>工具可以在后续消息就地新增，但不能删除或重定义。</summary>
+        Additions,
+
+        /// <summary>
+        /// 所有工具（含最初的）都在就地声明，同名后来者替换先前声明。删除在协议上无法表达，
+        /// 传输层改用文本告知，被删除的工具仍保持声明。
+        /// </summary>
+        Changes,
+    }
+
+    /// <summary>
+    /// 顶层请求字段与就地变化的工具声明拆分。对应 TS <c>TranscriptTools</c> + <c>resolveTranscriptTools</c>。
+    /// </summary>
+    /// <returns>
+    /// <c>RequestTools</c>：顶层请求里的工具；<c>FoldedSystemMessages</c>：前多少条系统消息的工具变化已被
+    /// 顶层列表吸收，之后的每条系统消息各自就地携带变化。
+    /// </returns>
+    public static (IReadOnlyList<ToolDefinition> RequestTools, int FoldedSystemMessages) ResolveTranscriptTools(
+        IReadOnlyList<ChatMessage> messages, TranscriptToolSupport support)
+    {
+        var systemMessages = messages.OfType<SystemMessage>().ToList();
+        if (support == TranscriptToolSupport.None)
+        {
+            return (GetCurrentTools(systemMessages), systemMessages.Count);
+        }
+
+        if (support == TranscriptToolSupport.Changes) return ([], 0);
+
+        var folded = GetInitialSystemMessage(messages) is not null ? 1 : 0;
+        // 只增不改：删除或同名重声明无法就地表达，于是顶层列表取「最后一次这类变化之后」的工具状态，
+        // 之后的纯新增仍可就地锚定 —— 缓存前缀每次删除只失效一次，而不是每次后续新增都失效。
+        // 同名在先即算重声明（即使中间被删过）：Kimi K3 会忽略被删除又被工具消息重新声明的工具。
+        var declared = new HashSet<string>();
+        for (var index = 0; index < systemMessages.Count; index++)
+        {
+            var message = systemMessages[index];
+            var added = message.ToolsAdded ?? [];
+            if ((message.ToolsRemoved?.Count ?? 0) > 0 || added.Any(tool => declared.Contains(tool.Name)))
+            {
+                folded = Math.Max(folded, index + 1);
+            }
+
+            foreach (var tool in added) declared.Add(tool.Name);
+        }
+
+        return (GetCurrentTools(systemMessages.Take(folded).ToList()), folded);
     }
 }

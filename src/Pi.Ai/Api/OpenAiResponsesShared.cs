@@ -134,6 +134,42 @@ public static class OpenAiResponsesShared
     // =============================================================================
 
     /// <summary>
+    /// Responses 传输如何表达工具变化。对应 TS <c>getResponsesToolSupport</c>。
+    /// <para><c>additional_tools</c> 项是累积的：后来的项新增工具、替换同名的先前就地定义，但既不能替换
+    /// 顶层工具，也不能删除任何工具。所以像 Codex 一样把所有工具都放进 <c>additional_tools</c>（首条在
+    /// 输入开头），删除改用文本通报。合成的 tool search 只能新增。没有会话中系统消息时没有可锚定的位置。</para>
+    /// </summary>
+    public static Transcript.TranscriptToolSupport GetResponsesToolSupport(ConvertResponsesMessagesOptions? options)
+    {
+        if ((options?.SupportsMidConvoSystemMessages ?? false) && (options?.SupportsAdditionalTools ?? false))
+            return Transcript.TranscriptToolSupport.Changes;
+        return options?.SupportsToolSearch == true
+            ? Transcript.TranscriptToolSupport.Additions
+            : Transcript.TranscriptToolSupport.None;
+    }
+
+    /// <summary>
+    /// 首条之后的每个 <c>additional_tools</c> 前面都要加这段说明。对应 TS
+    /// <c>renderIncrementalToolsNotice</c>：一旦通报过删除，模型会把最新一项当成完整工具集；
+    /// 再重申一次「仍然不可用」的工具，能避免小模型在后续加载后重新调用它们。
+    /// </summary>
+    private static string RenderIncrementalToolsNotice(IReadOnlySet<string> unavailable)
+    {
+        const string notice =
+            "This is an incremental tools update. Previously declared tools remain available unless explicitly " +
+            "marked unavailable. A tool declared again here is available again, and its latest definition " +
+            "replaces the earlier one.";
+        return unavailable.Count > 0
+            ? $"{notice}\nStill unavailable: {string.Join(", ", unavailable)}."
+            : notice;
+    }
+
+    /// <summary>删除通报文本。对应 TS <c>renderToolRemovalNotice</c>。</summary>
+    private static string RenderToolRemovalNotice(IReadOnlyList<string> names)
+        => $"The following tools are no longer available. Do not call them:\n{
+            string.Join("\n", names.Select(name => $"- {name}"))}";
+
+    /// <summary>
     /// 把 transcript 转换为 Responses <c>input</c> 数组。对应 TS
     /// <c>convertResponsesMessages</c>：思维块以签名 JSON 重放为 reasoning 项，
     /// 文本以 msg_pi_* 兜底 id 重放（签名带真实 id），工具调用按
@@ -179,16 +215,39 @@ public static class OpenAiResponsesShared
 
         var transformedMessages = TransformMessages.Transform(
             normalizedContext.Messages, model, NormalizeToolCallId);
-        var (requestTools, anchorsAdditions) = Transcript.ResolveTranscriptTools(
-            normalizedContext.Messages,
-            (options?.SupportsAdditionalTools ?? false) || (options?.SupportsToolSearch ?? false));
+        var toolSupport = GetResponsesToolSupport(options);
+        var (requestTools, foldedSystemMessages) =
+            Transcript.ResolveTranscriptTools(normalizedContext.Messages, toolSupport);
+        var declaredAdditionalTools = false;
+        // 已宣布移除、之后没有再声明过的工具。
+        var unavailableTools = new HashSet<string>();
+
+        var includeInitialSystemMessage = options?.IncludeSystemPrompt ?? true;
+        var supportsDeveloperRole = model.Extra?["compat"]?["supportsDeveloperRole"] is JsonValue { } devRole
+            ? devRole.TryGetValue<bool>(out var flag) && flag
+            : true;
+        var instructionRole = model.Reasoning && supportsDeveloperRole ? "developer" : "system";
 
         void AppendSystemToolAdditions(SystemMessage message, string seed)
         {
-            var tools = anchorsAdditions ? message.ToolsAdded ?? [] : [];
+            var tools = message.ToolsAdded ?? [];
+            foreach (var name in message.ToolsRemoved ?? []) unavailableTools.Add(name);
+            foreach (var tool in tools) unavailableTools.Remove(tool.Name);
             if (tools.Count == 0) return;
-            if (options?.SupportsAdditionalTools == true)
+            if (toolSupport == Transcript.TranscriptToolSupport.Changes)
             {
+                // 第二个及之后的 additional_tools 前先声明「这是增量」：没有这句话，模型会把最新一条
+                // 当成完整工具集，删过的工具就不再可用了。
+                if (declaredAdditionalTools)
+                {
+                    messages.Add(new JsonObject
+                    {
+                        ["role"] = instructionRole,
+                        ["content"] = RenderIncrementalToolsNotice(unavailableTools),
+                    });
+                }
+
+                declaredAdditionalTools = true;
                 messages.Add(new JsonObject
                 {
                     ["type"] = "additional_tools",
@@ -197,7 +256,8 @@ public static class OpenAiResponsesShared
                 });
                 return;
             }
-            if (options?.SupportsToolSearch != true) return;
+
+            if (toolSupport != Transcript.TranscriptToolSupport.Additions) return;
             var names = tools.Select(tool => tool.Name).ToList();
             var callId = $"pi_tool_load_{Hash.ShortHash($"{seed}:{string.Join(",", names)}")}";
             messages.Add(new JsonObject
@@ -223,14 +283,9 @@ public static class OpenAiResponsesShared
             });
         }
 
-        var includeInitialSystemMessage = options?.IncludeSystemPrompt ?? true;
-        var supportsDeveloperRole = model.Extra?["compat"]?["supportsDeveloperRole"] is JsonValue { } devRole
-            ? devRole.TryGetValue<bool>(out var flag) && flag
-            : true;
-        var instructionRole = model.Reasoning && supportsDeveloperRole ? "developer" : "system";
-
         var msgIndex = 0;
         var sourceIndex = 0;
+        var systemIndex = 0;
         foreach (var msg in transformedMessages)
         {
             var isLeadingSystemMessage = sourceIndex++ == 0 && msg is SystemMessage;
@@ -238,12 +293,28 @@ public static class OpenAiResponsesShared
             {
                 case SystemMessage system:
                 {
-                    if (!isLeadingSystemMessage) AppendSystemToolAdditions(system, $"system:{msgIndex}");
+                    // TransformMessages 保持系统消息顺序，所以它们的序号与 transcript 一致。
+                    var anchorsToolChanges = systemIndex++ >= foldedSystemMessages;
+                    if (anchorsToolChanges) AppendSystemToolAdditions(system, $"system:{msgIndex}");
                     if (!isLeadingSystemMessage || includeInitialSystemMessage)
                     {
                         var text = isLeadingSystemMessage
                             ? Text.GetSystemMessageText(system)
                             : Text.RenderSystemMessageUpdate(system);
+                        if (anchorsToolChanges)
+                        {
+                            // 重定义等于「删同名 + 加同名」，只有真正的删除才通报。
+                            var added = (system.ToolsAdded ?? []).Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+                            var removed = (system.ToolsRemoved ?? [])
+                                .Where(name => !added.Contains(name)).ToList();
+                            if (removed.Count > 0)
+                            {
+                                text = text.Length > 0
+                                    ? $"{text}\n\n{RenderToolRemovalNotice(removed)}"
+                                    : RenderToolRemovalNotice(removed);
+                            }
+                        }
+
                         if (text.Length > 0)
                         {
                             messages.Add(new JsonObject

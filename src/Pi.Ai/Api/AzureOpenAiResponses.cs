@@ -192,21 +192,22 @@ public static class AzureOpenAiResponses
         var supportsToolSearch = CompatBool("supportsToolSearch", false);
         var supportsMidConvo = CompatBool("supportsMidConvoSystemMessages", false);
         var normalizedContext = Transcript.ResolveTranscript(context, supportsMidConvo);
-        var transcriptTools = Transcript.ResolveTranscriptTools(
-            normalizedContext.Messages, supportsAdditionalTools || supportsToolSearch);
-        var messages = OpenAiResponsesShared.ConvertResponsesMessages(
-            model, normalizedContext, AzureToolCallProviders, new ConvertResponsesMessagesOptions
+        var messageOptions = new ConvertResponsesMessagesOptions
+        {
+            GrammarToolInputProperties = grammarToolInputProperties,
+            SupportsMidConvoSystemMessages = supportsMidConvo,
+            SupportsAdditionalTools = supportsAdditionalTools,
+            SupportsToolSearch = supportsToolSearch,
+            ToolOptions = new ConvertResponsesToolsOptions
             {
-                GrammarToolInputProperties = grammarToolInputProperties,
-                SupportsMidConvoSystemMessages = supportsMidConvo,
-                SupportsAdditionalTools = supportsAdditionalTools,
-                SupportsToolSearch = supportsToolSearch,
-                ToolOptions = new ConvertResponsesToolsOptions
-                {
-                    SupportsStrictMode = CompatBool("supportsStrictMode", true),
-                    SupportsOpenAiGrammarTools = CompatBool("supportsOpenAIGrammarTools", false),
-                },
-            });
+                SupportsStrictMode = CompatBool("supportsStrictMode", true),
+                SupportsOpenAiGrammarTools = CompatBool("supportsOpenAIGrammarTools", false),
+            },
+        };
+        var transcriptTools = Transcript.ResolveTranscriptTools(
+            normalizedContext.Messages, OpenAiResponsesShared.GetResponsesToolSupport(messageOptions));
+        var messages = OpenAiResponsesShared.ConvertResponsesMessages(
+            model, normalizedContext, AzureToolCallProviders, messageOptions);
 
         var requestParams = new JsonObject
         {

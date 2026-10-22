@@ -224,23 +224,24 @@ public static partial class OpenAiCodexResponses
         var supportsToolSearch = CompatBool("supportsToolSearch", false);
         var supportsMidConvo = CompatBool("supportsMidConvoSystemMessages", false);
         var normalizedContext = Transcript.ResolveTranscript(context, supportsMidConvo);
-        var transcriptTools = Transcript.ResolveTranscriptTools(
-            normalizedContext.Messages, supportsAdditionalTools || supportsToolSearch);
-        var messages = OpenAiResponsesShared.ConvertResponsesMessages(
-            model, normalizedContext, CodexToolCallProviders, new ConvertResponsesMessagesOptions
+        var messageOptions = new ConvertResponsesMessagesOptions
+        {
+            IncludeSystemPrompt = false,
+            GrammarToolInputProperties = grammarToolInputProperties,
+            SupportsMidConvoSystemMessages = supportsMidConvo,
+            SupportsAdditionalTools = supportsAdditionalTools,
+            SupportsToolSearch = supportsToolSearch,
+            ToolOptions = new ConvertResponsesToolsOptions
             {
-                IncludeSystemPrompt = false,
-                GrammarToolInputProperties = grammarToolInputProperties,
-                SupportsMidConvoSystemMessages = supportsMidConvo,
-                SupportsAdditionalTools = supportsAdditionalTools,
-                SupportsToolSearch = supportsToolSearch,
-                ToolOptions = new ConvertResponsesToolsOptions
-                {
-                    Strict = null,
-                    SupportsStrictMode = supportsStrictMode,
-                    SupportsOpenAiGrammarTools = supportsOpenAiGrammarTools,
-                },
-            });
+                Strict = null,
+                SupportsStrictMode = supportsStrictMode,
+                SupportsOpenAiGrammarTools = supportsOpenAiGrammarTools,
+            },
+        };
+        var transcriptTools = Transcript.ResolveTranscriptTools(
+            normalizedContext.Messages, OpenAiResponsesShared.GetResponsesToolSupport(messageOptions));
+        var messages = OpenAiResponsesShared.ConvertResponsesMessages(
+            model, normalizedContext, CodexToolCallProviders, messageOptions);
 
         var initialSystemMessage = Transcript.GetInitialSystemMessage(context.Messages);
         var instructions = initialSystemMessage is not null
