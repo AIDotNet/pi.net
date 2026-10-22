@@ -160,7 +160,6 @@ public partial class AgentSession
     private readonly ConditionalWeakTable<object, EntryIdBox> _entryIdsByMessage = new();
     private readonly ConditionalWeakTable<object, object> _boundaryDispatchedMessages = new();
     private AssistantMessage? _lastAssistantMessage;
-    private readonly List<ChatMessage> _lastAssistantToolResults = [];
     private string _lastActivityOutcome = "completed";
     private bool _isBeforeSettle;
     private bool _abortDuringBeforeSettle;

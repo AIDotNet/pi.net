@@ -971,10 +971,8 @@ public partial class AgentSession
         // turn 在助手消息与它的全部工具结果都落定后才结束，因此这是「只作上下文的」自定义消息
         // 唯一能插入而不落在 tool_call 与 tool_result 之间的时刻。在扩展与监听器分发之后再冲刷，
         // 也就能捡到 turn_end 处理器排进来的消息。
-        if (@event is AgentEvent.TurnEnd turnEnd)
+        if (@event is AgentEvent.TurnEnd)
         {
-            _lastAssistantToolResults.Clear();
-            _lastAssistantToolResults.AddRange(turnEnd.ToolResults);
             FlushPendingCustomMessages();
         }
     }

@@ -280,9 +280,7 @@ public partial class AgentSession
     private async Task<bool> HandlePostAgentRunAsync()
     {
         var message = _lastAssistantMessage;
-        var toolResults = new List<ChatMessage>(_lastAssistantToolResults);
         _lastAssistantMessage = null;
-        _lastAssistantToolResults.Clear();
 
         if (_agentRunAbortRequested)
         {
@@ -322,7 +320,7 @@ public partial class AgentSession
             _retryAttempt = 0;
         }
 
-        if (await CheckCompactionAsync(message, skipAbortedCheck: true, toolResults).ConfigureAwait(false))
+        if (await CheckCompactionAsync(message, skipAbortedCheck: true).ConfigureAwait(false))
         {
             return !_agentRunAbortRequested;
         }
@@ -475,19 +473,57 @@ public partial class AgentSession
             FinalError: "Retry cancelled"));
     }
 
-    /// <summary>TS <c>_omitRecoveryAttempt(message, toolResults)</c>（TS 1224-1241）。</summary>
-    private void OmitRecoveryAttempt(AssistantMessage message, IReadOnlyList<ChatMessage>? toolResults = null)
+    /// <summary>
+    /// TS <c>_omitRecoveryAttempt(message)</c>（TS 1236-1262）：把失败的一次尝试连同应答它的工具结果
+    /// 一起从模型投影里持久剔除。
+    /// </summary>
+    /// <remarks>
+    /// 工具结果就在投影上下文里就地找，所以无论调用方是本次 run 还是恢复的会话，那一对总是同时被剔除。
+    /// 落单的工具结果会被落库，之后每个请求都会被 provider 拒绝（#11227）。
+    /// </remarks>
+    private void OmitRecoveryAttempt(AssistantMessage message)
     {
-        var targets = new List<ChatMessage> { message };
-        if (toolResults is not null)
+        var toolCallIds = new HashSet<string>(
+            message.Content.OfType<ToolCallContent>().Select(block => block.Id), StringComparer.Ordinal);
+        // 上下文编辑会把投影副本换掉，所以按来源条目也认一遍。
+        var entryId = FindPersistedMessageEntryIdFor(message);
+        var agentMessages = _agent.Messages;
+        var index = -1;
+        for (var i = 0; i < agentMessages.Count; i++)
         {
-            targets.AddRange(toolResults);
+            var candidate = agentMessages[i];
+            if (ReferenceEquals(candidate, message)
+                || (entryId is not null
+                    && _entryIdsByMessage.TryGetValue(candidate, out var box)
+                    && box.Id == entryId))
+            {
+                index = i;
+                break;
+            }
+        }
+
+        var targets = new List<ChatMessage> { message };
+        if (index >= 0)
+        {
+            for (var i = index + 1; i < agentMessages.Count; i++)
+            {
+                var candidate = agentMessages[i];
+                // 工具结果紧跟在发起调用的助手消息之后，遇到下一条助手消息就停。
+                if (candidate is AssistantMessage)
+                {
+                    break;
+                }
+
+                if (candidate is ToolResultMessage result && toolCallIds.Contains(result.ToolCallId))
+                {
+                    targets.Add(result);
+                }
+            }
         }
 
         var targetIds = targets.Select(FindPersistedMessageEntryIdFor).ToList();
-        var agentMessages = _agent.Messages;
         var unresolvedProjectedTarget = targets
-            .Where((target, index) => targetIds[index] is null && agentMessages.Contains(target))
+            .Where((target, targetIndex) => targetIds[targetIndex] is null && agentMessages.Contains(target))
             .Any();
         if (unresolvedProjectedTarget)
         {

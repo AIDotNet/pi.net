@@ -86,7 +86,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `reachesTools`、命名空间 `aliases` | 1.2.0 | 工具可达性与 MCP 等待 | 待办 |
 | `before_agent_start` 覆盖自定义触发轮次（破坏性） | 1.2.0 #10267 | 事件语义变更 | 待办 |
 | `serializeConversation` 省略 thinking | 1.2.0 | 摘要请求体积 | 待办 |
-| 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 待办 |
+| 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 本次移植（第十批） |
 | `agent_settled` 增加 `aborted` | 1.1.0 #10607 | 事件字段 | 待办 |
 | 程序状态上报（OSC 7501） | 1.1.0 #10607 | 终端集成 | 待办 |
 | Windows shell 探测补充（Store 别名、非 `C:\Windows`） | 1.1.0–1.4.0 #9501/#9504 | 端口已有同类逻辑，需逐条比对 | 待办 |
@@ -162,7 +162,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 470 / 470 通过 |
-| `Pi.CodingAgent.Tests` | 4986 / 4986 通过（第九批后仍为 4986，改动集中在既有用例） |
+| `Pi.CodingAgent.Tests` | 4988 / 4988 通过（第十批新增 2 例；第九批为 4986） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过 |
 | `Pi.Mcp.Tests` | 52 / 52 通过 |
@@ -207,7 +207,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）。
+3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -347,3 +347,22 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   `AResourcesListChangedNotificationIsIgnored`、`AFailingResourceListStillConnects` →
   `AResourcesListThatFailsDoesNotAffectTheConnect`（失败落到按需列举上）、两条重试计数各减一、
   `/mcp` 补全文案改成 `connected · 1 tool · resources`。
+### 6.u 第十批（恢复性剔除连同工具结果一起）落地明细
+
+上游 `02726086d`（#11227）：可恢复的 length 停止在**提交前**恢复时，只剔除了助手消息、没剔除应答它的
+工具结果 —— 因为只有「一轮跑完」那个调用方把结果传了进去。落单的工具结果进了 transcript，之后每个
+请求都被 provider 拒绝（`tool_result` 找不到对应的 `tool_call`）。
+
+- `OmitRecoveryAttempt(message)` 不再收 `toolResults` 参数：自己按 `ToolCallContent.Id` 收齐
+  `toolCallId`，在 `_agent.Messages` 里定位这条助手消息（`ReferenceEquals`，或按
+  `_entryIdsByMessage` 的 entryId 认 —— 上下文编辑会把投影副本换掉），从它的下一条扫到**下一条
+  助手消息**为止，收集 `ToolCallId` 命中的 `ToolResultMessage`。调用方是谁都无所谓。
+- 删除 `AgentSessionBuild._lastAssistantToolResults`、`turn_end` 里的记录、`HandlePostAgentRunAsync`
+  的传递，以及 `CheckCompactionAsync(…, toolResults)` 的第三个参数。
+- 与上游差异：无。上游用 `messages.slice(index + 1)` + `for…of` 早退，端口用显式下标循环。
+- 测试：`AgentSessionRecoveryOmitsToolResultsTests` 2 例 ——
+  - 恢复的会话里塞一条 `length` 停止的助手消息（带 `toolCall`）与它的 `toolResult`，走 `PromptAsync`
+    的提交前恢复，断言**请求上下文里既没有 `toolResult`，也没有 `length` 停止的助手消息**；
+  - 反向断言：剔除范围正好是「截断的调用 + 应答它的结果」两条 `context_edit`（都是 `replacement` 为
+    null 的剔除），避免以后把范围放宽悄悄丢上下文。
+  - 这两例在去掉结果查找后会失败（请求里会重新出现 `ToolResultMessage`），已实测确认。

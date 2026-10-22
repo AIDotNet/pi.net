@@ -447,11 +447,10 @@ public partial class AgentSession
     // `_clearManualCompactionState`（2726-2729）。
     // =========================================================================
 
-    /// <summary>TS <c>_checkCompaction(message, skipAbortedCheck, toolResults)</c>（TS 2923-3050）。</summary>
+    /// <summary>TS <c>_checkCompaction(message, skipAbortedCheck)</c>（TS 3008-3135）。</summary>
     private async Task<bool> CheckCompactionAsync(
         AssistantMessage assistantMessage,
-        bool skipAbortedCheck = true,
-        IReadOnlyList<ChatMessage>? toolResults = null)
+        bool skipAbortedCheck = true)
     {
         var settings = CompactionSettingsForSessionModel();
         if (ShouldSkipCompactionCheck(settings.Enabled, skipAbortedCheck, assistantMessage.StopReason))
@@ -546,7 +545,7 @@ public partial class AgentSession
 
             // 在 post-run 恢复性压缩之前，把选定的最后一次尝试持久地省略掉。
             _overflowRecoveryAttempted = true;
-            OmitRecoveryAttempt(assistantMessage, toolResults);
+            OmitRecoveryAttempt(assistantMessage);
             var retry = await RunAutoCompactionAsync(CompactionReason.Overflow, willRetry).ConfigureAwait(false);
             if (retry)
             {
