@@ -273,9 +273,17 @@ public sealed class ModelRuntime : IModelResolverRuntime
                 : new InMemoryCodingAgentModelsStore());
         var builtinModelDataGeneratedAt = All.GetBuiltinModelDataGeneratedAt();
         var providers = All.BuiltinProviders()
-            .Select(provider => provider.Id == "radius"
-                ? provider
-                : (IProvider)new RemoteCatalogProvider(provider, options.CatalogBaseUrl, builtinModelDataGeneratedAt))
+            .Select(provider => provider.Id switch
+            {
+                "radius" => provider,
+                // OpenRouter 把目录收窄到该 key 可用的模型、限额与价格（上游 withPersonalizedCatalog）。
+                "openrouter" => (IProvider)new PersonalizedCatalogProvider(
+                    provider,
+                    (catalog, context) => Pi.Ai.Providers.OpenRouterCatalog.PersonalizeAsync(catalog, context),
+                    options.CatalogBaseUrl,
+                    builtinModelDataGeneratedAt),
+                _ => new RemoteCatalogProvider(provider, options.CatalogBaseUrl, builtinModelDataGeneratedAt),
+            })
             .ToList();
 
         // TS: `process.env.PI_OFFLINE === undefined` — presence, not truthiness.

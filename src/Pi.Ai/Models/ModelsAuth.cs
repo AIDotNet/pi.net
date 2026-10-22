@@ -201,6 +201,7 @@ public sealed partial class Models
             AllowNetwork = allowNetwork,
             Force = allowNetwork ? force : null,
             Signal = signal,
+            BaseUrl = provider.BaseUrl,
         }).ConfigureAwait(false);
     }
 

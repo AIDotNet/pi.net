@@ -218,7 +218,7 @@ public sealed class RemoteCatalogProvider : IProvider, IImagesProvider, IClassif
             && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - checkedAt < RemoteCatalogRefreshIntervalMs;
 
     /// <summary>Merge a baseline and a dynamic catalog: a later entry wins, keeping first-seen order.</summary>
-    private static IReadOnlyList<ModelSpec> MergeModels(
+    internal static IReadOnlyList<ModelSpec> MergeModels(
         IReadOnlyList<ModelSpec> baseline, IReadOnlyList<ModelSpec> dynamic)
     {
         var merged = new List<ModelSpec>();
@@ -237,7 +237,7 @@ public sealed class RemoteCatalogProvider : IProvider, IImagesProvider, IClassif
     }
 
     /// <summary>Parse a catalog body: an array, an object with a <c>models</c> array, or an object map.</summary>
-    private static IReadOnlyList<ModelSpec> ParseCatalog(string providerId, JsonNode? value)
+    internal static IReadOnlyList<ModelSpec> ParseCatalog(string providerId, JsonNode? value)
     {
         var entries = value switch
         {
@@ -295,7 +295,7 @@ public sealed class RemoteCatalogProvider : IProvider, IImagesProvider, IClassif
     }
 
     /// <summary>Parse an HTTP date header; an unparseable value becomes null (TS <c>Number.isNaN</c> → 0).</summary>
-    private static long? ParseHttpDate(string? value)
+    internal static long? ParseHttpDate(string? value)
         => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture,
             DateTimeStyles.AdjustToUniversal | DateTimeStyles.AllowWhiteSpaces, out var parsed)
             ? parsed.ToUnixTimeMilliseconds()
@@ -306,7 +306,7 @@ public sealed class RemoteCatalogProvider : IProvider, IImagesProvider, IClassif
     /// collections, and routes entity headers such as <c>Last-Modified</c> to
     /// <see cref="HttpContentHeaders"/> rather than <see cref="HttpResponseHeaders"/>, so both are searched.
     /// </summary>
-    private static string? ReadHeader(HttpResponseMessage response, string name)
+    internal static string? ReadHeader(HttpResponseMessage response, string name)
     {
         if (response.Headers.TryGetValues(name, out var values)) return values.FirstOrDefault();
         return response.Content.Headers.TryGetValues(name, out var contentValues)

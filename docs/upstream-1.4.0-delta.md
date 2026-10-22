@@ -52,12 +52,12 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 新增瞬时故障文案（`unable to forward upstream`、`upstream_stream_read_error`、`stream disconnected before completion` 等） | 1.3.0–1.4.0 | 网关故障不再中断回合 | 本次移植 |
 | ChatGPT Business 工作区限额不可重试 | 1.4.0 | 避免无意义重试 | 本次移植 |
 | 畸形最终参数上报 `argumentsError`（不再保留解析前缀） | 1.3.0 #10897 | 5 个 API 实现 + 校验层 + agent 预检 | 本次移植（第二批） |
-| `personalizeOpenRouterCatalog()`、`RefreshModelsContext.baseUrl`、按 key 的模型列表 | 1.2.0 #10353 | 新增 `openrouter-api.ts`，重写远端目录 provider | 待办 |
+| `personalizeOpenRouterCatalog()`、`RefreshModelsContext.baseUrl`、按 key 的模型列表 | 1.2.0 #10353 | 新增 `openrouter-api.ts`，重写远端目录 provider | 本次移植（第六批） |
 | 客户端身份 `identity` / `User-Agent` 格式重构 | 1.4.0 | 破坏性：`telemetryContext`→`telemetry`、`getPiUserAgent` 移除 | 本次移植（第五批） |
 | `resolveTranscriptTools` 由布尔改为 `TranscriptToolSupport` | 1.4.0 | 破坏性 API | 待办 |
 | System One 分类器图像输入、`compat`、llama.cpp 决策模型 | 1.1.0–1.4.0 | codemode + 分类器链路 | 待办 |
 | 模型目录更新（Claude Haiku 5.5、MiniMax-M3.1-Flash、Grok `xhigh` 等） | 1.1.0–1.4.0 | 纯数据 | 待办（随目录同步脚本） |
-| Anthropic `strict:"prefer"` 重试、Mistral 超时范围、OpenRouter 负价归零 | 1.2.0 | provider 兼容细节 | 待办 |
+| Anthropic `strict:"prefer"` 重试、Mistral 超时范围 | 1.2.0 | provider 兼容细节 | 待办（OpenRouter 负价归零已随第六批完成） |
 | OpenAI Responses `additional_tools` 前缀缓存 | 1.4.0 #10940 | 缓存命中率 | 待办 |
 
 ### 3.2 `packages/agent`
@@ -154,13 +154,19 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 
 | 项 | 结果 |
 | --- | --- |
-| `dotnet build Pi.slnx` | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 440 / 440 通过 |
-| `Pi.CodingAgent.Tests` | 4968 / 4968 通过 |
+| `dotnet build`（slnx） | 0 警告 / 0 错误 |
+| `Pi.Ai.Tests` | 470 / 470 通过 |
+| `Pi.CodingAgent.Tests` | 4971 / 4971 通过 |
+| `Pi.Agent.Tests` | 36 / 36 通过 |
+| `Pi.Durable.Tests` | 457 / 457 通过 |
+| `Pi.Mcp.Tests` | 52 / 52 通过 |
+| `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
 | `Pi.Tui.Tests` | 23878 / 23878 通过 |
 
-说明：全量 CodingAgent 曾出现一次 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`
-失败，隔离运行与随后两次全量运行均通过，判定为既有的顺序相关偶发（与本次改动无交集）。
+说明：两例时序敏感的偶发已确认与改动无交集，隔离运行均通过——
+`ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）与
+`DeviceCodeFlowTests.TimesOutWithPlainMessageWhenNoSlowDown`（6 秒超时，与其他测试套件并行跑时
+受负载影响）。
 
 ## 6. 未移植项与判断依据
 
@@ -168,9 +174,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `emStrong` 分词器（含 CJK 区间表与 flanking 判定）。端口有自研 `MarkedTokenizer.EmStrong` 与
    4,990 条语料基线；直接改会与旧语料冲突，须先从 TS 侧重新生成 `markdown-corpus.json` 才能保证等价。
    属于"需要配套语料基建"的改动，不宜与本次小修混做。
-2. **per-key OpenRouter 目录 / 客户端身份 / telemetry span**：都是新增模块级能力（`openrouter-api.ts`
-   77 行 + `remote-catalog-provider` 重写 136 行 + 破坏性选项改名），应作为一个独立阶段整体落地，
-   避免半套实现导致 provider 归因与缓存键不一致。
+2. **telemetry span**：`observeModelRequest` 观察器在 ai 层没有对应端口（`LazyStream` 也没有 observer
+   参数），要接就得先重建整条流式观察链，收益与改动量不成比例，暂不移植。per-key OpenRouter 目录
+   已在第六批完成，客户端身份已在第五批完成。
 3. **durable 观察面 / chord `traceIn`**：`adopt(seq)` 已在第三批完成；剩下的观察面重构
    （`watchDoc`/`watch`/`watchTaskGraph` 取代 `documentState`/`viewState`/`taskGraph`、
    WatchEnd 迁 chord 并改 `ended`/`failed`）必须与 Experimental 运行时一起改，`traceIn`
@@ -183,7 +189,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
-2. ~~ai：identity~~（第五批已完成）→ per-key OpenRouter 目录（`argumentsError` 已在第二批完成）。
+2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
 3. coding-agent：`sessionShareDestination` → resume 活动工具 → codemode worker 排队。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
@@ -212,3 +218,42 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   `Utils/PiUserAgent` 改为委托 `Identity.FormatUserAgent`。
 - 语料：`prompt-corpus.json` 的 `providerAttribution`（22 向量，驱动已删除的 TS 模块）换成
   `clientIdentity`（16 向量，驱动 pi-ai 的 `getAttributionHeaders`/`getOpenCodeSessionHeaders`）。
+
+### 6.y 第六批（per-key OpenRouter 目录）落地明细
+
+上游 `ee409a85f`（#10353）让 OpenRouter 的目录跟着用户的 key 走：`GET /models/user` 列出该 key 可用的
+文本模型，并带回真实的限额与价格。
+
+- `Pi.Ai.Providers.OpenRouterCatalog`（新，对应 `providers/openrouter.ts` + `openrouter-api.ts`）：
+  - `PersonalizeAsync(catalog, context, httpClient?, ct?)`：凭据取 `Credential.OAuth.Access` 或
+    `Credential.ApiKey.Key`，无凭据原样返回；请求跟随 `context.BaseUrl`（缺省
+    `https://openrouter.ai/api/v1`），故区域端点 `https://us.openrouter.ai/api/v1` 按本区域过滤。
+    15 秒超时与请求信号合并（对应 `AbortSignal.any([...timeout])`）。401/403/404 原样返回目录
+    （models.json 里配的代理拒绝该 key 或根本没有该端点时保留完整列表），其余非 2xx 抛
+    `OpenRouter model list request failed: <status>`，body 不是 `{data:[…]}` 抛
+    `Invalid OpenRouter model list response`。
+  - 过滤规则与上游 `flatMap` 一致：图片/分类模型原样保留（`/models/user` 只列文本模型），chat 模型
+    不在列表里就丢弃；在列表里则用 `top_provider.context_length || context_length || 原值` 覆盖
+    `ContextWindow`、`top_provider.max_completion_tokens || 原值` 覆盖 `MaxTokens`、有 `pricing` 时
+    覆盖 `Cost`。`||` 的语义按「缺失/0 都算缺失」实现，与生成器针对 OpenRouter 缺数据的修补一致。
+  - `OpenRouterCost`：`$/token` 换成 `$/1M token`（`(v * 1e6).toFixed(6)` 等价于
+    `Math.Round(..., 6, AwayFromZero)`）；缺失、非法与负基础价归零（`openrouter/auto` 这类路由模型
+    报 -1，价格取决于它最终选了谁）。只有「带 `min_prompt_tokens` 且不含任何 `utc_*`」的 override
+    变请求级阶梯，未列费率沿用基础价；按时段的 override 跳过，因为 `ModelCost` 表达不了。
+- `RefreshModelsContext.BaseUrl`（对应上游同名新增）：`ModelsAuth.RunProviderRefreshPhaseAsync`
+  传 `provider.BaseUrl`，供个性化按区域端点发请求。
+- `Pi.CodingAgent.Core.PersonalizedCatalogProvider`（新，对应 `withPersonalizedCatalog`）：与
+  `RemoteCatalogProvider` 同款包装（C# 无对象展开，逐成员转发，两个包装刻意互不继承），差别是：
+  - 每次联网刷新把「内建模型 + 更新的 pi.dev 目录」过一遍 `personalize` 再保存 —— 存的是个性化
+    列表而非 pi.dev 目录，因此**离线也生效**；
+  - 跳过刷新间隔与 etag 复验（结果依赖 key，换 key 后必须重新取）；
+  - 个性化列表为空（从未保存过，或旧版 pi 在目录缺失/失败后存了空表）时回落到内建模型；
+  - 404/501 视为「pi.dev 没有该 provider 的目录」，只用内建模型做个性化。
+  `RemoteCatalogProvider` 的 `ParseCatalog`/`ParseHttpDate`/`ReadHeader`/`MergeModels` 相应改为
+  `internal static` 以便复用（`MergeModels` 的键仍是 `类型\0id`，chat 与 image 同名模型得以共存）。
+- `ModelRuntime.Create` 的 provider 构建改为上游同一分支：`radius` 不包装、`openrouter` 走
+  `PersonalizedCatalogProvider`、其余走 `RemoteCatalogProvider`。
+- 测试：`OpenRouterCatalogTests` 9 例（覆盖限额优先级、图片/分类不过滤、401/403/404 原样返回、
+  base URL 跟随、OAuth 凭据、失败与非 JSON body、阶梯价与负价归零）；其中「原样返回」按上游
+  `toBe(catalog)` 断言同一实例。
+

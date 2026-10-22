@@ -45,6 +45,12 @@ public sealed record RefreshModelsContext
 
     /// <summary>恒存在——即便公开的 refresh 调用方省略了 signal。</summary>
     public required CancellationToken Signal { get; init; }
+
+    /// <summary>
+    /// 已注册 provider 的 base URL，含包装层在 provider 之外施加的配置覆盖
+    /// （例如 models.json 给 OpenRouter 配的区域端点）。对应 TS <c>RefreshModelsContext.baseUrl</c>。
+    /// </summary>
+    public string? BaseUrl { get; init; }
 }
 
 /// <summary>刷新选项。对应 TS <c>ModelsRefreshOptions</c>。</summary>
