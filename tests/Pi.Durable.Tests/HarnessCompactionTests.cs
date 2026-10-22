@@ -779,4 +779,111 @@ public sealed class HarnessCompactionTests
             await HarnessTestSupport.CloseQuietlyAsync(harness);
         }
     }
+
+    // 上游 #10942：一个 harness 同时服务小窗口与大窗口模型 —— 覆盖按 "provider/modelId" 生效。
+    [Fact]
+    public async Task PerModelOverrideCompactsAnOverflowTheGlobalPolicyWouldIgnore()
+    {
+        const string overflowText = "prompt is too long: 250000 tokens > 200000 maximum";
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewScriptedChatSetup(provider);
+        setup.Settings = setup.Settings with
+        {
+            Compaction = AgentDocs.DefaultCompactionPolicy with
+            {
+                Enabled = false,
+                KeepRecentTokens = 1,
+                BackgroundTokens = 0,
+                ModelOverrides = new Dictionary<string, CompactionPolicyOverride>
+                {
+                    [$"{setup.Provider.Id}/{setup.ModelId}"] = new() { Enabled = true },
+                },
+            },
+            Retry = new ConversationRetryPolicy { Enabled = false, MaxRetries = 0, BaseDelayMs = 0 },
+        };
+        provider.SetResponses(
+            HarnessTestSupport.FakeStep.Of(HarnessTestSupport.AssistantReply("answer 1")),
+            HarnessTestSupport.FakeStep.Of(HarnessTestSupport.AssistantReply("answer 2")),
+            HarnessTestSupport.FakeStep.Of(ContextOverflowError(overflowText)),
+            HarnessTestSupport.FakeStep.Of(HarnessTestSupport.AssistantReply("SUMMARY")),
+            HarnessTestSupport.FakeStep.Of(HarnessTestSupport.AssistantReply("final answer")));
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            foreach (var input in new[] { "first", "second" })
+            {
+                var submission = await root.SubmitAsync(
+                    new SubmissionDraft.Input { Content = [new TextContent(input)] }, Ctx);
+                await submission.WaitAsync(Ctx);
+            }
+
+            var submissionAfterOverflow = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("current input")] }, Ctx);
+            await submissionAfterOverflow.WaitAsync(Ctx);
+            await root.WaitForIdleAsync(Ctx);
+
+            var entries = await HarnessTestSupport.AllEntriesAsync(root);
+            Assert.Single(entries, entry => entry.Kind == DurableEntries.CompactionEntry.Kind);
+            Assert.Equal(5, provider.CallCount);
+            Assert.Equal(
+                "final answer",
+                TextOf(Assert.IsType<AssistantMessage>(entries[^1].Model?.SingleOrDefault())));
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    [Fact]
+    public async Task ModelOverrideForAnotherModelDoesNotApply()
+    {
+        const string overflowText = "prompt is too long: 250000 tokens > 200000 maximum";
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewScriptedChatSetup(provider);
+        setup.Settings = setup.Settings with
+        {
+            Compaction = AgentDocs.DefaultCompactionPolicy with
+            {
+                Enabled = false,
+                KeepRecentTokens = 1,
+                BackgroundTokens = 0,
+                ModelOverrides = new Dictionary<string, CompactionPolicyOverride>
+                {
+                    ["other/model"] = new() { Enabled = true },
+                },
+            },
+            Retry = new ConversationRetryPolicy { Enabled = false, MaxRetries = 0, BaseDelayMs = 0 },
+        };
+        provider.SetResponses(
+            HarnessTestSupport.FakeStep.Of(HarnessTestSupport.AssistantReply("answer 1")),
+            HarnessTestSupport.FakeStep.Of(HarnessTestSupport.AssistantReply("answer 2")),
+            HarnessTestSupport.FakeStep.Of(ContextOverflowError(overflowText)));
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            foreach (var input in new[] { "first", "second" })
+            {
+                var submission = await root.SubmitAsync(
+                    new SubmissionDraft.Input { Content = [new TextContent(input)] }, Ctx);
+                await submission.WaitAsync(Ctx);
+            }
+
+            var submissionAfterOverflow = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("current input")] }, Ctx);
+            var settled = await submissionAfterOverflow.WaitAsync(Ctx);
+
+            var inputRecord = Assert.IsType<SubmissionRecord.InputRecord>(settled.Record);
+            Assert.Equal(SubmissionStatus.Unanswered, inputRecord.Status);
+            Assert.Equal("model_error", inputRecord.Reason);
+            Assert.DoesNotContain(
+                await HarnessTestSupport.AllEntriesAsync(root),
+                entry => entry.Kind == DurableEntries.CompactionEntry.Kind);
+            Assert.Equal(3, provider.CallCount);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
 }

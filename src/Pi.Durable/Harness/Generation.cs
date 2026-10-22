@@ -256,7 +256,7 @@ public static partial class Generation
         var declarations = agent.Tools.Select(Prompt.DeclarationOf).ToList();
         var entries = Prompt.PlanSystemEntries(view, desired, declarations, runtime.Now());
         var threshold = checkpoint.Compacted is null
-            ? ThresholdCompaction(view, entries, resolved.ContextWindow, settings.Compaction)
+            ? ThresholdCompaction(view, entries, resolved.ContextWindow, settings.Compaction.ForModel(modelReference))
             : null;
         if (threshold == "blocking")
         {
@@ -795,11 +795,11 @@ public static partial class Generation
         // 重试与压缩策略决定下一次尝试，因此现在读取而非在准备时固定。
         var settings = runtime.Settings;
         var overflow = message.StopReason == StopReason.Error && Overflow.IsContextOverflow(message);
-        if (overflow && request.Compacted is null && settings.Compaction.Enabled)
+        var modelPolicy = settings.Compaction.ForModel(request.Model);
+        if (overflow && request.Compacted is null && modelPolicy.Enabled)
         {
-            var policy = settings.Compaction;
             var view = await runtime.ContextAsync(conversationId, context, request.Cutoff).ConfigureAwait(false);
-            if (Compaction.SelectCut(view, policy.KeepRecentTokens) is not null)
+            if (Compaction.SelectCut(view, modelPolicy.KeepRecentTokens) is not null)
             {
                 var text = message.ErrorMessage ?? "Context overflow";
                 await runtime.CommitAsync(async (tx, _) =>

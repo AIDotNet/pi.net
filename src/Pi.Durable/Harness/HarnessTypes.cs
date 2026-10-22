@@ -636,6 +636,50 @@ public sealed record CompactionPolicy
 
     /// <summary>后台压缩在阻塞阈值之下 backgroundTokens 处启动；0 禁用。</summary>
     public required long BackgroundTokens { get; init; }
+
+    /// <summary>
+    /// 按模型覆盖压缩设置，键是精确的 <c>"provider/modelId"</c>；每个字段覆盖全局值，缺省字段沿用。
+    /// 一个 harness 因此可以同时服务小窗口与大窗口模型。TS <c>settings.compaction.modelOverrides</c>。
+    /// </summary>
+    public IReadOnlyDictionary<string, CompactionPolicyOverride>? ModelOverrides { get; init; }
+
+    /// <summary>
+    /// 该模型适用的策略：<see cref="ModelOverrides"/> 里它的条目逐字段覆盖全局值。调用方在
+    /// 「阈值判定、溢出恢复、压缩取范围」三处都要用它，而不是直接用全局策略。
+    /// TS <c>compactionPolicy(settings, model)</c>。
+    /// </summary>
+    public CompactionPolicy ForModel(ModelRef? model)
+    {
+        if (model is null
+            || ModelOverrides is null
+            || !ModelOverrides.TryGetValue($"{model.Provider}/{model.ModelId}", out var entry))
+        {
+            return this;
+        }
+
+        return new CompactionPolicy
+        {
+            Enabled = entry.Enabled ?? Enabled,
+            ReserveTokens = entry.ReserveTokens ?? ReserveTokens,
+            KeepRecentTokens = entry.KeepRecentTokens ?? KeepRecentTokens,
+            BackgroundTokens = entry.BackgroundTokens ?? BackgroundTokens,
+        };
+    }
+}
+
+/// <summary>
+/// <see cref="CompactionPolicy.ModelOverrides"/> 的一个条目：只写要覆盖的字段。
+/// 对应 TS <c>Partial&lt;CompactionPolicy&gt;</c>。
+/// </summary>
+public sealed record CompactionPolicyOverride
+{
+    public bool? Enabled { get; init; }
+
+    public long? ReserveTokens { get; init; }
+
+    public long? KeepRecentTokens { get; init; }
+
+    public long? BackgroundTokens { get; init; }
 }
 
 /// <summary>运行进度提交频率。对应 TS <c>ProgressPolicy</c>。</summary>

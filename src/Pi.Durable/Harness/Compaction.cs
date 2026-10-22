@@ -215,7 +215,7 @@ public static partial class Compaction
             return;
         }
 
-        var policy = settings.Compaction;
+        var policy = settings.Compaction.ForModel(reference);
         var view = await runtime.ContextAsync(conversationId, context).ConfigureAwait(false);
         var cut = SelectCut(view, policy.KeepRecentTokens);
         if (cut is null)

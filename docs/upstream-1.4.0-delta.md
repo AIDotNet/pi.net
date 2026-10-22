@@ -114,7 +114,27 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 - **durable（1.3.0–1.4.0，171 文件）**：`Storage.commit(writes, adopt, context)` 的 `adopt(seq)`
   回调、`mintId()` 契约收窄 —— **已移植（第三批）**：存储负责在批次持久后、下一次提交开始前
   同步采纳一次，Session 不再自己 `tx.adopt(seq)`，改为发现「已提交却没采纳」即毒化。
-  其余 169 个文件的改动（sleeping state、crash-loop guard、IndexedDB、search、images 等）仍待办。
+  其余改动的现状见下面 §3.5.1 的分项清单。
+- **durable 1.4.0 剩余项（§3.5.1）**：按「是否影响日常使用」排序，逐批推进。已完成的单一特性：
+  `settings.compaction.modelOverrides`（第三十批，见 §6.a）。
+
+#### 3.5.1 durable 1.4.0 剩余清单
+
+| 项 | 上游 | 影响 | 状态 |
+| --- | --- | --- | --- |
+| `compaction.modelOverrides`（按模型压缩阈值） | 1.4.0 #10942 | 同一 harness 服务小/大窗口模型 | 本次移植（第三十批，见 §6.a） |
+| durable sleeps：`runtime.sleepUntil()`、`{status:"sleeping"}`、`sleeping` 状态 | 1.4.0 | 睡眠期间不占 invocation、跨重启恢复、按时醒来 | 待办（需要 TaskState/TaskGraph/TaskInspection 全量加状态 + SQLite schema v2） |
+| `HarnessOptions.setTimer` / `now` / `ToolExecutionApi.now()` | 1.4.0 | 宿主/假时钟接管定时器与脚本超时 | 待办（与 sleeps 同批） |
+| `Harness.wake()` / `HarnessOptions.onWake` | 1.4.0 | Cloudflare Durable Object 等宿主可休眠 | 待办（依赖 sleeps） |
+| Crash-loop guard：`TaskRecord.restarts`、`settings.restartLimit`、parked、`Harness.retryTask()` | 1.4.0 | 连续崩溃的任务不再无限重跑 | 待办（需要存储列 + 迁移） |
+| `onReport(error, info)` 的 `ReportInfo`（`task_parked` / `task_outdated` / `extension_error` / `host_error` / `listener_error` / `migration_failed`） | 1.4.0 | 上报分类 | 待办（`task_parked` 依赖 crash-loop guard） |
+| `settings.afterFailedRun`（`keep` / `continue` / `withdraw`） | 1.4.0 | 失败运行后排队输入的去向 | 待办 |
+| Task graph `blocked` 原因（`missing_task` / `task_too_old` / `migration_failed` / `restart_limit`） | 1.4.0 | `/tree` 里能看出任务为何跑不了 | 待办 |
+| `IndexedDbStorage`（浏览器存储） | 1.4.0 | 浏览器侧持久化 | 不适用（端口没有浏览器宿主） |
+| telemetry span / metrics / trace 传播 | 1.4.0 | 可观测性 | 不适用（按此前判定，端口不接 OpenTelemetry） |
+| 生成重试、延迟轮询、压缩重试改走 sleep | 1.4.0 | 退避期间可休眠 | 待办（依赖 sleeps） |
+| SQLite 迁移到 schema v2（重建 task 表） | 1.4.0 | 存储格式 | 待办（与 sleeps / restarts 一起做） |
+
 - **durable 观察面（同一提交 92ab53602）—— 本次移植（第二十批）**：移除 `Session.documentState()` /
   `Conversation.viewState()` / `Harness.taskGraph()` 与 `DocumentState<T>`，统一走
   `watchDoc()` / `watch()` / `watchTaskGraph()`；`WatchHandle`/`WatchEnd` 迁往 chord，
@@ -182,7 +202,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 459 / 459 通过（第二十批新增 2 例；此前 457）。
+| `Pi.Durable.Tests` | 464 / 464 通过（第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
@@ -246,8 +266,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    → ~~tui：`showHardwareCursor` 假光标~~（第二十六批）→ ~~tui：fd 转义 / 退出复原 / 滚轮路由 /
    stdin 回复串~~（第二十七批）→ ~~coding-agent：配置文件 JSON Schema 产物、Kitty 移位符号键位~~
    （第二十八批）→ ~~coding-agent：并发扩展对话框堆叠（`38847563f`）、overlay 归属修复（`a4f67eb65`）~~
-   （第二十九批）→ durable 1.3.0–1.4.0 剩余文件（sleeping state、crash-loop guard、IndexedDB、search、
-   images 等 169 个）。
+   （第二十九批）→ ~~durable：按模型压缩阈值~~（第三十批）→ durable 剩余项按 §3.5.1 的表推进
+   （sleeps + 宿主时钟 → crash-loop guard → `onReport` info → `afterFailedRun` → task graph blocked）。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1176,6 +1196,31 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.a 第三十批（durable：按模型压缩阈值）落地明细
+
+上游 `#10942`（1.4.0）：`settings.compaction.modelOverrides` 以精确的 `"provider/modelId"` 为键，
+让同一个 harness 同时服务 32k 与 1M 上下文窗口的模型。三个位置要用「该模型的策略」而不是全局策略：
+阈值判定、上下文溢出后的恢复、压缩任务取范围。
+
+- 端口本来把 `CompactionSettings` 与 `CompactionPolicy` 合成一个 `CompactionPolicy`，所以这里只在它上面
+  加两样：`ModelOverrides`（`IReadOnlyDictionary<string, CompactionPolicyOverride>`）与
+  `ForModel(ModelRef?)`（逐字段覆盖，缺省字段沿用全局；键不匹配或没有覆盖时**返回自身**，
+  省掉无意义的分配）。`CompactionPolicyOverride` 的四个字段都可空 —— `0` 与「没写」必须区分得开。
+- 三处接入：`Generation.cs` 的 `ThresholdCompaction(...)` 传
+  `settings.Compaction.ForModel(modelReference)`（用当前 agent 的模型，而不是 checkpoint 里的，
+  这样换模型后立即生效）；溢出恢复分支用 `settings.Compaction.ForModel(request.Model)` 判定
+  `Enabled` 与 `KeepRecentTokens`；`Compaction.cs` 的 `SelectPhaseAsync` 用
+  `settings.Compaction.ForModel(reference)`（摘要输出上限的 `0.8 * ReserveTokens` 因此也随模型走）。
+- 测试（`Pi.Durable.Tests` +5）：`CompactionPolicyTests` 3 例（只覆盖写了的字段、`0` 生效、
+  未知模型/`null` 模型回落到全局、大小写与前缀都不算匹配）；`HarnessCompactionTests` 2 例
+  —— 全局 `Enabled = false` 而覆盖给当前模型打开时，溢出仍触发压缩并重试成功（5 次调用）；
+  覆盖写成别的 `"other/model"` 时行为与「压缩关闭」一致（`unanswered` / `model_error`、无压缩条目）。
+
+**与上游差异**：上游的 `compactionPolicy(settings, model)` 是独立函数，入参是
+`CompactionSettings`（含 `modelOverrides`）；端口没有第二层类型，方法挂在 `CompactionPolicy` 上。
+语义一致：解析后的对象不再携带 `ModelOverrides`（避免「解析过的策略又被解析一次」时把别的模型
+的覆盖带进来）。
 
 ### 6.b 第二十九批（扩展对话框栈 + overlay 归属）落地明细
 
