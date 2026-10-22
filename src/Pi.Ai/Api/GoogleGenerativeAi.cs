@@ -29,6 +29,9 @@ public record GoogleOptions
 
     public string? SessionId { get; init; }
 
+    /// <summary>客户端身份（UA 形态 + provider 归属头）。对应 TS <c>GoogleOptions.identity</c>。</summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     public IReadOnlyDictionary<string, string>? Env { get; init; }
 
     public System.Text.Json.Nodes.JsonObject? SamplingParams { get; init; }
@@ -107,18 +110,10 @@ public static class GoogleGenerativeAi
                     {
                         Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
                     };
-                    request.Headers.TryAddWithoutValidation("User-Agent", PiUserAgent.Get());
-                    if (model.Headers is not null)
-                    {
-                        foreach (var (key, value) in model.Headers) request.Headers.TryAddWithoutValidation(key, value);
-                    }
-                    if (options?.Headers is not null)
-                    {
-                        foreach (var (key, value) in options.Headers)
-                        {
-                            if (value is not null) request.Headers.TryAddWithoutValidation(key, value);
-                        }
-                    }
+                    // 身份头（UA + provider 归属）先写，下面的 model / 请求头会覆盖它。
+                    Identity.ApplyIdentityHeaders(request, Identity.TargetOf(model), options?.Identity);
+                    Identity.ApplyOverrides(request, model.Headers);
+                    Identity.ApplyOverrides(request, options?.Headers);
                     try
                     {
                         var httpResponse = await client.SendAsync(
@@ -251,6 +246,7 @@ public static class GoogleGenerativeAi
         {
             ApiKey = options?.ApiKey,
             Headers = options?.Headers,
+            Identity = options?.Identity,
             Signal = options?.Signal ?? default,
             TimeoutMs = options?.TimeoutMs,
             MaxRetries = options?.MaxRetries,

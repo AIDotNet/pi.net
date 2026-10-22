@@ -1473,6 +1473,7 @@ public static class AnthropicMessages
             SessionId: options?.SessionId)
         {
             Headers = options?.Headers,
+            Identity = options?.Identity,
             SamplingParams = samplingParams,
             MaxRetries = options?.MaxRetries,
             MaxRetryDelayMs = options?.MaxRetryDelayMs,
@@ -1581,12 +1582,10 @@ public static class AnthropicMessages
         AnthropicMessagesCompat compat,
         string? sessionId)
     {
-        var merged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["User-Agent"] = PiUserAgent.Get(),
-            ["accept"] = "application/json",
-            ["anthropic-dangerous-direct-browser-access"] = "true",
-        };
+        // 身份头在最底层（UA + provider 归属），下面的 model / provider / 请求头都可覆盖它。
+        var merged = Identity.GetIdentityHeaders(Identity.TargetOf(model), options?.Identity);
+        merged["accept"] = "application/json";
+        merged["anthropic-dangerous-direct-browser-access"] = "true";
 
         if (isCopilot)
         {

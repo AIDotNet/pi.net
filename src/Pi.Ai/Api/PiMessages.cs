@@ -18,6 +18,9 @@ public record PiMessagesOptions
 
     public IReadOnlyDictionary<string, string?>? Headers { get; init; }
 
+    /// <summary>客户端身份（UA 形态 + provider 归属头）。对应 TS <c>PiMessagesOptions.identity</c>。</summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     public int? TimeoutMs { get; init; }
 
     public int? MaxTokens { get; init; }
@@ -126,6 +129,9 @@ public static class PiMessages
                 {
                     Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
                 };
+                // 身份头先写，下面的 auth / 请求头覆盖它。
+                Identity.ApplyIdentityHeaders(request, Identity.TargetOf(model), options?.Identity);
+                request.Headers.Remove("authorization");
                 request.Headers.TryAddWithoutValidation("authorization", $"Bearer {apiKey}");
                 request.Headers.TryAddWithoutValidation("accept", "text/event-stream");
                 if (options?.Headers is not null)
@@ -199,6 +205,7 @@ public static class PiMessages
         {
             ApiKey = options?.ApiKey,
             Headers = options?.Headers,
+            Identity = options?.Identity,
             Signal = options?.Signal ?? default,
             TimeoutMs = options?.TimeoutMs,
             MaxTokens = options?.MaxTokens,

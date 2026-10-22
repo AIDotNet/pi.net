@@ -73,6 +73,7 @@ public static class CompatShims
         if (options.Reasoning is not null) dict["reasoning"] = options.Reasoning;
         if (options.Deferred) dict["deferred"] = true;
         if (options.ThinkingBudgets is not null) dict["thinkingBudgets"] = options.ThinkingBudgets;
+        if (options.Identity is not null) dict["identity"] = options.Identity;
         return dict;
     }
 }

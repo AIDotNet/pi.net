@@ -186,7 +186,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
             Session = this,
             Storage = storage,
             Registry = options.Registry,
-            Models = options.Models,
+            Models = Harness.CurrentModels(options),
             Agent = (id, snapshot, callContext) => ResolveAgentAsync(id, snapshot, callContext),
             Settings = Settings,
             Env = (id, callContext) => BuildEnvAsync(id, callContext),
@@ -562,6 +562,21 @@ internal static class BoundConversations
 /// </summary>
 public static class Harness
 {
+    /// <summary>
+    /// Harness 模型请求的缺省身份：pi-ai 的默认 UA 加归属到 pi。对应 TS <c>DEFAULT_HARNESS_IDENTITY</c>。
+    /// </summary>
+    public static Pi.Ai.Utils.ClientIdentity DefaultIdentity { get; } =
+        new() { Attribution = Pi.Ai.Utils.Identity.PiAttribution };
+
+    /// <summary>
+    /// <see cref="HarnessOptions.Models"/> 套上 <see cref="HarnessOptions.Identity"/>：请求级身份覆盖它，
+    /// 它又覆盖被包裹的 <see cref="Pi.Ai.Models.Models"/> 自己的身份。对应 TS <c>currentModels()</c>。
+    /// </summary>
+    internal static Pi.Ai.Models.Models CurrentModels(HarnessOptions options)
+        => Pi.Ai.Utils.Identity.WithClientIdentity(
+            options.Models,
+            Pi.Ai.Utils.Identity.MergeClientIdentity(DefaultIdentity, options.Identity) ?? DefaultIdentity);
+
     /// <summary>
     /// 在存储之上打开一个 Harness。注册表可在 Harness 运行期间持续变化。
     /// 对应 TS <c>Harness.open()</c>。

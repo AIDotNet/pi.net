@@ -736,6 +736,12 @@ public sealed record HarnessOptions
     /// <summary>生成使用的 pi-ai 模型访问。</summary>
     public required Models Models { get; init; }
 
+    /// <summary>
+    /// 请求身份，逐字段覆盖 <see cref="Harness.DefaultIdentity"/> 后被套到 <see cref="Models"/> 上。
+    /// 对应 TS <c>HarnessOptions.identity</c>。
+    /// </summary>
+    public Pi.Ai.Utils.ClientIdentity? Identity { get; init; }
+
     public required IRegistryReader Registry { get; init; }
 
     public HarnessSettings? Settings { get; init; }

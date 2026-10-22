@@ -33,6 +33,9 @@ public record OpenAiResponsesOptions
     /// <summary>缓存保留偏好（short/long/none；缺省 short，PI_CACHE_RETENTION 兼容）。</summary>
     public string? CacheRetention { get; init; }
 
+    /// <summary>客户端身份（UA 形态 + provider 归属头）。对应 TS <c>OpenAIResponsesOptions.identity</c>。</summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     /// <summary>推理档位（minimal/low/medium/high/xhigh/max）。</summary>
     public string? ReasoningEffort { get; init; }
 
@@ -308,7 +311,7 @@ public static class OpenAiResponses
                 }
 
                 var headers = Headers.Merge(
-                    BuildDefaultHeaders(model, normalizedContext, compat, cacheSessionId),
+                    BuildDefaultHeaders(model, normalizedContext, compat, cacheSessionId, options?.Identity),
                     options?.Headers);
 
                 var response = await ProviderRetry.RetryAsync(async () =>
@@ -455,6 +458,7 @@ public static class OpenAiResponses
         {
             ApiKey = options?.ApiKey,
             Headers = options?.Headers,
+            Identity = options?.Identity,
             Signal = options?.Signal ?? default,
             TimeoutMs = options?.TimeoutMs,
             MaxRetries = options?.MaxRetries,
@@ -498,14 +502,15 @@ public static class OpenAiResponses
         }, httpClient, cancellationToken);
     }
 
-    /// <summary>默认请求头（UA / copilot 动态头 / session 亲和）。对应 TS <c>createClient</c> 头部逻辑。</summary>
+    /// <summary>默认请求头（身份 / copilot 动态头 / session 亲和）。对应 TS <c>createClient</c> 头部逻辑。</summary>
     private static IReadOnlyDictionary<string, string?> BuildDefaultHeaders(
-        ModelSpec model, TranscriptContext context, JsonObject compat, string? sessionId)
+        ModelSpec model, TranscriptContext context, JsonObject compat, string? sessionId,
+        Utils.ClientIdentity? identity)
     {
-        var headers = new Dictionary<string, string?>
-        {
-            ["User-Agent"] = PiUserAgent.Get(),
-        };
+        // 身份头（UA + provider 归属）在最底层，随后的 model / provider 头覆盖它。
+        var headers = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in Identity.GetIdentityHeaders(Identity.TargetOf(model), identity))
+            headers[key] = value;
         if (model.Extra?["headers"] is JsonObject modelHeaders)
         {
             foreach (var (key, value) in modelHeaders)

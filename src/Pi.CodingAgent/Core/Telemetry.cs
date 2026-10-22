@@ -3,7 +3,7 @@
 // ============================================================================
 //
 // A single boolean that decides whether the agent may attach attribution headers (see
-// ProviderAttribution) and send the install ping. The environment variable, when present at all,
+// ClientIdentity) and send the install ping. The environment variable, when present at all,
 // always wins — including when it is present but empty, which reads as "off".
 
 namespace Pi.CodingAgent.Core;

@@ -48,6 +48,7 @@ public sealed class Agent
         Transport = options.Transport ?? "auto";
         ThinkingBudgets = options.ThinkingBudgets;
         MaxRetryDelayMs = options.MaxRetryDelayMs;
+        Identity = options.Identity;
 
         // TS createMutableAgentState：初始 transcript 先就位，再把 prompt / 工具折成前导
         // system 消息——仅当 transcript 不以 system 消息开头时插入（messages.unshift）。
@@ -142,6 +143,12 @@ public sealed class Agent
 
     /// <summary>单次重试的最长退避。对应 TS <c>Agent.maxRetryDelayMs</c>。</summary>
     public int? MaxRetryDelayMs { get; set; }
+
+    /// <summary>
+    /// 请求身份，转发给流函数前逐字段覆盖 <see cref="AgentLoop.DefaultAgentIdentity"/>。
+    /// 对应 TS <c>Agent.identity</c>。
+    /// </summary>
+    public Pi.Ai.Utils.ClientIdentity? Identity { get; set; }
 
     // ---------- 订阅 ----------
 
@@ -330,6 +337,7 @@ public sealed class Agent
                 Transport = Transport,
                 ThinkingBudgets = ThinkingBudgets,
                 MaxRetryDelayMs = MaxRetryDelayMs,
+            Identity = Identity,
             },
             GetSteeringMessages = () =>
             {

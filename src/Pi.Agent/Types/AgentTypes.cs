@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Pi.Ai.Types;
+using Pi.Ai.Utils;
 
 namespace Pi.Agent.Types;
 
@@ -247,6 +248,12 @@ public sealed record AgentLoopConfig
 
     /// <summary>基础流式选项（API key 等由循环内动态覆盖）。</summary>
     public SimpleStreamOptions? StreamOptions { get; init; }
+
+    /// <summary>
+    /// 请求身份，逐字段覆盖 <see cref="AgentLoop.DefaultAgentIdentity"/>。
+    /// 对应 TS <c>AgentLoopConfig.identity</c>。
+    /// </summary>
+    public ClientIdentity? Identity { get; init; }
 }
 
 /// <summary>工具执行模式。对应 TS <c>ToolExecutionMode</c>；默认 parallel。</summary>

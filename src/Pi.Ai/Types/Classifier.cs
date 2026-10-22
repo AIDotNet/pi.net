@@ -136,6 +136,9 @@ public record ClassifierOptions
 
     public IReadOnlyDictionary<string, string?>? Headers { get; init; }
 
+    /// <summary>客户端身份（UA 形态 + provider 归属头）。对应 TS <c>ClassifierOptions.identity</c>。</summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     public int? TimeoutMs { get; init; }
 
     public int? MaxRetries { get; init; }

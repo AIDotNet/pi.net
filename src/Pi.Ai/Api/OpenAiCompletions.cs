@@ -1473,10 +1473,8 @@ public static class OpenAiCompletions
         string? sessionId,
         OpenAiCompletionsCompat compat)
     {
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["User-Agent"] = PiUserAgent.Get(),
-        };
+        // 身份头在最底层（UA + provider 归属），下面的 model / provider / 请求头都可覆盖它。
+        var headers = Identity.GetIdentityHeaders(Identity.TargetOf(model), options?.Identity);
 
         if (model.Headers is not null)
         {
@@ -2060,6 +2058,7 @@ public static class OpenAiCompletions
             SessionId: options?.SessionId)
         {
             Headers = options?.Headers,
+            Identity = options?.Identity,
             SamplingParams = samplingParams,
             MaxRetries = options?.MaxRetries,
             MaxRetryDelayMs = options?.MaxRetryDelayMs,

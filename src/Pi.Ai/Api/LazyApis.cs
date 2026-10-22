@@ -56,6 +56,7 @@ public static class ProviderStreamOptions
             SessionId: Get<string>("sessionId"))
         {
             Headers = Get<IReadOnlyDictionary<string, string?>>("headers"),
+            Identity = Get<ClientIdentity>("identity"),
             SamplingParams = Get<JsonObject>("samplingParams"),
             MaxRetries = options.TryGetValue("maxRetries", out var maxRetries) ? maxRetries as int? : null,
             MaxRetryDelayMs = options.TryGetValue("maxRetryDelayMs", out var maxRetryDelayMs) ? maxRetryDelayMs as int? : null,
@@ -156,6 +157,7 @@ public static class ProviderStreamOptions
             SessionId: Str(options, "sessionId"))
         {
             Headers = headers,
+            Identity = Identity.ParseClientIdentity(options["identity"]),
             SamplingParams = Object(options, "samplingParams"),
             MaxRetries = Int(options, "maxRetries"),
             MaxRetryDelayMs = Int(options, "maxRetryDelayMs"),

@@ -13,6 +13,12 @@ namespace Pi.Agent;
 public static partial class AgentLoop
 {
     /// <summary>
+    /// 请求身份缺省值：pi-ai 的默认 UA 加上归属到 pi。对应 TS <c>DEFAULT_AGENT_IDENTITY</c>。
+    /// 传 <c>new ClientIdentity { Attribution = null }</c> 可关闭归属头。
+    /// </summary>
+    public static ClientIdentity DefaultAgentIdentity { get; } = new() { Attribution = Identity.PiAttribution };
+
+    /// <summary>
     /// 以新 prompt 消息启动 agent 循环。prompt 会追加进上下文并发出相应事件。
     /// 对应 TS <c>agentLoop()</c>。
     /// </summary>

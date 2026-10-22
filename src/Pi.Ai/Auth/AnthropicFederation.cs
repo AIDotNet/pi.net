@@ -236,7 +236,7 @@ internal static class AnthropicFederation
             };
             request.Headers.TryAddWithoutValidation(
                 "anthropic-beta", $"{OAuthBetaHeader},{FederationBetaHeader}");
-            request.Headers.TryAddWithoutValidation("User-Agent", PiUserAgent.Get());
+            request.Headers.TryAddWithoutValidation("User-Agent", Identity.FormatUserAgent());
 
             HttpResponseMessage response;
             try

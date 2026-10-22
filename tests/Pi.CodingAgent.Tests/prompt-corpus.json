@@ -882,246 +882,221 @@
       "exceptionName": "MissingSessionCwdError"
     }
   ],
-  "providerAttribution": [
+  "clientIdentity": [
     {
       "provider": "openrouter",
       "baseUrl": "https://openrouter.ai/api/v1",
-      "telemetry": true,
+      "attributionName": "pi",
+      "attributionUrl": "https://pi.dev",
+      "attributionCategories": [
+        "cli-agent"
+      ],
       "sessionId": null,
-      "sources": [],
-      "result": {
+      "headers": {
         "HTTP-Referer": "https://pi.dev",
         "X-OpenRouter-Title": "pi",
         "X-OpenRouter-Categories": "cli-agent"
-      }
-    },
-    {
-      "provider": "openrouter",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "telemetry": false,
-      "sessionId": null,
-      "sources": [],
-      "result": null
-    },
-    {
-      "provider": "other",
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "telemetry": true,
-      "sessionId": null,
-      "sources": [],
-      "result": {
-        "HTTP-Referer": "https://pi.dev",
-        "X-OpenRouter-Title": "pi",
-        "X-OpenRouter-Categories": "cli-agent"
-      }
+      },
+      "sessionHeaders": null
     },
     {
       "provider": "other",
       "baseUrl": "https://proxy.example/openrouter.ai/x",
-      "telemetry": true,
+      "attributionName": "pi",
+      "attributionUrl": "https://pi.dev",
+      "attributionCategories": [
+        "cli-agent"
+      ],
       "sessionId": null,
-      "sources": [],
-      "result": {
+      "headers": {
         "HTTP-Referer": "https://pi.dev",
         "X-OpenRouter-Title": "pi",
         "X-OpenRouter-Categories": "cli-agent"
-      }
+      },
+      "sessionHeaders": null
+    },
+    {
+      "provider": "other",
+      "baseUrl": "not a url openrouter.ai",
+      "attributionName": "pi",
+      "attributionUrl": "https://pi.dev",
+      "attributionCategories": [
+        "cli-agent"
+      ],
+      "sessionId": null,
+      "headers": {
+        "HTTP-Referer": "https://pi.dev",
+        "X-OpenRouter-Title": "pi",
+        "X-OpenRouter-Categories": "cli-agent"
+      },
+      "sessionHeaders": null
     },
     {
       "provider": "nvidia",
-      "baseUrl": "https://integrate.api.nvidia.com/v1",
-      "telemetry": true,
+      "baseUrl": "https://example.test/v1",
+      "attributionName": "pi",
+      "attributionUrl": "https://pi.dev",
+      "attributionCategories": [
+        "cli-agent"
+      ],
       "sessionId": null,
-      "sources": [],
-      "result": {
+      "headers": {
         "X-BILLING-INVOKE-ORIGIN": "Pi"
-      }
+      },
+      "sessionHeaders": null
     },
     {
       "provider": "other",
       "baseUrl": "https://integrate.api.nvidia.com/v1",
-      "telemetry": true,
+      "attributionName": "acme",
+      "attributionUrl": "https://acme.example",
+      "attributionCategories": null,
       "sessionId": null,
-      "sources": [],
-      "result": {
-        "X-BILLING-INVOKE-ORIGIN": "Pi"
-      }
+      "headers": {
+        "X-BILLING-INVOKE-ORIGIN": "Acme"
+      },
+      "sessionHeaders": null
     },
     {
       "provider": "other",
-      "baseUrl": "https://integrate.api.nvidia.com.evil.com/v1",
-      "telemetry": true,
+      "baseUrl": "https://integrate.api.nvidia.com.evil.test/v1",
+      "attributionName": "pi",
+      "attributionUrl": "https://pi.dev",
+      "attributionCategories": [
+        "cli-agent"
+      ],
       "sessionId": null,
-      "sources": [],
-      "result": null
+      "headers": {},
+      "sessionHeaders": null
     },
     {
-      "provider": "cloudflare-workers-ai",
-      "baseUrl": "https://api.cloudflare.com/x",
-      "telemetry": true,
+      "provider": "vercel-ai-gateway",
+      "baseUrl": "https://ai-gateway.vercel.test/v1",
+      "attributionName": "pi",
+      "attributionUrl": "https://pi.dev",
+      "attributionCategories": [
+        "cli-agent"
+      ],
       "sessionId": null,
-      "sources": [],
-      "result": {
-        "User-Agent": "pi-coding-agent"
-      }
-    },
-    {
-      "provider": "cloudflare-ai-gateway",
-      "baseUrl": "https://gateway.ai.cloudflare.com/x",
-      "telemetry": true,
-      "sessionId": null,
-      "sources": [],
-      "result": {
-        "User-Agent": "pi-coding-agent"
-      }
-    },
-    {
-      "provider": "other",
-      "baseUrl": "https://api.cloudflare.com/x",
-      "telemetry": true,
-      "sessionId": null,
-      "sources": [],
-      "result": {
-        "User-Agent": "pi-coding-agent"
-      }
-    },
-    {
-      "provider": "other",
-      "baseUrl": "https://example.com/v1",
-      "telemetry": true,
-      "sessionId": null,
-      "sources": [],
-      "result": null
-    },
-    {
-      "provider": "other",
-      "baseUrl": "not a url",
-      "telemetry": true,
-      "sessionId": null,
-      "sources": [],
-      "result": null
+      "headers": {},
+      "sessionHeaders": null
     },
     {
       "provider": "opencode",
-      "baseUrl": "https://opencode.ai/v1",
-      "telemetry": true,
-      "sessionId": "sess-1",
-      "sources": [],
-      "result": {
-        "x-opencode-session": "sess-1",
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "attributionName": "pi",
+      "attributionUrl": "https://pi.dev",
+      "attributionCategories": [
+        "cli-agent"
+      ],
+      "sessionId": null,
+      "headers": {
         "x-opencode-client": "pi"
+      },
+      "sessionHeaders": null
+    },
+    {
+      "provider": "other",
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "attributionName": "acme",
+      "attributionUrl": "https://acme.example",
+      "attributionCategories": null,
+      "sessionId": null,
+      "headers": {
+        "x-opencode-client": "acme"
+      },
+      "sessionHeaders": null
+    },
+    {
+      "provider": "opencode",
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "attributionName": "pi",
+      "attributionUrl": "https://pi.dev",
+      "attributionCategories": [
+        "cli-agent"
+      ],
+      "sessionId": "sess-1",
+      "headers": {
+        "x-opencode-client": "pi"
+      },
+      "sessionHeaders": {
+        "x-opencode-session": "sess-1"
       }
     },
     {
       "provider": "opencode-go",
-      "baseUrl": "https://example.com/v1",
-      "telemetry": true,
+      "baseUrl": "https://example.test/v1",
+      "attributionName": "acme",
+      "attributionUrl": "https://acme.example",
+      "attributionCategories": null,
       "sessionId": "sess-1",
-      "sources": [],
-      "result": {
-        "x-opencode-session": "sess-1",
-        "x-opencode-client": "pi"
+      "headers": {
+        "x-opencode-client": "acme"
+      },
+      "sessionHeaders": {
+        "x-opencode-session": "sess-1"
       }
     },
     {
       "provider": "other",
-      "baseUrl": "https://opencode.ai/v1",
-      "telemetry": true,
+      "baseUrl": "https://example.test/v1",
+      "attributionName": "acme",
+      "attributionUrl": "https://acme.example",
+      "attributionCategories": null,
       "sessionId": "sess-1",
-      "sources": [],
-      "result": {
-        "x-opencode-session": "sess-1",
-        "x-opencode-client": "pi"
-      }
-    },
-    {
-      "provider": "opencode",
-      "baseUrl": "https://opencode.ai/v1",
-      "telemetry": true,
-      "sessionId": null,
-      "sources": [],
-      "result": null
-    },
-    {
-      "provider": "opencode",
-      "baseUrl": "https://opencode.ai/v1",
-      "telemetry": true,
-      "sessionId": "",
-      "sources": [],
-      "result": null
-    },
-    {
-      "provider": "opencode",
-      "baseUrl": "https://opencode.ai/v1",
-      "telemetry": false,
-      "sessionId": "sess-1",
-      "sources": [],
-      "result": {
-        "x-opencode-session": "sess-1",
-        "x-opencode-client": "pi"
-      }
+      "headers": {},
+      "sessionHeaders": null
     },
     {
       "provider": "openrouter",
       "baseUrl": "https://openrouter.ai/api/v1",
-      "telemetry": true,
+      "attributionName": null,
+      "attributionUrl": null,
+      "attributionCategories": null,
       "sessionId": null,
-      "sources": [
-        {
-          "X-OpenRouter-Title": "override"
-        },
-        {
-          "HTTP-Referer": null
-        }
-      ],
-      "result": {
-        "HTTP-Referer": null,
-        "X-OpenRouter-Title": "override",
-        "X-OpenRouter-Categories": "cli-agent"
-      }
+      "headers": {},
+      "sessionHeaders": null
     },
     {
-      "provider": "other",
-      "baseUrl": "https://example.com/v1",
-      "telemetry": true,
-      "sessionId": null,
-      "sources": [
-        {
-          "X-Custom": "1"
-        }
+      "provider": "openrouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "attributionName": "acme",
+      "attributionUrl": "https://acme.example",
+      "attributionCategories": [
+        "cli-agent",
+        "cloud-agent"
       ],
-      "result": {
-        "X-Custom": "1"
-      }
+      "sessionId": null,
+      "headers": {
+        "HTTP-Referer": "https://acme.example",
+        "X-OpenRouter-Title": "acme",
+        "X-OpenRouter-Categories": "cli-agent,cloud-agent"
+      },
+      "sessionHeaders": null
     },
     {
-      "provider": "other",
-      "baseUrl": "https://example.com/v1",
-      "telemetry": true,
+      "provider": "openrouter",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "attributionName": "acme",
+      "attributionUrl": "https://acme.example",
+      "attributionCategories": [],
       "sessionId": null,
-      "sources": [
-        null,
-        {
-          "X-Custom": "1"
-        }
-      ],
-      "result": {
-        "X-Custom": "1"
-      }
+      "headers": {
+        "HTTP-Referer": "https://acme.example",
+        "X-OpenRouter-Title": "acme"
+      },
+      "sessionHeaders": null
     },
     {
       "provider": "opencode",
-      "baseUrl": "https://opencode.ai/v1",
-      "telemetry": true,
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "attributionName": null,
+      "attributionUrl": null,
+      "attributionCategories": null,
       "sessionId": "sess-1",
-      "sources": [
-        {
-          "x-opencode-session": "override"
-        }
-      ],
-      "result": {
-        "x-opencode-session": "override",
-        "x-opencode-client": "pi"
+      "headers": {},
+      "sessionHeaders": {
+        "x-opencode-session": "sess-1"
       }
     }
   ],

@@ -118,7 +118,10 @@ public static class OpenRouterImages
                 if (transformed is not null) payload = transformed;
             }
 
+            // 身份头在最底层（UA + provider 归属），auth / model / 请求头依次覆盖。
             var headers = Headers.Merge(
+                Identity.GetIdentityHeaders(Identity.TargetOf(model), options?.Identity)
+                    .ToDictionary(pair => pair.Key, pair => (string?)pair.Value),
                 new Dictionary<string, string?> { ["authorization"] = $"Bearer {apiKey}" },
                 ModelHeaders(model),
                 options?.Headers);

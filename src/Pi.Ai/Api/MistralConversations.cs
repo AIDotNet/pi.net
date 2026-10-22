@@ -31,6 +31,9 @@ public record MistralOptions
 
     public string? CacheRetention { get; init; }
 
+    /// <summary>客户端身份（UA 形态 + provider 归属头）。对应 TS <c>MistralOptions.identity</c>。</summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     public IReadOnlyDictionary<string, string>? Env { get; init; }
 
     /// <summary>工具选择（auto/none/any/required 或函数定位）。对应 TS <c>toolChoice</c>。</summary>
@@ -192,6 +195,7 @@ public static class MistralConversations
         {
             ApiKey = options?.ApiKey,
             Headers = options?.Headers,
+            Identity = options?.Identity,
             Signal = options?.Signal ?? default,
             TimeoutMs = options?.TimeoutMs,
             MaxRetries = options?.MaxRetries,
@@ -332,13 +336,13 @@ public static class MistralConversations
     private static Dictionary<string, string?> BuildMistralHeaders(
         ModelSpec model, string apiKey, MistralOptions? options)
     {
-        var headers = new Dictionary<string, string?>
-        {
-            ["User-Agent"] = PiUserAgent.Get(),
-            ["accept"] = "text/event-stream",
-            ["authorization"] = $"Bearer {apiKey}",
-            ["content-type"] = "application/json",
-        };
+        // 身份头（UA + provider 归属）在最底层，随后的 model / 请求头覆盖它。
+        var headers = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in Identity.GetIdentityHeaders(Identity.TargetOf(model), options?.Identity))
+            headers[key] = value;
+        headers["accept"] = "text/event-stream";
+        headers["authorization"] = $"Bearer {apiKey}";
+        headers["content-type"] = "application/json";
         ApplyOverrides(headers, model.Headers is null
             ? null : new Dictionary<string, string?>(model.Headers.ToDictionary(kv => kv.Key, kv => (string?)kv.Value)));
         ApplyOverrides(headers, options?.Headers);

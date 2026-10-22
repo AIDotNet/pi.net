@@ -35,6 +35,9 @@ public record OpenAiCodexResponsesOptions
 
     public string? CacheRetention { get; init; }
 
+    /// <summary>客户端身份（UA 形态 + provider 归属头）。对应 TS <c>OpenAICodexResponsesOptions.identity</c>。</summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     public IReadOnlyDictionary<string, string>? Env { get; init; }
 
     public System.Text.Json.Nodes.JsonObject? Metadata { get; init; }
@@ -561,9 +564,13 @@ public static partial class OpenAiCodexResponses
         IReadOnlyDictionary<string, string?>? initHeaders,
         IReadOnlyDictionary<string, string?>? additionalHeaders,
         string accountId,
-        string token)
+        string token,
+        ClientIdentityTarget target,
+        Utils.ClientIdentity? identity)
     {
+        // 身份头（UA + provider 归属）在最底层，随后的 init / additional 头覆盖它。
         var headers = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var (key, value) in Identity.GetIdentityHeaders(target, identity)) headers[key] = value;
         if (initHeaders is not null)
         {
             foreach (var (key, value) in initHeaders) headers[key] = value;
@@ -575,7 +582,6 @@ public static partial class OpenAiCodexResponses
         headers["Authorization"] = $"Bearer {token}";
         headers["chatgpt-account-id"] = accountId;
         headers["originator"] = "pi";
-        headers["User-Agent"] = PiUserAgent.Get();
         return headers;
     }
 
@@ -584,9 +590,11 @@ public static partial class OpenAiCodexResponses
         IReadOnlyDictionary<string, string?>? additionalHeaders,
         string accountId,
         string token,
-        string? sessionId)
+        string? sessionId,
+        ClientIdentityTarget target,
+        Utils.ClientIdentity? identity)
     {
-        var headers = BuildBaseCodexHeaders(initHeaders, additionalHeaders, accountId, token);
+        var headers = BuildBaseCodexHeaders(initHeaders, additionalHeaders, accountId, token, target, identity);
         headers["OpenAI-Beta"] = "responses=experimental";
         headers["accept"] = "text/event-stream";
         headers["content-type"] = "application/json";
@@ -677,6 +685,7 @@ public static partial class OpenAiCodexResponses
         {
             ApiKey = options?.ApiKey,
             Headers = options?.Headers,
+            Identity = options?.Identity,
             Signal = options?.Signal ?? default,
             TimeoutMs = options?.TimeoutMs,
             MaxRetries = options?.MaxRetries,
@@ -775,10 +784,13 @@ public static partial class OpenAiCodexResponses
                     modelHeaders = new Dictionary<string, string?>(model.Headers.Count, StringComparer.Ordinal);
                     foreach (var (key, value) in model.Headers) modelHeaders[key] = value;
                 }
+                var identityTarget = Identity.TargetOf(model);
                 var sseHeaders = BuildSseHeaders(
-                    modelHeaders, options?.Headers, accountId, apiKey!, codexSessionId);
+                    modelHeaders, options?.Headers, accountId, apiKey!, codexSessionId,
+                    identityTarget, options?.Identity);
                 var websocketHeaders = BuildWebSocketHeaders(
-                    modelHeaders, options?.Headers, accountId, apiKey!, websocketRequestId);
+                    modelHeaders, options?.Headers, accountId, apiKey!, websocketRequestId,
+                    identityTarget, options?.Identity);
                 var httpTimeoutMs = NormalizeTimeoutMs(options?.TimeoutMs);
                 var websocketConnectTimeoutMs = NormalizeTimeoutMs(options?.WebsocketConnectTimeoutMs)
                     ?? DefaultWebsocketConnectTimeoutMs;
@@ -999,9 +1011,11 @@ public static partial class OpenAiCodexResponses
         IReadOnlyDictionary<string, string?>? additionalHeaders,
         string accountId,
         string token,
-        string requestId)
+        string requestId,
+        ClientIdentityTarget target,
+        Utils.ClientIdentity? identity)
     {
-        var headers = BuildBaseCodexHeaders(initHeaders, additionalHeaders, accountId, token);
+        var headers = BuildBaseCodexHeaders(initHeaders, additionalHeaders, accountId, token, target, identity);
         headers.Remove("accept");
         headers.Remove("content-type");
         headers.Remove("OpenAI-Beta");

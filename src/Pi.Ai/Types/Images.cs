@@ -59,6 +59,9 @@ public record ImagesOptions
     /// <summary>自定义 HTTP 头；调用方值覆盖默认值，null 值抑制同名默认头。</summary>
     public IReadOnlyDictionary<string, string?>? Headers { get; init; }
 
+    /// <summary>客户端身份（UA 形态 + provider 归属头）。对应 TS <c>ImagesOptions.identity</c>。</summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     /// <summary>HTTP 请求超时（毫秒）。</summary>
     public int? TimeoutMs { get; init; }
 

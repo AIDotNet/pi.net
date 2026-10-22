@@ -294,12 +294,14 @@ public static partial class AgentLoop
 
         // TS 把 `config.reasoning` 摊进流选项；端口由 AgentLoopConfig.Reasoning 承载，此处转文本。
         var reasoning = config.Reasoning is { } level ? Pi.Ai.Types.ThinkingLevelText.ToText(level) : null;
+        // TS：`identity: mergeClientIdentity(DEFAULT_AGENT_IDENTITY, config.identity)`。
+        var identity = Pi.Ai.Utils.Identity.MergeClientIdentity(AgentLoop.DefaultAgentIdentity, config.Identity);
         var response = await streamFunction(
             config.Model,
             llmContext,
             config.StreamOptions is null
-                ? new SimpleStreamOptions(ApiKey: resolvedApiKey) { Reasoning = reasoning }
-                : config.StreamOptions with { ApiKey = resolvedApiKey, Reasoning = reasoning },
+                ? new SimpleStreamOptions(ApiKey: resolvedApiKey) { Reasoning = reasoning, Identity = identity }
+                : config.StreamOptions with { ApiKey = resolvedApiKey, Reasoning = reasoning, Identity = identity },
             signal).ConfigureAwait(false);
 
         var partialMessage = (AssistantMessage?)null;

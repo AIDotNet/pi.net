@@ -11,6 +11,9 @@ public sealed record CreateModelsOptions
     public IModelsStore? ModelsStore { get; init; }
 
     public IAuthContext? AuthContext { get; init; }
+
+    /// <summary>请求的默认客户端身份。对应 TS <c>createModels({ identity })</c>。</summary>
+    public Utils.ClientIdentity? Identity { get; init; }
 }
 
 /// <summary>请求级认证覆盖项。对应 TS <c>AuthResolutionOverrides</c> 的 <c>Models</c> 用法。</summary>
@@ -64,6 +67,23 @@ public sealed partial class Models
         _credentials = options?.Credentials ?? new InMemoryCredentialStore();
         _modelsStore = options?.ModelsStore ?? new InMemoryModelsStore();
         _authContext = options?.AuthContext ?? DefaultAuthContext.Instance;
+        Identity = options?.Identity;
+    }
+
+    /// <summary>
+    /// 身份视图：与 <paramref name="source"/> 共用 provider 表、凭据、目录存储与刷新控制，
+    /// 只替换默认身份——所以视图上的增删 provider 与原对象互相可见（对齐 TS <c>withClientIdentity</c>）。
+    /// </summary>
+    public Models(Models source, Utils.ClientIdentity? identity)
+    {
+        _providers = source._providers;
+        _credentials = source._credentials;
+        _modelsStore = source._modelsStore;
+        _authContext = source._authContext;
+        _refreshGenerations = source._refreshGenerations;
+        _refreshControllers = source._refreshControllers;
+        _publicationChains = source._publicationChains;
+        Identity = identity;
     }
 
     /// <summary>凭据存储（catalog 刷新与登录/登出共用）。</summary>

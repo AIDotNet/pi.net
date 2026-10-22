@@ -374,56 +374,6 @@ public class PromptCorpusTests : IDisposable
         Assert.Empty(failures);
     }
 
-    // ------------------------------------------------------------------ provider attribution
-
-    [Fact]
-    public void ProviderAttribution_MatchesTypeScript()
-    {
-        Environment.SetEnvironmentVariable("PI_TELEMETRY", null);
-        var failures = new List<string>();
-
-        foreach (var vector in Corpus.GetProperty("providerAttribution").EnumerateArray())
-        {
-            var model = new ModelSpec
-            {
-                Id = "m",
-                Name = "M",
-                Api = "openai-completions",
-                Provider = vector.GetProperty("provider").GetString()!,
-                BaseUrl = vector.GetProperty("baseUrl").GetString()!,
-            };
-
-            var sources = vector.GetProperty("sources").EnumerateArray()
-                .Select(source => source.ValueKind == JsonValueKind.Null
-                    ? null
-                    : (IReadOnlyDictionary<string, string?>)source.EnumerateObject()
-                        .ToDictionary(property => property.Name, property => property.Value.GetString(), StringComparer.Ordinal))
-                .ToArray();
-
-            var settings = SettingsManager.InMemory(new Settings
-            {
-                EnableInstallTelemetry = vector.GetProperty("telemetry").GetBoolean(),
-            });
-            var actual = ProviderAttribution.MergeHeaders(
-                model, settings, OptString(vector, "sessionId"), sources);
-            var expected = vector.GetProperty("result");
-
-            var actualText = DescribeHeaders(actual);
-            var expectedText = expected.ValueKind == JsonValueKind.Null
-                ? "<null>"
-                : "{" + string.Join(",", expected.EnumerateObject()
-                    .OrderBy(property => property.Name, StringComparer.Ordinal)
-                    .Select(property => $"{property.Name}={property.Value.GetString() ?? "<null>"}")) + "}";
-            var label = $"{model.Provider}/{model.BaseUrl}/{OptString(vector, "sessionId") ?? "-"}";
-            if (actualText != expectedText)
-            {
-                failures.Add($"{label}: expected {expectedText} got {actualText}");
-            }
-        }
-
-        Assert.Empty(failures);
-    }
-
     // ------------------------------------------------------------------ crash log
 
     [Fact]
@@ -644,6 +594,75 @@ public class PromptCorpusTests : IDisposable
         Assert.Empty(failures);
     }
 
+    // ------------------------------------------------------------------ client identity
+
+    [Fact]
+    public void ClientIdentity_MatchesTypeScript()
+    {
+        var failures = new List<string>();
+
+        foreach (var vector in Corpus.GetProperty("clientIdentity").EnumerateArray())
+        {
+            var model = new ModelSpec
+            {
+                Id = "m",
+                Name = "M",
+                Api = "openai-completions",
+                Provider = vector.GetProperty("provider").GetString()!,
+                BaseUrl = vector.GetProperty("baseUrl").GetString()!,
+            };
+            var target = Pi.Ai.Utils.Identity.TargetOf(model);
+
+            Pi.Ai.Utils.ClientIdentity? identity = null;
+            if (OptString(vector, "attributionName") is { } name)
+            {
+                identity = new Pi.Ai.Utils.ClientIdentity
+                {
+                    Attribution = new Pi.Ai.Utils.ClientAttribution(
+                        name,
+                        OptString(vector, "attributionUrl") ?? string.Empty,
+                        vector.GetProperty("attributionCategories") is { ValueKind: JsonValueKind.Array } categories
+                            ? categories.EnumerateArray().Select(entry => entry.GetString()!).ToList()
+                            : null),
+                };
+            }
+
+            var label = $"{model.Provider}/{model.BaseUrl}/{OptString(vector, "sessionId") ?? "-"}";
+            Compare(label + " headers",
+                Describe(vector.GetProperty("headers")),
+                DescribeHeaders(Pi.Ai.Utils.Identity.GetAttributionHeaders(target, identity)),
+                failures);
+            Compare(label + " session",
+                Describe(vector.GetProperty("sessionHeaders")),
+                DescribeHeaders(Pi.Ai.Utils.Identity.GetOpenCodeSessionHeaders(target, OptString(vector, "sessionId"))),
+                failures);
+        }
+
+        Assert.Empty(failures);
+
+        static string Describe(JsonElement element)
+            => element.ValueKind == JsonValueKind.Null
+                ? "<null>"
+                : "{" + string.Join(",", element.EnumerateObject()
+                    .OrderBy(property => property.Name, StringComparer.Ordinal)
+                    .Select(property => $"{property.Name}={property.Value.GetString() ?? "<null>"}")) + "}";
+
+        static string DescribeHeaders(IReadOnlyDictionary<string, string>? headers)
+            => headers is null
+                ? "<null>"
+                : "{" + string.Join(",", headers
+                    .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                    .Select(pair => $"{pair.Key}={pair.Value}")) + "}";
+
+        void Compare(string label, string expected, string actual, List<string> problems)
+        {
+            if (expected != actual)
+            {
+                problems.Add($"{label}: expected {expected} got {actual}");
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ corpus shape
 
     [Fact]
@@ -660,7 +679,7 @@ public class PromptCorpusTests : IDisposable
         Assert.Equal(6, Corpus.GetProperty("experimentalEnabled").GetArrayLength());
         Assert.Equal(5, Corpus.GetProperty("sessionCwdIssue").GetArrayLength());
         Assert.Equal(3, Corpus.GetProperty("sessionCwdFormat").GetArrayLength());
-        Assert.Equal(22, Corpus.GetProperty("providerAttribution").GetArrayLength());
+        Assert.Equal(16, Corpus.GetProperty("clientIdentity").GetArrayLength());
         Assert.Equal(25, Corpus.GetProperty("findExtensionStackMatches").GetProperty("cases").GetArrayLength());
         Assert.Equal(8, Corpus.GetProperty("crashLogRead").GetArrayLength());
         Assert.Equal(3, Corpus.GetProperty("crashLogRecord").GetArrayLength());
@@ -706,9 +725,14 @@ public class PromptCorpusTests : IDisposable
             2,
             Corpus.GetProperty("findExtensionStackMatches").GetProperty("extensions").EnumerateArray()
                 .Count(extension => OptString(extension.GetProperty("sourceInfo"), "source") == "npm:dup"));
+        // 归属关闭：无归属头；且非 OpenCode 目标不产生会话头——两条都钉住「不写键」这一侧。
         Assert.Contains(
-            Corpus.GetProperty("providerAttribution").EnumerateArray(),
-            vector => vector.GetProperty("result").ValueKind == JsonValueKind.Null);
+            Corpus.GetProperty("clientIdentity").EnumerateArray(),
+            vector => vector.GetProperty("headers").ValueKind == JsonValueKind.Object
+                && !vector.GetProperty("headers").EnumerateObject().Any());
+        Assert.Contains(
+            Corpus.GetProperty("clientIdentity").EnumerateArray(),
+            vector => vector.GetProperty("sessionHeaders").ValueKind == JsonValueKind.Null);
         Assert.Contains(
             Corpus.GetProperty("findExtensionStackMatches").GetProperty("cases").EnumerateArray(),
             vector => vector.GetProperty("stack").ValueKind == JsonValueKind.Null);
@@ -816,13 +840,6 @@ public class PromptCorpusTests : IDisposable
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
-
-    private static string DescribeHeaders(IReadOnlyDictionary<string, string?>? headers) =>
-        headers is null
-            ? "<null>"
-            : "{" + string.Join(",", headers
-                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .Select(pair => $"{pair.Key}={pair.Value ?? "<null>"}")) + "}";
 
     private static List<string> Strings(JsonElement array) =>
         array.EnumerateArray().Select(item => item.GetString()!).ToList();

@@ -116,6 +116,12 @@ public sealed record SimpleStreamOptions(
     /// <summary>提示缓存保留偏好（short/long/none；缺省 short）。</summary>
     public string? CacheRetention { get; init; }
 
+    /// <summary>
+    /// 客户端身份：UA 形态与 provider 归属头。缺省为详版 <c>User-Agent</c>、无归属。
+    /// 对应 TS <c>SimpleStreamOptions.identity</c>。
+    /// </summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     /// <summary>请求元数据（provider 自取所需字段）。</summary>
     public System.Text.Json.Nodes.JsonObject? Metadata { get; init; }
 

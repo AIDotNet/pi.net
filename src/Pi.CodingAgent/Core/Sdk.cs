@@ -609,6 +609,32 @@ public static class Sdk
                         decisionEvent.Action)).ConfigureAwait(false);
             });
 
+        // Port of pi-ai providers/opencode-headers.ts `withSessionHeader`: OpenCode requires its
+        // per-conversation routing header, and a caller-set value wins. The identity headers
+        // (User-Agent + attribution) are no longer merged here — pi-ai applies them from the
+        // `identity` request option, below model and request headers.
+        static IReadOnlyDictionary<string, string?> WithOpenCodeSessionHeader(
+            ModelSpec model, string? sessionId, IReadOnlyDictionary<string, string?> requestHeaders)
+        {
+            var headers = new Dictionary<string, string?>(requestHeaders, StringComparer.Ordinal);
+            var sessionHeaders = Pi.Ai.Utils.Identity.GetOpenCodeSessionHeaders(
+                Pi.Ai.Utils.Identity.TargetOf(model), sessionId);
+            if (sessionHeaders is null)
+            {
+                return headers;
+            }
+
+            foreach (var (name, value) in sessionHeaders)
+            {
+                if (!headers.Keys.Any(key => string.Equals(key, name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    headers[name] = value;
+                }
+            }
+
+            return headers;
+        }
+
         Dictionary<string, object?> BuildRequestOptions(
             ModelSpec requestModel, SimpleStreamOptions? streamOptions)
         {
@@ -630,21 +656,22 @@ public static class Sdk
                 requestOptions["websocketConnectTimeoutMs"] = websocketTimeoutMs;
             if (timeouts.MaxRetries is { } maxRetries) requestOptions["maxRetries"] = maxRetries;
             requestOptions["maxRetryDelayMs"] = timeouts.MaxRetryDelayMs;
+            // 取代 agent loop 的默认身份；每次请求重读，遥测开关改动立即生效（对齐 TS buildRequestOptions）。
+            requestOptions[Pi.Ai.Models.Models.IdentityOptionKey] = ClientIdentitySource.GetClientIdentity(settingsManager);
             requestOptions[Pi.Ai.Models.Models.TransformHeadersOptionKey] =
                 new Func<IReadOnlyDictionary<string, string?>, Task<IReadOnlyDictionary<string, string?>>>(
                     async requestHeaders =>
                     {
-                        var headers = ProviderAttribution.MergeHeaders(
-                            requestModel, settingsManager, streamOptions?.SessionId, requestHeaders);
+                        var headers = WithOpenCodeSessionHeader(requestModel, streamOptions?.SessionId, requestHeaders);
                         var headerRunner = extensionRunnerRef.Current;
                         if (headerRunner is null
                             || !headerRunner.HasHandlers(ExtensionEventNames.BeforeProviderHeaders))
                         {
-                            return headers ?? new Dictionary<string, string?>(StringComparer.Ordinal);
+                            return headers;
                         }
 
                         var mutable = new Pi.CodingAgent.Core.Extensions.Types.ProviderHeaders();
-                        foreach (var (name, value) in headers ?? new Dictionary<string, string?>(StringComparer.Ordinal))
+                        foreach (var (name, value) in headers)
                         {
                             mutable[name] = value;
                         }

@@ -83,4 +83,12 @@ public sealed class AgentOptions
 
     /// <summary>单次重试的最长退避。对应 TS <c>AgentOptions.maxRetryDelayMs</c>。</summary>
     public int? MaxRetryDelayMs { get; init; }
+
+    /// <summary>
+    /// 请求如何向 provider 标识本应用：逐字段覆盖
+    /// <see cref="AgentLoop.DefaultAgentIdentity"/>（<c>{ attribution: PI_ATTRIBUTION }</c>）。
+    /// 传 <c>new ClientIdentity { Attribution = null }</c> 可不发归属头。
+    /// 对应 TS <c>AgentOptions.identity</c>。
+    /// </summary>
+    public Pi.Ai.Utils.ClientIdentity? Identity { get; init; }
 }

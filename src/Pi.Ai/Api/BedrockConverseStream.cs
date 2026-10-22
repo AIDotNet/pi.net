@@ -16,6 +16,12 @@ public record BedrockOptions
 
     public IReadOnlyDictionary<string, string?>? Headers { get; init; }
 
+    /// <summary>
+    /// 客户端身份（UA 形态 + provider 归属）。对应 TS <c>BedrockOptions.identity</c>：上游把身份交给
+    /// AWS SDK 的 <c>customUserAgent</c> 组装，端口直接用 HttpClient，故以同一条 UA 头呈现。
+    /// </summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
     public int? TimeoutMs { get; init; }
 
     public int? MaxTokens { get; init; }
@@ -123,8 +129,11 @@ public static class BedrockConverseStream
                     Content = new ByteArrayContent(bodyBytes),
                 };
                 request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                // 身份头先写，auth / 请求头覆盖它（对齐 TS：身份位于 model、provider 与请求头之下）。
+                Identity.ApplyIdentityHeaders(request, Identity.TargetOf(model), options?.Identity);
                 foreach (var (key, value) in authHeaders)
                 {
+                    request.Headers.Remove(key);
                     request.Headers.TryAddWithoutValidation(key, value);
                 }
                 if (options?.Headers is not null)
@@ -132,8 +141,9 @@ public static class BedrockConverseStream
                     foreach (var (key, value) in options.Headers)
                     {
                         // host/x-amz-*/authorization 由 SigV4/bearer 拥有（对齐 TS isReservedHeader）。
-                        if (IsReservedHeader(key) || value is null) continue;
-                        request.Headers.TryAddWithoutValidation(key, value);
+                        if (IsReservedHeader(key)) continue;
+                        request.Headers.Remove(key);
+                        if (value is not null) request.Headers.TryAddWithoutValidation(key, value);
                     }
                 }
 
@@ -289,6 +299,7 @@ public static class BedrockConverseStream
         {
             ApiKey = options?.ApiKey,
             Headers = options?.Headers,
+            Identity = options?.Identity,
             Signal = options?.Signal ?? default,
             TimeoutMs = options?.TimeoutMs,
             MaxTokens = maxTokensOut,

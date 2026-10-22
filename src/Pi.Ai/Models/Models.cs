@@ -108,6 +108,17 @@ public sealed partial class Models
 {
     private readonly Dictionary<string, IProvider> _providers = [];
 
+    /// <summary>
+    /// 请求的默认客户端身份；请求级身份逐字段覆盖它。对应 TS <c>Models.identity</c>。
+    /// </summary>
+    public Utils.ClientIdentity? Identity { get; init; }
+
+    /// <summary>
+    /// 共用同一批 provider / 凭据 / 刷新控制、只换默认身份的视图。对应 TS <c>withClientIdentity</c>
+    /// 的包装语义（列表与增删 provider 都作用到原对象）。
+    /// </summary>
+    internal Models WithIdentity(Utils.ClientIdentity? identity) => new(this, identity);
+
     /// <summary>注册（或替换）provider。</summary>
     public void SetProvider(IProvider provider)
     {
@@ -245,6 +256,28 @@ public sealed partial class Models
             ? provider
             : throw new ModelsError(ModelsErrorCode.Provider, $"Unknown provider: {model.Provider}");
 
+    /// <summary>选项字典里承载请求级客户端身份的键。对应 TS <c>StreamOptions.identity</c>。</summary>
+    public const string IdentityOptionKey = "identity";
+
+    /// <summary>
+    /// 把本视图的默认身份并进请求选项：请求级身份逐字段覆盖它（对应 TS 的
+    /// <c>mergeClientIdentity(this.identity, options?.identity)</c>）。无默认身份时原样返回。
+    /// </summary>
+    private IReadOnlyDictionary<string, object?>? MergeIdentity(IReadOnlyDictionary<string, object?>? options)
+    {
+        if (Identity is null) return options;
+        var requestIdentity = options is not null && options.TryGetValue(IdentityOptionKey, out var value)
+            ? value as Utils.ClientIdentity
+            : null;
+        var merged = Utils.Identity.MergeClientIdentity(Identity, requestIdentity);
+        var requestOptions = options is null
+            ? new Dictionary<string, object?>(StringComparer.Ordinal)
+            : new Dictionary<string, object?>(options, StringComparer.Ordinal);
+        if (merged is null) requestOptions.Remove(IdentityOptionKey);
+        else requestOptions[IdentityOptionKey] = merged;
+        return requestOptions;
+    }
+
     /// <summary>
     /// 简单流式：同步返回事件流，认证解析与 provider 分派在其后运行
     /// （<see cref="LazyStream.Run"/> 的延迟语义——未注册 provider 也产出 error 终态而非抛出）。
@@ -255,7 +288,7 @@ public sealed partial class Models
         => LazyStream.Run(model, async () =>
         {
             var provider = RequireChatProvider(model);
-            var (requestModel, requestOptions) = await ApplyAuthAsync(model, options, CancellationToken.None)
+            var (requestModel, requestOptions) = await ApplyAuthAsync(model, MergeIdentity(options), CancellationToken.None)
                 .ConfigureAwait(false);
             return provider.StreamSimple(requestModel, context, requestOptions);
         });
@@ -269,7 +302,7 @@ public sealed partial class Models
         => LazyStream.Run(model, async () =>
         {
             var provider = RequireChatProvider(model);
-            var (requestModel, requestOptions) = await ApplyAuthAsync(model, options, CancellationToken.None)
+            var (requestModel, requestOptions) = await ApplyAuthAsync(model, MergeIdentity(options), CancellationToken.None)
                 .ConfigureAwait(false);
             return provider.Stream(requestModel, context, requestOptions);
         });
@@ -320,7 +353,7 @@ public sealed partial class Models
                 throw new ModelsError(ModelsErrorCode.Provider,
                     $"Provider {model.Provider} does not support deferred responses");
             }
-            var (requestModel, requestOptions) = await ApplyAuthAsync(model, options, CancellationToken.None)
+            var (requestModel, requestOptions) = await ApplyAuthAsync(model, MergeIdentity(options), CancellationToken.None)
                 .ConfigureAwait(false);
             return provider.StreamDeferred(requestModel, handle, requestOptions)
                 ?? throw new ModelsError(ModelsErrorCode.Provider,

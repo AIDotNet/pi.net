@@ -53,7 +53,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | ChatGPT Business 工作区限额不可重试 | 1.4.0 | 避免无意义重试 | 本次移植 |
 | 畸形最终参数上报 `argumentsError`（不再保留解析前缀） | 1.3.0 #10897 | 5 个 API 实现 + 校验层 + agent 预检 | 本次移植（第二批） |
 | `personalizeOpenRouterCatalog()`、`RefreshModelsContext.baseUrl`、按 key 的模型列表 | 1.2.0 #10353 | 新增 `openrouter-api.ts`，重写远端目录 provider | 待办 |
-| 客户端身份 `identity` / `User-Agent` 格式重构 | 1.4.0 | 破坏性：`telemetryContext`→`telemetry`、`getPiUserAgent` 移除 | 待办（与 telemetry 一起做） |
+| 客户端身份 `identity` / `User-Agent` 格式重构 | 1.4.0 | 破坏性：`telemetryContext`→`telemetry`、`getPiUserAgent` 移除 | 本次移植（第五批） |
 | `resolveTranscriptTools` 由布尔改为 `TranscriptToolSupport` | 1.4.0 | 破坏性 API | 待办 |
 | System One 分类器图像输入、`compat`、llama.cpp 决策模型 | 1.1.0–1.4.0 | codemode + 分类器链路 | 待办 |
 | 模型目录更新（Claude Haiku 5.5、MiniMax-M3.1-Flash、Grok `xhigh` 等） | 1.1.0–1.4.0 | 纯数据 | 待办（随目录同步脚本） |
@@ -64,7 +64,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 
 | 变更 | 版本 | 影响 | 结论 |
 | --- | --- | --- | --- |
-| `AgentOptions.identity` / `Agent.identity` | 1.4.0 | 需 pi-ai `ClientIdentity` 先落地 | 待办（依赖 3.1 identity） |
+| `AgentOptions.identity` / `Agent.identity` | 1.4.0 | 需 pi-ai `ClientIdentity` 先落地 | 本次移植（第五批，含 `DEFAULT_AGENT_IDENTITY`） |
 | `durationMs` 全链路 | 1.1.0 | — | 已移植 |
 | `prepareToolCall` 内接入 `validateToolArguments`（顺带把 `argumentsError` 短路接上） | 1.3.0 #10897 | 工具拿到 coerce 后参数；畸形/不合 schema 的调用以 isError 结果回模型 | 本次移植（第二批） |
 
@@ -115,7 +115,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   单独改名只会得到半套实现。
 - **chord（1.3.0）**：`traceIn(options, fn, context)` 参数顺序变更 —— **暂不适用**：端口 chord
   尚无 `telemetry` 成员与 `TelemetrySpan`，`traceIn` 本身不存在；与 telemetry 一起落地。
-- **telemetry（1.4.0）**：`telemetryContext`→`telemetry?: TelemetrySpan`，与 ai 的 identity 同批。
+- **telemetry（1.4.0）**：`telemetryContext`→`telemetry?: TelemetrySpan` —— **暂不适用**：端口 ai 层
+  没有 `observeModelRequest` 观察器（`LazyStream` 无 observer 参数），无从改名的选项；identity 已独立落地。
 - **mcp（1.2.0–1.4.0，4 提交）**：`structuredContent` 可为任意 JSON 值（#10416）与
   「无元数据时拒绝 `iss`」（c5f5b3282）、「取消的请求不再在授权刷新后重发」（da0eadf04）
   已移植（第四批）；**待办**：连接时不再列资源（#10526，影响 `/mcp` 列表与工具注册时机）、
@@ -182,7 +183,32 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
-2. ai：identity/telemetry → per-key OpenRouter 目录（`argumentsError` 已在第二批完成）。
+2. ~~ai：identity~~（第五批已完成）→ per-key OpenRouter 目录（`argumentsError` 已在第二批完成）。
 3. coding-agent：`sessionShareDestination` → resume 活动工具 → codemode worker 排队。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
+
+### 6.x 第五批（identity）落地明细
+
+上游 `adc5fa9f8` 把客户端身份与 provider 归属从 coding-agent 搬进 pi-ai，端口按同一归属实现：
+
+- `Pi.Ai.Utils.Identity`（新，对应 `utils/identity.ts`）：`UserAgentMode`（detailed/short/custom）、
+  `ClientAttribution`、`ClientIdentity`（`AttributionSet` 区分「未设置」与「显式 null」）、
+  `ClientIdentityTarget`、`MergeClientIdentity` / `FormatUserAgent` / `GetAttributionHeaders` /
+  `GetOpenCodeSessionHeaders` / `GetIdentityHeaders` / `ApplyIdentityHeaders` / `ParseClientIdentity`。
+  与上游差异：详版 UA 的运行时段是 `dotnet/<version>`（上游为 `node/`|`bun/`），平台与架构按 Node
+  命名映射，便于与上游日志对照。
+- 8 个 provider 改由 `GetIdentityHeaders` / `ApplyIdentityHeaders` 打底，`SimpleStreamOptions.Identity`
+  与各 options 类型的 `Identity` 承载；身份头位于 model / provider / 请求头**之下**，故配置头仍可覆盖。
+- `Models`：新增 `Identity`（`CreateModelsOptions.Identity`）与 `WithClientIdentity` 视图（共用同一批
+  provider/凭据/刷新控制，增删互相可见），`Stream`/`StreamSimple`/`StreamDeferred` 按
+  `merge(视图身份, 请求身份)` 合并，请求身份最优先。
+- `Pi.Agent`：`AgentLoop.DefaultAgentIdentity`、`AgentLoopConfig.Identity`、`AgentOptions.Identity`、
+  `Agent.Identity`，在 `streamAssistantResponse` 处按上游同一表达式合并。
+- `Pi.Durable`：`Harness.DefaultIdentity`、`HarnessOptions.Identity`，构造时把 `Models` 包成身份视图。
+- `Pi.CodingAgent`：删除 `Core/ProviderAttribution.cs`（上游已删），新增
+  `Core/ClientIdentitySource`（对应 `core/client-identity.ts`；因与 `Pi.Ai.Utils.ClientIdentity`
+  同名，C# 侧改名）。SDK 的 `transformHeaders` 只补 OpenCode 会话头，归属头改由 identity 承载；
+  `Utils/PiUserAgent` 改为委托 `Identity.FormatUserAgent`。
+- 语料：`prompt-corpus.json` 的 `providerAttribution`（22 向量，驱动已删除的 TS 模块）换成
+  `clientIdentity`（16 向量，驱动 pi-ai 的 `getAttributionHeaders`/`getOpenCodeSessionHeaders`）。
