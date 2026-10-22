@@ -92,6 +92,7 @@ public static class CredentialPrint
         {
             // TS 此处对 `cliModel!` 用了非空断言：没 provider 时 model 必然存在（validateAuthCommandArgs 保证）。
             var modelId = cliModel!;
+            var models = modelRuntime.GetModels();
             foreach (var provider in modelRuntime.GetProviders())
             {
                 if (!credentialTypes.ContainsKey(provider.Id))
@@ -99,17 +100,21 @@ public static class CredentialPrint
                     continue;
                 }
 
-                var resolved = ModelResolver.ResolveCliModel(new ResolveCliModelOptions
+                // 每个候选 provider 都按同一套策略解析，只有真正解析出模型的才留下：歧义与「自定义 model
+                // id 兜底」都不算命中（后者在 1.4.0 里由 not-found 分支承载，不再是警告文案比对）。
+                var resolved = ModelResolver.ResolveModelReference(
+                    new ModelReferenceRequest
+                    {
+                        Text = modelId,
+                        Provider = provider.Id,
+                        ThinkingSuffix = ModelReferenceThinkingSuffix.Strict,
+                        Fuzzy = true,
+                    },
+                    models,
+                    _ => true);
+                if (resolved is ModelReferenceResult.Resolved found)
                 {
-                    CliProvider = provider.Id,
-                    CliModel = modelId,
-                    Runtime = modelRuntime,
-                });
-                if (resolved.Model is not null
-                    && resolved.Error is null
-                    && resolved.Warning?.Contains("Using custom model id", StringComparison.Ordinal) != true)
-                {
-                    providers.Add((provider.Id, resolved.Model));
+                    providers.Add((provider.Id, found.Model));
                 }
             }
 

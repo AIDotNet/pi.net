@@ -1235,6 +1235,9 @@ public static class Main
                 CliProvider = parsed.Provider,
                 CliModel = parsed.Model,
                 CliThinking = parsed.Thinking,
+                // `--api-key` goes to whichever provider ends up selected, so stored credentials must not
+                // decide it (upstream 1.4.0 #10160).
+                InlineApiKey = parsed.ApiKey is not null,
                 Runtime = modelRuntime,
             });
             if (resolved.Warning is not null)

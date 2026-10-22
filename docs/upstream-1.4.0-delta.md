@@ -81,7 +81,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 摘要不再按 `reserveTokens` 折算输出上限 | 1.4.0 #9512 | 思考占满预算时压缩直接失败 | 本次移植 |
 | `sessionShareDestination` 设置 | 1.3.0 #10870 | 新增设置项 + `/share` 分支（14 文件） | 本次移植（第七批） |
 | 恢复会话时恢复活动工具集 | 1.3.0 #10785 | 影响 `--tools` 与 resume 交互 | 本次移植（第八批） |
-| `--model` 的 provider 选择策略统一 | 1.3.0 #10160 | 663 行重写，风险较高 | 待办 |
+| `--model` 的 provider 选择策略统一 | 1.3.0 #10160 | 663 行重写，风险较高；连带 `findInitialModel` 不再解析 CLI（端口差异 C78 退休）、`defaultModelPerProvider` 5 项同步 | 本次移植（第二十一批） |
 | codemode worker 排队与 `PI_CODEMODE_MAX_WORKERS` | 1.4.0 #11184 | 并发脚本从失败改为等待 | 不适用（见 §6） |
 | `reachesTools`、命名空间 `aliases`（codemode 与 MCP 解耦） | 1.2.0 `24382bedd` | 工具可达性与 MCP 等待，破坏性 API：删除 `isCodemodeTool` / `isToolSearchTool` / `mcpStructuredContentSchema` | 本次移植（第十八批） |
 | `before_agent_start` 覆盖自定义触发轮次（破坏性） | 1.2.0 `a447ba11f` / #10739 | 事件语义变更：`BeforeAgentStartEvent` 按 `messageType` 分成 user / custom 两支 | 本次移植（第十九批） |
@@ -146,6 +146,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `92ab53602`（1.4.0） | `Storage.commit(writes, adopt, context)`：持久后同步采纳一次 | `Pi.Durable/Storage/{IStorage,MemoryStorage,JsonlStorage,SqliteStorage}.cs`、`Session/Session.cs` | `StorageConformance`「adopts a durable commit once…」（4 后端）、`SessionTests.CommitWithoutAdoptionPoisonsTheSession` |
 | `92ab53602`（1.4.0，观察面） | 显式退休、watch 类型入 chord、删 `documentState`/`viewState`/`taskGraph` | `Pi.Chord/Services/Watch.cs`（新）、`Pi.Durable/Session/{Observation,Session}.cs`、`Pi.Durable/Harness/*`、`Pi.CodingAgent/Experimental/WatchState.cs`（新）+ 4 处调用点 | `SessionTests`（新增 2 例：null 不退休、`retire` 投递后结束）、`HarnessViewTests` / `HarnessTaskGraphTests` / `HarnessContextTests` 迁到 watch |
 | `67996ab75` | `structuredContent` 接受任意 JSON 值 | `Pi.Mcp/Protocol/{Types,Content}.cs`、`Pi.CodingAgent/Extensions/Mcp/Tools.cs` | `ProtocolContentTests`（4）、`McpToolsTests.CreateMcpResultSchema_WithoutStructuredSchema_DeclaresUnknown` |
+| `d7f7e0dfe`（1.3.0，`#10160`） | `--model` / `--models` / 凭据打印共用一套 provider 选择策略；`findInitialModel` 不再解析 CLI | `Pi.CodingAgent/Core/ModelResolver.cs`、`Cli/CredentialPrint.cs`、`Cli/Main.cs` | 语料重算（`model-resolver-corpus.json`，语料生成器重建）+ `ModelResolverTests`（删 1 例、加 1 例） |
 | `c5f5b3282` | 无元数据时拒绝 `iss`（RFC 9207） | `Pi.Mcp/OAuth/{OAuthFlow,OAuthErrors}.cs` | `OAuthFlowTests.IssWithoutDiscoveredMetadataIsRejectedBeforeTheExchange` |
 | `da0eadf04` | 已取消的请求不再在授权刷新后重发 | `Pi.Mcp/Transports/StreamableHttpTransport.cs` | —（.NET 侧 SendAsync 已按 token 取消，仅补齐 MCP 中止错误语义） |
 
@@ -157,6 +158,11 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   （上游 1.4.0 的 `child-process.ts` 引入 `cross-spawn`，本地 `node_modules` 没有该包），
   故按上游源码逐字更新该字段，其余向量未动。
 - `compaction-corpus.json`：5 处 `captured[].options.maxTokens` 移除（摘要不再带输出上限）。
+- `model-resolver-corpus.json`：整份语料由重建的 `tools/gen-coding-agent-model-resolver-corpus.mjs`
+  对着 1.4.0 的 `model-resolver.ts` 重算（第二十一批）。向量**输入**沿用旧语料（模型集、授权集、
+  pattern、CLI 选项组合），只重算期望值，故变化即上游语义变化：`parsePatterns` 50 条、`exactMatches`
+  4 条、`scopes` 9 条、`initialModels` 3 条，其余不变；`cliModels` 因新增 `inlineApiKey` 维度从 1440
+  条扩到 2880 条（原 1440 条即 `inlineApiKey: false` 分支，期望值未变）。
 
 ## 5. 验证结果
 
@@ -164,7 +170,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 486 / 486 通过（第十七批 6 例替代 4 例；此前 484） |
-| `Pi.CodingAgent.Tests` | 5019 / 5019 通过（第二十批只改夹具，数量不变；第十九批新增 1 例） |
+| `Pi.CodingAgent.Tests` | 5019 / 5019 通过（第二十一批删 1 例 `findInitialModel` 的 CLI 退出路径、加 1 例「CLI 被忽略」，数量不变；第二十批只改夹具） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 459 / 459 通过（第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
@@ -222,7 +228,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `commit(adopt)` 在第三批，`Pi.CodingAgent.Experimental` 用 `WatchState` 适配器一并改完）。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
 3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
-4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
+4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`--model` provider 选择策略统一~~（第二十一批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 5. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
@@ -782,6 +788,69 @@ watch 重新挂成 `AttachedReplicatedState<T>`（快照取 watch 当前修订�
 `HarnessViewTests` / `HarnessTaskGraphTests` / `HarnessContextTests` 按上游同批测试的写法从
 `state()` / `taskGraph()` 迁到「启动过的 watch」：`Start` 之后 `Value` 才随提交推进，未启动的
 watch 读到的就是取得的那个修订；`Dispose()` 一律换成 `await Stop()`。
+
+
+### 6.j 第二十一批（`--model` 的 provider 选择策略统一）落地明细
+
+对应上游 `d7f7e0dfe`（1.3.0 / #10160，closes #10913；7 文件 / +663 −781，其中
+`model-resolver.ts` 占 735 行）。破坏性：`findInitialModel` 不再解析 CLI 参数。
+
+**问题**
+
+四条入口——`--model`、`--models` / `enabledModels`、交互式 `/model`、`pi auth print`——各有一套
+provider 选择逻辑，且都受目录顺序影响：同一个 id 落在多个 provider 时，「谁先被遍历到」决定结果。
+`provider/id` 前缀还会在模糊匹配阶段被重新解释，于是 `:<thinking>` 后缀能把解析导向另一个 provider；
+精确匹配有歧义时又会退化成模糊匹配，选出一个用户没写过的模型。
+
+**统一策略**（`ResolveModelReference`）
+
+- 先收集全部候选，再决定 provider：
+  - 同一 provider 的多条候选 → 直接取第一条（同 provider 不存在「选错 provider」问题）；
+  - 命名 provider 可用 → 命名 provider 胜出（`provider/id` 的通常语义）；
+  - 只有一个非命名候选可用 → 它胜出（命名 provider 服务不了这个请求，例如网关把 `zai/glm-5` 当裸 id 暴露）；
+  - 都不可用但存在命名候选 → 仍取命名候选，让 `--api-key` 能完成首次配置；
+  - 否则报歧义（`Ambiguous`，带候选列表与可用计数），绝不按目录顺序挑一个。
+- `ResolveText` 分三段：精确/前缀匹配 → 模糊匹配 → thinking 后缀递归。后缀不能改变 provider：
+  递归只解析 `<base>`，把 `thinkingLevel` 贴回结果，`warning` 存在时不贴（内层已经降级）。
+- 非法后缀在 `strict` 模式（`--model`）下整体失败，`lenient` 模式（`--models`）下「用默认 thinking、
+  保留 model」并附警告，文案与上游逐字一致。
+- `NotFound` 现在带 `Target`（provider、该 provider 的模型列表且 anchor 在前、按原样键入的
+  `modelText`、去掉合法后缀的 `modelId`、`thinkingLevel`），自定义 model id 由它构造，
+  不再靠「warning 里有没有 Using custom model id」这种字符串比对。
+
+**连带的破坏性变更：`findInitialModel` 不再看 CLI**
+
+上游把 `--provider` / `--model` 的解析整体上移到 `main.ts`（同批给 `resolveCliModel` 补了
+`inlineApiKey: Boolean(parsed.apiKey)`）。端口照此删掉 `InitialModelOptions.CliProvider` /
+`CliModel` 与该分支，`FindInitialModelAsync` 现在只有 scoped → 保存默认 → 第一可用 → 无 四步。
+生产调用点本来就分两段（`Cli/Main.cs` 先 `ResolveCliModel`、`SessionWorkerHarnessSetup` 同），
+所以只有测试需要改。随之退休的还有端口差异 **C78**：不再需要
+`ModelResolutionException` 去模拟「打印红字后 `process.exit(1)`」，该类已删除；
+`--model` 解析失败由调用方写诊断（`--provider` 缺 `--model` 的检查仍在 `buildSessionOptions` 里）。
+
+**数据同步**
+
+`defaultModelPerProvider` 有 5 项落后于 1.4.0（`github-copilot`、`xiaomi` 与三个
+`xiaomi-token-plan-*`、`nvidia`），语料重算时逐条暴露，已按上游表更新。
+
+**语料生成器（重建）**
+
+`tools/gen-coding-agent-model-resolver-corpus.mjs` 早先丢失（`tools/` 被 `.gitignore` 排除，从未提交），
+本次重写：把上游 `model-resolver.ts` 的**原文**放进暂存文件，只替换 import 头（`chalk` / `minimatch`
+用真实包，`modelsAreEqual` / `isValidThinkingLevel` / `DEFAULT_THINKING_LEVEL` 按上游语义补三个桩），
+再用 Node 22 的类型擦除直接 `import` 执行——因此期望值仍是参考实现自己的输出。
+向量的**输入**（模型集、授权集、pattern、CLI 选项组合）从既有语料读入，只重算输出，重跑幂等。
+
+**语料差异**（相对上一版，即上游语义变化）
+
+| 段 | 变化 | 代表 |
+| --- | --- | --- |
+| `parsePatterns` | 50 / 1206 | `""` → 不解析（上游 `if (!text) not-found`）；`"claude-sonnet-4-5 :high"`（空格在冒号前）→ 不解析（新实现不再逐段 trim） |
+| `exactMatches` | 4 / 270 | `mixedTypes` 集里同 id 的 chat / image / classifier 三条：旧实现要求「唯一匹配」→ `-1`，新实现同 provider 取第一条 → `0` |
+| `scopes` | 9 / 279 | 同 id 多 provider 现在追加一条 `ambiguous` 诊断 |
+| `initialModels` | 3 / 24 | CLI 字段不再参与（`anthropic/nope` 不再造出自定义模型、未知 provider 不再报错） |
+| `cliModels` | 0 改 / +1440 条 | 新增 `inlineApiKey` 维度：原 1440 条即 `false` 分支，期望值未变 |
+| `defaultModelPerProvider` | 5 项 | 见上 |
 
 
 ### 6.l 第十九批（`before_agent_start` 覆盖自定义触发轮次）落地明细

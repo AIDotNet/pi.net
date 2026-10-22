@@ -20,9 +20,10 @@ namespace Pi.CodingAgent.Tests;
 /// The corpus in <see cref="ModelResolverCorpusTests"/> pins the algorithm against the real TypeScript
 /// output. What is left is the C#-only surface: that a real <see cref="ModelRuntime"/> satisfies
 /// <see cref="IModelResolverRuntime"/>, that the "first available model" fallback behaves (its corpus
-/// vectors are omitted because provider order is not reproducible — see that class's remarks), that
-/// <see cref="ModelResolutionException"/> carries the uncoloured message, and that
-/// <see cref="Glob"/>'s rejection of an oversized pattern propagates the way TS's throw does.
+/// vectors are omitted because provider order is not reproducible — see that class's remarks), that a
+/// failed <c>--model</c> is reported by <see cref="ModelResolver.ResolveCliModel"/> rather than by the
+/// initial-model search, and that <see cref="Glob"/>'s rejection of an oversized pattern propagates the way
+/// TS's throw does.
 /// </remarks>
 public class ModelResolverTests
 {
@@ -300,43 +301,22 @@ public class ModelResolverTests
         Assert.Null(restored.FallbackMessage);
     }
 
-    // ================================================================= the exit path
-
     /// <summary>
-    /// TS prints <c>chalk.red(error)</c> and calls <c>process.exit(1)</c>. The port writes the same line and
-    /// rejects the returned task with the uncoloured message (difference C78).
+    /// The CLI branch used to live inside <c>findInitialModel</c>; 1.4.0 moved it out, so a bad <c>--model</c>
+    /// leaves the initial-model search untouched instead of aborting it.
     /// </summary>
     [Fact]
-    public async Task FindInitialModel_RejectsWithTheUncolouredError()
+    public async Task FindInitialModel_IgnoresTheCliModelEntirely()
     {
         var runtime = await CreateRuntimeAsync("solo", Models("only-model"));
-        var stderr = new StringWriter();
-        var enabled = Chalk.EnabledOverride;
-        ModelResolver.ErrorWriterOverride = stderr;
-        Chalk.EnabledOverride = true;
-        try
-        {
-            var error = await Assert.ThrowsAsync<ModelResolutionException>(() =>
-                ModelResolver.FindInitialModelAsync(new InitialModelOptions
-                {
-                    CliProvider = "nope",
-                    CliModel = "only-model",
-                    ScopedModels = [],
-                    Runtime = runtime,
-                }));
 
-            Assert.Equal(
-                "Unknown provider \"nope\". Use --list-models to see available providers/models.",
-                error.Message);
-            Assert.Equal(
-                $"\u001b[31m{error.Message}\u001b[39m\n".Replace("\n", Environment.NewLine),
-                stderr.ToString());
-        }
-        finally
+        var initial = await ModelResolver.FindInitialModelAsync(new InitialModelOptions
         {
-            ModelResolver.ErrorWriterOverride = null;
-            Chalk.EnabledOverride = enabled;
-        }
+            ScopedModels = [],
+            Runtime = runtime,
+        });
+
+        Assert.Equal("solo/only-model", $"{initial.Model?.Provider}/{initial.Model?.Id}");
     }
 
     // ================================================================= alias heuristics

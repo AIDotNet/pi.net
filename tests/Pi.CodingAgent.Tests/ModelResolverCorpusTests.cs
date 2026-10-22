@@ -276,9 +276,10 @@ public class ModelResolverCorpusTests
             if (!runtimes.TryGetValue(key, out var runtime)) runtimes[key] = runtime = RuntimeFor(set, authed);
 
             var cliModel = ReadText(vector.GetProperty("cliModel"));
+            var inlineApiKey = vector.GetProperty("inlineApiKey").GetBoolean();
             var label = $"resolveCliModel(provider: {ReadText(vector.GetProperty("cliProvider"))},"
                 + $" model: {Quote(cliModel)}, thinking: {ReadText(vector.GetProperty("cliThinking"))}"
-                + $", set: {set}, authed: {authed})";
+                + $", apiKey: {inlineApiKey}, set: {set}, authed: {authed})";
 
             var actual = ModelResolver.ResolveCliModel(new ResolveCliModelOptions
             {
@@ -289,6 +290,7 @@ public class ModelResolverCorpusTests
                     ? null
                     : cliModel,
                 CliThinking = ReadLevel(vector.GetProperty("cliThinking")),
+                InlineApiKey = inlineApiKey,
                 Runtime = runtime,
             });
 
@@ -313,12 +315,11 @@ public class ModelResolverCorpusTests
             var label = $"findInitialModel(set: {vector.GetProperty("set").GetString()},"
                 + $" authed: {vector.GetProperty("authed").GetString()}, scoped: {scoped.Count},"
                 + $" continuing: {vector.GetProperty("isContinuing").GetBoolean()},"
-                + $" cli: {ReadText(vector.GetProperty("cliProvider"))}/{ReadText(vector.GetProperty("cliModel"))})";
+                + $" cli (ignored since 1.4.0): {ReadText(vector.GetProperty("cliProvider"))}"
+                + $"/{ReadText(vector.GetProperty("cliModel"))})";
 
             var options = new InitialModelOptions
             {
-                CliProvider = Nullable(vector.GetProperty("cliProvider")),
-                CliModel = Nullable(vector.GetProperty("cliModel")),
                 ScopedModels = scoped,
                 IsContinuing = vector.GetProperty("isContinuing").GetBoolean(),
                 DefaultProvider = Nullable(vector.GetProperty("defaultProvider")),
@@ -456,6 +457,10 @@ public class ModelResolverCorpusTests
     /// Substitutes the writers <see cref="ModelResolver"/> prints through and reports the outcome the way the
     /// generator recorded it: <c>null</c>, or the <c>exit(N)</c> the TS <c>process.exit</c> would have taken.
     /// </summary>
+    /// <remarks>
+    /// No vector reaches <c>exit</c> any more: 1.4.0 moved CLI resolution out of <c>findInitialModel</c>, so the
+    /// only remaining exit path is the caller's. The <c>failure</c> field stays in the corpus as an invariant.
+    /// </remarks>
     private static async Task<(List<string> Stdout, List<string> Stderr, T? Result, string Failure)> CaptureAsync<T>(
         Func<Task<T>> run)
     {
@@ -469,12 +474,6 @@ public class ModelResolverCorpusTests
         {
             var result = await run();
             return ([.. Lines(stdout)], [.. Lines(stderr)], result, "<null>");
-        }
-        catch (ModelResolutionException)
-        {
-            // TS takes `process.exit(1)` here; the corpus records that as `exit(1)`. The message itself is
-            // asserted through the stderr line above.
-            return ([.. Lines(stdout)], [.. Lines(stderr)], default, "exit(1)");
         }
         finally
         {
