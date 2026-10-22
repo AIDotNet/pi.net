@@ -627,8 +627,9 @@ public partial class AgentSession
         return merged;
     }
 
-    /// <summary>TS <c>_restoreToolsFromTranscript()</c>（TS 1808-1818）。</summary>
-    private void RestoreToolsFromTranscript()
+    /// <summary>TS <c>_restoreToolsFromTranscript()</c>（TS 1813-1824）。</summary>
+    /// <param name="modifiers">应用到恢复后的工具集上的 <c>+name</c> / <c>-name</c> 条目。</param>
+    private void RestoreToolsFromTranscript(IReadOnlyList<string>? modifiers = null)
     {
         _pendingToolNames.Clear();
         var current = Transcript.GetCurrentSystemMessage(SessionManager.BuildSessionContext().Messages);
@@ -637,7 +638,9 @@ public partial class AgentSession
             return;
         }
 
-        var names = (current.ToolsAdded ?? []).Select(tool => tool.Name).ToList();
+        var names = SettingsManager.ApplyToolModifiers(
+            (current.ToolsAdded ?? []).Select(tool => tool.Name).ToList(),
+            modifiers ?? []);
         foreach (var name in names.Where(IsAllowedTool))
         {
             _pendingToolNames.Add(name);

@@ -135,12 +135,17 @@ public sealed record AgentSessionConfig
     /// <summary>初始活跃内置工具名。默认 read/bash/edit/write（TS <c>initialActiveToolNames</c>）。</summary>
     public IReadOnlyList<string>? InitialActiveToolNames { get; init; }
 
-    /// <summary>初始工具是否来自 <c>defaultTools</code> 设置（TS <c>usesDefaultTools</c>）。</summary>
+    /// <summary>
+    /// 初始工具是否来自 <c>defaultTools</c> 设置（TS <c>usesDefaultTools</c>）。为 true 时，恢复的会话
+    /// 用记录里的工具集替掉它们（再叠加 <see cref="DefaultToolModifiers"/>），reload 则会激活设置里
+    /// 新增的工具，而已从设置中移除的工具保持激活。
+    /// </summary>
     public bool UsesDefaultTools { get; init; }
 
     /// <summary>
     /// 叠加在 <c>defaultTools</c> 设置之上的 <c>+name</c>/<c>-name</c> 条目（来自 <c>--tools</c>）。
-    /// reload 会把它们作用到刷新后的设置上，使「被移除的工具保持移除」。TS <c>defaultToolModifiers</c>。
+    /// reload 会把它们作用到刷新后的设置上，使「被移除的工具保持移除」；恢复会话时也会作用到
+    /// 记录里的工具集上。TS <c>defaultToolModifiers</c>。
     /// </summary>
     public IReadOnlyList<string>? DefaultToolModifiers { get; init; }
 

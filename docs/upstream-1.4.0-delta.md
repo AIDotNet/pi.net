@@ -80,7 +80,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `PI_CLIPBOARD_OSC52=1` 强制 OSC 52 | 1.2.0 #10826 | 多路复用器/远程 IDE 复制失效 | 本次移植 |
 | 摘要不再按 `reserveTokens` 折算输出上限 | 1.4.0 #9512 | 思考占满预算时压缩直接失败 | 本次移植 |
 | `sessionShareDestination` 设置 | 1.3.0 #10870 | 新增设置项 + `/share` 分支（14 文件） | 本次移植（第七批） |
-| 恢复会话时恢复活动工具集 | 1.3.0 #10785 | 影响 `--tools` 与 resume 交互 | 待办 |
+| 恢复会话时恢复活动工具集 | 1.3.0 #10785 | 影响 `--tools` 与 resume 交互 | 本次移植（第八批） |
 | `--model` 的 provider 选择策略统一 | 1.3.0 #10160 | 663 行重写，风险较高 | 待办 |
 | codemode worker 排队与 `PI_CODEMODE_MAX_WORKERS` | 1.4.0 #11184 | 并发脚本从失败改为等待 | 待办 |
 | `reachesTools`、命名空间 `aliases` | 1.2.0 | 工具可达性与 MCP 等待 | 待办 |
@@ -160,7 +160,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 470 / 470 通过 |
-| `Pi.CodingAgent.Tests` | 4980 / 4980 通过 |
+| `Pi.CodingAgent.Tests` | 4986 / 4986 通过 |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过 |
 | `Pi.Mcp.Tests` | 52 / 52 通过 |
@@ -194,7 +194,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批已完成）→ resume 活动工具 → codemode worker 排队。
+3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ codemode worker 排队。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -290,3 +290,23 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 - 测试：`SessionShareDestinationTests` 7 例（缺省 → `auto`、`gist`/`radius` 原样、`auto`/拼错/空串
   归到默认、setter 回读）、`SettingsSelectorTests.CyclesThroughShareDestinations`、
   `InteractiveModeTests.ShareWhenForcedToRadiusReportsTheMissingLogin`。
+### 6.w 第八批（恢复会话时恢复活动工具集）落地明细
+
+上游 `6f2f164ab`（#10887，fixes #10785）：SDK 总会把初始工具集算好传进 `AgentSessionConfig`，
+于是构造器里那句「`initialActiveToolNames === undefined` 才从记录恢复」永远为假 —— 恢复的会话
+丢掉 run 期间临时打开的工具。修法是改用 `usesDefaultTools` 作为判据。
+
+- `AgentSessionBuild` 构造器：`if (_usesDefaultTools) RestoreToolsFromTranscript(_defaultToolModifiers);`
+  显式传 `tools` 或 `--no-tools` 的调用方仍然是 `UsesDefaultTools = false`，不恢复。
+- `RestoreToolsFromTranscript(modifiers)`：记录的 `toolsAdded` 名单先过
+  `SettingsManager.ApplyToolModifiers`（`+name` 加、`-name` 删、按条目顺序），再按
+  `IsAllowedTool` 收进 `_pendingToolNames`、`SetActiveTools`。
+- `navigateTree` 那处调用保持无参（上游同样未传修饰符）：树的每个分支记录自己的工具集。
+- 文档：`UsesDefaultTools` / `DefaultToolModifiers` 的说明补上「恢复会话时生效」。
+- 与上游差异：无。上游 `test/suite/harness.ts` 只是给测试替身补了
+  `usesDefaultTools: options.initialActiveToolNames === undefined`，端口测试直接显式传该字段。
+- 测试：`AgentSessionResumeToolsTests` 6 例（恢复记录的工具集、排除名单生效、显式 `tools` 优先、
+  修饰符作用到记录的名单、记录里没有工具集时回落默认集、`UsesDefaultTools = false` 时整段跳过）。
+  后两例的期望值按端口形态调整：显式 `tools` 同时要传 `AllowedToolNames`（与 SDK 的
+  `ResolveTools` 一致），反向断言那例不注册扩展工具，否则「注册即激活」的 `active_tool` 会让
+  「空工具集」不可达。

@@ -305,10 +305,11 @@ public partial class AgentSession
             ActiveToolNames = config.InitialActiveToolNames,
             IncludeAllExtensionTools = true,
         });
-        // TS 513: if (this._initialActiveToolNames === undefined) this._restoreToolsFromTranscript();
-        if (_initialActiveToolNames is null)
+        // TS 513: if (this._usesDefaultTools) this._restoreToolsFromTranscript(this._defaultToolModifiers);
+        // 只有在用 defaultTools 时才从记录里恢复工具集：显式传 tools 的调用方自己要的就是那份列表。
+        if (_usesDefaultTools)
         {
-            RestoreToolsFromTranscript();
+            RestoreToolsFromTranscript(_defaultToolModifiers);
         }
     }
 
