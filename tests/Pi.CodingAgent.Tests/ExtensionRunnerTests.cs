@@ -922,8 +922,7 @@ public sealed class ExtensionRunnerTests
 
         var runner = await CreateRunnerAsync([extension]);
         var result = await runner.EmitBeforeAgentStartAsync(
-            "hello",
-            null,
+            new ExtensionEvent.BeforeAgentStartTrigger.User("hello", null),
             new BuildSystemPromptOptions { Cwd = "/work" });
 
         Assert.Equal([firstMessage, secondMessage], result.Messages);
@@ -941,7 +940,9 @@ public sealed class ExtensionRunnerTests
         })));
 
         var runner = await CreateRunnerAsync([extension]);
-        await runner.EmitBeforeAgentStartAsync("hello", null, new BuildSystemPromptOptions { Cwd = "/work" });
+        await runner.EmitBeforeAgentStartAsync(
+            new ExtensionEvent.BeforeAgentStartTrigger.User("hello", null),
+            new BuildSystemPromptOptions { Cwd = "/work" });
 
         Assert.False(string.IsNullOrEmpty(observed));
     }

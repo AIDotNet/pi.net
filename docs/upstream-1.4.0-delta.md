@@ -84,7 +84,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `--model` 的 provider 选择策略统一 | 1.3.0 #10160 | 663 行重写，风险较高 | 待办 |
 | codemode worker 排队与 `PI_CODEMODE_MAX_WORKERS` | 1.4.0 #11184 | 并发脚本从失败改为等待 | 不适用（见 §6） |
 | `reachesTools`、命名空间 `aliases`（codemode 与 MCP 解耦） | 1.2.0 `24382bedd` | 工具可达性与 MCP 等待，破坏性 API：删除 `isCodemodeTool` / `isToolSearchTool` / `mcpStructuredContentSchema` | 本次移植（第十八批） |
-| `before_agent_start` 覆盖自定义触发轮次（破坏性） | 1.2.0 #10267 | 事件语义变更 | 待办 |
+| `before_agent_start` 覆盖自定义触发轮次（破坏性） | 1.2.0 `a447ba11f` / #10739 | 事件语义变更：`BeforeAgentStartEvent` 按 `messageType` 分成 user / custom 两支 | 本次移植（第十九批） |
 | `serializeConversation` 省略 thinking | 1.2.0 #15e7bdc14 | 摘要请求体积 | 本次移植（第十二批） |
 | 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 本次移植（第十批） |
 | `agent_settled` 增加 `aborted` | 1.1.0 #10607 | 事件字段 | 本次移植（第十一批） |
@@ -162,7 +162,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 486 / 486 通过（第十七批 6 例替代 4 例；此前 484） |
-| `Pi.CodingAgent.Tests` | 5018 / 5018 通过（第十八批新增 4 例、替换 3 例；第十六批为 5014） |
+| `Pi.CodingAgent.Tests` | 5019 / 5019 通过（第十九批新增 1 例；第十八批为 5018） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过（第十四批同步了 shell 探测，数量不变）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
@@ -220,7 +220,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
 3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
-4. coding-agent：~~`reachesTools` / `aliases`~~（第十八批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
+4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 5. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
@@ -713,3 +713,56 @@ resolves on failure too when it returned that object; check its fields.」。重
   无 schema 时 any）。
 - `Pi.Codemode.Tests`：`DetectsMcpCallToolResultStructuredContent` → `RendersAnMcpResultSchemaAsAPlainObject`，
   `McpPreambleIsExportedVerbatim` → `DeclarationLimitsAreExported`。
+
+### 6.l 第十九批（`before_agent_start` 覆盖自定义触发轮次）落地明细
+
+对应上游 `a447ba11f`（1.2.0 / #10739，closes #10267 / #5581 / #10639 / #10289，partly #10606；
+11 文件 / +312 −92）。破坏性：`BeforeAgentStartEvent` 从单一形状变成按 `messageType` 的联合。
+
+**问题**
+
+`sendMessage(..., { triggerTurn: true })` 起的那一轮不走 `before_agent_start`。首次工具调用之后
+的 next-turn 刷新因此退回基础提示词选项，把处理器加进去的段落「补丁掉」——运行途中改系统提示词，
+provider 的提示词前缀缓存随之失效。
+
+**事件面**（`ExtensionEvents.cs`）
+
+- 新增 `BeforeAgentStartTrigger`（`User(prompt, images)` / `Custom(message)`）：runner 对每个处理器
+  重新渲染系统提示词，所以只收「触发消息」，事件在循环里现造。
+- `BeforeAgentStart` 改为抽象基类（带 `SystemPrompt` / `SystemPromptOptions` / 抽象 `MessageType`），
+  两支：`BeforeAgentStart.User`（`prompt`、`images`，`messageType == "user"`）与
+  `BeforeAgentStart.Custom`（`message`，`messageType == "custom"`）。这是文件里既有的
+  「一个抽象记录 + 嵌套变体」约定，`switch` 模式匹配替代 TS 的类型收窄。
+- `Custom` 的负载用全限定 `Pi.CodingAgent.Core.CustomMessage`：嵌套作用域里
+  `ExtensionEvent.CustomMessage`（会话边界草稿）会先命中，属于同名冲突而非笔误。
+
+**runner**（`ExtensionRunner.EmitBeforeAgentStartAsync(trigger, options)`）
+
+按 trigger 造出对应变体再交给处理器，其余（累积消息、折叠 `systemPrompt` 覆盖）不变。
+
+**会话**（`AgentSessionPrompt.cs`）
+
+- `_runAgentPrompt` 拆成三段：
+  `StartRunAsync(trigger, onStarted)`（置忙、`_agentRunAbortRequested = false`、准备、冲刷待发消息、
+  运行）+ `PrepareRunAsync(trigger)`（压缩检查、`before_agent_start`、装载、起始消息装配）+
+  `RunLoopAsync(messages)`（原来的请求/后处理循环）。
+- 置忙提到准备的**最前面**：处理器运行期间发来的消息进本轮待发队列而不是另起一轮；期间请求的中止
+  在运行真正开始后立刻生效（`HandleAgentEventAsync` 在 `agent_start` 上补 `_agent.Abort()`）。
+- 准备抛异常时复位 `_isAgentRunActive`、冲刷待发消息、`ResolveIdleWaitIfIdle()`，再把异常抛出去。
+- `Trigger.Custom` 时**不**再造一条用户消息：自定义消息本身就是本轮起始消息。
+- `RunAgentPromptAsync` 保留为「消息已备好，直接跑」的入口（`StartRunAsync` 之外的老语义），
+  `AgentSessionBuild` 的 `triggerTurn` 分支与 agent-settled 延迟动作都改走
+  `StartRunAsync` / `SendCustomMessageAsync(message, options)`——后者让延迟的那次也重新走一遍准备。
+
+**随包资源**
+
+`Assets/docs/extensions.md` 补「启动期间算忙」一句与 `messageType` 说明；
+`Assets/examples/extensions/plan-mode/index.ts` 的处理器改成 `if (event.messageType !== "user") return;`
+（后台任务通知触发的那一轮不该重复注入计划模式上下文）。
+
+**测试**
+
+`AgentSessionRuntimeTests.BeforeAgentStartFiresForRunsStartedByCustomMessages`：`PromptAsync` 得到
+`messageType == "user"` 且 `prompt` 为原文；随后 `SendCustomMessageAsync(..., TriggerTurn = true)`
+得到 `messageType == "custom"`、`Message.CustomType` 相符，且该自定义消息就是本轮起始消息。
+`ExtensionRunnerTests` / `McpExtensionTests` 的三处调用改成传 trigger。

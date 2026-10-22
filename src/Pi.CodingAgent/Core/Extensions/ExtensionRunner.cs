@@ -1131,11 +1131,11 @@ public sealed class ExtensionRunner
     /// <summary>
     /// Run the <c>before_agent_start</c> handlers, accumulating their messages and folding their
     /// system-prompt overrides into the options passed to the next one. Port of the TS
-    /// <c>emitBeforeAgentStart</c>.
+    /// <c>emitBeforeAgentStart</c>. <paramref name="trigger"/> says what starts the run: a user prompt
+    /// or an idle custom message, which handlers can tell apart by <c>messageType</c>.
     /// </summary>
     public async Task<BeforeAgentStartCombinedResult> EmitBeforeAgentStartAsync(
-        string prompt,
-        IReadOnlyList<ImageContent>? images,
+        ExtensionEvent.BeforeAgentStartTrigger trigger,
         BuildSystemPromptOptions systemPromptOptions)
     {
         var currentOptions = SystemPrompt.NormalizeBuildSystemPromptOptions(systemPromptOptions);
@@ -1146,17 +1146,22 @@ public sealed class ExtensionRunner
         string RenderCurrentSystemPrompt() =>
             SystemPrompt.BuildSystemPrompt(SystemPrompt.ToBuildSystemPromptOptions(currentOptions));
 
+        ExtensionEvent.BeforeAgentStart BuildEvent() => trigger switch
+        {
+            ExtensionEvent.BeforeAgentStartTrigger.User user => new ExtensionEvent.BeforeAgentStart.User(
+                user.Prompt, user.Images, RenderCurrentSystemPrompt(), currentOptions),
+            ExtensionEvent.BeforeAgentStartTrigger.Custom custom => new ExtensionEvent.BeforeAgentStart.Custom(
+                custom.Message, RenderCurrentSystemPrompt(), currentOptions),
+            _ => throw new ArgumentOutOfRangeException(nameof(trigger), trigger.GetType().Name, "Unknown trigger"),
+        };
+
         foreach (var (extension, handlers) in SnapshotEventHandlers(extensions, eventName))
         {
             foreach (var handler in handlers)
             {
                 try
                 {
-                    var @event = new ExtensionEvent.BeforeAgentStart(
-                        prompt,
-                        images,
-                        RenderCurrentSystemPrompt(),
-                        currentOptions);
+                    var @event = BuildEvent();
                     if (await handler(@event, ctx) is not BeforeAgentStartEventResult handlerResult)
                     {
                         continue;

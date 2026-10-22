@@ -864,6 +864,13 @@ public partial class AgentSession
     {
         _ = signal;
 
+        // 启动期间请求的中止（例如在 before_agent_start 里）在这里生效：agent_start 在第一次请求
+        // 之前被 await。TS 同位置。
+        if (@event is AgentEvent.AgentStart && _agentRunAbortRequested)
+        {
+            _agent.Abort();
+        }
+
         // 记录工具经 ctx.executeTool() 发起的调用及其用量，挂到它的结果消息上。
         if (_nestedToolCalls is not null)
         {

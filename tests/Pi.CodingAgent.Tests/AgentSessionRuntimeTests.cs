@@ -931,6 +931,42 @@ public sealed class AgentSessionRuntimeTests : IDisposable
         Assert.Equal("/previous.jsonl", start.PreviousSessionFile);
     }
 
+    [Fact]
+    public async Task BeforeAgentStartFiresForRunsStartedByCustomMessages()
+    {
+        // 上游 a447ba11f / #10739：triggerTurn 的自定义消息起的这一轮也要走 before_agent_start，
+        // 否则首次工具调用之后的 next-turn 刷新会退回基础提示词选项，把处理器加进去的段落刷掉，
+        // 运行途中改系统提示词、破掉 provider 的提示词缓存。
+        var events = new List<ExtensionEvent.BeforeAgentStart>();
+        var (host, _) = await CreateHostAsync(pi =>
+            pi.On<ExtensionEvent.BeforeAgentStart>(ExtensionEventNames.BeforeAgentStart, (@event, _) =>
+            {
+                events.Add(@event);
+                return Task.CompletedTask;
+            }));
+
+        await host.Session.PromptAsync("hello");
+        var user = Assert.IsType<ExtensionEvent.BeforeAgentStart.User>(Assert.Single(events));
+        Assert.Equal("user", user.MessageType);
+        Assert.Equal("hello", user.Prompt);
+
+        events.Clear();
+        await host.Session.SendCustomMessageAsync(
+            new CustomMessageDraft
+            {
+                CustomType = "note",
+                Content = MessageContent.From("ping"),
+                Display = false,
+            },
+            new SendMessageOptions { TriggerTurn = true });
+
+        var custom = Assert.IsType<ExtensionEvent.BeforeAgentStart.Custom>(Assert.Single(events));
+        Assert.Equal("custom", custom.MessageType);
+        Assert.Equal("note", custom.Message.CustomType);
+        // 自定义消息本身就是本轮的起始消息，不再额外造一条用户消息。
+        Assert.Equal([custom.Message], host.Session.Agent.Messages.OfType<CustomMessage>().Take(1));
+    }
+
     /// <summary>用于证明某个回调被调用（且参数正确）的哨兵异常。</summary>
     private sealed class SentinelException : Exception
     {

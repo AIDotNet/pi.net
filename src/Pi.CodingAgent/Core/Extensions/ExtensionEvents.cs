@@ -393,12 +393,62 @@ public abstract record ExtensionEvent
     /// <summary>TS <c>ProviderStreamEvent</c>.</summary>
     public sealed record ProviderStream(string Provider, string Api, string Model, object? Data) : ExtensionEvent;
 
-    /// <summary>TS <c>BeforeAgentStartEvent</c>.</summary>
-    public sealed record BeforeAgentStart(
-        string Prompt,
-        IReadOnlyList<ImageContent>? Images,
+    /// <summary>
+    /// The message that starts a run: the <c>before_agent_start</c> event without its prompt fields.
+    /// The runner re-renders the system prompt for each handler, so it takes the trigger and builds
+    /// the event. TS <c>BeforeAgentStartTrigger</c>.
+    /// </summary>
+    public abstract record BeforeAgentStartTrigger
+    {
+        /// <summary>A run started by a submitted prompt, an RPC prompt, or <c>sendUserMessage()</c>.</summary>
+        public sealed record User(string Prompt, IReadOnlyList<ImageContent>? Images) : BeforeAgentStartTrigger;
+
+        /// <summary>A run started by <c>sendMessage(..., { triggerTurn: true })</c> while idle.</summary>
+        public sealed record Custom(Pi.CodingAgent.Core.CustomMessage Message) : BeforeAgentStartTrigger;
+    }
+
+    /// <summary>
+    /// TS <c>BeforeAgentStartEvent</c>, a union on <c>messageType</c> (<c>"user"</c> / <c>"custom"</c>).
+    /// Fired before a run starts, whether from a user message or from an idle custom message with
+    /// <c>triggerTurn</c>; the variants carry the starting message.
+    /// </summary>
+    /// <remarks>
+    /// Runs started by custom messages used to skip this event. Their next-turn refresh then fell
+    /// back to the base prompt options and patched away the sections handlers had added, changing the
+    /// system prompt mid-run and breaking the provider prompt cache (upstream <c>a447ba11f</c> / #10739).
+    /// </remarks>
+    public abstract record BeforeAgentStart(
         string SystemPrompt,
-        NormalizedBuildSystemPromptOptions SystemPromptOptions) : ExtensionEvent;
+        NormalizedBuildSystemPromptOptions SystemPromptOptions) : ExtensionEvent
+    {
+        /// <summary>The TS discriminant: <c>"user"</c> or <c>"custom"</c>.</summary>
+        public abstract string MessageType { get; }
+
+        /// <summary>
+        /// A run started by a submitted prompt, an RPC prompt, or <c>sendUserMessage()</c>.
+        /// TS <c>BeforeAgentStartUserEvent</c>.
+        /// </summary>
+        public sealed record User(
+            string Prompt,
+            IReadOnlyList<ImageContent>? Images,
+            string SystemPrompt,
+            NormalizedBuildSystemPromptOptions SystemPromptOptions) : BeforeAgentStart(SystemPrompt, SystemPromptOptions)
+        {
+            public override string MessageType => "user";
+        }
+
+        /// <summary>
+        /// A run started by <c>sendMessage(..., { triggerTurn: true })</c> while idle.
+        /// TS <c>BeforeAgentStartCustomEvent</c>.
+        /// </summary>
+        public sealed record Custom(
+            Pi.CodingAgent.Core.CustomMessage Message,
+            string SystemPrompt,
+            NormalizedBuildSystemPromptOptions SystemPromptOptions) : BeforeAgentStart(SystemPrompt, SystemPromptOptions)
+        {
+            public override string MessageType => "custom";
+        }
+    }
 
     /// <summary>TS <c>AgentStartEvent</c>.</summary>
     public sealed record AgentStart : ExtensionEvent;

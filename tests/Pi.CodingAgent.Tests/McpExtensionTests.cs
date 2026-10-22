@@ -296,8 +296,7 @@ public class McpExtensionTests
         public async Task<NormalizedBuildSystemPromptOptions> PromptAsync(BuildSystemPromptOptions? options = null)
         {
             var result = await Runner.EmitBeforeAgentStartAsync(
-                "hi",
-                null,
+                new ExtensionEvent.BeforeAgentStartTrigger.User("hi", null),
                 options ?? new BuildSystemPromptOptions { Cwd = Root });
             return result.SystemPromptOptions;
         }

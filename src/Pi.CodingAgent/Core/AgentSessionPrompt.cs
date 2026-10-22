@@ -108,10 +108,6 @@ public partial class AgentSession
             return;
         }
 
-        // 新提示词之前冲刷待发的 bash / 自定义消息。
-        FlushPendingBashMessages();
-        FlushPendingCustomMessages();
-
         var model = Model;
         if (model is null)
         {
@@ -133,6 +129,56 @@ public partial class AgentSession
             throw new InvalidOperationException(AuthGuidance.FormatNoApiKeyFoundMessage(model.Provider));
         }
 
+        await StartRunAsync(new ExtensionEvent.BeforeAgentStartTrigger.User(expandedText, currentImages), ()
+            => preflightResult?.Invoke(PromptDisposition.Started)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 从用户消息或自定义消息启动一轮。会话从此刻起就算忙：<c>before_agent_start</c> 处理器运行期间
+    /// 发来的消息进入本轮的待发队列，而不是另起一轮；期间请求的中止会在运行真正开始后立刻生效。
+    /// TS <c>_startRun(trigger, onStarted)</c>。
+    /// </summary>
+    /// <param name="trigger">启动本轮的消息。</param>
+    /// <param name="onStarted">消息准备好之后、第一次请求之前调用一次。</param>
+    public async Task StartRunAsync(ExtensionEvent.BeforeAgentStartTrigger trigger, Action? onStarted = null)
+    {
+        _isAgentRunActive = true;
+        _agentRunAbortRequested = false;
+        ChatMessage[] messages;
+        try
+        {
+            messages = await PrepareRunAsync(trigger).ConfigureAwait(false);
+        }
+        catch
+        {
+            _isAgentRunActive = false;
+            FlushPendingBashMessages();
+            FlushPendingCustomMessages();
+            ResolveIdleWaitIfIdle();
+            throw;
+        }
+
+        // 启动期间攒下的消息排在本轮起始消息之前，与它们在空闲时到达的效果一致。此时还没有运行，
+        // 所以不会把一次工具调用和它的结果拆开。
+        FlushPendingBashMessages();
+        FlushPendingCustomMessages();
+        onStarted?.Invoke();
+
+        // 提交前的压缩可能排定了重试；新提示词取代它。
+        _failedResponse = null;
+        RecordSelection();
+        // 本轮运行会把装载写进 transcript；到此刻仍未注册的恢复工具被丢弃。
+        _pendingToolNames.Clear();
+        await RunLoopAsync(messages).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 准备一轮运行，返回它的起始消息：必要时先压缩，派发 <c>before_agent_start</c>，应用本轮的提示词
+    /// 选项与工具装载，再装配起始消息 + 待发的 nextTurn 消息（此处消费）+ 处理器消息；提示词有变时
+    /// 前面再加一条 system patch。TS <c>_prepareRun(trigger)</c>。
+    /// </summary>
+    private async Task<ChatMessage[]> PrepareRunAsync(ExtensionEvent.BeforeAgentStartTrigger trigger)
+    {
         // 提交前的压缩检查（接住被中止的响应）。用户的新提示词在下面发送，故此处**不**调 agent.continue()。
         var lastAssistant = FindLastAssistantMessage(_agent.Messages);
         if (lastAssistant is not null)
@@ -143,8 +189,7 @@ public partial class AgentSession
         // before_agent_start 在图片归一**之前**派发：扩展驱动的模型选择决定缩放档位。
         var selectedToolsBefore = _baseSystemPromptOptions.SelectedTools;
         var result = await _extensionRunner.EmitBeforeAgentStartAsync(
-            expandedText,
-            currentImages,
+            trigger,
             SystemPromptApi.ToBuildSystemPromptOptions(_baseSystemPromptOptions)).ConfigureAwait(false);
 
         // 处理器可能改 event.systemPromptOptions.selectedTools，也可能调 setActiveTools()（改的是活的装载）。
@@ -157,23 +202,28 @@ public partial class AgentSession
             resultOptions = resultOptions with { SelectedTools = GetActiveToolNames() };
         }
 
-        var normalized = await NormalizePromptImagesAsync(currentImages, ProcessPromptImageAsync).ConfigureAwait(false);
-        var userText = normalized.Hints.Count > 0
-            ? $"{expandedText}\n\n{string.Join("\n", normalized.Hints)}"
-            : expandedText;
-
         // 消息在钩子与图片归一**之后**才装配。
         var messages = new List<ChatMessage>();
-        var userContent = new List<ContentBlock> { new TextContent(userText) };
-        userContent.AddRange(normalized.Images);
-        messages.Add(new UserMessage(userContent, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
-
-        // 待发的 "nextTurn" 消息随用户消息一起注入为上下文。
-        foreach (var nextTurnMessage in _pendingNextTurnMessages)
+        if (trigger is ExtensionEvent.BeforeAgentStartTrigger.Custom custom)
         {
-            messages.Add(nextTurnMessage);
+            messages.Add(custom.Message);
+        }
+        else
+        {
+            var user = (ExtensionEvent.BeforeAgentStartTrigger.User)trigger;
+            // 图片在 before_agent_start 之后归一：扩展驱动的模型选择决定档位。
+            var normalized = await NormalizePromptImagesAsync(user.Images, ProcessPromptImageAsync).ConfigureAwait(false);
+            var userText = normalized.Hints.Count > 0
+                ? $"{user.Prompt}\n\n{string.Join("\n", normalized.Hints)}"
+                : user.Prompt;
+
+            var userContent = new List<ContentBlock> { new TextContent(userText) };
+            userContent.AddRange(normalized.Images);
+            messages.Add(new UserMessage(userContent, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
         }
 
+        // 待发的 "nextTurn" 消息随起始消息一起注入为上下文。
+        messages.AddRange(_pendingNextTurnMessages);
         _pendingNextTurnMessages.Clear();
 
         foreach (var customMessage in result.Messages)
@@ -195,8 +245,7 @@ public partial class AgentSession
             messages.Insert(0, updateMessage);
         }
 
-        preflightResult?.Invoke(PromptDisposition.Started);
-        await RunAgentPromptAsync([.. messages]).ConfigureAwait(false);
+        return [.. messages];
     }
 
     /// <summary>TS <c>_normalizePromptImages</c> 里 <c>processImage(...)</c> 的入参准备（差异 C94）。</summary>
@@ -217,16 +266,24 @@ public partial class AgentSession
     // 运行循环（TS 1808-1910）
     // =========================================================================
 
-    /// <summary>TS <c>_runAgentPrompt(messages)</c>。</summary>
-    public async Task RunAgentPromptAsync(params ChatMessage[] messages)
+    /// <summary>
+    /// 直接以给定消息跑一轮，跳过准备阶段（不压缩、不派发 <c>before_agent_start</c>）。
+    /// 常规入口是 <see cref="StartRunAsync"/>；这条留给已经准备好消息的调用方。
+    /// TS 合并前 <c>_runAgentPrompt(messages)</c> 的语义。
+    /// </summary>
+    public Task RunAgentPromptAsync(params ChatMessage[] messages)
     {
         _agentRunAbortRequested = false;
-        // 提交前的压缩可能排定了重试；新提示词取代它。
         _failedResponse = null;
         RecordSelection();
-        // 本轮运行会把装载写进 transcript；到此刻仍未注册的恢复工具被丢弃。
         _pendingToolNames.Clear();
         _isAgentRunActive = true;
+        return RunLoopAsync(messages);
+    }
+
+    /// <summary>本轮的模型请求与后处理循环，直到停止条件成立。TS <c>_runAgentPrompt</c> 的循环体。</summary>
+    private async Task RunLoopAsync(ChatMessage[] messages)
+    {
         try
         {
             await _agent.Prompt(messages).ConfigureAwait(false);

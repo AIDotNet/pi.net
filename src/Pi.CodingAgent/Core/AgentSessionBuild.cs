@@ -1800,7 +1800,7 @@ public partial class AgentSession
 
     /// <summary>
     /// Send a custom message. TS <c>sendCustomMessage()</c>（TS 2279-2315）——除 triggerTurn 分支外
-    /// 全部落；triggerTurn 分支经 <see cref="RunAgentPromptAsync"/>。
+    /// 全部落；triggerTurn 分支经 <see cref="StartRunAsync"/>（与 prompt() 同一套准备）。
     /// </summary>
     public Task SendCustomMessageAsync(CustomMessageDraft message, SendMessageOptions? options = null)
     {
@@ -1834,13 +1834,17 @@ public partial class AgentSession
 
         if (options?.TriggerTurn == true)
         {
+            // Runs started by a custom message go through the same setup as prompt(): compaction,
+            // before_agent_start, tool loadout, nextTurn messages, handler messages, system patch.
+            // Leaving before_agent_start out let the next-turn refresh fall back to the base prompt
+            // options and patch away the sections handlers had added (upstream a447ba11f / #10739).
             if (_isEmittingAgentSettled)
             {
-                _deferredSettledActions.Add(() => RunAgentPromptAsync(appMessage));
+                _deferredSettledActions.Add(() => SendCustomMessageAsync(message, options));
                 return Task.CompletedTask;
             }
 
-            return RunAgentPromptAsync(appMessage);
+            return StartRunAsync(new ExtensionEvent.BeforeAgentStartTrigger.Custom(appMessage));
         }
 
         if (IsStreaming)
