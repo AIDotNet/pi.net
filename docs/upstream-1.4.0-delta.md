@@ -116,7 +116,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 - **chord（1.3.0）**：`traceIn(options, fn, context)` 参数顺序变更 —— **暂不适用**：端口 chord
   尚无 `telemetry` 成员与 `TelemetrySpan`，`traceIn` 本身不存在；与 telemetry 一起落地。
 - **telemetry（1.4.0）**：`telemetryContext`→`telemetry?: TelemetrySpan`，与 ai 的 identity 同批。
-- **mcp（1.2.0）**：连接时不再列资源、`structuredContent` 非对象修复 —— 影响端口 MCP 适配层。
+- **mcp（1.2.0–1.4.0，4 提交）**：`structuredContent` 可为任意 JSON 值（#10416）与
+  「无元数据时拒绝 `iss`」（c5f5b3282）、「取消的请求不再在授权刷新后重发」（da0eadf04）
+  已移植（第四批）；**待办**：连接时不再列资源（#10526，影响 `/mcp` 列表与工具注册时机）、
+  MCP OAuth 登录的取消与关闭语义（f10993bc7，需 coding-agent 侧按会话持有 signal）。
 - **env / codemode**：`codemode` 的输出分隔、`@options` 首行校验、输入约束声明等属 codemode 子系统，
   与 worker 排队一并做。
 
@@ -137,6 +140,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `2ed3118b0` | 显示公式 vs 表格 | `Pi.Tui/Marked/MarkedExtensions.cs` | `MarkdownLatexTableTests`（3） |
 | `#10897`（1.3.0） | 畸形最终参数上报 `argumentsError` | `Pi.Ai/Utils/JsonParse.cs`（`ParseToolCallArguments`）、`Types/Messages.cs`（`ToolCallContent.ArgumentsError`）、5 个 API 实现、`Utils/Validation.cs`、`Pi.Agent/ToolExecution.cs` | `JsonParseTests`（5）、`OpenAiResponsesTests`（2）、`ValidationTests`（2）、`AgentLoopTests`（3） |
 | `92ab53602`（1.4.0） | `Storage.commit(writes, adopt, context)`：持久后同步采纳一次 | `Pi.Durable/Storage/{IStorage,MemoryStorage,JsonlStorage,SqliteStorage}.cs`、`Session/Session.cs` | `StorageConformance`「adopts a durable commit once…」（4 后端）、`SessionTests.CommitWithoutAdoptionPoisonsTheSession` |
+| `67996ab75` | `structuredContent` 接受任意 JSON 值 | `Pi.Mcp/Protocol/{Types,Content}.cs`、`Pi.CodingAgent/Extensions/Mcp/Tools.cs` | `ProtocolContentTests`（4）、`McpToolsTests.CreateMcpResultSchema_WithoutStructuredSchema_DeclaresUnknown` |
+| `c5f5b3282` | 无元数据时拒绝 `iss`（RFC 9207） | `Pi.Mcp/OAuth/{OAuthFlow,OAuthErrors}.cs` | `OAuthFlowTests.IssWithoutDiscoveredMetadataIsRejectedBeforeTheExchange` |
+| `da0eadf04` | 已取消的请求不再在授权刷新后重发 | `Pi.Mcp/Transports/StreamableHttpTransport.cs` | —（.NET 侧 SendAsync 已按 token 取消，仅补齐 MCP 中止错误语义） |
 
 **语料同步说明**（上游行为变更导致的期望更新，非放宽断言）：
 

@@ -107,11 +107,17 @@ public class McpToolsTests
     }
 
     [Fact]
-    public void CreateMcpResultSchema_WithoutStructuredSchema_OmitsKey()
+    public void CreateMcpResultSchema_WithoutStructuredSchema_DeclaresUnknown()
     {
+        // 上游 #10416：服务器可能不声明 structuredContent 的 schema，且该值可以是任意 JSON 值，
+        // 所以缺省声明为空 schema `{}`（JSON Schema 的 any），而不是省略这个键。
         var schema = McpTools.CreateMcpResultSchema(null);
 
-        Assert.False(schema["properties"]!.AsObject().ContainsKey("structuredContent"));
+        var properties = schema["properties"]!.AsObject();
+        Assert.True(properties.ContainsKey("structuredContent"));
+        Assert.Empty(properties["structuredContent"]!.AsObject());
+        // codemode 仍识别为 CallToolResult（非泛型）。
+        Assert.Equal("CallToolResult", Pi.Codemode.CodemodeDeclarations.RenderToolOutputType(schema));
     }
 
     // ------------------------------------------------------------------ output limit

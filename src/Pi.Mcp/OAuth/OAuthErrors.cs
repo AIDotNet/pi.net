@@ -10,13 +10,16 @@ public sealed class OAuthError(string code, string message, string? errorUri = n
 }
 
 /// <summary>授权响应的 iss 与预期的授权服务器不符（RFC 9207）。对应 TS <c>OAuthIssuerMismatchError</c>。</summary>
-public sealed class OAuthIssuerMismatchError(string expected, string? received)
-    : Exception($"OAuth issuer mismatch: expected \"{expected}\", received {(received is null ? "none" : $"\"{received}\"")}")
+public sealed class OAuthIssuerMismatchError(string? expected, string? received)
+    : Exception($"OAuth issuer mismatch: expected {FormatIssuer(expected)}, received {FormatIssuer(received)}")
 {
-    public string Expected { get; } = expected;
+    /// <summary>授权服务器元数据的 issuer；未发现元数据时为 null。</summary>
+    public string? Expected { get; } = expected;
 
     /// <summary>服务器承诺了 iss 参数但响应未携带时为 null。</summary>
     public string? Received { get; } = received;
+
+    private static string FormatIssuer(string? issuer) => issuer is null ? "none" : $"\"{issuer}\"";
 }
 
 /// <summary>拒绝把 OAuth 凭据发往非 HTTPS 端点。对应 TS <c>OAuthInsecureEndpointError</c>。</summary>

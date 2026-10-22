@@ -31,13 +31,15 @@ public static class McpContent
 
     /// <summary>
     /// Convert a tool result to text and image content for a model. A result without content
-    /// blocks but with <paramref name="structuredContent"/> becomes its JSON.
+    /// blocks but with <paramref name="structuredContent"/> becomes its JSON. The structured value
+    /// may be any JSON value, not only an object (MCP 2026-07-28).
     /// </summary>
     public static IReadOnlyList<LlmContent> ToLlmContent(
         IReadOnlyList<McpContentBlock> blocks,
-        JsonObject? structuredContent)
+        JsonNode? structuredContent)
     {
         var content = blocks.Select(BlockToLlmContent).ToList();
+        // JSON null 也是合法的结构化内容：序列化成 "null" 交给模型，而不是当成“没有内容”。
         if (content.Count == 0 && structuredContent is not null)
         {
             content.Add(new LlmTextContent(JsonSerializer.Serialize(structuredContent, Indented)));

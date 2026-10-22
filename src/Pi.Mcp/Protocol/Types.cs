@@ -113,7 +113,12 @@ public sealed record InitializeResult(
 public sealed record McpContentBlock(JsonObject Raw);
 
 /// <summary>tools/call 的结果。对应 TS <c>CallToolResult</c>（仅返回 structuredContent 的服务器按规范补空 content）。</summary>
-public sealed record CallToolResult(IReadOnlyList<McpContentBlock> Content, JsonObject? StructuredContent = null)
+/// <param name="StructuredContent">
+/// 任意 JSON 值（数组、标量等；MCP 2026-07-28，更早的修订只允许对象）。
+/// 类型不再是 <see cref="JsonObject"/>：服务器可以合法返回非对象结构化内容（上游 #10416）。
+/// JSON <c>null</c> 在 C# 侧与「未提供」不可区分，按无结构化内容处理。
+/// </param>
+public sealed record CallToolResult(IReadOnlyList<McpContentBlock> Content, JsonNode? StructuredContent = null)
 {
     /// <summary>便捷判断：结果是否为错误（isError=true）。</summary>
     public bool IsError { get; init; }
@@ -170,14 +175,14 @@ public static class McpProtocol
     {
         if (value.TryGetPropertyValue("content", out var content) && content is not JsonArray)
             throw new McpError(JsonRpcErrorCodes.InvalidRequest, "Invalid MCP tools/call result");
-        if (value.TryGetPropertyValue("structuredContent", out var structured) && structured is not JsonObject)
-            throw new McpError(JsonRpcErrorCodes.InvalidRequest, "Invalid MCP tools/call structured content");
+        // structuredContent 可以是任意 JSON 值（数组、null、标量），不再要求对象（上游 #10416）。
 
         var blocks = (content as JsonArray)?.OfType<JsonObject>()
             .Select(b => new McpContentBlock(b)).ToList() ?? [];
         var isError = value.TryGetPropertyValue("isError", out var isErr) && isErr is JsonValue { } isErrV
             && isErrV.TryGetValue<bool>(out var isErrBool) && isErrBool;
-        var structuredContent = value["structuredContent"] as JsonObject;
+        // 深拷贝：结果要能脱离原始 JSON-RPC 报文独立存活。
+        var structuredContent = value["structuredContent"]?.DeepClone();
         return new CallToolResult(blocks, structuredContent) { IsError = isError };
     }
 

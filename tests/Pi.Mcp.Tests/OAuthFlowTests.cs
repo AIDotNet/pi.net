@@ -171,6 +171,35 @@ public class OAuthFlowTests
     }
 
     [Fact]
+    public async Task IssWithoutDiscoveredMetadataIsRejectedBeforeTheExchange()
+    {
+        // 上游 c5f5b3282：没有授权服务器元数据就没有 issuer 可比，此时任何 iss 都必须拒绝，
+        // 否则恶意 MCP 服务器能拿到别家授权服务器发的 code。发现结果 404 → metadata 为 null。
+        var server = new FakeAuthServer();
+        var provider = new TestProvider
+        {
+            AuthorizationCode = "code-from-another-server",
+        };
+        await provider.SaveClientInformation(new OAuthTypes.ClientInformation("client-1", "secret-1"));
+
+        var error = await Assert.ThrowsAsync<OAuthIssuerMismatchError>(() =>
+            OAuthFlow.AuthorizeMcp(provider, new OAuthFlow.FlowOptions
+            {
+                ServerUrl = "https://api.example.com",
+                AuthorizationCode = "code-from-another-server",
+                Iss = "https://evil.example.com",
+                Fetch = new McpFetch(server.SendAsync),
+            }));
+
+        Assert.Null(error.Expected);
+        Assert.Equal("https://evil.example.com", error.Received);
+        Assert.Contains("expected none", error.Message);
+        // 未发生换令牌：grant_type 从未被设置。
+        Assert.Null(server.LastGrantType);
+        Assert.Null(provider.SavedTokens);
+    }
+
+    [Fact]
     public async Task MemoryStoreSerializesWritesAndIsolatesServers()
     {
         var store = new MemoryOAuthStateStore();

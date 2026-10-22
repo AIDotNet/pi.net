@@ -374,12 +374,12 @@ public static class OAuthFlow
 
         if (options.AuthorizationCode is not null)
         {
-            // RFC 9207：绝不把其他授权服务器发的 code 发给这一台。
+            // RFC 9207：绝不把其他授权服务器发的 code 发给这一台。没有元数据就没有 issuer 可比，
+            // 此时任何 iss 都必须拒绝——否则恶意 MCP 服务器能拿到别家授权服务器发的 code（上游 c5f5b3282）。
             var iss = options.Iss;
-            if (metadata is not null && (iss is not null || metadata.AuthorizationResponseIssParameterSupported == true)
-                && iss != metadata.Issuer)
+            if (iss is not null || metadata?.AuthorizationResponseIssParameterSupported == true)
             {
-                throw new OAuthIssuerMismatchError(metadata.Issuer, iss);
+                if (iss != metadata?.Issuer) throw new OAuthIssuerMismatchError(metadata?.Issuer, iss);
             }
             var tokens = await ExchangeAuthorizationCodeAsync(authorizationServerUrl, tokenOptions,
                 options.AuthorizationCode, await provider.CodeVerifier(cancellationToken).ConfigureAwait(false),

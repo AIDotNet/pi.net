@@ -140,10 +140,9 @@ public static partial class McpTools
             },
         };
 
-        if (structuredContentSchema is not null)
-        {
-            properties["structuredContent"] = structuredContentSchema.DeepClone();
-        }
+        // 服务器可能不声明 structuredContent 的 schema，且它可以是任意 JSON 值：
+        // 缺省声明为 `{}`（JSON Schema 的 any），而不是 object（上游 #10416）。
+        properties["structuredContent"] = structuredContentSchema?.DeepClone() ?? new JsonObject();
 
         properties["isError"] = new JsonObject { ["type"] = "boolean" };
         properties["_meta"] = new JsonObject { ["type"] = "object" };

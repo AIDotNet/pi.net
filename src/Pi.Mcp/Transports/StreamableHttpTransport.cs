@@ -312,6 +312,9 @@ public sealed partial class StreamableHttpTransport : TransportEvents
     /// <summary>
     /// 带认证头发送。401（或带 <c>insufficient_scope</c> 挑战的 403）交给认证提供者处理一次，
     /// 之后用其留下的凭据重试一次。对应 TS <c>authorizedFetch</c>。
+    /// <para><paramref name="cancellationToken"/> 只阻止**派发**：取令牌与授权恢复都可能耗时，
+    /// 其间调用方已经放弃的请求不应再打到服务器上（上游 da0eadf04）；它不会中断其他请求正在等待的
+    /// 共享授权恢复。</para>
     /// 返回的响应由调用方释放；每次尝试都新建 <see cref="HttpRequestMessage"/>（不可重发）。
     /// </summary>
     private async Task<HttpResponseMessage> SendAuthorizedAsync(
@@ -330,6 +333,9 @@ public sealed partial class StreamableHttpTransport : TransportEvents
                 request.Content = new StringContent(body, Encoding.UTF8, "application/json");
             ApplyHeaders(request, includeSession);
             var token = await ApplyAuthHeaderAsync(request, cancellationToken).ConfigureAwait(false);
+            // 取令牌/恢复授权期间调用方可能已取消：此时代替 HttpClient 的 TaskCanceledException
+            // 抛出 MCP 自己的中止错误，语义与上游一致。
+            if (cancellationToken.IsCancellationRequested) throw new McpAbortError();
 
             var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                 .ConfigureAwait(false);
