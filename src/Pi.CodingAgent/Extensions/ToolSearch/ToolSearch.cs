@@ -256,10 +256,6 @@ public static partial class ToolSearch
         return new ToolSearchDocument(name, string.Join(" ", parts.Where(part => part.Trim().Length > 0)));
     }
 
-    /// <summary>Whether the tool is this <c>tool_search</c>, not another extension's tool of the same name.</summary>
-    public static bool IsToolSearchTool(ToolInfo tool) =>
-        tool.Name == ToolSearchToolName && ReferenceEquals(tool.Parameters, ToolSearchSchema);
-
     /// <summary>Whether <c>tool_search</c> can load a tool with this exposure.</summary>
     public static bool IsSearchable(string exposure) =>
         exposure is ToolExposure.Codemode or ToolExposure.Deferred;
@@ -312,6 +308,8 @@ public static partial class ToolSearch
             Parameters = ToolSearchSchema,
             // Searching is not something scripts need; it changes what the model sees.
             Exposure = ToolExposure.ModelOnly,
+            // A query can match any tool that is not declared yet.
+            ReachesTools = _ => ToolReach.All,
             Execute = (_, args, _, _, _) =>
             {
                 var query = ToolArgs.GetString(args, "query") ?? "";

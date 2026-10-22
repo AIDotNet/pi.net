@@ -191,27 +191,20 @@ public class ToolSearchCorpusTests
         }
     }
 
-    // ------------------------------------------------------------------ schema-identity guard
+    // ------------------------------------------------------------------ reachesTools
 
     [Fact]
-    public void IsToolSearchTool_UsesSchemaIdentity()
+    public void ReachesTools_IsAll()
     {
-        var identity = Corpus.GetProperty("identity");
-        var matching = new ToolInfo
-        {
-            Name = ToolSearch.ToolSearchToolName,
-            Description = "x",
-            Parameters = ToolSearch.ToolSearchSchema,
-            Exposure = ToolExposure.ModelOnly,
-            SourceInfo = SourceInfos.CreateSynthetic("builtin:test", "builtin"),
-        };
-        Assert.Equal(identity.GetProperty("match").GetBoolean(), ToolSearch.IsToolSearchTool(matching));
-
-        var nameOnly = matching with { Parameters = new ToolSchema(new Dictionary<string, object?> { ["type"] = "object" }) };
-        Assert.Equal(identity.GetProperty("nameOnly").GetBoolean(), ToolSearch.IsToolSearchTool(nameOnly));
-
-        var otherName = matching with { Name = "other" };
-        Assert.Equal(identity.GetProperty("otherName").GetBoolean(), ToolSearch.IsToolSearchTool(otherName));
+        // A query can match any tool that is not declared yet, so the tool reaches every tool; the
+        // schema-identity guard that used to tell this tool from another extension's `tool_search`
+        // is gone (upstream 24382bedd replaced it with `reachesTools`).
+        Assert.Equal("all", Corpus.GetProperty("reachesTools").GetString());
+        var definition = ToolSearch.CreateToolSearchToolDefinition();
+        Assert.NotNull(definition.ReachesTools);
+        var reach = definition.ReachesTools!(new Dictionary<string, object?> { ["query"] = "pdf" });
+        Assert.True(reach.IsAll);
+        Assert.Empty(reach.Words);
     }
 
     // ------------------------------------------------------------------ guards

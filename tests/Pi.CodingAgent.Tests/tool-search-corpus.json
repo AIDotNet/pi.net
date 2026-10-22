@@ -1341,9 +1341,5 @@
    "error": null
   }
  ],
- "identity": {
-  "match": true,
-  "nameOnly": false,
-  "otherName": false
- }
+ "reachesTools": "all"
 }

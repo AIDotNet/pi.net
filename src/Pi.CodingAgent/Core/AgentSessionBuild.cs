@@ -529,6 +529,7 @@ public partial class AgentSession
                 Parameters = definition.Parameters,
                 PromptGuidelines = definition.PromptGuidelines,
                 Exposure = GetToolExposure(definition.Name),
+                ReachesTools = definition.ReachesTools,
                 Namespace = definition.Namespace,
                 Annotations = definition.Annotations,
                 SourceInfo = entry.SourceInfo,

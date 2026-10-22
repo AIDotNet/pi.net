@@ -81,7 +81,7 @@ ai 包至此与 pi 1:1 齐平（除下表列出的三处刻意归并）。
 
 已完成（P42–P43）：
 
-- **纯逻辑层（P42）**：`Identifier.cs`（按 Unicode rune 迭代，`my-tool` → `my_tool`，空名 → `_`）、`Types.cs`（`CodemodeTool` / `CodemodeOutputItem`（Text|Image）/ `CodemodeCall` / `CodemodeError`（4 类）/ `CodemodeStoreWrites` / `CodemodeResult`（Success|Failure）；JSON Schema 用 `JsonNode?` 承载）、`Source.cs`（`@options` 行拆分**不改变代码行号**、仅 `max_output_tokens`/`timeout_ms`、完整取值范围校验、Lark `Grammar` 常量）、`Declarations.cs`（对象属性按名排序、必填/可选、`additionalProperties` 三态、`const`/`enum`/`anyOf`/`oneOf`/`allOf`、`$ref` 本地解析 + 递归与远程引用退化 + 展开上限 32、超长退化 `unknown`、MCP `CallToolResult` 探测 → `CallToolResult<T>`、`RenderDeclarations`）、`Runtime/Protocol.cs`（host↔worker 消息，JSON 字符串跨界）。
+- **纯逻辑层（P42）**：`Identifier.cs`（按 Unicode rune 迭代，`my-tool` → `my_tool`，空名 → `_`）、`Types.cs`（`CodemodeTool` / `CodemodeOutputItem`（Text|Image）/ `CodemodeCall` / `CodemodeError`（4 类）/ `CodemodeStoreWrites` / `CodemodeResult`（Success|Failure）；JSON Schema 用 `JsonNode?` 承载）、`Source.cs`（`@options` 行拆分**不改变代码行号**、仅 `max_output_tokens`/`timeout_ms`、完整取值范围校验、Lark `Grammar` 常量）、`Declarations.cs`（对象属性按名排序、必填/可选、`additionalProperties` 三态、`const`/`enum`/`anyOf`/`oneOf`/`allOf`、`$ref` 本地解析 + 递归与远程引用退化 + 展开上限 32、超长退化 `unknown`、`RenderDeclarations`）、`Runtime/Protocol.cs`（host↔worker 消息，JSON 字符串跨界）。
 - **执行层（P43）**：
   - `Runtime/PreludeSource.cs`：JS 前奏文本 1:1（4 个上限常量代入，脚本生成 + 字节级校验）。
   - `Runtime/Engine.cs`：`ICodemodeJsEngine` / `ICodemodeVm`（`Post` + `StopAsync`）注入点 + `UnsupportedCodemodeJsEngine` 缺省实现。

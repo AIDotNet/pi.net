@@ -908,18 +908,15 @@ public static class CodemodeExecute
         (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
 
     /// <summary>
-    /// Whether <paramref name="query"/> names the namespace: its name, its script identifier
-    /// (<c>mcp__dev-radius</c> is <c>mcp__dev_radius</c>), or the part after its last <c>__</c> in
-    /// either form (<c>dev-radius</c>, <c>dev_radius</c>). TS <c>isNamespaceName</c>.
+    /// Whether <paramref name="query"/> names the namespace: its name or one of its aliases, as
+    /// written or as the same script identifier (<c>dev-radius</c> and <c>dev_radius</c> are both
+    /// <c>dev_radius</c>). TS <c>isNamespaceName</c>.
     /// </summary>
-    private static bool IsNamespaceName(string ns, string query)
+    internal static bool IsNamespaceName(ToolNamespace ns, string query)
     {
-        var id = CodemodeIdentifiers.ToCodemodeIdentifier(ns);
         var queryId = CodemodeIdentifiers.ToCodemodeIdentifier(query);
-        static string? Suffix(string name) => name.Contains("__", StringComparison.Ordinal)
-            ? name[(name.LastIndexOf("__", StringComparison.Ordinal) + 2)..]
-            : null;
-        return ns == query || id == queryId || Suffix(ns) == query || Suffix(id) == queryId;
+        return (ns.Aliases is null ? [ns.Name] : new[] { ns.Name }.Concat(ns.Aliases))
+            .Any(name => name == query || CodemodeIdentifiers.ToCodemodeIdentifier(name) == queryId);
     }
 
     /// <summary>
@@ -979,7 +976,7 @@ public static class CodemodeExecute
                         .Select(tool => (Tool: tool, Namespace: options.GetToolNamespace?.Invoke(tool.Name)))
                         .Where(pair => namespaceFilter is null
                             || (pair.Namespace is not null
-                                && IsNamespaceName(pair.Namespace.Name, namespaceFilter)))
+                                && IsNamespaceName(pair.Namespace, namespaceFilter)))
                         .Select(pair => ToolSearchApi.CreateToolSearchDocument(
                             pair.Tool.Name, pair.Tool.Description, pair.Tool.Parameters, pair.Namespace))
                         .ToList();
@@ -1030,7 +1027,7 @@ public static class CodemodeExecute
                     foreach (var tool in tools)
                     {
                         var toolNamespace = options.GetToolNamespace?.Invoke(tool.Name);
-                        if (toolNamespace is null || !IsNamespaceName(toolNamespace.Name, wanted))
+                        if (toolNamespace is null || !IsNamespaceName(toolNamespace, wanted))
                         {
                             continue;
                         }

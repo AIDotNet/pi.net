@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -28,89 +28,6 @@ public static partial class CodemodeDeclarations
 
     /// <summary>单个 schema 允许的本地 <c>$ref</c> 展开次数，避免共享定义撑爆输出。</summary>
     private const int MaxRefExpansions = 32;
-
-    /// <summary>
-    /// MCP <c>CallToolResult</c> 的 TypeScript 类型前置声明，供 <c>CallToolResult&lt;T&gt;</c> 引用。
-    /// 对应 TS <c>MCP_TYPESCRIPT_PREAMBLE</c>。
-    /// </summary>
-    public const string McpTypeScriptPreamble = """
-        type Role = "user" | "assistant";
-        type MetaObject = Record<string, unknown>;
-        type Annotations = {
-          audience?: Role[];
-          priority?: number;
-          lastModified?: string;
-        };
-        type Icon = {
-          src: string;
-          mimeType?: string;
-          sizes?: string[];
-          theme?: "light" | "dark";
-        };
-        type TextResourceContents = {
-          uri: string;
-          mimeType?: string;
-          _meta?: MetaObject;
-          text: string;
-        };
-        type BlobResourceContents = {
-          uri: string;
-          mimeType?: string;
-          _meta?: MetaObject;
-          blob: string;
-        };
-        type TextContent = {
-          type: "text";
-          text: string;
-          annotations?: Annotations;
-          _meta?: MetaObject;
-        };
-        type ImageContent = {
-          type: "image";
-          data: string;
-          mimeType: string;
-          annotations?: Annotations;
-          _meta?: MetaObject;
-        };
-        type AudioContent = {
-          type: "audio";
-          data: string;
-          mimeType: string;
-          annotations?: Annotations;
-          _meta?: MetaObject;
-        };
-        type ResourceLink = {
-          icons?: Icon[];
-          name: string;
-          title?: string;
-          uri: string;
-          description?: string;
-          mimeType?: string;
-          annotations?: Annotations;
-          size?: number;
-          _meta?: MetaObject;
-          type: "resource_link";
-        };
-        type EmbeddedResource = {
-          type: "resource";
-          resource: TextResourceContents | BlobResourceContents;
-          annotations?: Annotations;
-          _meta?: MetaObject;
-        };
-        type ContentBlock =
-          | TextContent
-          | ImageContent
-          | AudioContent
-          | ResourceLink
-          | EmbeddedResource;
-        type CallToolResult<TStructured = { [key: string]: unknown }> = {
-          _meta?: MetaObject;
-          content: ContentBlock[];
-          isError?: boolean;
-          structuredContent?: TStructured;
-          [key: string]: unknown;
-        };
-        """;
 
     private static readonly JsonSerializerOptions JsonStringifyOptions = new()
     {
@@ -182,41 +99,15 @@ public static partial class CodemodeDeclarations
     }
 
     /// <summary>
-    /// MCP <c>CallToolResult</c> 输出 schema 的 <c>structuredContent</c> 子 schema
-    /// （以「<c>content</c> 是对象数组、<c>isError</c> 是布尔、<c>_meta</c> 是对象」判定）：
-    /// 未声明时为 <c>true</c>，不是 <c>CallToolResult</c> 时为 null。对应 TS <c>mcpStructuredContentSchema</c>。
+    /// 工具调用的解析类型：输出 schema 的类型；无 schema 时 <c>unknown</c>。
+    /// 对应 TS <c>renderToolOutputType</c>。
     /// </summary>
-    public static JsonNode? McpStructuredContentSchema(JsonNode? schema)
-    {
-        if (schema is not JsonObject root || root["properties"] is not JsonObject properties) return null;
-        if (properties["content"] is not JsonObject content || StringValue(content["type"]) != "array"
-            || content["items"] is not JsonObject items || StringValue(items["type"]) != "object")
-        {
-            return null;
-        }
-        if (properties["isError"] is not JsonObject isError || StringValue(isError["type"]) != "boolean"
-            || properties["_meta"] is not JsonObject meta || StringValue(meta["type"]) != "object")
-        {
-            return null;
-        }
-        var structured = properties["structuredContent"];
-        return structured is JsonObject || IsBoolean(structured) ? structured : JsonValue.Create(true);
-    }
-
-    /// <summary>
-    /// 工具调用的解析类型：MCP 输出 schema 渲染为 <c>CallToolResult&lt;T&gt;</c>，
-    /// 否则为 schema 的类型；无 schema 时 <c>unknown</c>。对应 TS <c>renderToolOutputType</c>。
-    /// </summary>
-    public static string RenderToolOutputType(JsonNode? schema)
-    {
-        var structured = McpStructuredContentSchema(schema);
-        if (structured is not null)
-        {
-            var type = SchemaToType(structured);
-            return type == "unknown" ? "CallToolResult" : $"CallToolResult<{type}>";
-        }
-        return schema is null ? "unknown" : SchemaToType(schema);
-    }
+    /// <remarks>
+    /// 上游 <c>24382bedd</c> 把 <c>CallToolResult&lt;T&gt;</c> 那套 MCP 特化删掉了：codemode 不再认识
+    /// MCP，MCP 工具的 <c>CallToolResult</c> 由 MCP 扩展自己声明成普通对象 schema。
+    /// </remarks>
+    public static string RenderToolOutputType(JsonNode? schema) =>
+        schema is null ? "unknown" : SchemaToType(schema);
 
     private static string RenderGlobal(string head, CodemodeTool global, string indent)
     {

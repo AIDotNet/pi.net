@@ -315,17 +315,28 @@ public static partial class McpExtension
     }
 
     /// <summary>
-    /// Whether a codemode script needs the server: it names the server's namespace, or searches,
-    /// enumerates, or describes tools or namespaces, which may name the server in other forms.
+    /// Whether a registered tool of this name declares <see cref="ToolDefinition.ReachesTools"/>. Only
+    /// such a tool can reach MCP tools, so MCP auto-activates only it: another extension's tool that
+    /// merely shares the name <c>codemode</c> or <c>tool_search</c> never reaches anything.
+    /// TS <c>hasReachingTool</c>.
     /// </summary>
-    internal static bool ScriptNeedsServer(string code, string server)
+    internal static bool HasReachingTool(IReadOnlyList<ToolInfo> tools, string name) =>
+        tools.Any(tool => tool.Name == name && tool.ReachesTools is not null);
+
+    /// <summary>
+    /// Whether a call that reaches <paramref name="reach"/> (see <see cref="ToolDefinition.ReachesTools"/>)
+    /// needs the server: it reaches every tool, or one of its words contains the server's namespace.
+    /// TS <c>reachesServer</c>.
+    /// </summary>
+    internal static bool ReachesServer(ToolReach reach, string server)
     {
-        if (CodemodeCallRegex().IsMatch(code))
+        if (reach.IsAll)
         {
             return true;
         }
 
-        return code.Contains(McpServers.Namespace(server), StringComparison.Ordinal);
+        var @namespace = McpServers.Namespace(server);
+        return reach.Words.Any(word => word.Contains(@namespace, StringComparison.Ordinal));
     }
 
     /// <summary>Short state for lists and the startup report. <paramref name="withError"/> appends the first line of a failure.</summary>
@@ -441,10 +452,6 @@ public static partial class McpExtension
 
     /// <summary>The global <c>mcp.json</c>, as the empty-state messages spell it out.</summary>
     private static string ResolveMcpJson() => NodePath.Resolve(Config.GetAgentDir(), "mcp.json");
-
-    /// <summary>TS <c>/\b(searchTools|describeNamespace|describeTool|ALL_TOOLS)\b/</c>.</summary>
-    [GeneratedRegex(@"\b(searchTools|describeNamespace|describeTool|ALL_TOOLS)\b")]
-    private static partial Regex CodemodeCallRegex();
 
     /// <summary>TS <c>/^mcp__(.+?)__(.+)$/</c>, used to render calls to a tool of a server that never connected.</summary>
     [GeneratedRegex(@"^mcp__(.+?)__(.+)$")]
@@ -612,6 +619,8 @@ public static partial class McpExtension
                 var ns = new ToolNamespace
                 {
                     Name = McpServers.Namespace(server),
+                    // `describeNamespace("docs")` finds `mcp__docs`.
+                    Aliases = [server],
                     Description = string.IsNullOrEmpty(description) ? null : description,
                     Instructions = connection.Instructions,
                 };
@@ -766,10 +775,11 @@ public static partial class McpExtension
                     return;
                 }
 
-                // Other extensions' tools of the same names cannot reach MCP tools, so never activate them.
+                // Only a tool of these names that declares `reachesTools` can reach MCP tools; another
+                // extension's tool of the same name without it is never activated.
                 var tools = pi.GetAllTools();
-                var hasCodemode = tools.Any(CodemodeToolApi.IsCodemodeTool);
-                var hasToolSearch = tools.Any(ToolSearchApi.IsToolSearchTool);
+                var hasCodemode = HasReachingTool(tools, CodemodeToolApi.CodemodeToolName);
+                var hasToolSearch = HasReachingTool(tools, ToolSearchApi.ToolSearchToolName);
                 var active = pi.GetActiveTools();
                 var activate = new List<string>();
                 if (needsCodemode && hasCodemode && autoEnableCodemode && !active.Contains(CodemodeToolApi.CodemodeToolName))
@@ -1663,9 +1673,11 @@ public static partial class McpExtension
                 }
             });
 
-            // A codemode script waits for the servers it names, or for every server when it searches or
-            // enumerates tools, so their tools are registered before the script runs. tool_search and the
-            // resource tools reach every server, so they wait for all of them.
+            // A tool that reaches other tools (`reachesTools`) waits for the servers it may reach, so
+            // their tools are registered before it runs: a codemode script for the servers it names, or
+            // for every server when it searches or enumerates tools, and tool_search for every server.
+            // The resource tools reach every server, so they wait for all of them. Direct MCP calls wait
+            // only for their own server, including a reconnect still closing its old transport.
             pi.On<ExtensionEvent>(ExtensionEventNames.ToolCall, async (@event, ctx) =>
             {
                 // Difference C154's neighbour: the port's tool pipeline only emits CustomToolCall, so the
@@ -1692,12 +1704,12 @@ public static partial class McpExtension
                 }
 
                 List<McpServer> waiting;
-                if (CodemodeToolApi.IsCodemodeTool(tool))
+                var reach = tool.ReachesTools?.Invoke(call.Input);
+                if (reach is not null)
                 {
-                    var source = call.Input.GetValueOrDefault("code") as string ?? "";
-                    waiting = [.. pendingServers.Where(server => ScriptNeedsServer(source, server.Entry.Name))];
+                    waiting = [.. pendingServers.Where(server => ReachesServer(reach, server.Entry.Name))];
                 }
-                else if (ToolSearchApi.IsToolSearchTool(tool) || ResourceToolNames.Contains(tool.Name))
+                else if (ResourceToolNames.Contains(tool.Name))
                 {
                     waiting = pendingServers;
                 }

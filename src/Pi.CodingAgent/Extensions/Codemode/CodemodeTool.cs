@@ -137,14 +137,6 @@ public static partial class CodemodeToolApi
         ["type"] = "string",
     });
 
-    /// <summary>
-    /// Whether a registered tool is this package's <c>codemode</c> tool rather than another
-    /// extension's tool with the same name. Compares the parameter schema, which the definition
-    /// passes through by reference (difference C113's identity device).
-    /// </summary>
-    public static bool IsCodemodeTool(ToolInfo tool) =>
-        tool.Name == CodemodeToolName && ReferenceEquals(tool.Parameters, CodemodeSchema);
-
     /// <summary>TS <c>CodemodeNestedCallStatus</c>.</summary>
     public static class NestedCallStatus
     {
@@ -201,7 +193,7 @@ public static partial class CodemodeToolApi
 
     private const string DescriptionIntro = """
         Run JavaScript that calls other tools. The input is raw JavaScript (not JSON, no code fence), run as an async function body in a QuickJS sandbox: top-level `await` and `return` work. No Node, file system, network, or timers.
-        - `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. Calls still running when the script ends are cancelled.
+        - `await tools.<name>({ ...args })` resolves to a string, or an object if the tool's declaration says so, and rejects with an Error on failure. A tool whose declaration returns an object resolves on failure too when it returned that object; check its fields. Calls still running when the script ends are cancelled.
         - Optional first line: `// @options: {"max_output_tokens": 10000, "timeout_ms": 60000}`
         """;
 
@@ -344,9 +336,9 @@ public static partial class CodemodeToolApi
 
     /// <summary>
     /// Model-facing description: the helper list, guidance for finding tools that are not listed,
-    /// the shared MCP types when listed tools need them, the <c>models</c> API, and one section per
-    /// listed tool, grouped by namespace. Deferred tools are never listed and do not affect the
-    /// description at all, so it stays the same while MCP servers connect or change their tools.
+    /// the <c>models</c> API, and one section per listed tool, grouped by namespace. Deferred tools
+    /// are never listed and do not affect the description at all, so it stays the same while tools
+    /// are registered late (for example by MCP servers that connect).
     /// Tool sections are limited to <c>inlineBudget</c>. TS <c>createCodemodeDescription</c>.
     /// </summary>
     public static string CreateCodemodeDescription(
@@ -387,12 +379,6 @@ public static partial class CodemodeToolApi
         var shown = SelectCatalog(ordered, options.InlineBudget);
 
         var sections = new List<string> { DescriptionIntro, DescribeGlobals(options.Models == true) };
-        if (declarations.Any(declaration =>
-                shown.Contains(declaration.Name)
-                && CodemodeDeclarations.McpStructuredContentSchema(DeclarationOutputSchema(declaration)) is not null))
-        {
-            sections.Add($"Shared MCP Types:\n```ts\n{CodemodeDeclarations.McpTypeScriptPreamble}\n```");
-        }
 
         if (declarations.Count == 0)
         {
@@ -426,8 +412,40 @@ public static partial class CodemodeToolApi
     }
 
     /// <summary>
+    /// The field names of an object schema, <c>{ output, exit_code, full_output_path? }</c>, with the
+    /// fields of object-typed fields <paramref name="depth"/> levels deep:
+    /// <c>{ content, structuredContent?: { results } }</c>. Null for other schemas.
+    /// TS <c>describeFields</c>.
+    /// </summary>
+    private static string? DescribeFields(JsonNode? schema, int depth)
+    {
+        if (schema is not JsonObject @object) return null;
+        if (StringValue(@object["type"]) != "object") return null;
+        if (@object["properties"] is not JsonObject properties) return null;
+
+        var required = new HashSet<string>(
+            (@object["required"] as JsonArray ?? [])
+                .Select(node => node is JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.String
+                    ? value.GetValue<string>()
+                    : null)
+                .OfType<string>(),
+            StringComparer.Ordinal);
+        var fields = properties.Select(property =>
+        {
+            var nested = depth > 0 ? DescribeFields(property.Value, depth - 1) : null;
+            return $"{property.Key}{(required.Contains(property.Key) ? "" : "?")}{(nested is null ? "" : $": {nested}")}";
+        });
+        return $"{{ {string.Join(", ", fields)} }}";
+    }
+
+    private static string? StringValue(JsonNode? node) =>
+        node is JsonValue value && value.GetValueKind() == System.Text.Json.JsonValueKind.String
+            ? value.GetValue<string>()
+            : null;
+
+    /// <summary>
     /// What a script call resolves to, in one line: <c>a string</c>, the field names of an object
-    /// (<c>{ output, exit_code, full_output_path? }</c>), or the rendered type for anything else.
+    /// (see <see cref="DescribeFields"/>), or the rendered type for anything else.
     /// TS <c>describeOutput</c>.
     /// </summary>
     private static string DescribeOutput(JsonNode? schema)
@@ -438,23 +456,8 @@ public static partial class CodemodeToolApi
             return "a string";
         }
 
-        if (schema is JsonObject @object
-            && @object["type"] is JsonValue typeValue
-            && typeValue.GetValueKind() == System.Text.Json.JsonValueKind.String
-            && typeValue.GetValue<string>() == "object"
-            && @object["properties"] is JsonObject properties
-            && CodemodeDeclarations.McpStructuredContentSchema(schema) is null)
-        {
-            var required = new HashSet<string>(
-                (@object["required"] as JsonArray ?? [])
-                    .Select(node => node?.GetValue<string>()).OfType<string>(),
-                StringComparer.Ordinal);
-            var fields = properties.Select(property =>
-                required.Contains(property.Key) ? property.Key : $"{property.Key}?");
-            return $"`{{ {string.Join(", ", fields)} }}`";
-        }
-
-        return $"`{Whitespace().Replace(type, " ")}`";
+        var fields = DescribeFields(schema, 1);
+        return $"`{fields ?? Whitespace().Replace(type, " ")}`";
     }
 
     /// <summary>
@@ -528,6 +531,26 @@ public static partial class CodemodeToolApi
     }
 
     /// <summary>TS <c>createCodemodeToolDefinition(options)</c>.</summary>
+    /// <summary>Script globals that list or look up tools and namespaces, which the script may then call by any name.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b(searchTools|describeNamespace|describeTool|ALL_TOOLS)\b")]
+    private static partial System.Text.RegularExpressions.Regex DiscoveryGlobals();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\w+")]
+    private static partial System.Text.RegularExpressions.Regex WordRegex();
+
+    /// <summary>
+    /// The tools a script may call (<see cref="ToolDefinition.ReachesTools"/>): every tool when it
+    /// uses a discovery global, else the words of its source, so <c>tools.mcp__docs__search</c> and
+    /// <c>tools["mcp__docs__" + name]</c> both name the <c>mcp__docs</c> namespace.
+    /// TS <c>getScriptReach</c>.
+    /// </summary>
+    internal static ToolReach GetScriptReach(object? code) =>
+        code is not string source
+            ? ToolReach.Of([])
+            : DiscoveryGlobals().IsMatch(source)
+                ? ToolReach.All
+                : ToolReach.Of([.. WordRegex().Matches(source).Select(match => match.Value)]);
+
     public static ToolDefinition CreateCodemodeToolDefinition(CodemodeToolOptions? options = null)
     {
         options ??= new CodemodeToolOptions();
@@ -543,6 +566,7 @@ public static partial class CodemodeToolApi
             // Scripts must not start other scripts.
             Exposure = ToolExposure.ModelOnly,
             PrepareLoadout = loadout => PrepareCodemodeLoadout(loadout, options),
+            ReachesTools = input => GetScriptReach(input.GetValueOrDefault("code")),
             // Capable models write the script as raw text instead of a JSON-escaped string.
             ConstrainedSampling = new JsonObject
             {

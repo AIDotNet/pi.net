@@ -8,6 +8,7 @@ using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Core.Extensions.Types;
 using Pi.CodingAgent.Modes.Interactive;
+using Pi.CodingAgent.Extensions.Codemode;
 using Pi.CodingAgent.Extensions.Mcp;
 using Pi.CodingAgent.Utils;
 using Pi.Mcp.OAuth;
@@ -454,20 +455,58 @@ public class McpExtensionTests
     }
 
     [Fact]
-    public void ScriptNeedsServer_MatchesTheCodemodeApiAndTheServerNamespace()
+    public void HasReachingTool_RequiresTheToolToDeclareReachesTools()
     {
-        // Any of the four codemode entry points may name the server in another form.
-        Assert.True(McpExtension.ScriptNeedsServer("const r = searchTools('x')", "docs"));
-        Assert.True(McpExtension.ScriptNeedsServer("describeNamespace('mcp__docs')", "docs"));
-        Assert.True(McpExtension.ScriptNeedsServer("describeTool('t')", "docs"));
-        Assert.True(McpExtension.ScriptNeedsServer("ALL_TOOLS", "docs"));
+        static ToolInfo Tool(string name, bool reaches) => new()
+        {
+            Name = name,
+            Description = "x",
+            Parameters = new ToolSchema(new Dictionary<string, object?> { ["type"] = "object" }),
+            Exposure = ToolExposure.ModelOnly,
+            ReachesTools = reaches ? _ => ToolReach.All : null,
+            SourceInfo = SourceInfos.CreateSynthetic("builtin:test", "builtin"),
+        };
 
-        Assert.True(McpExtension.ScriptNeedsServer("mcp__docs.read_file()", "docs"));
-        Assert.False(McpExtension.ScriptNeedsServer("mcp__docs.read_file()", "other"));
-        Assert.False(McpExtension.ScriptNeedsServer("const x = 1", "docs"));
+        // 另一个扩展注册了同名工具但没声明 reachesTools：MCP 不该因此自动激活它。
+        Assert.False(McpExtension.HasReachingTool([Tool("codemode", false)], "codemode"));
+        Assert.True(McpExtension.HasReachingTool([Tool("codemode", true)], "codemode"));
+        Assert.False(McpExtension.HasReachingTool([Tool("other", true)], "codemode"));
+        Assert.False(McpExtension.HasReachingTool([], "tool_search"));
 
-        // Namespaces replace "-" with "_", so a hyphenated name is found through its namespace.
-        Assert.True(McpExtension.ScriptNeedsServer("mcp__my_server.tool()", "my-server"));
+        // 端口自带的 codemode / tool_search 都声明了，所以照旧会被自动激活。
+        Assert.True(McpExtension.HasReachingTool(
+            [new ToolInfo
+            {
+                Name = CodemodeToolApi.CodemodeToolName,
+                Description = "x",
+                Parameters = CodemodeToolApi.CreateCodemodeToolDefinition().Parameters,
+                Exposure = ToolExposure.ModelOnly,
+                ReachesTools = CodemodeToolApi.CreateCodemodeToolDefinition().ReachesTools,
+                SourceInfo = SourceInfos.CreateSynthetic("builtin:test", "builtin"),
+            }],
+            CodemodeToolApi.CodemodeToolName));
+    }
+
+    [Fact]
+    public void ReachesServer_MatchesEveryReachOrAWordContainingTheNamespace()
+    {
+        // `"all"` waits for every server; a codemode script's words name the servers it may reach.
+        Assert.True(McpExtension.ReachesServer(ToolReach.All, "docs"));
+        Assert.True(McpExtension.ReachesServer(ToolReach.Of(["return", "mcp__docs__read_file"]), "docs"));
+        Assert.False(McpExtension.ReachesServer(ToolReach.Of(["return", "mcp__other__read_file"]), "docs"));
+        Assert.False(McpExtension.ReachesServer(ToolReach.Of([]), "docs"));
+
+        // Namespaces replace "-" with "_", so a hyphenated server is found through its namespace by a
+        // script that only spells the tool, not the server: `tools.mcp__my_server__tool()`.
+        Assert.True(McpExtension.ReachesServer(ToolReach.Of(["tools", "mcp__my_server__tool"]), "my-server"));
+
+        // A tool that does not reach other tools declares nothing and waits for nothing.
+        var search = CodemodeToolApi.CreateCodemodeToolDefinition().ReachesTools;
+        Assert.NotNull(search);
+        Assert.True(McpExtension.ReachesServer(
+            search!(new Dictionary<string, object?> { ["code"] = "await searchTools('x')" }), "docs"));
+        Assert.False(McpExtension.ReachesServer(
+            search!(new Dictionary<string, object?> { ["code"] = "return 1" }), "docs"));
     }
 
     [Theory]

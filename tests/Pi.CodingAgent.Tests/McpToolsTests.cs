@@ -89,7 +89,7 @@ public class McpToolsTests
     // ------------------------------------------------------------------ result schema
 
     [Fact]
-    public void CreateMcpResultSchema_RequiresContentAndKeepsStructuredSchema()
+    public void CreateMcpResultSchema_DescribesTheResultScriptsReceive()
     {
         var structured = JsonNode.Parse("""{ "type": "object", "properties": { "hits": { "type": "number" } } }""")!.AsObject();
 
@@ -98,12 +98,55 @@ public class McpToolsTests
         Assert.Equal("object", schema["type"]!.GetValue<string>());
         var properties = schema["properties"]!.AsObject();
         Assert.Equal("array", properties["content"]!["type"]!.GetValue<string>());
-        Assert.Equal("object", properties["content"]!["items"]!["type"]!.GetValue<string>());
+        // 内容块是一个紧凑类型：type 枚举 + 文本与图片块最常读的字段，未知键放行。
+        var items = properties["content"]!["items"]!.AsObject();
+        Assert.Equal("object", items["type"]!.GetValue<string>());
+        Assert.Equal(
+            ["text", "image", "audio", "resource_link", "resource"],
+            items["properties"]!["type"]!["enum"]!.AsArray().Select(node => node!.GetValue<string>()));
+        Assert.Equal(["type"], items["required"]!.AsArray().Select(node => node!.GetValue<string>()));
+        Assert.True(items["additionalProperties"]!.GetValue<bool>());
         Assert.Equal("boolean", properties["isError"]!["type"]!.GetValue<string>());
-        Assert.Equal("object", properties["_meta"]!["type"]!.GetValue<string>());
-        Assert.NotNull(properties["structuredContent"]);
+        // `_meta` 已被 convertMcpResult 丢掉，声明里也就不再出现。
+        Assert.False(properties.ContainsKey("_meta"));
         Assert.Equal("number", properties["structuredContent"]!["properties"]!["hits"]!["type"]!.GetValue<string>());
         Assert.Equal(["content"], schema["required"]!.AsArray().Select(node => node!.GetValue<string>()));
+        // 新版本协议会加字段。
+        Assert.True(schema["additionalProperties"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void CreateMcpResultSchema_RelocatesLocalReferencesBelowStructuredContent()
+    {
+        // 服务器自己声明的 schema 里的本地 `$ref` 要一起下沉，否则指向 CallToolResult 的根。
+        var structured = JsonNode.Parse("""
+        {
+          "type": "object",
+          "properties": {
+            "hits": { "type": "array", "items": { "$ref": "#/$defs/Hit~1v1" } },
+            "again": { "$ref": "#/properties/hits" },
+            "remote": { "$ref": "https://example.com/schema.json" }
+          },
+          "$defs": { "Hit/v1": { "type": "object", "properties": { "id": { "type": "string" } }, "default": { "$ref": "#/stays" } } }
+        }
+        """)!.AsObject();
+
+        var structuredContent = McpTools.CreateMcpResultSchema(structured)["properties"]!["structuredContent"]!;
+
+        Assert.Equal(
+            "#/properties/structuredContent/$defs/Hit~1v1",
+            structuredContent["properties"]!["hits"]!["items"]!["$ref"]!.GetValue<string>());
+        Assert.Equal(
+            "#/properties/structuredContent/properties/hits",
+            structuredContent["properties"]!["again"]!["$ref"]!.GetValue<string>());
+        // 远程引用不是本地引用，原样保留。
+        Assert.Equal(
+            "https://example.com/schema.json",
+            structuredContent["properties"]!["remote"]!["$ref"]!.GetValue<string>());
+        // 数据位置里的 `$ref`（这里是 default 的值）不是引用，原样保留。
+        Assert.Equal(
+            "#/stays",
+            structuredContent["$defs"]!["Hit/v1"]!["default"]!["$ref"]!.GetValue<string>());
     }
 
     [Fact]
@@ -116,8 +159,6 @@ public class McpToolsTests
         var properties = schema["properties"]!.AsObject();
         Assert.True(properties.ContainsKey("structuredContent"));
         Assert.Empty(properties["structuredContent"]!.AsObject());
-        // codemode 仍识别为 CallToolResult（非泛型）。
-        Assert.Equal("CallToolResult", Pi.Codemode.CodemodeDeclarations.RenderToolOutputType(schema));
     }
 
     // ------------------------------------------------------------------ output limit

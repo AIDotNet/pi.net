@@ -83,7 +83,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 恢复会话时恢复活动工具集 | 1.3.0 #10785 | 影响 `--tools` 与 resume 交互 | 本次移植（第八批） |
 | `--model` 的 provider 选择策略统一 | 1.3.0 #10160 | 663 行重写，风险较高 | 待办 |
 | codemode worker 排队与 `PI_CODEMODE_MAX_WORKERS` | 1.4.0 #11184 | 并发脚本从失败改为等待 | 不适用（见 §6） |
-| `reachesTools`、命名空间 `aliases` | 1.2.0 | 工具可达性与 MCP 等待 | 待办 |
+| `reachesTools`、命名空间 `aliases`（codemode 与 MCP 解耦） | 1.2.0 `24382bedd` | 工具可达性与 MCP 等待，破坏性 API：删除 `isCodemodeTool` / `isToolSearchTool` / `mcpStructuredContentSchema` | 本次移植（第十八批） |
 | `before_agent_start` 覆盖自定义触发轮次（破坏性） | 1.2.0 #10267 | 事件语义变更 | 待办 |
 | `serializeConversation` 省略 thinking | 1.2.0 #15e7bdc14 | 摘要请求体积 | 本次移植（第十二批） |
 | 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 本次移植（第十批） |
@@ -162,11 +162,12 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 486 / 486 通过（第十七批 6 例替代 4 例；此前 484） |
-| `Pi.CodingAgent.Tests` | 5014 / 5014 通过（第十六批新增 1 例；第十五批为 5013） |
+| `Pi.CodingAgent.Tests` | 5018 / 5018 通过（第十八批新增 4 例、替换 3 例；第十六批为 5014） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过（第十四批同步了 shell 探测，数量不变）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
+| `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
 | `Pi.Tui.Tests` | 23878 / 23878 通过 |
 
@@ -219,7 +220,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
 3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
-4. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
+4. coding-agent：~~`reachesTools` / `aliases`~~（第十八批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 5. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
@@ -636,3 +637,79 @@ Windows 上会额外 stat，让可正常执行的 Store 应用别名（`WindowsA
   `[base_tool, drop_tool] / [late_tool] / [later_tool]`、两次增量提示都带 `Still unavailable: drop_tool.`。
 - `TranscriptAndUtilsTests` 的旧用例改写为四值断言（`Additions` 吸收点 1、删除后 2，`Changes` 0 且顶层空，
   `None` 2 且顶层为当前工具集）。
+
+### 6.m 第十八批（codemode 与 MCP 解耦：`reachesTools` / `aliases`）落地明细
+
+对应上游 `24382bedd`（1.2.0，20 文件 / +377 −314）。三项特化被一次替换掉：
+
+| 旧机制 | 新机制 |
+| --- | --- |
+| `isCodemodeTool()` / `isToolSearchTool()` 按参数 schema 的**引用**判定「这是不是我这个工具」 | 工具自报 `reachesTools(input)`；同名但没声明的工具一律够不到 MCP 工具 |
+| MCP 扩展解析 codemode 脚本源码（`/\b(searchTools\|describeNamespace\|describeTool\|ALL_TOOLS)\b/` + `includes(mcp__server)`），再等对应服务器 | 直接问 `tool.reachesTools(input)`：`"all"` 等全部，否则按「单词是否包含命名空间」挑服务器 |
+| `pi-codemode` 认识 MCP：`MCP_TYPESCRIPT_PREAMBLE` + `mcpStructuredContentSchema()` 把 MCP 输出 schema 渲染成 `CallToolResult<T>`；命名空间靠「最后一个 `__` 之后的片段」匹配 | codemode 不认识 MCP：MCP 结果 schema 就是一个自我描述的普通对象 schema；命名空间带 `aliases`（MCP 服务器名即别名） |
+
+**协议面**
+
+- `ToolDefinition.ReachesTools`：`Func<IReadOnlyDictionary<string, object?>, ToolReach>?`。TS 是
+  `(input) => "all" | readonly string[]` 的联合；端口用 `ToolReach`（`IsAll` + `Words`）承载，
+  避免用 null 冒充 `"all"`。
+- `ToolNamespace.Aliases`：`IReadOnlyList<string>?`。
+- `ToolInfo.ReachesTools`：携带**函数本身**（不是结果），调用方自己给 input；`GetAllTools()` 透传。
+
+**codemode 侧**
+
+- 新增 `GetScriptReach(object? code)`：取 input 的 `code`，不是字符串则空；命中四个发现类全局
+  （`searchTools` / `describeNamespace` / `describeTool` / `ALL_TOOLS`）则 `All`，否则按 `\w+` 切词。
+  定义处 `ReachesTools = input => GetScriptReach(input.GetValueOrDefault("code"))`。
+- `IsCodemodeTool` 删除；`CodemodeSchema` 仍作为 `Parameters` 使用。
+- 描述不再追加 `Shared MCP Types` 段；`DescribeOutput` 改为 `DescribeFields(schema, depth)`：
+  对象 schema 列字段名，对象类型字段往下走 `depth` 层，于是 MCP 工具声明成
+  `{ content, structuredContent?: { hits }, isError? }` 而不是 `CallToolResult<{ hits }>`。
+- `IsNamespaceName` 从 `(string ns, string query)` 改为 `(ToolNamespace ns, string query)`：
+  名字 + 别名逐个比较，自身与 query 都过一遍 `ToCodemodeIdentifier`，删掉 `__` 后缀规则。为便于
+  单测改为 `internal`。
+
+**tool_search 侧**
+
+- `IsToolSearchTool` 删除，改为 `ReachesTools = _ => ToolReach.All`（查询可能命中任何尚未声明的工具）。
+
+**MCP 侧**
+
+- `ScriptNeedsServer(code, server)` → `ReachesServer(ToolReach reach, string server)`；新增
+  `HasReachingTool(tools, name)` 取代 `tools.Any(IsCodemodeTool)`，自动激活与「是否已经可达」两处判定都用它。
+- `ToolNamespace` 多一个 `Aliases = [server]`，`describeNamespace("docs")` 因此能找到 `mcp__docs`。
+- `CreateMcpResultSchema` 重写：内容块换成 `CONTENT_BLOCK_SCHEMA`（`type` 枚举 + `text`/`data`/`mimeType`，
+  `required: ["type"]`，`additionalProperties: true`）；服务器自己的 `structuredContent` schema 经
+  `RelocateSchema` 把本地 `$ref`（`#`、`#/$defs/X`）下沉到 `#/properties/structuredContent` 之下再嵌进去，
+  `const`/`enum`/`default`/`examples` 里的 `$ref` 当数据不动、`properties`/`$defs`/`definitions` 等映射类键的
+  键名不当关键字；去掉 `_meta`（`convertMcpResult` 本来就丢它）；补 `additionalProperties: true`。
+  无 `structuredContent` schema 时仍沿用 #10416 的 `{}`（any）。
+
+**prelude 措辞**
+
+`image()` 的错误文案去掉 MCP 说法：「…or an image block `{ type: "image", data, mimeType }`」、
+「image only accepts image blocks」、「image expected image block data」。
+
+**顺带补上的一处遗漏**
+
+`427052247`（1.4.0，「code mode description says schema tools resolve with their value on failure」）
+此前没落：`DESCRIPTION_INTRO` 的 `tools.<name>` 那条补上「A tool whose declaration returns an object
+resolves on failure too when it returned that object; check its fields.」。重新生成语料时该行暴露出来。
+
+**语料与测试**
+
+- `tools/gen-coding-agent-codemode-corpus.mjs`：`isCodemodeTool` 段换成 `reachesTools` 8 例（含
+  `tools.mcp__docs__search`、`tools['mcp__docs__' + name]` 两种写法与四个发现类全局）。
+- `tools/gen-coding-agent-tool-search-corpus.mjs`：`identity` 段换成 `reachesTools: "all"`。
+- 生成器现在能跑通：补 `@earendil-works/pi-ai/utils/retry` 的 src 映射（`settings-defaults.ts` 新依赖）与
+  `quickjs-wasi` 桩（`pi-codemode` 的 index 会拉进 `runtime/vm.ts`，语料只用声明面，不构造沙箱）。
+- `CodemodeCorpusTests`：`IsCodemodeTool_UsesSchemaIdentity` → `ReachesTools_MatchesTypeScript`；
+  新增 `DirectlyExposedMcpToolsTellScriptsWhatTheyResolveTo`（走 `PrepareLoadout` 的
+  `Descriptions`，对应上游 `agent-session-mcp.test.ts` 那条）与
+  `NamespaceLookupUsesTheAliasesInsteadOfTheDollarSuffixRule`。
+- `ToolSearchCorpusTests`：`IsToolSearchTool_UsesSchemaIdentity` → `ReachesTools_IsAll`。
+- `McpExtensionTests`：`ScriptNeedsServer_*` → `ReachesServer_*`，另加 `HasReachingTool_*`。
+- `McpToolsTests`：schema 用例拆成三条（内容块/`_meta` 缺席/`additionalProperties`、`$ref` 下沉重定位、
+  无 schema 时 any）。
+- `Pi.Codemode.Tests`：`DetectsMcpCallToolResultStructuredContent` → `RendersAnMcpResultSchemaAsAPlainObject`，
+  `McpPreambleIsExportedVerbatim` → `DeclarationLimitsAreExported`。

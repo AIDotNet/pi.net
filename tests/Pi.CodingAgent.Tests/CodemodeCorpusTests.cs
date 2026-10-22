@@ -5,6 +5,7 @@ using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Extensions.Codemode;
+using Pi.CodingAgent.Extensions.Mcp;
 using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
 using ToolNamespace = Pi.CodingAgent.Core.Extensions.ToolNamespace;
 using Xunit;
@@ -82,27 +83,31 @@ public class CodemodeCorpusTests
         Assert.True(JsonNode.DeepEquals(expectedSchema, actualSchema), $"schema mismatch: {actualSchema?.ToJsonString()}");
     }
 
-    // ------------------------------------------------------------------ isCodemodeTool
+    // ------------------------------------------------------------------ reachesTools
 
     [Fact]
-    public void IsCodemodeTool_UsesSchemaIdentity()
+    public void ReachesTools_MatchesTypeScript()
     {
-        // The port compares the parameter schema by reference (C113's identity device), so the
-        // corpus's matching-name case is replayed with the definition's own schema instance.
+        // Upstream 24382bedd replaced the schema-identity guard with `reachesTools`: a codemode
+        // script reaches every tool when it uses a discovery global, else the words of its source.
         var definition = CodemodeToolApi.CreateCodemodeToolDefinition();
-        var vectors = Corpus.GetProperty("isCodemodeTool").EnumerateArray().ToList();
+        var reaches = definition.ReachesTools;
+        Assert.NotNull(reaches);
 
-        var matching = ReadToolInfo(vectors[0], definition.Parameters);
-        Assert.True(vectors[0].GetProperty("expected").GetBoolean());
-        Assert.True(CodemodeToolApi.IsCodemodeTool(matching));
+        foreach (var vector in Corpus.GetProperty("reachesTools").EnumerateArray())
+        {
+            var input = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var property in vector.GetProperty("input").EnumerateObject())
+            {
+                input[property.Name] = property.Value.GetString();
+            }
 
-        var nameOnly = ReadToolInfo(vectors[1], new ToolSchema(new Dictionary<string, object?> { ["type"] = "object" }));
-        Assert.False(vectors[1].GetProperty("expected").GetBoolean());
-        Assert.False(CodemodeToolApi.IsCodemodeTool(nameOnly));
-
-        var otherName = ReadToolInfo(vectors[2], definition.Parameters);
-        Assert.False(vectors[2].GetProperty("expected").GetBoolean());
-        Assert.False(CodemodeToolApi.IsCodemodeTool(otherName));
+            var expectedWords = vector.GetProperty("words").EnumerateArray()
+                .Select(word => word.GetString()!).ToList();
+            var actual = reaches!(input);
+            Assert.Equal(vector.GetProperty("isAll").GetBoolean(), actual.IsAll);
+            Assert.Equal(expectedWords, actual.Words);
+        }
     }
 
     // ------------------------------------------------------------------ toCodemodeDeclaration
@@ -310,6 +315,79 @@ public class CodemodeCorpusTests
             changes.HiddenDeclarations);
     }
 
+    [Fact]
+    public void NamespaceLookupUsesTheAliasesInsteadOfTheDollarSuffixRule()
+    {
+        // 上游 24382bedd：命名空间的别名（MCP 服务器就是自己的别名）取代了 codemode 原先「按最后
+        // 一个 `__` 之后的片段匹配」的 MCP 特化规则。
+        var ns = new ToolNamespace { Name = "mcp__slow_docs", Aliases = ["slow-docs"] };
+
+        foreach (var query in new[] { "mcp__slow_docs", "mcp__slow-docs", "slow-docs", "slow_docs" })
+        {
+            Assert.True(CodemodeExecute.IsNamespaceName(ns, query), query);
+        }
+
+        Assert.False(CodemodeExecute.IsNamespaceName(ns, "docs"));
+        Assert.False(CodemodeExecute.IsNamespaceName(ns, "mcp__other"));
+
+        // 没有别名的命名空间只能按自己的名字找。
+        var bare = new ToolNamespace { Name = "mcp__dev_radius" };
+        Assert.True(CodemodeExecute.IsNamespaceName(bare, "mcp__dev_radius"));
+        Assert.False(CodemodeExecute.IsNamespaceName(bare, "dev_radius"));
+    }
+
+    [Fact]
+    public void DirectlyExposedMcpToolsTellScriptsWhatTheyResolveTo()
+    {
+        // 直接暴露给模型的 MCP 工具不进 codemode 的清单，但它的描述会被换成脚本调用形式：声明就是
+        // MCP 扩展给的 CallToolResult 对象 schema，解析结果按字段逐个列出（上游 24382bedd 之后
+        // codemode 不再认识 MCP，没有 `CallToolResult<T>` 特化）。
+        static ToolSchema Schema(string json) => new(
+            JsonSerializer.Deserialize<Dictionary<string, object?>>(json)!);
+
+        static AgentTool McpTool(string name, JsonObject outputSchema) => new(
+            name,
+            "Search the docs.",
+            Schema("""{"type":"object","properties":{"query":{"type":"string"}}}"""),
+            "test",
+            (_, _, _, _) => Task.FromResult(new AgentToolResult([])))
+        {
+            OutputSchema = new ToolSchema(
+                JsonSerializer.Deserialize<Dictionary<string, object?>>(outputSchema.ToJsonString())!),
+        };
+
+        string DescriptionFor(JsonObject outputSchema)
+        {
+            var tool = McpTool("mcp__docs__search", outputSchema);
+            var loadout = new FakeLoadout
+            {
+                Declared = [tool],
+                Callable = [tool],
+                Registered = [tool],
+                Exposures = new Dictionary<string, string>(StringComparer.Ordinal),
+                Namespaces = new Dictionary<string, ToolNamespace>(StringComparer.Ordinal)
+                {
+                    ["mcp__docs__search"] = new() { Name = "mcp__docs", Aliases = ["docs"], Description = "Docs server" },
+                },
+                Guidelines = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal),
+            };
+            var changes = CodemodeToolApi.CreateCodemodeToolDefinition().PrepareLoadout!(loadout);
+            return changes!.Descriptions!["mcp__docs__search"];
+        }
+
+        var hits = McpTools.CreateMcpResultSchema(JsonNode.Parse(
+            """{"type":"object","properties":{"hits":{"type":"array","items":{"type":"string"}}},"required":["hits"]}""")!
+            .AsObject());
+        Assert.EndsWith(
+            "Codemode: `tools.mcp__docs__search(args)` resolves to `{ content, structuredContent?: { hits }, isError? }`.",
+            DescriptionFor(hits));
+
+        // 不声明 structuredContent 的服务器：那个字段就没有名字可列。
+        Assert.EndsWith(
+            "Codemode: `tools.mcp__docs__search(args)` resolves to `{ content, structuredContent?, isError? }`.",
+            DescriptionFor(McpTools.CreateMcpResultSchema(null)));
+    }
+
     private static IToolLoadout ReadLoadout(JsonElement loadout) => new FakeLoadout
     {
         Declared = ReadToolList(loadout.GetProperty("declared")),
@@ -470,7 +548,7 @@ public class CodemodeCorpusTests
     public void Corpus_IsComplete()
     {
         // Lower bounds, so a truncated fixture cannot silently turn the suite green.
-        Assert.Equal(3, Corpus.GetProperty("isCodemodeTool").GetArrayLength());
+        Assert.Equal(8, Corpus.GetProperty("reachesTools").GetArrayLength());
         Assert.Equal(3, Corpus.GetProperty("declaration").GetArrayLength());
         Assert.Equal(10, Corpus.GetProperty("description").GetArrayLength());
         Assert.Equal(3, Corpus.GetProperty("loadout").GetArrayLength());
@@ -486,15 +564,6 @@ public class CodemodeCorpusTests
     }
 
     // ------------------------------------------------------------------ helpers
-
-    private static ToolInfo ReadToolInfo(JsonElement vector, ToolSchema parameters) => new()
-    {
-        Name = vector.GetProperty("name").GetString()!,
-        Description = "test",
-        Parameters = parameters,
-        Exposure = ToolExposure.Direct,
-        SourceInfo = SourceInfos.CreateSynthetic("builtin:test", "builtin"),
-    };
 
     private static IReadOnlyList<AgentTool> ReadToolList(JsonElement array) =>
         array.EnumerateArray().Select(ReadAgentTool).ToList();

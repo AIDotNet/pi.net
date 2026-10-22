@@ -64,11 +64,45 @@ public sealed record ToolAnnotations
     public bool? OpenWorldHint { get; init; }
 }
 
+/// <summary>Which tools a call may reach. Port of the TS <c>"all" | readonly string[]</c>.</summary>
+/// <remarks>
+/// The TS union is a bare string literal or an array; the port wraps both in one record so a
+/// delegate can return either without a nullable return standing in for <c>"all"</c>. A word refers
+/// to a tool or namespace whose name it <em>contains</em>, so words may over-match — that is the
+/// TS semantics, not a port simplification.
+/// </remarks>
+public sealed record ToolReach
+{
+    private ToolReach(bool isAll, IReadOnlyList<string> words)
+    {
+        IsAll = isAll;
+        Words = words;
+    }
+
+    /// <summary>The TS <c>"all"</c>: the call may reach every tool.</summary>
+    public static ToolReach All { get; } = new(true, []);
+
+    /// <summary>The TS array form: the words of the input that may name a tool or namespace.</summary>
+    public static ToolReach Of(IReadOnlyList<string> words) => new(false, words);
+
+    public bool IsAll { get; }
+
+    /// <summary>The words that may name a tool or namespace. Empty when <see cref="IsAll"/>.</summary>
+    public IReadOnlyList<string> Words { get; }
+}
+
 /// <summary>A group of related tools, such as the tools of one MCP server. Port of the TS <c>ToolNamespace</c>.</summary>
 public sealed record ToolNamespace
 {
     /// <summary>For example <c>mcp__docs</c>.</summary>
     public required string Name { get; init; }
+
+    /// <summary>
+    /// Other names that refer to the namespace where tools look it up by name (codemode's
+    /// <c>describeNamespace()</c> and the <c>namespace</c> option of <c>searchTools()</c>), for example
+    /// <c>docs</c>. TS <c>aliases</c>.
+    /// </summary>
+    public IReadOnlyList<string>? Aliases { get; init; }
 
     /// <summary>Short summary shown once with the group in model-facing tool listings.</summary>
     public string? Description { get; init; }
@@ -298,6 +332,17 @@ public sealed record ToolDefinition
 
     /// <summary>Group the tool belongs to, for example its MCP server.</summary>
     public ToolNamespace? Namespace { get; init; }
+
+    /// <summary>
+    /// For tools that reach other tools (such as <c>codemode</c>, which calls them, and
+    /// <c>tool_search</c>, which loads them): which tools a call with the given input may reach.
+    /// <see cref="ToolReach.All"/>, or the words of the input that may name them, where a word refers
+    /// to a tool or namespace whose name it contains, so words may over-match. Extensions that
+    /// register tools late, such as MCP servers that are still connecting, use it from their
+    /// <c>tool_call</c> handler to finish registering those tools before the call runs.
+    /// TS <c>reachesTools</c>.
+    /// </summary>
+    public Func<IReadOnlyDictionary<string, object?>, ToolReach>? ReachesTools { get; init; }
 
     /// <summary>Hints about what the tool does, for example from an MCP server.</summary>
     public ToolAnnotations? Annotations { get; init; }

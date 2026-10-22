@@ -6,7 +6,7 @@ namespace Pi.Codemode.Runtime;
 /// 并在其上构建 <c>tools</c>、<c>ALL_TOOLS</c>、输出助手（<c>text</c>、<c>image</c>、<c>exit</c>、<c>console</c>）
 /// 与全局函数。工具参数与结果以 JSON 字符串跨界，并在这一侧解析。<para/>
 /// 输出助手：<c>text(value)</c> 追加文本项（非字符串被 JSON 序列化）、<c>image(urlOrItem)</c> 从 base64
-/// <c>data:</c> URL、<c>{ image_url }</c> 对象或 MCP <c>ImageContent</c> 块追加图片、<c>exit()</c> 成功结束脚本；
+/// <c>data:</c> URL、<c>{ image_url }</c> 对象或图像块 <c>{ type: "image", data, mimeType }</c> 追加图片、<c>exit()</c> 成功结束脚本；
 /// <c>console.*</c> 追加**带 console 标记**的文本项（kind 为 <c>"console"</c>，由引擎映射为
 /// <c>console: true</c>），宿主据此把它们聚进一个 <c>&lt;console_output&gt;</c> 块。<para/>
 /// <c>store(key, value)</c> 与 <c>load(key)</c> 是同步的：作用于随 <c>storeJson</c> 传入的 JSON 文本快照，
@@ -281,17 +281,17 @@ public static class CodemodePrelude
 	function imageUrl(value) {
 		if (typeof value === "string") return value;
 		if (typeof value !== "object" || value === null || Array.isArray(value)) {
-			throw new TypeErrorCtor("image expects a non-empty image URL string, an object with image_url, or a raw MCP image block");
+			throw new TypeErrorCtor('image expects a non-empty image URL string, an object with image_url, or an image block { type: "image", data, mimeType }');
 		}
 		if (value.image_url !== undefined) {
-			if (typeof value.image_url !== "string") throw new TypeErrorCtor("image expects a non-empty image URL string, an object with image_url, or a raw MCP image block");
+			if (typeof value.image_url !== "string") throw new TypeErrorCtor('image expects a non-empty image URL string, an object with image_url, or an image block { type: "image", data, mimeType }');
 			return value.image_url;
 		}
-		if (typeof value.type !== "string") throw new TypeErrorCtor("image expects a non-empty image URL string, an object with image_url, or a raw MCP image block");
+		if (typeof value.type !== "string") throw new TypeErrorCtor('image expects a non-empty image URL string, an object with image_url, or an image block { type: "image", data, mimeType }');
 		if (value.type !== "image") {
-			throw new TypeErrorCtor('image only accepts MCP image blocks, got "' + value.type + '"');
+			throw new TypeErrorCtor('image only accepts image blocks, got "' + value.type + '"');
 		}
-		if (typeof value.data !== "string" || value.data === "") throw new TypeErrorCtor("image expected MCP image data");
+		if (typeof value.data !== "string" || value.data === "") throw new TypeErrorCtor("image expected image block data");
 		if (value.data.toLowerCase().startsWith("data:")) return value.data;
 		return "data:;base64," + value.data;
 	}
@@ -307,7 +307,7 @@ public static class CodemodePrelude
 
 	function image(value) {
 		const url = imageUrl(value);
-		if (url === "") throw new TypeErrorCtor("image expects a non-empty image URL string, an object with image_url, or a raw MCP image block");
+		if (url === "") throw new TypeErrorCtor('image expects a non-empty image URL string, an object with image_url, or an image block { type: "image", data, mimeType }');
 		const colon = url.indexOf(":");
 		const scheme = colon === -1 ? "" : url.slice(0, colon).toLowerCase();
 		if (scheme === "http" || scheme === "https") {

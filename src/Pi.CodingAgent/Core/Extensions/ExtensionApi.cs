@@ -146,6 +146,12 @@ public sealed record ToolInfo
 
     public required string Exposure { get; init; }
 
+    /// <summary>
+    /// The tool's <see cref="Core.Extensions.ToolDefinition.ReachesTools"/>, when it declares one.
+    /// The <em>function</em>, not a result: the caller decides the input. TS <c>reachesTools</c>.
+    /// </summary>
+    public Func<IReadOnlyDictionary<string, object?>, ToolReach>? ReachesTools { get; init; }
+
     public ToolNamespace? Namespace { get; init; }
 
     public ToolAnnotations? Annotations { get; init; }

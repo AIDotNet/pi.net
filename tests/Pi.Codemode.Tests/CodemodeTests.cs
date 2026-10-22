@@ -181,38 +181,23 @@ public class DeclarationTests
     }
 
     [Fact]
-    public void DetectsMcpCallToolResultStructuredContent()
+    public void RendersAnMcpResultSchemaAsAPlainObject()
     {
+        // 上游 24382bedd 后 codemode 不再认识 MCP：MCP 工具的 CallToolResult 就是一个普通对象
+        // schema，输出类型照普通 schema 渲染，没有 CallToolResult<T> 特化。
         var schema = Schema("""
         {
           "type": "object",
           "properties": {
             "content": { "type": "array", "items": { "type": "object" } },
             "isError": { "type": "boolean" },
-            "_meta": { "type": "object" }
-          }
-        }
-        """);
-        // 未声明 structuredContent → true。
-        Assert.True(CodemodeDeclarations.McpStructuredContentSchema(schema)!.GetValue<bool>());
-        Assert.Equal("CallToolResult", CodemodeDeclarations.RenderToolOutputType(schema));
-
-        var withStructured = Schema("""
-        {
-          "type": "object",
-          "properties": {
-            "content": { "type": "array", "items": { "type": "object" } },
-            "isError": { "type": "boolean" },
-            "_meta": { "type": "object" },
             "structuredContent": { "type": "object", "properties": { "id": { "type": "string" } } }
           }
         }
         """);
-        Assert.Equal("CallToolResult<{ id?: string; }>",
-            CodemodeDeclarations.RenderToolOutputType(withStructured));
-
-        // 非 CallToolResult → null。
-        Assert.Null(CodemodeDeclarations.McpStructuredContentSchema(Schema("""{"type":"object"}""")));
+        Assert.Equal("{ content?: Array<{ [key: string]: unknown; }>; isError?: boolean; structuredContent?: { id?: string; }; }",
+            CodemodeDeclarations.RenderToolOutputType(schema));
+        Assert.Equal("unknown", CodemodeDeclarations.RenderToolOutputType(null));
     }
 
     [Fact]
@@ -267,9 +252,8 @@ public class DeclarationTests
     }
 
     [Fact]
-    public void McpPreambleIsExportedVerbatim()
+    public void DeclarationLimitsAreExported()
     {
-        Assert.Contains("type CallToolResult<TStructured = { [key: string]: unknown }> = {", CodemodeDeclarations.McpTypeScriptPreamble);
         Assert.Equal(16_000, CodemodeDeclarations.DefaultInputSchemaMaxChars);
     }
 }

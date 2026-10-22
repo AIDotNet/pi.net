@@ -125,9 +125,107 @@ public static partial class McpTools
     }
 
     /// <summary>
-    /// Output schema of every MCP tool: the <c>CallToolResult</c> scripts receive, with the tool's
-    /// own output schema as <c>structuredContent</c>. Codemode detects this shape to render
-    /// <c>CallToolResult&lt;T&gt;</c> declarations.
+    /// MCP content blocks as one compact type with the fields of text and image blocks, which scripts
+    /// read most (<c>image(block)</c> takes an image block as is). Rendered into every MCP tool's
+    /// declaration. TS <c>CONTENT_BLOCK_SCHEMA</c>.
+    /// </summary>
+    private static JsonObject ContentBlockSchema() => new()
+    {
+        ["type"] = "object",
+        ["properties"] = new JsonObject
+        {
+            ["type"] = new JsonObject
+            {
+                ["enum"] = new JsonArray("text", "image", "audio", "resource_link", "resource"),
+            },
+            ["text"] = new JsonObject { ["type"] = "string" },
+            ["data"] = new JsonObject { ["type"] = "string" },
+            ["mimeType"] = new JsonObject { ["type"] = "string" },
+        },
+        ["required"] = new JsonArray("type"),
+        ["additionalProperties"] = true,
+    };
+
+    /// <summary>Keywords whose values are data, so a <c>$ref</c> key in them is not a reference.</summary>
+    private static readonly HashSet<string> SchemaDataKeywords = new(StringComparer.Ordinal)
+    {
+        "const",
+        "enum",
+        "default",
+        "examples",
+    };
+
+    /// <summary>Keywords whose values map names to schemas, so their keys are names, not keywords.</summary>
+    private static readonly HashSet<string> SchemaMapKeywords = new(StringComparer.Ordinal)
+    {
+        "properties",
+        "patternProperties",
+        "dependentSchemas",
+        "dependencies",
+        "$defs",
+        "definitions",
+    };
+
+    /// <summary>
+    /// <paramref name="schema"/> as a subschema at the JSON pointer <paramref name="pointer"/>
+    /// (<c>#/properties/structuredContent</c>) of another schema: its local references (<c>#</c>,
+    /// <c>#/$defs/Item</c>) are rewritten to point below <paramref name="pointer"/>, so they resolve to
+    /// the same subschemas as before. TS <c>relocateSchema</c>.
+    /// </summary>
+    private static JsonNode? RelocateSchema(JsonNode? schema, string pointer)
+    {
+        if (schema is JsonArray array)
+        {
+            return new JsonArray([.. array.Select(item => RelocateSchema(item, pointer))]);
+        }
+
+        if (schema is not JsonObject @object)
+        {
+            return schema?.DeepClone();
+        }
+
+        var relocated = new JsonObject();
+        foreach (var property in @object)
+        {
+            var value = property.Value;
+            if (property.Key == "$ref" && value is JsonValue refValue
+                && refValue.GetValueKind() == JsonValueKind.String)
+            {
+                var reference = refValue.GetValue<string>();
+                if (reference == "#" || reference.StartsWith("#/", StringComparison.Ordinal))
+                {
+                    relocated[property.Key] = $"{pointer}{reference[1..]}";
+                    continue;
+                }
+            }
+
+            if (SchemaDataKeywords.Contains(property.Key))
+            {
+                relocated[property.Key] = value?.DeepClone();
+            }
+            else if (SchemaMapKeywords.Contains(property.Key) && value is JsonObject map)
+            {
+                var relocatedMap = new JsonObject();
+                foreach (var entry in map)
+                {
+                    relocatedMap[entry.Key] = RelocateSchema(entry.Value, pointer);
+                }
+
+                relocated[property.Key] = relocatedMap;
+            }
+            else
+            {
+                relocated[property.Key] = RelocateSchema(value, pointer);
+            }
+        }
+
+        return relocated;
+    }
+
+    /// <summary>
+    /// Output schema of every MCP tool: the <c>CallToolResult</c> scripts receive (without
+    /// <c>_meta</c>, which <c>ConvertMcpResult</c> drops), with the tool's own output schema as
+    /// <c>structuredContent</c>. TS <c>createMcpResultSchema</c>.
     /// </summary>
     public static JsonObject CreateMcpResultSchema(JsonObject? structuredContentSchema)
     {
@@ -136,22 +234,26 @@ public static partial class McpTools
             ["content"] = new JsonObject
             {
                 ["type"] = "array",
-                ["items"] = new JsonObject { ["type"] = "object" },
+                ["items"] = ContentBlockSchema(),
             },
         };
 
         // 服务器可能不声明 structuredContent 的 schema，且它可以是任意 JSON 值：
         // 缺省声明为 `{}`（JSON Schema 的 any），而不是 object（上游 #10416）。
-        properties["structuredContent"] = structuredContentSchema?.DeepClone() ?? new JsonObject();
+        // 服务器自己声明的 schema 里，本地 `$ref` 要一起下沉到 structuredContent 之下才解得开。
+        properties["structuredContent"] = structuredContentSchema is null
+            ? new JsonObject()
+            : RelocateSchema(structuredContentSchema, "#/properties/structuredContent");
 
         properties["isError"] = new JsonObject { ["type"] = "boolean" };
-        properties["_meta"] = new JsonObject { ["type"] = "object" };
 
         return new JsonObject
         {
             ["type"] = "object",
             ["properties"] = properties,
             ["required"] = new JsonArray("content"),
+            // Fields newer protocol versions add.
+            ["additionalProperties"] = true,
         };
     }
 
