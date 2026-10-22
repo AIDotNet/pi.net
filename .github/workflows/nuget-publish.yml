@@ -154,17 +154,27 @@ jobs:
           # 注意：Variables 是明文存储，如果用到了那条兜底，建议尽快迁到 Secrets。
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.XUZEYU || vars.XUZEYU }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [[ -z "${NUGET_API_KEY:-}" ]]; then
             echo "::error::没取到 NuGet API key。请在 Settings -> Secrets and variables -> Actions 的 Secrets 中新增 NUGET_API_KEY（也接受 XUZEYU）"
             exit 1
           fi
-          echo "::notice::已取到 API key，长度 ${#NUGET_API_KEY}"
+          echo "::notice::已取到 API key（${#NUGET_API_KEY} 字符）"
+          set +e
           # --skip-duplicate 让重复运行变成幂等操作：已存在的版本跳过，不报错。
           dotnet nuget push "artifacts/*.nupkg" \
             --api-key "${NUGET_API_KEY}" \
             --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+            --skip-duplicate 2>&1 | tee push.log
+          status="${PIPESTATUS[0]}"
+          set -e
+          if [[ "${status}" -ne 0 ]]; then
+            # 把真正的失败原因抬到 annotation，否则只能看到一句 exit code 1。
+            grep -iE "error|403|401|forbidden|unauthorized|conflict|invalid" push.log | head -6 | sed 's/%/%25/g' | while IFS= read -r line; do
+              echo "::error title=push::${line}"
+            done
+            exit "${status}"
+          fi
           if compgen -G "artifacts/*.snupkg" > /dev/null; then
             dotnet nuget push "artifacts/*.snupkg" \
               --api-key "${NUGET_API_KEY}" \
