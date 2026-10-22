@@ -327,7 +327,10 @@ public class ToolTaskTests
 
         public void Report(Exception error) => Reported.Add(error);
 
-        public Task SleepAsync(long until, Context context) => throw new NotSupportedException();
+        public Action SetTimer(Action callback, long delayMs) => () => { };
+
+        public Task SleepUntilAsync(long until, object? checkpoint, Context context)
+            => throw new NotSupportedException();
 
         // 文档读取 / 观察面直接转发到会话。
         public Task<IReadOnlyDictionary<string, object?>?> SnapshotAsync<T>(DocToken<T> token, Context context)

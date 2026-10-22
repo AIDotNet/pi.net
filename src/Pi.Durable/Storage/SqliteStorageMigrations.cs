@@ -102,6 +102,32 @@ internal static class SqliteStorageMigrations
             """,
             "CREATE INDEX document_revisions_by_kind ON document_revisions (document_id, kind, seq DESC)",
         ]),
+        // 版本 2 加入 sleeping 任务状态。SQLite 无法就地修改 CHECK 约束，因此重建该表。
+        (2,
+        [
+            """
+            CREATE TABLE tasks_v2 (
+                id INTEGER PRIMARY KEY,
+                conversation_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'waiting', 'sleeping', 'completing', 'terminal')),
+                abort_requested INTEGER NOT NULL CHECK (abort_requested IN (0, 1)),
+                background INTEGER NOT NULL CHECK (background IN (0, 1)),
+                record TEXT NOT NULL CHECK (json_valid(record))
+            ) STRICT
+            """,
+            """
+            INSERT INTO tasks_v2 (id, conversation_id, kind, status, abort_requested, background, record)
+                SELECT id, conversation_id, kind, status, abort_requested, background, record FROM tasks
+            """,
+            "DROP TABLE tasks",
+            "ALTER TABLE tasks_v2 RENAME TO tasks",
+            "CREATE INDEX tasks_by_status ON tasks (status, id)",
+            "CREATE INDEX tasks_by_conversation ON tasks (conversation_id, id)",
+            "CREATE INDEX tasks_by_kind ON tasks (kind, id)",
+            "CREATE INDEX tasks_by_abort_requested ON tasks (abort_requested, id)",
+            "CREATE INDEX tasks_by_background ON tasks (background, id)",
+        ]),
     ];
 
     public static async Task ApplyAsync(SqliteConnection connection, CancellationToken cancellationToken)

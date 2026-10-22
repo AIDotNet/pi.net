@@ -540,6 +540,12 @@ public enum TaskStatus
     /// <summary>挂起直至 <see cref="TaskState.On"/> 中全部任务终态。</summary>
     Waiting,
 
+    /// <summary>
+    /// 不持调用地停放，直至 Harness 时钟到达 <see cref="TaskState.Until"/>，然后在 checkpoint 处恢复；
+    /// abort 标记不等待它。
+    /// </summary>
+    Sleeping,
+
     /// <summary>结果已定；无普通下属存活时转终态。</summary>
     Completing,
 
@@ -560,6 +566,12 @@ public sealed record TaskState
 
     /// <summary>等待连接策略（waiting）。</summary>
     public JoinPolicy? Policy { get; init; }
+
+    /// <summary>
+    /// 醒来时刻，<see cref="Harness.HarnessOptions.Now"/> 时钟上的 Unix 毫秒（sleeping）。
+    /// 跨重启存活：重新打开后未到点仍然停放，到点才恢复。
+    /// </summary>
+    public long? Until { get; init; }
 
     /// <summary>已定结果（completing / terminal）。</summary>
     public TaskOutcome? Outcome { get; init; }

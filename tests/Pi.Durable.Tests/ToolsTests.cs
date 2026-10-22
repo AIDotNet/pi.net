@@ -42,6 +42,8 @@ public class ToolsTests
 
         public Task<Agent> AgentAsync(Context context) => throw new NotSupportedException();
 
+        public long Now() => 0;
+
         public void Output(string chunk, ShellOutputSkip? skipped = null) => Outputs.Add(chunk);
 
         public void Output(byte[] chunk, ShellOutputSkip? skipped = null) => Outputs.Add(Decode(chunk));

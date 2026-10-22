@@ -65,6 +65,7 @@ public class SchedulerTests
             Settings = () => AgentDocs.ResolveSettings(null),
             Env = (_, _) => Task.FromResult<Pi.Durable.Env.IExecutionEnv?>(null),
             Now = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Timers = HostTimers.Create(null, reports.Add),
             Report = reports.Add,
             SettleOutcome = (_, record, outcome) =>
             {
@@ -259,7 +260,8 @@ public class SchedulerTests
         var childDefinition = DefineTask("fake.child",
             [("c1", (TaskPhaseHandler)(async (task, runtime, context) =>
             {
-                await runtime.SleepAsync(runtime.Now() + 300, context);
+                // 该测试只需要调用活到标记落地：直接等，不必持久睡眠。
+                await Task.Delay(300);
                 await CompleteWith(null)(task, runtime, context);
             }))],
             AbortAsAborted(childVisited));
@@ -346,7 +348,7 @@ public class SchedulerTests
         var succeeding = DefineTask("fake.ok",
             [("c2", (TaskPhaseHandler)(async (task, runtime, context) =>
             {
-                await runtime.SleepAsync(runtime.Now() + 200, context);
+                await Task.Delay(200);
                 await CompleteWith(null)(task, runtime, context);
             }))],
             AbortAsAborted());

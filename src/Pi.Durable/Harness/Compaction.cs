@@ -342,8 +342,9 @@ public static partial class Compaction
 
                 return new TaskState
                 {
-                    Status = TaskStatus.Running,
+                    Status = TaskStatus.Sleeping,
                     Checkpoint = CompactionCheckpoint.RetryPhase.From(request, until).ToJson(),
+                    Until = until,
                 };
             }
 
@@ -361,11 +362,17 @@ public static partial class Compaction
         }, context).ConfigureAwait(false);
     }
 
+    /// <summary>退避睡眠之后；在 <c>until</c> 之前运行（提前唤醒，或旧版本记录）就再睡一次。</summary>
     private static async Task RetryPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var checkpoint = ReadCheckpoint(task) as CompactionCheckpoint.RetryPhase
             ?? throw new InvalidOperationException("pi.compaction retry phase requires a retry checkpoint");
-        await runtime.SleepAsync(checkpoint.Until, context).ConfigureAwait(false);
+        if (checkpoint.Until > runtime.Now())
+        {
+            await runtime.SleepUntilAsync(checkpoint.Until, task.State.Checkpoint, context).ConfigureAwait(false);
+            return;
+        }
+
         var attempt = checkpoint.Attempt + 1;
         await runtime.CommitAsync(async (tx, _) =>
         {

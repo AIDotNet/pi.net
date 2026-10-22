@@ -123,17 +123,17 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 上游 | 影响 | 状态 |
 | --- | --- | --- | --- |
 | `compaction.modelOverrides`（按模型压缩阈值） | 1.4.0 #10942 | 同一 harness 服务小/大窗口模型 | 本次移植（第三十批，见 §6.a） |
-| durable sleeps：`runtime.sleepUntil()`、`{status:"sleeping"}`、`sleeping` 状态 | 1.4.0 | 睡眠期间不占 invocation、跨重启恢复、按时醒来 | 待办（需要 TaskState/TaskGraph/TaskInspection 全量加状态 + SQLite schema v2） |
-| `HarnessOptions.setTimer` / `now` / `ToolExecutionApi.now()` | 1.4.0 | 宿主/假时钟接管定时器与脚本超时 | 待办（与 sleeps 同批） |
-| `Harness.wake()` / `HarnessOptions.onWake` | 1.4.0 | Cloudflare Durable Object 等宿主可休眠 | 待办（依赖 sleeps） |
+| durable sleeps：`runtime.sleepUntil()`、`{status:"sleeping"}`、`sleeping` 状态 | 1.4.0 | 睡眠期间不占 invocation、跨重启恢复、按时醒来 | 本次移植（第三十一批，见 §6.aa） |
+| `HarnessOptions.setTimer` / `now` / `ToolExecutionApi.now()` | 1.4.0 | 宿主/假时钟接管定时器与脚本超时 | 本次移植（第三十一批，见 §6.aa） |
+| `Harness.wake()` / `HarnessOptions.onWake` | 1.4.0 | Cloudflare Durable Object 等宿主可休眠 | 本次移植（第三十一批，见 §6.aa） |
 | Crash-loop guard：`TaskRecord.restarts`、`settings.restartLimit`、parked、`Harness.retryTask()` | 1.4.0 | 连续崩溃的任务不再无限重跑 | 待办（需要存储列 + 迁移） |
 | `onReport(error, info)` 的 `ReportInfo`（`task_parked` / `task_outdated` / `extension_error` / `host_error` / `listener_error` / `migration_failed`） | 1.4.0 | 上报分类 | 待办（`task_parked` 依赖 crash-loop guard） |
 | `settings.afterFailedRun`（`keep` / `continue` / `withdraw`） | 1.4.0 | 失败运行后排队输入的去向 | 待办 |
 | Task graph `blocked` 原因（`missing_task` / `task_too_old` / `migration_failed` / `restart_limit`） | 1.4.0 | `/tree` 里能看出任务为何跑不了 | 待办 |
 | `IndexedDbStorage`（浏览器存储） | 1.4.0 | 浏览器侧持久化 | 不适用（端口没有浏览器宿主） |
 | telemetry span / metrics / trace 传播 | 1.4.0 | 可观测性 | 不适用（按此前判定，端口不接 OpenTelemetry） |
-| 生成重试、延迟轮询、压缩重试改走 sleep | 1.4.0 | 退避期间可休眠 | 待办（依赖 sleeps） |
-| SQLite 迁移到 schema v2（重建 task 表） | 1.4.0 | 存储格式 | 待办（与 sleeps / restarts 一起做） |
+| 生成重试、延迟轮询、压缩重试改走 sleep | 1.4.0 | 退避期间可休眠 | 本次移植（第三十一批，见 §6.aa） |
+| SQLite 迁移到 schema v2（重建 task 表） | 1.4.0 | 存储格式 | 本次移植（第三十一批：先加 `sleeping`；`restarts` 列随 crash-loop guard 一起） |
 
 - **durable 观察面（同一提交 92ab53602）—— 本次移植（第二十批）**：移除 `Session.documentState()` /
   `Conversation.viewState()` / `Harness.taskGraph()` 与 `DocumentState<T>`，统一走
@@ -176,6 +176,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `d7f7e0dfe`（1.3.0，`#10160`） | `--model` / `--models` / 凭据打印共用一套 provider 选择策略；`findInitialModel` 不再解析 CLI | `Pi.CodingAgent/Core/ModelResolver.cs`、`Cli/CredentialPrint.cs`、`Cli/Main.cs` | 语料重算（`model-resolver-corpus.json`，语料生成器重建）+ `ModelResolverTests`（删 1 例、加 1 例） |
 | `7f225f25d`（1.4.0） | System One 分类器图像输入（`assets` / `images` / `state-image-urls`），新增 `SystemOneCompat`；`models.json` 的 provider `compat` 作用于分类器 | `Pi.Ai/Types/Classifier.cs`、`Api/{SystemOne,SystemOneTransports,LlamaCppClassify}.cs`、`Pi.CodingAgent/Core/{ProviderComposer,ProviderConfig,ModelConfig}.cs` | `SystemOneImageTests`（14）、`CoreProviderComposerTests.ModelsJsonAppliesProviderCompatToClassifierModels` |
 | `c5f5b3282` | 无元数据时拒绝 `iss`（RFC 9207） | `Pi.Mcp/OAuth/{OAuthFlow,OAuthErrors}.cs` | `OAuthFlowTests.IssWithoutDiscoveredMetadataIsRejectedBeforeTheExchange` |
+| `f75b3240a`（1.4.0） | durable 持久睡眠：`runtime.sleepUntil()`、`{status:"sleeping"}`、`Harness.wake()` / `onWake` / `setTimer`、`ToolExecutionApi.now()`、SQLite v2 | `Pi.Durable/Timers.cs`（新）、`Harness/{Scheduler,HarnessTypes,Harness,Generation,Compaction,ToolOutput,ToolTask*}.cs`、`Types/{DurableTypes,TaskRuntime}.cs`、`Harness/TaskGraphView.cs`、`Storage/SqliteStorageMigrations.cs` | `HarnessSleepTests`（12）、`StorageConformance`「stores and scans sleeping tasks by status」（4 后端） |
 | `da0eadf04` | 已取消的请求不再在授权刷新后重发 | `Pi.Mcp/Transports/StreamableHttpTransport.cs` | —（.NET 侧 SendAsync 已按 token 取消，仅补齐 MCP 中止错误语义） |
 
 **语料同步说明**（上游行为变更导致的期望更新，非放宽断言）：
@@ -202,7 +203,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 464 / 464 通过（第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
+| `Pi.Durable.Tests` | 480 / 480 通过（第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
@@ -266,8 +267,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    → ~~tui：`showHardwareCursor` 假光标~~（第二十六批）→ ~~tui：fd 转义 / 退出复原 / 滚轮路由 /
    stdin 回复串~~（第二十七批）→ ~~coding-agent：配置文件 JSON Schema 产物、Kitty 移位符号键位~~
    （第二十八批）→ ~~coding-agent：并发扩展对话框堆叠（`38847563f`）、overlay 归属修复（`a4f67eb65`）~~
-   （第二十九批）→ ~~durable：按模型压缩阈值~~（第三十批）→ durable 剩余项按 §3.5.1 的表推进
-   （sleeps + 宿主时钟 → crash-loop guard → `onReport` info → `afterFailedRun` → task graph blocked）。
+   （第二十九批）→ ~~durable：按模型压缩阈值~~（第三十批）→ ~~durable：持久睡眠 + 宿主时钟/唤醒~~
+   （第三十一批）→ durable 剩余项按 §3.5.1 的表推进（crash-loop guard → `onReport` info →
+   `afterFailedRun` → task graph blocked）。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1196,6 +1198,81 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.aa 第三十一批（durable：持久睡眠与宿主定时器）落地明细
+
+上游 `f75b3240a`（1.4.0）把「阶段内 sleep」改成**持久的睡眠状态**：任务以
+`runtime.sleepUntil(until, checkpoint)` 或 `commit` 返回 `{status:"sleeping", until, checkpoint}` 结束
+一个阶段，此后不占调用、跨重启存活，到点在原 checkpoint 处恢复；同时把 Harness 的定时器交给宿主
+（`setTimer`）并让宿主自己唤醒进程（`wake()` / `onWake`）。
+
+**定时器（新 `Pi.Durable/Timers.cs`）**
+
+- `SetTimer` 委托：`(callback, delayMs, TimerOptions) => Action?`，返回解除函数、`null` 表示宿主拒绝；
+  `TimerOptions.Background` 区分「只释放内存」与「为工作调速/恢复」的定时器。
+- `NativeTimer`：默认实现，用 `System.Threading.Timer` 分步等待（单步上限 `2_147_483_647` ms，与上游同一常量）。
+  **与上游差异**：.NET 的定时器回调跑在线程池线程上，挂起的定时器从来不保持进程存活，也没有
+  `unref()` 可言，因此端口没有「背景定时器不可用」的环境——`NativeTimer` 永远能布设背景定时器，
+  上游 `inWorkers` / `unref` 的两条拒绝路径在端口不存在。
+- `HostTimers.Create(setTimer, report)`：前端定时器被宿主拒绝或抛出时以 `NativeTimer` 兜底，**只上报第一次**
+  （消息为 `HarnessOptions.setTimer declined a timer that paces work; using the default timer`）；
+  背景定时器抛出时报错并拒绝。
+
+**睡眠状态**
+
+- `TaskStatus.Sleeping` + `TaskState.Until`；`TaskInspection.Sleeping(Until)`；`TaskGraphState.Sleeping(Phase, Until)`
+  （JSON 里多 `until` 字段）；`TaskStatus` 的线上名由 `CamelCaseEnumConverter` 自动给出 `sleeping`。
+- SQLite schema **v2**：SQLite 改不了 CHECK 约束，按上游做法重建 `tasks` 表（`tasks_v2` → 拷数据 →
+  `DROP` → 重命名 → 重建五个索引）。v2 只加 `sleeping`；crash-loop guard 的 `restarts` 是记录内字段，
+  不占列，等那一批再动。
+- `OpenAsync` 只把 `running` 核回 `pending`，**`sleeping` 原样保留**——这正是跨重启睡眠的持久性所在。
+
+**调度器**
+
+- 新增选项 `OnWake`（`HarnessOptions.OnWake`）与必需项 `Timers`（`HarnessOptions.SetTimer` 经 `HostTimers` 包装）。
+- `Wake()`：`Active` 由存活记录判定（跳过 `completing`、等待存活任务的等待、未到点的睡眠；带 abort 标记的
+  任务若其下有存活普通自有工作也不计入；定义缺失/过旧/迁移失败的任务不计入），`At` 是尚未到点的最早睡眠。
+- `ScheduleWake()` 在**线外**重算并去重：没有 `onWake` 时布设内建定时器（仅在调度启用时），有 `onWake` 时只在
+  值变化时投递、且**只有投递成功才记账**（抛出会被上报，下一次变化或 kick 会再给一次）。
+- `ArmSleepTimer(at)` 用前端定时器；触发时清空自身、调用 `WakeDue()` 再 kick，触发得早只会重新布设；
+  睡眠被中止或调度器 `Seal()` 时解除。
+- 保留遍用 `NotDue(record)` 跳过未到点的睡眠（`until > now` 且无 abort 标记）；`WakeDue()` 在端口里就是
+  「重新发起一遍调度」——端口的保留遍本来每次扫描全部存活记录，不需要上游的 `#runnable` 集合。
+  `Resume()` 先 `WakeDue()` 再 kick，宿主 alarm 因此可以直接调 `Resume()`。
+- `CommitStateAsync` 校验睡眠：abort 处理器不能睡眠；`until` 必须是**非负**时刻。
+  **与上游差异**：C# 的 `long` 没有 `NaN` / `Infinity`，所以上游那两条「不是毫秒时刻」的拒绝分支在端口
+  退化为「缺 `until`」与「负数」两种。
+- **与上游差异（并发模型）**：上游单线程，`wake()` 可以随意读内存；端口的提交在 Session 线上、唤醒在
+  `Task.Run` 里。`Wake()` 因此对「与提交并发」做保守降级（捕获 `InvalidOperationException` → `Active = true`），
+  并用线上维护的 `_earliestSleep` 作为降级路径的 `At`；定时器的布设不依赖成功的内存扫描，
+  失败也照样按 `_earliestSleep` 布设，避免睡眠任务再没人唤醒。
+
+**运行时与内建任务**
+
+- `ITaskRuntime.SleepAsync(until, ctx)`（阶段内干等）**删除**，换成
+  `SleepUntilAsync(until, checkpoint, ctx)`（经 `GatedAsync` 提交睡眠后立即返回，阶段随即结束）与
+  `SetTimer(callback, delayMs)`（登记进 `Invocation.Timers`，调用结束时解除；已结束的调用永不触发回调）。
+- 生成：`retry` / `poll` 阶段先判 `checkpoint.Until > runtime.Now()` 再睡（旧版本的记录、提前唤醒都会再睡一次）；
+  分类时把退避与延迟轮询提交成 `status: "sleeping"` 并带 `Until`。
+- 压缩：同样的 `retry` 处理与 sleeping 提交。
+- 节流：partial 提交（`PartialThrottle`）与工具进度提交改为走 `runtime.SetTimer` + Harness 时钟
+  （`ToolOutput.ProgressClock`，缺省仍用进程时钟）；`IToolExecutionApi.Now()` 补上，脚本/工具可直接比较
+  重启后的时刻。
+- 上下文过期定时器也改走 `Timers.Background`：宿主拒绝时不布设，后续提交仍会检查过期（语义不变，
+  只是可以被宿主的 `setTimer` 接管）。**与上游差异**：端口 `DurableSession` 没有文档保留期的清理定时器，
+  所以 `setTimer` 只接到调度器与工具运行时，没有上游 `createSession(..., setTimer)` 那条路径。
+
+**测试**
+
+- 新增 `HarnessSleepTests`（12 例）：不持调用地睡住并在到点恢复、检查面 `sleeping`、`Wake` 形状与提前唤醒
+  不干活、跨重开仍睡（重开后仍 `sleeping`，到点才完成）、由定时器唤醒、任何一遍调度都能唤醒到点睡眠、
+  中止与关闭时解除定时器、调用结束时解除其定时器（迟到触发不做事）、有 `onWake` 时不布设定时器、
+  宿主拒绝前端定时器时兜底并只上报一次、睡眠任务不用等到点就能跑 abort 处理器、非法 `until` 与 abort
+  处理器睡眠被拒、缺定义的任务不计为 active、`onWake` 抛出被上报且下一次仍会再投递。
+- `StorageConformance` 新增「stores and scans sleeping tasks by status」（4 个后端各跑一次）。
+- 更新既有用例：`HarnessGenerationRecoveryTests` 的退避/轮询恢复改为断言 `sleeping` 并推进假时钟
+  （含一次「提前醒来不重试」）；`HarnessCompactionTests` 的压缩退避恢复同样断言 `sleeping`；
+  `SchedulerTests` 里两处「阶段内干等」改用 `Task.Delay`（持久睡眠会让阶段结束，语义不同）。
 
 ### 6.a 第三十批（durable：按模型压缩阈值）落地明细
 

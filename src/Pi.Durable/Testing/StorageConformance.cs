@@ -656,6 +656,36 @@ public static class StorageConformance
             Assert.DeepEqual(assert, await Scan(TaskStatus.Terminal), new List<object?> { terminal });
         });
 
+        AddCase("stores and scans sleeping tasks by status", async storage =>
+        {
+            var rootId = await CreateRootAsync(storage);
+            var sleepingId = await storage.MintIdAsync<TaskId<object?>>();
+            var sleeping = PendingTask(sleepingId, rootId) with
+            {
+                State = new TaskState
+                {
+                    Status = TaskStatus.Sleeping,
+                    Checkpoint = PhaseCheckpoint("next"),
+                    Until = 61_000,
+                },
+                Memos = new Dictionary<string, object?> { ["kept"] = true },
+            };
+            await storage.CommitAsync([new StorageWrite.Task(sleeping)]);
+            Assert.DeepEqual(assert, await storage.GetTaskAsync(sleepingId), sleeping);
+
+            async Task<List<TaskRecord>> Scan(TaskStatus status) =>
+                (await storage.ScanTasksAsync(new TaskQuery { Status = status }, 10)).Items.ToList();
+
+            Assert.DeepEqual(assert, await Scan(TaskStatus.Sleeping), new List<object?> { sleeping });
+            var running = sleeping with
+            {
+                State = new TaskState { Status = TaskStatus.Running, Checkpoint = PhaseCheckpoint("next") },
+            };
+            await storage.CommitAsync([new StorageWrite.Task(running)]);
+            Assert.DeepEqual(assert, await Scan(TaskStatus.Sleeping), new List<object?>());
+            Assert.DeepEqual(assert, await Scan(TaskStatus.Running), new List<object?> { running });
+        });
+
         AddCase("indexes request IDs per conversation and replaces complete submission records", async storage =>
         {
             var rootId = await CreateRootAsync(storage);

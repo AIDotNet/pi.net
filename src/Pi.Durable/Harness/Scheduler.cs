@@ -38,6 +38,12 @@ public sealed record TaskSchedulerOptions
 
     public required Func<long> Now { get; init; }
 
+    /// <summary><c>HarnessOptions.onWake</c>：替代睡眠任务的定时器。</summary>
+    public Action<Wake>? OnWake { get; init; }
+
+    /// <summary>宿主的定时器（<c>HarnessOptions.setTimer</c>）。</summary>
+    public required Timers Timers { get; init; }
+
     public required Action<Exception> Report { get; init; }
 
     /// <summary>使调度器写入的终局落定的 Harness 清理（与终态同一提交）。</summary>
@@ -75,12 +81,9 @@ public sealed class TaskScheduler
 {
     private const int ScanPageSize = 256;
 
-    /// <summary>单个 <c>Task.Delay</c> 支持的最长延迟；更长的等待分多步进行。</summary>
-    private const int MaxTimerDelay = 2_147_483_647;
-
     private static readonly TaskStatus[] LiveStatuses =
     [
-        TaskStatus.Pending, TaskStatus.Running, TaskStatus.Waiting, TaskStatus.Completing,
+        TaskStatus.Pending, TaskStatus.Running, TaskStatus.Waiting, TaskStatus.Sleeping, TaskStatus.Completing,
     ];
 
     private readonly DurableSession _session;
@@ -91,6 +94,8 @@ public sealed class TaskScheduler
     private readonly Func<Settings> _settings;
     private readonly Func<ConversationId, Context, Task<IExecutionEnv?>> _env;
     private readonly Func<long> _now;
+    private readonly Action<Wake>? _onWake;
+    private readonly Timers _timers;
     private readonly Action<Exception> _report;
     private readonly Func<Transaction, TaskRecord, SchedulerOutcome, Task> _settleOutcome;
     private readonly Func<Transaction, ConversationId, Task> _withdrawInputs;
@@ -103,7 +108,10 @@ public sealed class TaskScheduler
 
     private readonly object _contextsGate = new();
     private readonly Dictionary<ConversationId, KeptContext> _contexts = [];
-    private CancellationTokenSource? _contextExpiryCancellation;
+
+    /// <summary>最早空闲上下文过期的背景定时器解除函数；宿主拒绝时为 null（见 <see cref="ScheduleContextExpiryLocked"/>）。</summary>
+    private Action? _contextExpiryDisarm;
+
     private double? _contextExpiryAt;
 
     private readonly Waiters<TaskId<object?>, SettledTask> _taskWaiters = new();
@@ -128,6 +136,17 @@ public sealed class TaskScheduler
     /// </summary>
     private readonly HashSet<TaskId<object?>> _failFastChecks = [];
 
+    /// <summary>最早尚未到点的睡眠时刻，-1 表示没有；在线上随提交重算，故在线外读也安全。</summary>
+    private long _earliestSleep = -1;
+
+    /// <summary>最早睡眠的定时器；有 <c>onWake</c> 时不布设。</summary>
+    private (long At, Action Disarm)? _sleepTimer;
+
+    /// <summary>上一次交给 <c>onWake</c> 的值，未变化时不重复。</summary>
+    private Wake? _lastWake;
+
+    private bool _wakeScheduled;
+
     private bool _reconcileScheduled;
     private bool _cascadePending;
     private IDisposable _unsubscribeRegistry = new NopDisposable();
@@ -146,6 +165,8 @@ public sealed class TaskScheduler
         _settings = options.Settings;
         _env = options.Env;
         _now = options.Now;
+        _onWake = options.OnWake;
+        _timers = options.Timers;
         _report = options.Report;
         _settleOutcome = options.SettleOutcome;
         _withdrawInputs = options.WithdrawInputs;
@@ -191,20 +212,111 @@ public sealed class TaskScheduler
                 }
             }
 
+            RefreshEarliestSleep();
             return null;
         }, context).ConfigureAwait(false);
 
         // 补派崩溃遗留的、低于已取消属主的 abort 标记，并终结保持的结果。
         _cascadePending = true;
         ScheduleReconcile();
+        ScheduleWake();
     }
 
-    /// <summary>启用调度。幂等；关闭后 kick 无效。</summary>
+    /// <summary>启用调度，并让到点的睡眠任务可运行：宿主唤醒（如 alarm）调用它。幂等；关闭后 kick 无效。</summary>
     public void Resume()
     {
         _enabled = true;
+        WakeDue();
         Kick();
     }
+
+    /// <summary>
+    /// Session 下一次需要进程的时刻：有任务现在就能跑或正在跑时 <see cref="Wake.Active"/>，
+    /// 另有尚未到点的最早睡眠时给出 <see cref="Wake.At"/>。同步读自内存；链尚未加载的任务按“只有它自己”计。
+    /// </summary>
+    public Wake Wake()
+    {
+        try
+        {
+            return new Wake { Active = ComputeActive(), At = ComputeEarliestSleep() };
+        }
+        catch (InvalidOperationException)
+        {
+            // 与提交并发时保守地当作有工作：宿主会再唤醒一次，届时重算。
+            return new Wake { Active = true, At = EarliestSleep() };
+        }
+    }
+
+    /// <summary>尚未到点的最早睡眠；读自存活记录。</summary>
+    private long? ComputeEarliestSleep()
+    {
+        var now = _now();
+        long? at = null;
+        foreach (var record in _live.Values)
+        {
+            if (record.State.Status != TaskStatus.Sleeping || record.AbortRequested) continue;
+            var until = record.State.Until ?? 0;
+            if (until <= now) continue;
+            at = at is null ? until : Math.Min(at.Value, until);
+        }
+
+        return at;
+    }
+
+    private bool ComputeActive()
+    {
+        if (_invocations.Count > 0) return true;
+        IRegistrySnapshot? snapshot = null;
+        var snapshotFailed = false;
+        foreach (var record in _live.Values)
+        {
+            var state = record.State;
+            if (state.Status == TaskStatus.Completing) continue;
+            if (state.Status == TaskStatus.Waiting && !record.AbortRequested
+                && (state.On ?? []).Any(id => _live.ContainsKey(id)))
+            {
+                continue;
+            }
+
+            // 尚未到点的睡眠：它的定时器会唤醒，本身不算“现在能跑”。
+            if (NotDue(record)) continue;
+            // abort 调用等待其下的存活工作，那份工作会自己计入。
+            if (record.AbortRequested && WaitingOn(record, OwnedLive()).Count > 0) continue;
+            // 没有定义能接手的任务在等注册表变化，带 abort 标记的除外（它会被 orphaned）。
+            if (!record.AbortRequested)
+            {
+                if (snapshot is null && !snapshotFailed)
+                {
+                    try
+                    {
+                        snapshot = _registry.Snapshot();
+                    }
+                    catch (Exception error)
+                    {
+                        snapshotFailed = true;
+                        _report(error);
+                    }
+                }
+
+                if (snapshot is not null && FitOf(record, snapshot.Task(record.Kind)) is Fit.No) continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>尚未到点的最早睡眠；没有时为 null。读自线上维护的字段，可在线外调用。</summary>
+    private long? EarliestSleep()
+    {
+        var at = Interlocked.Read(ref _earliestSleep);
+        return at < 0 ? null : at;
+    }
+
+    /// <summary>在线上重算最早睡眠，供 <see cref="Wake"/> 的降级路径与定时器使用。</summary>
+    private void RefreshEarliestSleep()
+        => Interlocked.Exchange(ref _earliestSleep, ComputeEarliestSleep() ?? -1);
 
     /// <summary>等待被 <see cref="Seal"/> 发信号的每个调用。不写任何内容。</summary>
     public async Task JoinAsync()
@@ -426,6 +538,7 @@ public sealed class TaskScheduler
         // 级联提交失败时，也随下一次任意提交重试。
         if (_cascadePending) ScheduleReconcile();
         if (!changed) return;
+        RefreshEarliestSleep();
         ResolveIdleWaiters();
         SettleContextCache();
         Kick();
@@ -498,76 +611,56 @@ public sealed class TaskScheduler
             }
         }
 
-        if (_contextExpiryCancellation is not null && _contextExpiryAt == at) return;
+        if (_contextExpiryDisarm is not null && _contextExpiryAt == at) return;
         CancelContextExpiryLocked();
         if (at is null || _closing) return;
 
-        var cancellation = new CancellationTokenSource();
-        _contextExpiryCancellation = cancellation;
+        var delay = (long)Math.Max(0, Math.Ceiling(at.Value - _now()));
+        var disarm = _timers.Background(() => ExpireContextCache(at.Value), delay);
+        // 宿主拒绝背景定时器时不布设：后续提交与任务变化仍会检查过期。
+        if (disarm is null) return;
         _contextExpiryAt = at;
-        _ = Task.Run(() => ExpireContextCacheAsync(at.Value, cancellation));
+        _contextExpiryDisarm = disarm;
     }
 
     private void CancelContextExpiryLocked()
     {
-        var cancellation = _contextExpiryCancellation;
-        _contextExpiryCancellation = null;
+        var disarm = _contextExpiryDisarm;
+        _contextExpiryDisarm = null;
         _contextExpiryAt = null;
-        cancellation?.Cancel();
+        disarm?.Invoke();
     }
 
-    private async Task ExpireContextCacheAsync(double at, CancellationTokenSource cancellation)
+    /// <summary>背景定时器触发：在线上结算空闲上下文；提前触发只重新布设。</summary>
+    private void ExpireContextCache(double at)
     {
-        var token = cancellation.Token;
-        try
+        lock (_contextsGate)
         {
-            while (true)
-            {
-                token.ThrowIfCancellationRequested();
-                var remaining = at - _now();
-                if (remaining <= 0) break;
-                var delay = (int)Math.Clamp(Math.Ceiling(remaining), 1, MaxTimerDelay);
-                await Task.Delay(delay, token).ConfigureAwait(false);
-            }
+            // 已被取消或重排：本次触发作废。
+            if (_closing || _contextExpiryAt != at) return;
+            _contextExpiryDisarm = null;
+            _contextExpiryAt = null;
+        }
 
-            await _session.ReadOnLineAsync(() =>
+        _ = Task.Run(async () =>
+        {
+            try
             {
-                if (_closing) return Task.FromResult(false);
-                lock (_contextsGate)
+                await _session.ReadOnLineAsync(() =>
                 {
-                    if (!ReferenceEquals(_contextExpiryCancellation, cancellation))
-                        return Task.FromResult(false);
-                    _contextExpiryCancellation = null;
-                    _contextExpiryAt = null;
-                }
-
-                SettleContextCache();
-                return Task.FromResult(true);
-            }).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
-        {
-        }
-        catch (InvalidOperationException) when (_closing)
-        {
-        }
-        catch (Exception error)
-        {
-            if (!_closing) _report(error);
-        }
-        finally
-        {
-            lock (_contextsGate)
-            {
-                if (ReferenceEquals(_contextExpiryCancellation, cancellation))
-                {
-                    _contextExpiryCancellation = null;
-                    _contextExpiryAt = null;
-                }
+                    if (_closing) return Task.FromResult(false);
+                    SettleContextCache();
+                    return Task.FromResult(true);
+                }).ConfigureAwait(false);
             }
-
-            cancellation.Dispose();
-        }
+            catch (InvalidOperationException) when (_closing)
+            {
+            }
+            catch (Exception error)
+            {
+                if (!_closing) _report(error);
+            }
+        });
     }
 
     private static double AddRetention(long idleSince, double retention) => idleSince + retention;
@@ -913,6 +1006,9 @@ public sealed class TaskScheduler
             CancelContextExpiryLocked();
         }
 
+        _sleepTimer?.Disarm();
+        _sleepTimer = null;
+
         _unsubscribeRegistry.Dispose();
         var error = HarnessUtil.ClosedError();
         _taskWaiters.RejectAll(error);
@@ -922,6 +1018,7 @@ public sealed class TaskScheduler
 
     private void Kick()
     {
+        ScheduleWake();
         _dirty = true;
         if (_draining || !_enabled || _closing) return;
         _draining = true;
@@ -951,6 +1048,81 @@ public sealed class TaskScheduler
         }
     }
 
+    /// <summary>在线外重算唤醒：布设内建定时器，或把变化告知 <c>onWake</c>。对应 TS <c>#scheduleWake</c>。</summary>
+    private void ScheduleWake()
+    {
+        if (_wakeScheduled || _closing) return;
+        _wakeScheduled = true;
+        _ = Task.Run(() =>
+        {
+            _wakeScheduled = false;
+            if (_closing) return;
+            Wake wake;
+            try
+            {
+                wake = Wake();
+            }
+            catch (Exception error)
+            {
+                if (!_closing) _report(error);
+                // 失败也要保住定时器，否则睡眠任务再没人唤醒。
+                ArmSleepTimer(_enabled ? EarliestSleep() : null);
+                return;
+            }
+
+            if (_onWake is null)
+            {
+                ArmSleepTimer(_enabled ? EarliestSleep() : null);
+                return;
+            }
+
+            var last = _lastWake;
+            if (last is not null && last.Active == wake.Active && last.At == wake.At) return;
+            try
+            {
+                _onWake(wake);
+                // 只有送达的唤醒才记账：抛出之后，下一次变化或 kick 会再给一次。
+                _lastWake = wake;
+            }
+            catch (Exception error)
+            {
+                _report(error);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 保持最早睡眠的定时器。它不同于上下文过期定时器，会保持进程存活：有睡眠任务的进程还有工作（例如重试退避）。
+    /// 触发时重读时钟，所以提前到的唤醒只是再布设一次。
+    /// </summary>
+    private void ArmSleepTimer(long? at)
+    {
+        if (_sleepTimer is { } pending && pending.At == at) return;
+        _sleepTimer?.Disarm();
+        _sleepTimer = null;
+        if (at is null || _closing) return;
+        var target = at.Value;
+        var disarm = _timers.Foreground(() =>
+        {
+            _sleepTimer = null;
+            WakeDue();
+            Kick();
+        }, target - _now());
+        _sleepTimer = (target, disarm);
+    }
+
+    /// <summary>
+    /// 让已到点的睡眠任务成为保留候选。端口的保留遍每次都扫描全部存活记录，因此重新发起一遍即可。
+    /// </summary>
+    private void WakeDue() => Kick();
+
+    /// <summary>时钟尚未到达其 <c>until</c> 的睡眠；abort 标记结束睡眠。</summary>
+    private bool NotDue(TaskRecord record)
+    {
+        var state = record.State;
+        return state.Status == TaskStatus.Sleeping && !record.AbortRequested && (state.Until ?? 0) > _now();
+    }
+
     /// <summary>一次提交保留每个合格任务；没有定义能接手的 abort 标记任务以 orphaned 结算。</summary>
     private async Task<List<Reservation>> ReserveAsync()
     {
@@ -968,6 +1140,8 @@ public sealed class TaskScheduler
                 {
                     if (_invocations.ContainsKey(record.Id) || WaitingOn(record, owned).Count > 0) continue;
                     if (record.State.Status == TaskStatus.Completing) continue;
+                    // 到点才回到候选：由睡眠定时器或 Resume() 的 WakeDue() 重新发起一遍。
+                    if (NotDue(record)) continue;
                     var mode = record.AbortRequested ? "abort" : "run";
                     snapshot ??= _registry.Snapshot();
                     var resolution = Resolve(record, snapshot);
@@ -1100,6 +1274,7 @@ public sealed class TaskScheduler
 
         var on = WaitingOn(record, owned);
         if (on.Count > 0) return new TaskInspection.Waiting(on) { Record = record };
+        if (NotDue(record)) return new TaskInspection.Sleeping(record.State.Until ?? 0) { Record = record };
         var fit = FitOf(record, snapshot.Task(record.Kind));
         if (fit is Fit.No no) return new TaskInspection.Blocked(no.Reason, no.Error) { Record = record };
         var fits = (Fit.Fits)fit;
@@ -1126,6 +1301,7 @@ public sealed class TaskScheduler
             Controller = controller,
             Context = ContextSignals.WithAbortSignal(controller.Token, _context),
             Watches = [],
+            Timers = [],
             Done = completion.Task,
             Finish = () => completion.TrySetResult(null),
         };
@@ -1340,6 +1516,8 @@ public sealed class TaskScheduler
             await ValidateWaitAsync(tx, invocation, current, next.On ?? [], next.Policy).ConfigureAwait(false);
         }
 
+        if (next.Status == TaskStatus.Sleeping) ValidateSleep(invocation, current, next.Until);
+
         if (next.Status == TaskStatus.Terminal)
         {
             var overlay = OverlayOf(tx);
@@ -1418,6 +1596,8 @@ public sealed class TaskScheduler
         }
 
         foreach (var watch in invocation.Watches) _ = watch.Stop();
+        foreach (var disarm in invocation.Timers.ToArray()) disarm();
+        invocation.Timers.Clear();
         // 绑定到该调用的挂起等待（如工具的 waitForTask）随其拒绝。
         invocation.Controller.Cancel();
     }
@@ -1528,34 +1708,6 @@ public sealed class TaskScheduler
         {
             ConversationId = invocation.ConversationId, TaskId = invocation.TaskId,
         });
-    }
-
-    /// <summary>等待 Harness 时钟到达 <paramref name="until"/>，每个计时器之后复查。</summary>
-    private async Task SleepAsync(Invocation invocation, long until, Context context)
-    {
-        if (invocation.Ended) throw EndedError(invocation);
-        var caller = context.AbortSignal;
-        if (caller is { IsCancellationRequested: true }) caller.GetValueOrDefault().ThrowIfCancellationRequested();
-        invocation.Controller.Token.ThrowIfCancellationRequested();
-        using var linked = caller is { } callerToken
-            ? CancellationTokenSource.CreateLinkedTokenSource(invocation.Controller.Token, callerToken)
-            : null;
-        var signal = linked?.Token ?? invocation.Controller.Token;
-        for (;;)
-        {
-            signal.ThrowIfCancellationRequested();
-            var remaining = until - _now();
-            if (remaining <= 0) return;
-            var step = (int)Math.Min(remaining, MaxTimerDelay);
-            try
-            {
-                await Task.Delay(step, signal).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-        }
     }
 
     /// <summary>
@@ -1702,8 +1854,34 @@ public sealed class TaskScheduler
             scheduler._report(error);
         }
 
-        public Task SleepAsync(long until, Context context)
-            => scheduler.SleepAsync(invocation, until, context);
+        public Task SleepUntilAsync(long until, object? checkpoint, Context context)
+            => scheduler.GatedAsync<object?>(invocation, async (tx, current) =>
+            {
+                var next = new TaskState
+                {
+                    Status = TaskStatus.Sleeping, Checkpoint = checkpoint, Until = until,
+                };
+                await scheduler.CommitStateAsync(tx, invocation, current, next).ConfigureAwait(false);
+                return null;
+            }, context);
+
+        public Action SetTimer(Action callback, long delayMs)
+        {
+            // 已结束的调用，其定时器永不触发。
+            if (invocation.Ended) return () => { };
+            Action? disarm = null;
+            disarm = scheduler._timers.Foreground(() =>
+            {
+                if (disarm is not null) invocation.Timers.Remove(disarm);
+                if (!invocation.Ended) callback();
+            }, delayMs);
+            invocation.Timers.Add(disarm);
+            return () =>
+            {
+                invocation.Timers.Remove(disarm);
+                disarm();
+            };
+        }
 
         public Task<object?> MemoAsync(string name, Context context)
             => scheduler.ReadAsync(invocation, async () =>
@@ -1821,6 +1999,9 @@ public sealed class TaskScheduler
 
         /// <summary>经运行时获取的 watch；调用结束时停止。</summary>
         public required HashSet<Watch> Watches { get; init; }
+
+        /// <summary>经运行时布设的定时器；调用结束时解除。</summary>
+        public required HashSet<Action> Timers { get; init; }
 
         public bool Ended { get; set; }
 
@@ -1975,4 +2156,25 @@ public sealed class TaskScheduler
     /// <summary>定义能否在保留时接手任务：同版本，或更新且带迁移。</summary>
     private static bool CanReserve(AnyDurableTask task, TaskRecord record)
         => task.Version == record.Version || (task.Version > record.Version && task.Migrate is not null);
+
+    /// <summary>睡眠的 <c>until</c> 必须是 Harness 时钟上的时刻；abort 处理器不能睡眠。</summary>
+    private static void ValidateSleep(Invocation invocation, TaskRecord record, long? until)
+    {
+        if (invocation.Mode == "abort")
+        {
+            throw new InvalidOperationException($"Abort handler of task {record.Id.Value} cannot sleep");
+        }
+
+        if (until is not { } value)
+        {
+            throw new InvalidOperationException(
+                $"Task {record.Id.Value} cannot sleep without an until time in milliseconds");
+        }
+
+        if (value < 0)
+        {
+            throw new InvalidOperationException(
+                $"Task {record.Id.Value} cannot sleep until {value}: not a time in milliseconds");
+        }
+    }
 }

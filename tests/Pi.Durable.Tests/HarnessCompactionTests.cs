@@ -462,7 +462,9 @@ public sealed class HarnessCompactionTests
             try
             {
                 var retryTask = Assert.Single(await TasksAsync(reopened, root.Id), task => task.Id.Value == id.Value);
-                Assert.Equal(TaskStatus.Pending, retryTask.State.Status);
+                // 压缩的重试退避同样是持久睡眠：重开后仍是 sleeping，到点才恢复。
+                Assert.Equal(TaskStatus.Sleeping, retryTask.State.Status);
+                Assert.Equal(61_000L, retryTask.State.Until);
                 Assert.Equal("retry", Phase(retryTask));
                 var settled = await reopened.WaitForTaskAsync(TaskId<object?>.From(id.Value), Ctx);
                 Assert.Equal(TaskOutcomeStatus.Completed, settled.State.Outcome?.Status);

@@ -197,6 +197,12 @@ public interface IToolExecutionApi : IDocumentObserver, IDocumentReader
     IExecutionEnv? Env { get; }
 
     /// <summary>
+    /// Harness 时钟（<see cref="HarnessOptions.Now"/>），用于脚本超时等在重启后仍可比较的时刻。
+    /// 对应 TS <c>ToolExecutionApi.now()</c>。
+    /// </summary>
+    long Now();
+
+    /// <summary>
     /// 追加运行输出；结果缺省 content 时成为内容。<paramref name="skipped"/> 计此块之前被省略的输出。
     /// </summary>
     void Output(string chunk, ShellOutputSkip? skipped = null);
@@ -811,8 +817,39 @@ public sealed record HarnessOptions
 
     public Func<long>? Now { get; init; }
 
+    /// <summary>
+    /// 布设 Harness 用到的每个定时器：为进度提交调速、释放空闲内存（<see cref="TimerOptions.Background"/>），
+    /// 在没有 <see cref="OnWake"/> 时恢复睡眠任务，以及 <c>ITaskRuntime.SetTimer()</c> 的定时器。
+    /// 缺省为 <see cref="System.Threading.Timer"/>。测试可传假定时器；宿主可以让本应休眠的进程不挂定时器。
+    /// 对应 TS <c>HarnessOptions.setTimer</c>。
+    /// </summary>
+    public SetTimer? SetTimer { get; init; }
+
+    /// <summary>
+    /// 由宿主唤醒进程来恢复睡眠任务，而不是靠 <see cref="SetTimer"/> 的定时器。没有它时，调度运行期间保持进程存活的
+    /// 定时器在到点时恢复睡眠任务；有它时 Harness 不为睡眠任务布设任何定时器，而是在打开之后、以及
+    /// <c>Harness.Wake()</c> 变化时调用它，由宿主布设自己的唤醒（例如 Durable Object alarm）并在触发时调用
+    /// <c>Resume()</c>。在 Session 线之外调用；它可以调用 <c>Wake()</c> 与 <c>Resume()</c>，且不得阻塞。
+    /// 抛出会被上报并忽略。对应 TS <c>HarnessOptions.onWake</c>。
+    /// </summary>
+    public Action<Wake>? OnWake { get; init; }
+
     /// <summary>接收不使调用操作失败的扩展失败。不得抛出。</summary>
     public Action<object>? OnReport { get; init; }
+}
+
+/// <summary>
+/// Session 下一次需要运行中的进程的时刻（<c>Harness.Wake()</c>）。<see cref="Active"/>：有任务现在就能跑或正在跑，
+/// 因此死掉的进程必须尽快被再次唤醒（例如恢复 alarm）。<see cref="At"/>：尚未到点的最早睡眠（若有）。
+/// 两者都不时为 null：在提交新工作之前不需要进程。缺少定义或不可迁移而阻塞的任务、<c>completing</c> 任务、
+/// 以及等待存活任务的等待都不计入；它们所等的那个工作才计入。
+/// 对应 TS <c>Wake</c>。
+/// </summary>
+public sealed record Wake
+{
+    public required bool Active { get; init; }
+
+    public long? At { get; init; }
 }
 
 /// <summary>存活任务及当前注册表下调度器将如何对待它。对应 TS <c>TaskInspection</c>。</summary>
@@ -831,6 +868,9 @@ public abstract record TaskInspection
     /// 必须先于其 abort 处理器结束。
     /// </summary>
     public sealed record Waiting(IReadOnlyList<TaskId<object?>> On) : TaskInspection;
+
+    /// <summary>睡到 Harness 时钟到达 <paramref name="Until"/>。</summary>
+    public sealed record Sleeping(long Until) : TaskInspection;
 
     /// <summary>结果保持到其普通自有工作排空。</summary>
     public sealed record Completing : TaskInspection;
@@ -934,6 +974,13 @@ public interface IHarness : ISession
     /// <c>waitForIdle()</c> 等；只读查看器不会。
     /// </summary>
     void Resume();
+
+    /// <summary>
+    /// 本 Session 下一次需要运行中进程的时刻，读自调度器内存：有任务现在就能跑或正在跑时 <see cref="Wake.Active"/>，
+    /// 否则给出最早睡眠的时刻。调度暂停时也作答。自行唤醒进程的宿主（例如 Durable Object alarm）据此布设唤醒，
+    /// 并在被唤醒时调用 <c>Resume()</c>；见 <see cref="HarnessOptions.OnWake"/>。
+    /// </summary>
+    Wake Wake();
 
     /// <summary>返回保留的根对话；缺省时以 agent 与 init 在一次提交中创建。</summary>
     Task<IConversation> RootAsync(Context context, AgentChange? agent = null, ConversationInit? init = null);

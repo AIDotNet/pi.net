@@ -416,7 +416,23 @@ public static partial class ToolTask
                 // 中止标记或关闭之后的拒绝是预期内的；已提交状态保持一致。
                 if (!runtime.Signal.IsCancellationRequested) runtime.Report(error);
             },
-            runtime.Settings.Progress.OutputIntervalMs);
+            runtime.Settings.Progress.OutputIntervalMs,
+            new ToolOutput.ProgressClock
+            {
+                // 调用结束之后不再提交；时钟只需仍能作答。
+                Now = () =>
+                {
+                    try
+                    {
+                        return runtime.Now();
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return Environment.TickCount64;
+                    }
+                },
+                SetTimer = runtime.SetTimer,
+            });
     }
 
     /// <summary>

@@ -20,6 +20,9 @@ public abstract record TaskGraphState
     public sealed record WaitingOn(string Phase, IReadOnlyList<TaskId<object?>> On, JoinPolicy Policy)
         : TaskGraphState;
 
+    /// <summary>睡到 Harness 时钟到达 <paramref name="Until"/>。</summary>
+    public sealed record Sleeping(string Phase, long Until) : TaskGraphState;
+
     /// <summary>结果已定，保持到普通自有工作排空。</summary>
     public sealed record Completing(string OutcomeStatus) : TaskGraphState;
 }
@@ -117,6 +120,8 @@ public static class TaskGraphReader
                 Enum.TryParse<JoinPolicy>((string)state["policy"]!, true, out var policy)
                     ? policy
                     : JoinPolicy.FailFast),
+            "sleeping" => new TaskGraphState.Sleeping(
+                (string)state["phase"]!, Convert.ToInt64(state["until"])),
             _ => new TaskGraphState.Completing((string)state["outcomeStatus"]!),
         };
     }
@@ -129,7 +134,7 @@ public static class TaskGraphReader
 public sealed class TaskGraphView
 {
     private static readonly IReadOnlyList<TaskStatus> LiveStatuses =
-        [TaskStatus.Pending, TaskStatus.Running, TaskStatus.Waiting, TaskStatus.Completing];
+        [TaskStatus.Pending, TaskStatus.Running, TaskStatus.Waiting, TaskStatus.Sleeping, TaskStatus.Completing];
 
     private const int ScanPageSize = 256;
 
@@ -403,6 +408,13 @@ public sealed class TaskGraphView
                     ["phase"] = PhaseOf(state.Checkpoint),
                     ["on"] = (state.On ?? []).Select(id => (object?)id.Value).ToList(),
                     ["policy"] = (state.Policy ?? JoinPolicy.FailFast).ToString(),
+                };
+            case TaskStatus.Sleeping:
+                return new Dictionary<string, object?>
+                {
+                    ["status"] = "sleeping",
+                    ["phase"] = PhaseOf(state.Checkpoint),
+                    ["until"] = state.Until ?? 0L,
                 };
             // 终态记录不会到达这里：它们离开图。
             case TaskStatus.Completing:

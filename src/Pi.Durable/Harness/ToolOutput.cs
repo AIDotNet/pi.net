@@ -334,28 +334,48 @@ public static class ToolOutput
     /// <summary>每次进度提交还按写入量成比例地买一段暂停。对应 TS <c>PROGRESS_BYTES_PER_SECOND</c>。</summary>
     public const double ProgressBytesPerSecond = 100 * 1024;
 
+    /// <summary>进度提交据以调速的时钟与定时器。对应 TS <c>ProgressClock</c>。</summary>
+    public sealed record ProgressClock
+    {
+        public required Func<long> Now { get; init; }
+
+        /// <summary>约 <paramref name="delayMs"/> 之后调用一次 callback；返回解除函数。</summary>
+        public required Func<Action, long, Action> SetTimer { get; init; }
+
+        /// <summary>进程时钟与线程池定时器；独立使用的进度提交用它。</summary>
+        public static ProgressClock System { get; } = new()
+        {
+            Now = () => Environment.TickCount64,
+            SetTimer = (callback, delayMs) => NativeTimer.Arm(callback, delayMs, new TimerOptions()) ?? (() => { }),
+        };
+    }
+
     /// <summary>
     /// 自适应进度提交：空闲后的第一次变化立即提交；随后每次提交把下一次至少推迟 minIntervalMs，并按 100 KiB/s 的
-    /// 写入量推迟。至多一个提交在途；其间的变化合并进下一次。对应 TS <c>Progress</c>。
+    /// 写入量推迟。至多一个提交在途；其间的变化合并进下一次。按 <paramref name="clock"/> 调速，
+    /// 缺省为 <see cref="ProgressClock.System"/>。对应 TS <c>Progress</c>。
     /// </summary>
     public sealed class Progress
     {
         private readonly Func<Task<long>> _write;
         private readonly Action<Exception> _onError;
         private readonly double _minIntervalMs;
+        private readonly ProgressClock _clock;
         private readonly object _gate = new();
         private readonly Queue<TaskCompletionSource<object?>> _waiters = new();
-        private Timer? _timer;
+        private Action? _timer;
         private Task? _inFlight;
         private long _nextAt;
         private bool _dirty;
         private bool _stopped;
 
-        public Progress(Func<Task<long>> write, Action<Exception> onError, double minIntervalMs)
+        public Progress(
+            Func<Task<long>> write, Action<Exception> onError, double minIntervalMs, ProgressClock? clock = null)
         {
             _write = write;
             _onError = onError;
             _minIntervalMs = minIntervalMs;
+            _clock = clock ?? ProgressClock.System;
         }
 
         /// <summary>安排一次提交。</summary>
@@ -388,7 +408,7 @@ public static class ToolOutput
             lock (_gate)
             {
                 _stopped = true;
-                _timer?.Dispose();
+                _timer?.Invoke();
                 _timer = null;
                 inFlight = _inFlight;
                 waiters = _waiters.ToArray();
@@ -403,17 +423,17 @@ public static class ToolOutput
             lock (_gate)
             {
                 if (_stopped || _timer is not null || _inFlight is not null) return;
-                var wait = _nextAt - Environment.TickCount64;
+                var wait = _nextAt - _clock.Now();
                 if (wait <= 0)
                 {
                     Flush();
                     return;
                 }
-                _timer = new Timer(_ =>
+                _timer = _clock.SetTimer(() =>
                 {
                     lock (_gate) _timer = null;
                     Flush();
-                }, null, wait, Timeout.Infinite);
+                }, wait);
             }
         }
 
@@ -427,7 +447,7 @@ public static class ToolOutput
                 _dirty = false;
                 waiters = _waiters.ToArray();
                 _waiters.Clear();
-                started = Environment.TickCount64;
+                started = _clock.Now();
                 _inFlight = Task.Run(async () =>
                 {
                     try

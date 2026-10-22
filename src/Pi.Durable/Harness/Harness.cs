@@ -188,6 +188,8 @@ public sealed class HarnessImpl : DurableSession, IHarness
             Settings = Settings,
             Env = (id, callContext) => BuildEnvAsync(id, callContext),
             Now = now,
+            OnWake = options.OnWake,
+            Timers = HostTimers.Create(options.SetTimer, reportException),
             Report = reportException,
             SettleOutcome = LiveSettle.SettleSchedulerOutcomeAsync,
             WithdrawInputs = Inbox.WithdrawQueuedInputsAsync,
@@ -263,6 +265,13 @@ public sealed class HarnessImpl : DurableSession, IHarness
     {
         AssertOpen();
         _tasks.Resume();
+    }
+
+    /// <summary>本 Session 下一次需要运行中进程的时刻，读自调度器内存。对应 TS <c>Harness.wake()</c>。</summary>
+    public Wake Wake()
+    {
+        AssertOpen();
+        return _tasks.Wake();
     }
 
     public Task<TaskRecord?> GetTaskAsync(TaskId<object?> id, Context context)

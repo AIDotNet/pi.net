@@ -258,16 +258,26 @@ public sealed class HarnessGenerationRecoveryTests
                 && checkpoint.TryGetValue("phase", out var phase) && Equals(phase, "retry")));
         await harness.CloseAsync(Ctx);
 
-        Interlocked.Exchange(ref now, 61_000L);
         var (reopened, _) = await HarnessTestSupport.OpenChatAsync(storage.Reopen(), setup);
         try
         {
             var recoveredTask = Assert.Single(await TasksAsync(reopened, root.Id));
-            Assert.Equal(TaskStatus.Pending, recoveredTask.State.Status);
+            // 退避是一条持久的睡眠：重开之后它仍是 sleeping，到点才恢复。
+            Assert.Equal(TaskStatus.Sleeping, recoveredTask.State.Status);
+            Assert.Equal(61_000L, recoveredTask.State.Until);
             var checkpoint = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(recoveredTask.State.Checkpoint);
             Assert.Equal("retry", checkpoint["phase"]);
             Assert.Equal(61_000L, Convert.ToInt64(checkpoint["until"]));
+            var wake = reopened.Wake();
+            Assert.False(wake.Active);
+            Assert.Equal(61_000L, wake.At);
 
+            // 提前醒来不会重试。
+            reopened.Resume();
+            await Task.Delay(20);
+            Assert.Equal(1, provider.CallCount);
+
+            Interlocked.Exchange(ref now, 61_000L);
             var reopenedSubmission = await reopened.SubmissionAsync(submission.Id, Ctx);
             Assert.NotNull(reopenedSubmission);
             reopened.Resume();
@@ -340,6 +350,8 @@ public sealed class HarnessGenerationRecoveryTests
             Deferred = new Faux.FauxDeferredOptions { PollAfterMs = 60_000 },
         });
         var setup = HarnessTestSupport.NewChatSetup(faux.Provider);
+        var now = 1_000L;
+        setup.Now = () => Interlocked.Read(ref now);
         setup.Settings = setup.Settings with
         {
             Stream = new ConversationStreamOptions
@@ -368,6 +380,8 @@ public sealed class HarnessGenerationRecoveryTests
             Settings = setup.Settings,
             Now = setup.Now,
         };
+        // poll 会先睡到点；到点之后才解析模型。
+        Interlocked.Exchange(ref now, 61_000L);
         var (reopened, _) = await HarnessTestSupport.OpenChatAsync(storage.Reopen(), unavailableModelSetup);
         try
         {

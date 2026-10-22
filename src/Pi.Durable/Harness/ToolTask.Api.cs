@@ -36,6 +36,8 @@ public static partial class ToolTask
 
         public Task<Agent> AgentAsync(Context context) => runtime.AgentAsync(context);
 
+        public long Now() => runtime.Now();
+
         public void Output(string chunk, ShellOutputSkip? skipped = null)
         {
             assertLive();

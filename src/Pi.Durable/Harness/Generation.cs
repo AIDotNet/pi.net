@@ -349,10 +349,16 @@ public static partial class Generation
         await ClassifyAsync(runtime, request, message, context).ConfigureAwait(false);
     }
 
+    /// <summary>退避睡眠之后；在 <c>until</c> 之前运行（提前唤醒，或旧版本记录）就再睡一次。</summary>
     private static async Task RetryPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var checkpoint = (GenerationCheckpoint.RetryPhase)ReadCheckpoint(task);
-        await runtime.SleepAsync(checkpoint.Until, context).ConfigureAwait(false);
+        if (checkpoint.Until > runtime.Now())
+        {
+            await runtime.SleepUntilAsync(checkpoint.Until, task.State.Checkpoint, context).ConfigureAwait(false);
+            return;
+        }
+
         await runtime.CommitAsync(async (tx, _) =>
         {
             var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
@@ -365,6 +371,7 @@ public static partial class Generation
         }, context).ConfigureAwait(false);
     }
 
+    /// <summary>睡到 <c>pollAt</c> 之后；在它之前运行（提前唤醒，或旧版本记录）就再睡一次。</summary>
     private static async Task PollPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var checkpoint = (GenerationCheckpoint.Poll)ReadCheckpoint(task);
@@ -375,7 +382,12 @@ public static partial class Generation
             return;
         }
 
-        await runtime.SleepAsync(checkpoint.PollAt, context).ConfigureAwait(false);
+        if (checkpoint.PollAt > runtime.Now())
+        {
+            await runtime.SleepUntilAsync(checkpoint.PollAt, task.State.Checkpoint, context).ConfigureAwait(false);
+            return;
+        }
+
         var message = await runtime.Models.FetchDeferredAsync(model, checkpoint.Handle, null, runtime.Signal)
             .ConfigureAwait(false);
         var request = new RequestInfo(
@@ -639,6 +651,7 @@ public static partial class Generation
         private readonly object _gate = new();
         private AssistantMessage? _pending;
         private Task? _inFlight;
+        private Action? _disarm;
         private bool _timerScheduled;
         private bool _stopped;
 
@@ -647,26 +660,24 @@ public static partial class Generation
             lock (_gate)
             {
                 _pending = partial;
-                if (!_timerScheduled && _inFlight is null && !_stopped)
-                {
-                    _timerScheduled = true;
-                    _ = TimerLoop();
-                }
+                if (!_timerScheduled && _inFlight is null && !_stopped) ScheduleLocked();
             }
         }
 
-        private async Task TimerLoop()
+        /// <summary>在 Harness 的定时器上安排一次 flush；持有 <see cref="_gate"/> 时调用。</summary>
+        private void ScheduleLocked()
         {
-            var interval = runtime.Settings.Progress.PartialIntervalMs;
-            try
+            _timerScheduled = true;
+            _disarm = runtime.SetTimer(() =>
             {
-                await Task.Delay(interval).ConfigureAwait(false);
-                await FlushAsync().ConfigureAwait(false);
-            }
-            catch
-            {
-                // 已停止；忽略。
-            }
+                lock (_gate)
+                {
+                    _disarm = null;
+                    _timerScheduled = false;
+                }
+
+                _ = FlushAsync();
+            }, runtime.Settings.Progress.PartialIntervalMs);
         }
 
         private async Task FlushAsync()
@@ -719,11 +730,7 @@ public static partial class Generation
                 lock (_gate)
                 {
                     _inFlight = null;
-                    if (_pending is not null && !_stopped && !_timerScheduled)
-                    {
-                        _timerScheduled = true;
-                        _ = TimerLoop();
-                    }
+                    if (_pending is not null && !_stopped && !_timerScheduled) ScheduleLocked();
                 }
             }
         }
@@ -735,6 +742,8 @@ public static partial class Generation
             lock (_gate)
             {
                 _stopped = true;
+                _disarm?.Invoke();
+                _disarm = null;
                 inFlight = _inFlight;
             }
 
@@ -764,9 +773,10 @@ public static partial class Generation
                 });
                 return new TaskState
                 {
-                    Status = TaskStatus.Running,
+                    Status = TaskStatus.Sleeping,
                     Checkpoint = new GenerationCheckpoint.Poll(
                         request.Attempt, request.Compacted, request.Model, request.Cutoff, handle, pollAt).ToJson(),
+                    Until = pollAt,
                 };
             }, context).ConfigureAwait(false);
             return;
@@ -847,8 +857,9 @@ public static partial class Generation
                 });
                 return new TaskState
                 {
-                    Status = TaskStatus.Running,
+                    Status = TaskStatus.Sleeping,
                     Checkpoint = new GenerationCheckpoint.RetryPhase(request.Attempt, request.Compacted, until).ToJson(),
+                    Until = until,
                 };
             }
 

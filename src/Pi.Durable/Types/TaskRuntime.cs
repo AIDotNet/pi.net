@@ -94,9 +94,20 @@ public interface ITaskRuntime : IDocumentObserver, IDocumentReader, IHookApi
     /// <summary>Harness 时钟（Unix 毫秒）。</summary>
     long Now();
 
+    /// <summary>
+    /// 在 Harness 的定时器（<see cref="Harness.HarnessOptions.SetTimer"/>）上、约 <paramref name="delayMs"/>
+    /// 之后调用一次 <paramref name="callback"/>，用于阶段内的调速，例如节流的进度提交。不持久：调用结束即解除，
+    /// 结束后也不再布设。返回解除函数。跨阶段的等待用 <see cref="SleepUntilAsync"/>。
+    /// </summary>
+    Action SetTimer(Action callback, long delayMs);
+
     /// <summary>把非致命失败转发给 <c>HarnessOptions.onReport</c>。</summary>
     void Report(Exception error);
 
-    /// <summary>Harness 时钟到达 <paramref name="until"/> 后解析；调用或 context 取消时拒绝。</summary>
-    Task SleepAsync(long until, Context context);
+    /// <summary>
+    /// 提交一次睡眠：该任务在 Harness 时钟到达 <paramref name="until"/> 之前不持任何调用，之后在
+    /// <paramref name="checkpoint"/> 处恢复。睡眠被存储后即完成，而非等到时刻到来；阶段随即返回。
+    /// 与其它写入一起提交的睡眠，可以由 <c>CommitAsync</c> 返回 <see cref="TaskState"/> 的 sleeping 状态表达。
+    /// </summary>
+    Task SleepUntilAsync(long until, object? checkpoint, Context context);
 }
