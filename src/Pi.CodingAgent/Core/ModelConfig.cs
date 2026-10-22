@@ -359,6 +359,10 @@ public sealed class ModelConfig
         ("supportsLongCacheRetention", JsonSchemaBuilder.Bool, true),
         ("supportsStrictMode", JsonSchemaBuilder.Bool, true),
         ("supportsOpenAIGrammarTools", JsonSchemaBuilder.Bool, true),
+        // 消息锚定的 additional_tools 输入项（上游 e47b8e37a）；生成目录只对支持的模型打开。
+        ("supportsAdditionalTools", JsonSchemaBuilder.Bool, true),
+        // transcript 锚定的客户端 tool search（deferred tools 的另一种落法）。
+        ("supportsToolSearch", JsonSchemaBuilder.Bool, true),
         ("supportsMaxOutputTokens", JsonSchemaBuilder.Bool, true));
 
     private static readonly JsonSchema ModelCostTierSchema = JsonSchemaBuilder.Obj(

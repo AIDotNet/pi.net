@@ -56,9 +56,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 客户端身份 `identity` / `User-Agent` 格式重构 | 1.4.0 | 破坏性：`telemetryContext`→`telemetry`、`getPiUserAgent` 移除 | 本次移植（第五批） |
 | `resolveTranscriptTools` 由布尔改为 `TranscriptToolSupport` | 1.4.0 | 破坏性 API | 待办 |
 | System One 分类器图像输入、`compat`、llama.cpp 决策模型 | 1.1.0–1.4.0 | codemode + 分类器链路 | 待办 |
-| 模型目录更新（Claude Haiku 5.5、MiniMax-M3.1-Flash、Grok `xhigh` 等） | 1.1.0–1.4.0 | 纯数据 | 待办（随目录同步脚本） |
+| 模型目录更新（Claude Haiku 5.5、MiniMax-M3.1-Flash、Grok `xhigh` 等） | 1.1.0–1.4.0 | 纯数据 | 不适用（数据不在上游仓库，见 §6.6） |
 | Anthropic `strict:"prefer"` 重试、Mistral 超时范围 | 1.2.0 #10409 / #10609 | provider 兼容细节 | 本次移植（第十三批） |
-| OpenAI Responses `additional_tools` 前缀缓存 | 1.4.0 #10940 | 缓存命中率 | 待办 |
+| OpenAI Responses `additional_tools` 延迟工具输入项 | 1.0.5 `e47b8e37a` #7709 | 缓存命中率与工具延迟加载 | 本次移植（第十六批） |
 
 ### 3.2 `packages/agent`
 
@@ -161,8 +161,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 480 / 480 通过（第十三批新增 10 例；第十三批前为 470） |
-| `Pi.CodingAgent.Tests` | 5013 / 5013 通过（第十五批新增 4 例；第十四批为 5009） |
+| `Pi.Ai.Tests` | 484 / 484 通过（第十六批新增 4 例；此前 480） |
+| `Pi.CodingAgent.Tests` | 5014 / 5014 通过（第十六批新增 1 例；第十五批为 5013） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过（第十四批同步了 shell 探测，数量不变）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
@@ -199,7 +199,17 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    （`watchDoc`/`watch`/`watchTaskGraph` 取代 `documentState`/`viewState`/`taskGraph`、
    WatchEnd 迁 chord 并改 `ended`/`failed`）必须与 Experimental 运行时一起改，`traceIn`
    则等 telemetry 落地后才有对象可改。
-4. **模型目录新增条目**：纯数据更新，随目录同步脚本一起做，避免手改 `models.json` 漂移。
+4. **模型目录新增条目**：**已判定不适用**。上游的模型数据不在仓库里 ——
+   `packages/ai/src/providers/data/*.json` 被 `.gitignore` 排除（`.gitignore` 第 11 行），
+   `providers/*.models.ts` 只是 `generate-models.ts` 从这些 JSON 生成的壳；
+   `scripts/hydrate-model-catalog.ts` 明确要求传入**本地的** `models.all.json` 快照
+   （「without network access」），仓库里没有这份快照，本机也没有。端口只有
+   `src/Pi.Ai/ModelData/{anthropic,deepseek,openai}.json` 三个手写文件，忠实同步 42 家目录
+   需要有源数据，硬编会变成编造。决定不改目录数据。
+   需要澄清的是**代码侧并无缺口**：`xhigh`/`max` 档位、`clampThinkingLevel` 的顺序、
+   `supportsNativeXhighEffort`、各 provider 的 effort 映射在端口里都已存在
+   （`Pi.Ai/Models/Models.cs`、`Api/BedrockConverseStream.cs`、`Api/SimpleOptions.cs` 等），
+   所以缺的只是「哪些模型有哪些档位」这份数据。
 5. **`sessionShareDestination` / resume 活动工具 / `--model` 选择策略**：均属 coding-agent 中等规模
    行为变更（14 / 4 / 7 文件），本轮已完成 11 项低风险修复，继续保持小步验证的节奏更稳。
 
@@ -208,9 +218,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
-4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
-5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
+3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）。
+4. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
+5. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
+6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
 
@@ -546,3 +557,38 @@ Windows 上会额外 stat，让可正常执行的 Store 应用别名（`WindowsA
   无回调时既不显示 cancel 提示也不响应按键。
 - 坑：`HttpListener` 的前缀必须挂在**根**（`http://127.0.0.1:port/`）上，发现请求打在
   `/.well-known/...`，用 `/mcp/` 前缀会让 `GetContextAsync` 抛 404 并结束服务循环（该用例超时 10s）。
+
+### 6.o 第十六批（`additional_tools` 延迟工具输入项）落地明细
+
+上游 `e47b8e37a`（#7709）：延迟加载的工具以前只能靠客户端 tool search（`tool_search_call` +
+`tool_search_output` 两个输入项）就地补发；支持 `additional_tools` 的模型改为直接插一个
+`{type:"additional_tools", role:"developer", tools:[…]}` 输入项，少两个回合合成项，前缀缓存也更容易命中。
+
+**ai 侧此前已落地，本轮只差两处**
+
+- `OpenAiResponsesShared.ConvertResponsesMessages` 里 `SupportsAdditionalTools` 分支、
+  `OpenAiResponses` / `AzureOpenAiResponses` / `OpenAiCodexResponses` 里
+  「`additional_tools` 优先、`tool_search` 兜底、都没有则进顶层 `tools`」的三段选择都在位。
+- **补上的是 compat 声明**：`Pi.CodingAgent/Core/ModelConfig.cs` 的
+  `OpenAiResponsesCompatSchema` 缺 `supportsAdditionalTools` 与 `supportsToolSearch`
+  两个字段（上游把它们放在 `packages/ai/src/providers/compat-schema.ts`）。缺了它们并不会报错
+  —— 因为 `ProviderCompatSchema` 是三分支 `Union`，而对象校验与 TypeBox 一样**不拒绝未知键**，
+  写错的字段会被静默接受（与上游同构，故未改成严格模式）。
+
+**为什么这段值得单独记一笔**
+
+「schema 里没声明」在这里不等于「用户写了会报错」：`ObjectJsonSchema` 只校验声明过的键，
+`Union` 只要有一个分支通过就算通过。所以这类字段漏声明是**静默失效**，只能靠测试盯住语义。
+
+**测试**
+
+- `tests/Pi.Ai.Tests/Api/DeferredToolsTests.cs`（新，4 例，对应上游 `deferred-tools.test.ts`）：
+  `additional_tools` 分支（`role=developer`、迟到的工具、无 `defer_loading`、无 tool search 项）；
+  退回 `tool_search` 分支（`execution=client`、`status=completed`、`defer_loading=true`、无
+  `additional_tools`）；两者都不支持时不留任何就地标记；工具用过之后标记仍排在
+  `function_call` 之前、且顶层请求工具仍只有基础工具。
+- `CoreProviderComposerTests.ModelsJsonAcceptsTheDeferredToolsCompatFlags`：`models.json` 里写
+  `compat.supportsAdditionalTools` / `supportsToolSearch` 能带进快照。
+- **踩坑**：测试上下文必须给 `SupportsMidConvoSystemMessages = true`。否则 `Transcript.ResolveTranscript`
+  会把后续系统消息折叠进首条，「迟到的工具」就成了请求级变更，`ResolveTranscriptTools` 返回
+  `anchorsAdditions = false`，两种就地补发都不会发生 —— 一开始四个用例里有三个因此失败。

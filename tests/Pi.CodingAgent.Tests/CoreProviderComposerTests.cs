@@ -794,8 +794,7 @@ public class CoreProviderComposerTests
     }
 
     [Fact]
-    public async Task ConfiguredRequestAuthStatusReportsEverySource()
-    {
+    public async Task ConfiguredRequestAuthStatusReportsEverySource()    {
         Assert.Null(ProviderComposer.ConfiguredRequestAuthStatus(null, null));
 
         var command = await LoadConfigAsync("{\"providers\":{\"p\":{\"apiKey\":\"!echo key\"}}}");
@@ -971,5 +970,28 @@ public class CoreProviderComposerTests
             new ProviderConfigInput { Name = "Extension name" }).Name);
         Assert.Equal("p", Compose("p", null, await EmptyConfigAsync(),
             new ProviderConfigInput { ApiKey = "k" }).Name);
+    }
+
+    /// <summary>
+    /// Responses 的 compat 里两个 deferred-tools 开关必须被 schema 接受：用户的 models.json 写
+    /// <c>compat.supportsAdditionalTools</c> 时不能被判成非法字段（上游 e47b8e37a）。
+    /// </summary>
+    [Fact]
+    public async Task ModelsJsonAcceptsTheDeferredToolsCompatFlags()
+    {
+        var config = await LoadConfigAsync("""
+            {"providers":{"p":{"api":"openai-responses","baseUrl":"https://p.invalid","models":[
+              {"id":"m","name":"m","compat":{"supportsAdditionalTools":true,"supportsToolSearch":true,
+               "supportsOpenAIGrammarTools":true,"supportsStrictMode":true}}]}}}
+            """);
+
+        var provider = config.GetProvider("p");
+        var model = Assert.Single(provider!.Models!);
+        Assert.True(model.Compat!["supportsAdditionalTools"]!.GetValue<bool>());
+        Assert.True(model.Compat!["supportsToolSearch"]!.GetValue<bool>());
+
+        // 注：compat 是三个分支的 Union，而 ObjectJsonSchema 与 TypeBox 一样不拒绝未知键，
+        // 所以「字段不在 schema 里」不会报错（上游同构）。这里只能钉住快照把它带过去，
+        // 语义（additional_tools 输入项）由 Pi.Ai 侧的转换测试覆盖。
     }
 }
