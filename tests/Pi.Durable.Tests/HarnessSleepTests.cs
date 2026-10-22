@@ -580,7 +580,7 @@ public class HarnessSleepTests
             // nap 任务不触达模型目录。
             Models = null!,
             Agent = (id, snapshot, context) => Task.FromResult(
-                AgentDocs.ResolveAgent(null, snapshot, AgentDocs.ResolveSettings(null), _ => { })),
+                AgentDocs.ResolveAgent(null, snapshot, AgentDocs.ResolveSettings(null), (_, _) => { })),
             Settings = () => AgentDocs.ResolveSettings(null),
             Env = (_, _) => Task.FromResult<Pi.Durable.Env.IExecutionEnv?>(null),
             Now = now,
@@ -588,7 +588,7 @@ public class HarnessSleepTests
             WriteAtClose = writes => storage.CommitAsync(writes(), static _ => { }),
             OnWake = onWake,
             Timers = HostTimers.Create(timers?.SetTimer, reports.Add),
-            Report = reports.Add,
+            Report = (error, _) => reports.Add(error),
             SettleOutcome = (_, _, _) => Task.CompletedTask,
             WithdrawInputs = (_, _) => Task.CompletedTask,
             Conversation = (_, _, _) => Task.FromResult<IConversationHandle?>(null),

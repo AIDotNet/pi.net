@@ -262,7 +262,7 @@ public class HarnessDocsTests
             Tools = new AgentState.ToolSelection { Exact = ["read", "read", "missing"] },
             Instructions = "be nice",
             Cwd = "/tmp",
-        }, snapshot, settings, error => reported.Add(error));
+        }, snapshot, settings, (error, _) => reported.Add(error));
 
         // 工具按扩展顺序组合（后者覆盖前者），数组过滤去重并保持顺序，缺失名跳过。
         var tools = agent.Tools.Cast<FakeTool>().ToList();
@@ -294,7 +294,7 @@ public class HarnessDocsTests
         {
             Extensions = new AgentState.ExtensionSelection { Add = ["b"], Remove = ["a"] },
             Tools = new AgentState.ToolSelection { Remove = ["edit"] },
-        }, snapshot, settings, error => reported.Add(error));
+        }, snapshot, settings, (error, _) => reported.Add(error));
 
         // 宿主默认选择 [a]，被编辑为 [b]；remove 编辑剔除已安装扩展 a。
         Assert.Equal(["b"], agent.Extensions.Select(extension => extension.Name).ToList());
@@ -303,7 +303,7 @@ public class HarnessDocsTests
         var exact = AgentDocs.ResolveAgent(new AgentState
         {
             Extensions = new AgentState.ExtensionSelection { Exact = ["b", "b"] },
-        }, snapshot, settings, error => reported.Add(error));
+        }, snapshot, settings, (error, _) => reported.Add(error));
         Assert.Equal(["b"], exact.Extensions.Select(extension => extension.Name).ToList());
         // 工具过滤未设置：提供组合后的每个工具。
         Assert.Equal(["bash"], exact.Tools.Select(tool => tool.Name).ToList());
@@ -325,7 +325,7 @@ public class HarnessDocsTests
             Sections = [],
         };
         var hooks = AgentDocs.AgentHooks(agent, "pi.generation");
-        Assert.Equal(["handlers-1", "handlers-2"], hooks.Cast<string>().ToList());
+        Assert.Equal(["handlers-1", "handlers-2"], hooks.Select(hook => hook.Handlers).Cast<string>().ToList());
     }
 
     // ─── inbox ───────────────────────────────────────────────────────────────

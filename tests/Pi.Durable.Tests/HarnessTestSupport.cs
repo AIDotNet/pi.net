@@ -127,7 +127,7 @@ internal static class HarnessTestSupport
         {
             Models = new Models(),
             Registry = registry,
-            OnReport = report => reports.Add(report as Exception ?? new InvalidOperationException(report?.ToString())),
+            OnReport = (report, _) => reports.Add(report),
             Now = now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
         }, Ctx).ConfigureAwait(false);
         return (harness, registry, reports);
@@ -256,7 +256,7 @@ internal static class HarnessTestSupport
             Registry = setup.Registry,
             SettingsSource = () => setup.Settings,
             Now = () => setup.Now(),
-            OnReport = error => setup.Reports.Add(error),
+            OnReport = (error, _) => setup.Reports.Add(error),
         }, Ctx).ConfigureAwait(false);
         var root = await harness.RootAsync(
             Ctx, new AgentChange { Model = new ModelRef(setup.Provider.Id, setup.ModelId) })

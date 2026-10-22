@@ -46,7 +46,7 @@ internal static class SessionWorkerHarnessSetup
                 Registry = DurableHarnessSetup.CreateCodingRegistry(settingsManager, cwd),
                 SettingsSource = () => CreateHarnessSettings(settingsManager),
                 EnvFactory = envs.EnvAsync,
-                OnReport = error => Console.Error.WriteLine(error),
+                OnReport = (error, _) => Console.Error.WriteLine(error),
             }, Context.Todo).ConfigureAwait(false);
 
             var created = await harness.ConversationAsync(

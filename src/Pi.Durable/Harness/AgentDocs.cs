@@ -223,15 +223,18 @@ public static class AgentDocs
 
     // ─── 钩子 ───────────────────────────────────────────────────────────────
 
-    /// <summary>所选扩展中某任务名的钩子处理器，按扩展顺序。对应 TS <c>agentHooks()</c>。</summary>
-    public static IReadOnlyList<object> AgentHooks(Agent agent, string taskName)
+    /// <summary>一个扩展为某任务名注册的钩子处理器。对应 TS <c>agentHooks()</c> 的元素。</summary>
+    public sealed record AgentHook(string Extension, object Handlers);
+
+    /// <summary>所选扩展中某任务名的钩子处理器，按扩展顺序，附其扩展名。</summary>
+    public static IReadOnlyList<AgentHook> AgentHooks(Agent agent, string taskName)
     {
-        var handlers = new List<object>();
+        var handlers = new List<AgentHook>();
         foreach (var extension in agent.Extensions)
         {
             foreach (var hook in extension.Hooks ?? [])
             {
-                if (hook.Task == taskName) handlers.Add(hook.Handlers);
+                if (hook.Task == taskName) handlers.Add(new AgentHook(extension.Name, hook.Handlers));
             }
         }
 
@@ -246,7 +249,7 @@ public static class AgentDocs
     /// 对应 TS <c>resolveAgent()</c>。
     /// </summary>
     public static Agent ResolveAgent(
-        AgentState? state, IRegistrySnapshot snapshot, Settings settings, Action<object> report)
+        AgentState? state, IRegistrySnapshot snapshot, Settings settings, Action<Exception, string?> report)
     {
         var extensions = SelectExtensions(state?.Extensions, snapshot, settings);
 
@@ -266,13 +269,15 @@ public static class AgentDocs
         {
             foreach (var wrap in extension.Wraps ?? [])
             {
+                // 包装器失败带上其扩展名：失败的是那个扩展的代码。
+                void WrapReport(Exception error) => report(error, extension.Name);
                 if (wrap is Wrap.Tool toolWrap)
                 {
-                    ApplyWrap(composed, toolWrap.Name, toolWrap.Wrap, tool => tool.Name, report);
+                    ApplyWrap(composed, toolWrap.Name, toolWrap.Wrap, tool => tool.Name, WrapReport);
                 }
                 else if (wrap is Wrap.Section sectionWrap)
                 {
-                    ApplyWrap(sections, sectionWrap.Key, sectionWrap.Wrap, section => section.Key, report);
+                    ApplyWrap(sections, sectionWrap.Key, sectionWrap.Wrap, section => section.Key, WrapReport);
                 }
             }
         }
@@ -411,7 +416,8 @@ public static class AgentDocs
     }
 
     private static void ApplyWrap<T>(
-        Dictionary<string, T> items, string target, Func<T, T> wrap, Func<T, string> nameOf, Action<object> report)
+        Dictionary<string, T> items, string target, Func<T, T> wrap, Func<T, string> nameOf,
+        Action<Exception> report)
     {
         if (!items.TryGetValue(target, out var item)) return;
         try

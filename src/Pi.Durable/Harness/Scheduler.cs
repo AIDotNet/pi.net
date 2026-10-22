@@ -50,7 +50,8 @@ public sealed record TaskSchedulerOptions
     /// <summary>宿主的定时器（<c>HarnessOptions.setTimer</c>）。</summary>
     public required Timers Timers { get; init; }
 
-    public required Action<Exception> Report { get; init; }
+    /// <summary>上报一次不使调用失败的失败，附带说明其来源的 <see cref="ReportInfo"/>。</summary>
+    public required Action<Exception, ReportInfo> Report { get; init; }
 
     /// <summary>使调度器写入的终局落定的 Harness 清理（与终态同一提交）。</summary>
     public required Func<Transaction, TaskRecord, SchedulerOutcome, Task> SettleOutcome { get; init; }
@@ -92,6 +93,14 @@ public sealed class TaskScheduler
         TaskStatus.Pending, TaskStatus.Running, TaskStatus.Waiting, TaskStatus.Sleeping, TaskStatus.Completing,
     ];
 
+    private static readonly ReportInfo RegistryError = new ReportInfo.HostError(HostCallbacks.Registry);
+
+    private static readonly ReportInfo SettingsError = new ReportInfo.HostError(HostCallbacks.Settings);
+
+    private static readonly ReportInfo OnWakeError = new ReportInfo.HostError(HostCallbacks.OnWake);
+
+    private static readonly ReportInfo ListenerFailure = new ReportInfo.ListenerError();
+
     private readonly DurableSession _session;
     private readonly IStorage _storage;
     private readonly IRegistryReader _registry;
@@ -103,7 +112,7 @@ public sealed class TaskScheduler
     private readonly Func<Func<IReadOnlyList<StorageWrite>>, Task> _writeAtClose;
     private readonly Action<Wake>? _onWake;
     private readonly Timers _timers;
-    private readonly Action<Exception> _report;
+    private readonly Action<Exception, ReportInfo> _report;
     private readonly Func<Transaction, TaskRecord, SchedulerOutcome, Task> _settleOutcome;
     private readonly Func<Transaction, ConversationId, Task> _withdrawInputs;
     private readonly Func<ConversationId, InvocationBinding, Context, Task<IConversationHandle?>> _conversation;
@@ -173,6 +182,9 @@ public sealed class TaskScheduler
     private bool _closing;
     private bool _dirty;
     private bool _draining;
+
+    /// <summary>封印（close 开始）时取消的调用快照；关闭要把它们跑过的任务写回 <c>pending</c>。</summary>
+    private List<Invocation>? _sealed;
 
     public TaskScheduler(TaskSchedulerOptions options)
     {
@@ -250,9 +262,11 @@ public sealed class TaskScheduler
         foreach (var record in parked)
         {
             var restarts = (record.Restarts ?? 0) + 1;
-            _report(new InvalidOperationException(
-                $"Task {record.Id.Value} ({record.Kind}) was cut off {restarts} times without progress; "
-                + "it is parked until retryTask()"));
+            _report(
+                new InvalidOperationException(
+                    $"Task {record.Id.Value} ({record.Kind}) was cut off {restarts} times without progress; "
+                    + "it is parked until retryTask()"),
+                new ReportInfo.TaskParked(ReportTaskOf(record), InstallerOf(record)));
         }
 
         // 补派崩溃遗留的、低于已取消属主的 abort 标记，并终结保持的结果。
@@ -335,7 +349,7 @@ public sealed class TaskScheduler
                     catch (Exception error)
                     {
                         snapshotFailed = true;
-                        _report(error);
+                        _report(error, RegistryError);
                     }
                 }
 
@@ -365,7 +379,9 @@ public sealed class TaskScheduler
     /// </summary>
     public async Task JoinAsync()
     {
-        var stopped = _invocations.Values.ToList();
+        // 封印时已取消的调用快照：Cancel 之后它们的阶段可能立刻结束并从 _invocations 消失，
+        // 但关闭仍须把其跑过的任务写回 pending。对应 TS seal 与 join 在同一同步块内完成。
+        var stopped = _sealed ?? _invocations.Values.ToList();
         foreach (var invocation in stopped) invocation.Controller.Cancel();
         if (stopped.Count == 0) return;
         try
@@ -651,7 +667,7 @@ public sealed class TaskScheduler
         }
         catch (Exception error)
         {
-            _report(error);
+            _report(error, SettingsError);
             return 0;
         }
     }
@@ -749,7 +765,7 @@ public sealed class TaskScheduler
             }
             catch (Exception error)
             {
-                if (!_closing) _report(error);
+                if (!_closing) _report(error, ListenerFailure);
             }
         });
     }
@@ -831,7 +847,7 @@ public sealed class TaskScheduler
             // 任何一遍都可能暂存了标记，因此失败的一遍随下一次提交重试。
             _cascadePending = true;
             foreach (var id in checks) _failFastChecks.Add(id);
-            if (!_closing) _report(error);
+            if (!_closing) _report(error, ListenerFailure);
         }
 
         ResolveIdleWaiters();
@@ -1104,7 +1120,8 @@ public sealed class TaskScheduler
         var error = HarnessUtil.ClosedError();
         _taskWaiters.RejectAll(error);
         _idleWaiters.RejectAll(error);
-        foreach (var invocation in _invocations.Values) invocation.Controller.Cancel();
+        _sealed = [.. _invocations.Values];
+        foreach (var invocation in _sealed) invocation.Controller.Cancel();
     }
 
     private void Kick()
@@ -1129,7 +1146,7 @@ public sealed class TaskScheduler
         }
         catch (Exception error)
         {
-            if (!_closing) _report(error);
+            if (!_closing) _report(error, ListenerFailure);
         }
         finally
         {
@@ -1155,7 +1172,7 @@ public sealed class TaskScheduler
             }
             catch (Exception error)
             {
-                if (!_closing) _report(error);
+                if (!_closing) _report(error, OnWakeError);
                 // 失败也要保住定时器，否则睡眠任务再没人唤醒。
                 ArmSleepTimer(_enabled ? EarliestSleep() : null);
                 return;
@@ -1177,7 +1194,7 @@ public sealed class TaskScheduler
             }
             catch (Exception error)
             {
-                _report(error);
+                _report(error, OnWakeError);
             }
         });
     }
@@ -1220,7 +1237,7 @@ public sealed class TaskScheduler
         }
         catch (Exception error)
         {
-            _report(error);
+            _report(error, SettingsError);
             return AgentDocs.DefaultRestartLimit;
         }
     }
@@ -1254,7 +1271,7 @@ public sealed class TaskScheduler
             }
             catch (Exception error)
             {
-                _report(error);
+                _report(error, ListenerFailure);
             }
         }
     }
@@ -1291,7 +1308,7 @@ public sealed class TaskScheduler
         catch (Exception error)
         {
             // 读注册表取调度时上报；每次查询都上报会淹没宿主。
-            if (!_snapshotReported) _report(error);
+            if (!_snapshotReported) _report(error, RegistryError);
             _snapshotReported = true;
             return null;
         }
@@ -1395,7 +1412,7 @@ public sealed class TaskScheduler
                     }
 
                     // 在线上注册：标记与后续保留都能看到，关闭也会加入它。
-                    var invocation = CreateInvocation(record, mode);
+                    var invocation = CreateInvocation(record, mode, InstallerOf(snapshot, ready.Task));
                     reservations.Add(new Reservation(invocation, ready.Task, snapshot));
                 }
 
@@ -1415,7 +1432,9 @@ public sealed class TaskScheduler
 
         foreach (var (record, message) in faulted)
         {
-            _report(new InvalidOperationException(message));
+            _report(
+                new InvalidOperationException(message),
+                new ReportInfo.TaskFaulted(ReportTaskOf(record), ReportReasons.RestartLimit, InstallerOf(record)));
         }
 
         // 已标记、已带标记或已消失：都不再需要，重新保留一次以看到标记。
@@ -1461,7 +1480,7 @@ public sealed class TaskScheduler
             // 不提交就阻塞了：任务图与宿主的唤醒都必须听到。
             _ = Task.Run(NotifyBlocked);
             ScheduleWake();
-            _report(error);
+            _report(error, new ReportInfo.MigrationFailed(ReportTaskOf(record), InstallerOf(snapshot, fits.Task)));
             return new Resolution.Blocked("migration_failed");
         }
     }
@@ -1527,13 +1546,15 @@ public sealed class TaskScheduler
         return new TaskInspection.Ready(fits.Migrates) { Record = record };
     }
 
-    private Invocation CreateInvocation(TaskRecord record, string mode)
+    private Invocation CreateInvocation(TaskRecord record, string mode, string? extension)
     {
         var controller = new CancellationTokenSource();
         var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var invocation = new Invocation
         {
             TaskId = record.Id,
+            Kind = record.Kind,
+            Extension = extension,
             ConversationId = record.ConversationId,
             Mode = mode,
             Controller = controller,
@@ -1559,7 +1580,7 @@ public sealed class TaskScheduler
             }
             catch (Exception error)
             {
-                _report(error);
+                _report(error, new ReportInfo.TaskError(ReportTaskOf(invocation), invocation.Extension));
             }
             finally
             {
@@ -1583,7 +1604,8 @@ public sealed class TaskScheduler
             var previousNow = previous;
             var current = await StepAsync(
                 invocation,
-                (tx, stepCurrent) => Decide(tx, stepCurrent, previousNow, state)).ConfigureAwait(false);
+                (tx, stepCurrent) => Decide(tx, stepCurrent, previousNow, state, invocation.Extension))
+                .ConfigureAwait(false);
 
             // 决定与派发之间可能封印关闭。
             if (current is null || _closing) return;
@@ -1618,7 +1640,8 @@ public sealed class TaskScheduler
     }
 
     /// <summary>run 调用的优先级规则，于线上。规则 1（终态 / completing / waiting）与规则 2（关闭）由 step 应用。</summary>
-    private Decision Decide(Transaction tx, TaskRecord current, PhaseResult? previous, RunState state)
+    private Decision Decide(
+        Transaction tx, TaskRecord current, PhaseResult? previous, RunState state, string? extension)
     {
         // 3. abort 标记：结束；该任务的普通自有工作消失后新的 abort 调用启动。
         if (current.AbortRequested) return Decision.End;
@@ -1651,9 +1674,11 @@ public sealed class TaskScheduler
             {
                 state.Reported = next;
                 state.ReportedSet = true;
-                var cause = next is null ? "missing_task" : "incompatible_task";
-                _report(new InvalidOperationException(
-                    $"Task {current.Id.Value} keeps running under its old {current.Kind} definition (cause: {cause})"));
+                var cause = next is null ? ReportReasons.MissingTask : ReportReasons.IncompatibleTask;
+                _report(
+                    new InvalidOperationException(
+                        $"Task {current.Id.Value} keeps running under its old {current.Kind} definition (cause: {cause})"),
+                    new ReportInfo.TaskOutdated(ReportTaskOf(current), cause, extension));
             }
         }
 
@@ -1697,18 +1722,21 @@ public sealed class TaskScheduler
     /// </summary>
     private async Task<TaskRecord?> StepAsync(Invocation invocation, Func<Transaction, TaskRecord, Decision> decide)
     {
+        Exception? fault = null;
+        TaskRecord? continued;
         try
         {
-            return await _session.CommitWithAsync(async tx =>
+            continued = await _session.CommitWithAsync(async tx =>
             {
                 var found = _live.GetValueOrDefault(invocation.TaskId);
                 var current = found?.State.Status == TaskStatus.Running ? found : null;
                 var decision = current is not null && !_closing ? decide(tx, current) : Decision.End;
                 if (decision.Continue) return current;
                 End(invocation);
-                if (decision.Fault is { } fault)
+                if (decision.Fault is { } decided)
                 {
-                    await TerminateAsync(tx, current!, SchedulerOutcome.Faulted(fault.Message)).ConfigureAwait(false);
+                    fault = decided;
+                    await TerminateAsync(tx, current!, SchedulerOutcome.Faulted(decided.Message)).ConfigureAwait(false);
                 }
 
                 return null;
@@ -1717,9 +1745,19 @@ public sealed class TaskScheduler
         catch (Exception error)
         {
             End(invocation);
-            if (!_closing) _report(error);
+            if (!_closing) _report(error, ListenerFailure);
             return null;
         }
+
+        // 结局落定之后才上报：宿主可以据此计数，例如计入熔断器。
+        if (fault is not null)
+        {
+            _report(
+                fault,
+                new ReportInfo.TaskFaulted(ReportTaskOf(invocation), ReportReasons.Threw, invocation.Extension));
+        }
+
+        return continued;
     }
 
     /// <summary>
@@ -2089,10 +2127,19 @@ public sealed class TaskScheduler
             return scheduler._now();
         }
 
-        public void Report(Exception error)
+        public void Report(Exception error, ReportFrom? from = null)
         {
             if (invocation.Ended) throw EndedError(invocation);
-            scheduler._report(error);
+            // 任务自己的失败带运行它的扩展名；其他来源指出失败的代码属于谁。
+            var task = ReportTaskOf(invocation);
+            scheduler._report(
+                error,
+                from switch
+                {
+                    ReportFrom.FromExtension extension => new ReportInfo.ExtensionError(extension.Extension, task),
+                    ReportFrom.FromHost host => new ReportInfo.HostError(host.Callback, task),
+                    _ => new ReportInfo.TaskError(task, invocation.Extension),
+                });
         }
 
         public Task SleepUntilAsync(long until, object? checkpoint, Context context)
@@ -2200,12 +2247,15 @@ public sealed class TaskScheduler
                 {
                     try
                     {
-                        await invoke(handlers).ConfigureAwait(false);
+                        await invoke(handlers.Handlers).ConfigureAwait(false);
                     }
                     catch (Exception error)
                     {
                         if (invocation.Controller.Token.IsCancellationRequested) throw;
-                        scheduler._report(error);
+                        scheduler._report(
+                            error,
+                            new ReportInfo.ExtensionError(
+                                handlers.Extension, ReportTaskOf(invocation)));
                     }
                 }
             }
@@ -2227,6 +2277,12 @@ public sealed class TaskScheduler
     private sealed class Invocation
     {
         public required TaskId<object?> TaskId { get; init; }
+
+        /// <summary>任务注册名，供上报指明任务。</summary>
+        public required string Kind { get; init; }
+
+        /// <summary>安装其定义（即跑其代码）的扩展；内建任务为 null。</summary>
+        public required string? Extension { get; init; }
 
         public required ConversationId ConversationId { get; init; }
 
@@ -2432,6 +2488,50 @@ public sealed class TaskScheduler
 
     /// <summary>崩溃后放弃的标记原因（<c>abortReason</c>）。</summary>
     private const string RestartReason = "restart";
+
+    /// <summary>上报所指的任务。对应 TS <c>reportTask(recordTask(record))</c>。</summary>
+    private static ReportTask ReportTaskOf(TaskRecord record) => new()
+    {
+        Id = record.Id,
+        Kind = record.Kind,
+        ConversationId = record.ConversationId,
+    };
+
+    /// <summary>上报所指的任务，按其调用的身份。对应 TS <c>reportTask(invocation)</c>。</summary>
+    private static ReportTask ReportTaskOf(Invocation invocation) => new()
+    {
+        Id = invocation.TaskId,
+        Kind = invocation.Kind,
+        ConversationId = invocation.ConversationId,
+    };
+
+    /// <summary><paramref name="snapshot"/> 中安装 <paramref name="task"/> 的扩展：最后一个列出它的；内建任务没有。</summary>
+    private static string? InstallerOf(IRegistrySnapshot snapshot, AnyDurableTask? task)
+    {
+        if (task is null) return null;
+        string? found = null;
+        foreach (var installed in snapshot.Installed())
+        {
+            if (installed.Tasks?.Any(candidate => ReferenceEquals(candidate, task)) == true) found = installed.Name;
+        }
+
+        return found;
+    }
+
+    /// <summary>当前注册表中安装此任务定义的扩展；读注册表抛出时上报不带扩展名。</summary>
+    private string? InstallerOf(TaskRecord record)
+    {
+        try
+        {
+            var snapshot = _registry.Snapshot();
+            return InstallerOf(snapshot, snapshot.Task(record.Kind));
+        }
+        catch (Exception)
+        {
+            // 读注册表取调度时会上报；这里的上报只是不带扩展名地发出。
+            return null;
+        }
+    }
 
     /// <summary>定义能否在保留时接手任务：同版本，或更新且带迁移。</summary>
     private static bool CanReserve(AnyDurableTask task, TaskRecord record)

@@ -534,7 +534,7 @@ public class HarnessRestartTests
             {
                 lock (wakes) wakes.Add(wake);
             },
-            OnReport = report => reports.Add(report as Exception ?? new InvalidOperationException(report?.ToString())),
+            OnReport = (report, _) => reports.Add(report),
             Now = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         }, Ctx).ConfigureAwait(false);
         return new Opened(harness, target, storage, reports, wakes);

@@ -325,7 +325,7 @@ public class ToolTaskTests
 
         public long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        public void Report(Exception error) => Reported.Add(error);
+        public void Report(Exception error, ReportFrom? from = null) => Reported.Add(error);
 
         public Action SetTimer(Action callback, long delayMs) => () => { };
 

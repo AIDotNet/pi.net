@@ -93,7 +93,7 @@ public class HarnessRegistryTests
     private static string[] Keys(IEnumerable<IPromptSection> items) => items.Select(item => item.Key).ToArray();
 
     private static Agent Resolve(AgentState? state, IRegistrySnapshot snapshot, List<object> reports)
-        => AgentDocs.ResolveAgent(state, snapshot, AgentDocs.ResolveSettings(null), reports.Add);
+        => AgentDocs.ResolveAgent(state, snapshot, AgentDocs.ResolveSettings(null), (error, _) => reports.Add(error));
 
     // ─── registry ───
 
@@ -207,22 +207,22 @@ public class HarnessRegistryTests
         Assert.Equal(new[] { "coding", "skills", "reviewer" }, Names(Resolve(null, snapshot, reports).Extensions));
 
         var settings = AgentDocs.ResolveSettings(new HarnessSettings { Extensions = [CodingExt(), SkillsExt()] });
-        var picks = AgentDocs.ResolveAgent(null, snapshot, settings, reports.Add);
+        var picks = AgentDocs.ResolveAgent(null, snapshot, settings, (error, _) => reports.Add(error));
         Assert.Equal(new[] { "coding", "skills" }, Names(picks.Extensions));
 
         var explicitPicks = AgentDocs.ResolveAgent(
-            new AgentState { Extensions = new AgentState.ExtensionSelection { Exact = ["reviewer", "coding"] } }, snapshot, settings, reports.Add);
+            new AgentState { Extensions = new AgentState.ExtensionSelection { Exact = ["reviewer", "coding"] } }, snapshot, settings, (error, _) => reports.Add(error));
         Assert.Equal(new[] { "reviewer", "coding" }, Names(explicitPicks.Extensions));
 
         // add 追加、remove 剔除、重复保留首位、未安装名跳过。
         var edited = AgentDocs.ResolveAgent(
             new AgentState { Extensions = new AgentState.ExtensionSelection { Add = ["reviewer", "coding", "gone"], Remove = ["skills"] } },
-            snapshot, settings, reports.Add);
+            snapshot, settings, (error, _) => reports.Add(error));
         Assert.Equal(new[] { "coding", "reviewer" }, Names(edited.Extensions));
 
         // 旧对象以其名代指：选中的是已安装的扩展。
         var stale = AgentDocs.ResolveAgent(
-            new AgentState { Extensions = new AgentState.ExtensionSelection { Exact = ["skills", "skills"] } }, snapshot, settings, reports.Add);
+            new AgentState { Extensions = new AgentState.ExtensionSelection { Exact = ["skills", "skills"] } }, snapshot, settings, (error, _) => reports.Add(error));
         Assert.Single(stale.Extensions);
     }
 
@@ -233,9 +233,9 @@ public class HarnessRegistryTests
         registry.Install(CodingExt());
         var state = new AgentState { Extensions = new AgentState.ExtensionSelection { Exact = ["coding", "skills"] } };
         var reports = new List<object>();
-        Assert.Equal(new[] { "coding" }, Names(AgentDocs.ResolveAgent(state, registry.Snapshot(), AgentDocs.ResolveSettings(null), reports.Add).Extensions));
+        Assert.Equal(new[] { "coding" }, Names(AgentDocs.ResolveAgent(state, registry.Snapshot(), AgentDocs.ResolveSettings(null), (error, _) => reports.Add(error)).Extensions));
         registry.Install(SkillsExt());
-        Assert.Equal(new[] { "coding", "skills" }, Names(AgentDocs.ResolveAgent(state, registry.Snapshot(), AgentDocs.ResolveSettings(null), reports.Add).Extensions));
+        Assert.Equal(new[] { "coding", "skills" }, Names(AgentDocs.ResolveAgent(state, registry.Snapshot(), AgentDocs.ResolveSettings(null), (error, _) => reports.Add(error)).Extensions));
     }
 
     [Fact]
@@ -304,7 +304,7 @@ public class HarnessRegistryTests
         var snapshot = Snapshot(CodingExt(), SkillsExt(), over);
         var reports = new List<object>();
         var agent = AgentDocs.ResolveAgent(
-            new AgentState { Instructions = "Be terse." }, snapshot, AgentDocs.ResolveSettings(null), reports.Add);
+            new AgentState { Instructions = "Be terse." }, snapshot, AgentDocs.ResolveSettings(null), (error, _) => reports.Add(error));
 
         var rendered = new List<(string, string?)>();
         foreach (var section in agent.Sections)
@@ -337,9 +337,14 @@ public class HarnessRegistryTests
 
         var toolTaskName = Registry.BuiltinTasks[1].Name;
         var generationTaskName = Registry.BuiltinTasks[0].Name;
-        Assert.Equal([first, second], AgentDocs.AgentHooks(Resolve(null, snapshot, reports), toolTaskName));
+        // 处理器按扩展顺序，带各自的扩展名。
+        Assert.Equal([first, second], AgentDocs.AgentHooks(Resolve(null, snapshot, reports), toolTaskName)
+            .Select(hook => hook.Handlers));
+        Assert.Equal(["a", "b"], AgentDocs.AgentHooks(Resolve(null, snapshot, reports), toolTaskName)
+            .Select(hook => hook.Extension));
         Assert.Equal([second, first], AgentDocs.AgentHooks(
-            Resolve(new AgentState { Extensions = new AgentState.ExtensionSelection { Exact = ["b", "a"] } }, snapshot, reports), toolTaskName));
+            Resolve(new AgentState { Extensions = new AgentState.ExtensionSelection { Exact = ["b", "a"] } }, snapshot, reports),
+            toolTaskName).Select(hook => hook.Handlers));
         Assert.Empty(AgentDocs.AgentHooks(
             Resolve(new AgentState { Extensions = new AgentState.ExtensionSelection { Exact = ["b"] } }, snapshot, reports), generationTaskName));
 

@@ -157,7 +157,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
 {
     private readonly IStorage _storage;
     private readonly HarnessOptions _options;
-    private readonly Action<object> _report;
+    private readonly Action<Exception, ReportInfo> _report;
     private readonly ConversationHost _host;
     private readonly TaskScheduler _tasks;
     private readonly Submissions _submissions;
@@ -170,9 +170,24 @@ public sealed class HarnessImpl : DurableSession, IHarness
     {
         _storage = storage;
         _options = options;
-        _report = options.OnReport ?? (_ => { });
+        // 宿主的上报处理器不得使调用失败：其抛出被吞掉（对应 TS <c>safeReport</c> 的 contained）。
+        _report = options.OnReport is { } onReport
+            ? (error, info) =>
+            {
+                try
+                {
+                    onReport(error, info);
+                }
+                catch (Exception)
+                {
+                    // 上报通道自己失败时只能丢弃：它没有更高层的上报者。
+                }
+            }
+            : (_, _) => { };
         var now = options.Now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-        var reportException = new Action<Exception>(error => _report(error));
+        // 宿主的 setTimer 抛出：它退回内建定时器，并作为宿主回调失败上报。
+        var reportSetTimer = new Action<Exception>(
+            error => _report(error, new ReportInfo.HostError(HostCallbacks.SetTimer)));
         Settings Settings() => ResolveHarnessSettings();
         // 调度器的 Conversation 委托在运行时才被调用（此时 _submissions/_tasks 已赋值），
         // 但字段初始化顺序使闭包捕获它们会触发可空警告；以本地持有者桥接。
@@ -189,8 +204,8 @@ public sealed class HarnessImpl : DurableSession, IHarness
             Env = (id, callContext) => BuildEnvAsync(id, callContext),
             Now = now,
             OnWake = options.OnWake,
-            Timers = HostTimers.Create(options.SetTimer, reportException),
-            Report = reportException,
+            Timers = HostTimers.Create(options.SetTimer, reportSetTimer),
+            Report = _report,
             SettleOutcome = LiveSettle.SettleSchedulerOutcomeAsync,
             WithdrawInputs = Inbox.WithdrawQueuedInputsAsync,
             Conversation = async (id, binding, callContext) =>
@@ -238,7 +253,8 @@ public sealed class HarnessImpl : DurableSession, IHarness
         var state = await SnapshotAsync(AgentDocs.AgentDoc, id, context).ConfigureAwait(false);
         return AgentDocs.ResolveAgent(
             state is null ? null : AgentDocs.StateFromJson(state), registry,
-            ResolveHarnessSettings(), _report);
+            ResolveHarnessSettings(),
+            (error, extension) => _report(error, new ReportInfo.ExtensionError(extension, ConversationId: id)));
     }
 
     private Settings ResolveHarnessSettings()
@@ -440,7 +456,8 @@ public sealed class HarnessImpl : DurableSession, IHarness
     }
 
     /// <inheritdoc />
-    public override void Report(Exception error) => _report(error);
+    public override void Report(Exception error, ReportInfo? info = null)
+        => _report(error, info ?? new ReportInfo.ListenerError());
 
     private static IReadOnlyDictionary<string, Pi.Ai.Types.Usage> ReadBucket(
         Dictionary<string, object?> total, string bucket)
@@ -626,7 +643,7 @@ public static class Harness
             }
             catch (Exception closeError)
             {
-                options.OnReport?.Invoke(closeError);
+                harness.Report(closeError);
             }
 
             throw;

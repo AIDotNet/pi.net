@@ -129,7 +129,7 @@ public sealed class HarnessLifecycleTests
                 Retry = new ConversationRetryPolicy { Enabled = false, MaxRetries = 0, BaseDelayMs = 0 },
             },
             Now = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            OnReport = reports is null ? null : reports.Add,
+            OnReport = reports is null ? null : (error, _) => reports.Add(error),
         };
 
     // ─── Harness open ─────────────────────────────────────────────────────────
@@ -164,8 +164,10 @@ public sealed class HarnessLifecycleTests
         var opening = DurableHarness.OpenAsync(storage, OpenOptions(Registry.CreateRegistry(), reports), Ctx);
         var error = await Assert.ThrowsAnyAsync<Exception>(async () => await opening);
         Assert.Contains("disk full", error.Message);
-        var report = Assert.IsType<InvalidOperationException>(Assert.Single(reports));
-        Assert.Equal("close failed", report.Message);
+        // 提交失败先使 Session 失败并上报 session_failed；随后关闭失败单独上报（端口无 session.fail 的合并）。
+        Assert.Equal(2, reports.Count);
+        Assert.Equal("disk full", Assert.IsType<InvalidOperationException>(reports[0]).Message);
+        Assert.Equal("close failed", Assert.IsType<InvalidOperationException>(reports[1]).Message);
     }
 
     // ─── Harness close ────────────────────────────────────────────────────────

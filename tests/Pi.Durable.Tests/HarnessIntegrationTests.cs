@@ -150,7 +150,7 @@ public class HarnessIntegrationTests
                 Retry = new ConversationRetryPolicy { Enabled = false, MaxRetries = 0, BaseDelayMs = 0 },
             },
             Now = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            OnReport = reports.Add,
+            OnReport = (error, _) => reports.Add(error),
         };
 
     private static AssistantMessage Reply(string text)

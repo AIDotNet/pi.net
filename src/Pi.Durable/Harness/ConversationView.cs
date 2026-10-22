@@ -129,7 +129,8 @@ public sealed class ConversationViews
     {
         var (observer, _) = await AttachAsync(
             id,
-            (value, release) => new CommittedWatch<ConversationView>(value, release, _session.Report),
+            (value, release) => new CommittedWatch<ConversationView>(
+                value, release, error => _session.Report(error)),
             context).ConfigureAwait(false);
         var signal = context.AbortSignal;
         if (signal?.IsCancellationRequested == true)

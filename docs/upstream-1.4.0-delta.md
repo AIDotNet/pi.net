@@ -1200,6 +1200,78 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
 
+### 6.ac 第三十三批（durable：上报分类 `ReportInfo`）落地明细
+
+上游把 `HarnessOptions.onReport` 从 `(error)` 改成 `(error, info)`：宿主据此区分「会话本身失败（通常是平台
+重置）」与「某个任务的失败 / 停放 / 过旧」「某个扩展的代码失败」「某个宿主回调抛出」。端口同批对齐，
+`ReportInfo` 成为唯一的上报形状。
+
+**1. 类型（`src/Pi.Durable/Harness/HarnessTypes.cs`）**
+
+- `ReportTask`（任务 ID + 注册名 + 对话）、`HostCallbacks`（`now` / `settings` / `registry` / `env` /
+  `models` / `setTimer` / `onWake`）、`ReportReasons`（`threw` / `restart_limit` / `missing_task` /
+  `incompatible_task`）。
+- `ReportInfo`（抽象记录，9 个派生）：`SessionFailed`、`TaskFaulted(task, reason, extension?)`、
+  `TaskParked`、`MigrationFailed`、`TaskOutdated(task, reason, extension?)`、`TaskError`、
+  `ExtensionError(extension?, task?, conversationId?)`、`HostError(callback, task?)`、`ListenerError`。
+- `ReportFrom`（`runtime.Report()` 的来源）：`FromExtension(name?)` / `FromHost(callback)`。
+- `HarnessOptions.OnReport` → `Action<Exception, ReportInfo>?`；
+  `DurableSession.Report(Exception, ReportInfo? info = null)`（缺省 `listener_error`）。
+
+**2. 分类落点（`Scheduler.cs`）**
+
+| 事件 | `ReportInfo` |
+| --- | --- |
+| 阶段抛出 / 无进展 / abort 处理器无结局（`StepAsync` 落定后上报） | `task_faulted(threw)` |
+| abort 处理器被切断 `restartLimit` 次 | `task_faulted(restart_limit)` |
+| 重启上限停放 | `task_parked` |
+| 迁移抛出 | `migration_failed` |
+| 运行中的任务其定义被卸载/替换 | `task_outdated(missing_task / incompatible_task)` |
+| `runtime.Report()` 缺省 | `task_error` |
+| `runtime.Report(err, from)` | `extension_error` / `host_error` |
+| `settings`（`restartLimit` / `contextRetentionMs`）抛出 | `host_error(settings)` |
+| 注册表快照抛出（调度与 `blockedReason` 各一处，后者只报一次） | `host_error(registry)` |
+| `onWake` 抛出 | `host_error(onWake)` |
+| 提交/关闭/阻塞/视图监听器、后台过期与 reconcile/drain 失败 | `listener_error` |
+| Storage 提交失败使会话失败 | `session_failed`（由 `DurableSession` 发出） |
+
+- `Invocation` 新增 `Kind` / `Extension`：`CreateInvocation(record, mode, InstallerOf(snapshot, task))`。
+  `extension` 取**跑这段代码时**安装其定义的扩展，因此定义被替换后仍指向旧扩展（与上游一致）。
+- 新增 `ReportTaskOf(record)` / `ReportTaskOf(invocation)`、`InstallerOf(snapshot, task)`（最后一个列出该
+  任务的已安装扩展）与 `InstallerOf(record)`（读注册表抛出时上报不带扩展名）。
+- `Decide` 多一个 `extension` 参数，供 `task_outdated` 指明旧定义的来源。
+- `AgentDocs.AgentHooks` 改为返回 `AgentHook(Extension, Handlers)`；`AgentDocs.ResolveAgent` /
+  `ApplyWrap` 的 `report` 改成 `(error, extension)`，包装器失败因此带上其扩展名
+  （`HarnessImpl.ResolveAgentAsync` 包成 `extension_error` + `conversationId`）。
+- `HarnessImpl`：`_report` 改为 `Action<Exception, ReportInfo>` 并对宿主处理器做**吞异常**包装
+  （对应上游 `safeReport` 的 `contained`）；`setTimer` 的失败单独标成 `host_error(setTimer)`；
+  `Report` 覆写带 `info`；open 失败时的 close 错误走 `ListenerError`。
+
+**3. 顺带修的两处会真实丢事件的问题**
+
+- `Session.Publish` 与关闭监听器现在逐个 `try/catch`：一个监听器抛出既不失败提交，也不跳过其余监听器，
+  而是上报 `listener_error`（上游同语义，端口此前直接向外抛）。
+- `Scheduler.Seal` 记录**封印时**的调用快照 `_sealed`，`JoinAsync` 用它而不是重新读 `_invocations`。
+  取消之后阶段可能立刻结束并从 `_invocations` 消失，导致关闭时漏写回 `pending`、下次 open 误计一次重启
+  （`CountsNoRestartForATaskACloseStopped` 在并发下因此间歇失败）。
+
+**4. 测试（`tests/Pi.Durable.Tests/HarnessReportTests.cs`，7 例）**
+
+任务自身的 `task_error` + `task_faulted(threw)` 带扩展名、`runtime.Report` 的三种来源、定义被另一扩展替换
+后的 `extension` 归属、`task_parked`、`migration_failed`、`task_outdated(missing_task)`，以及一条覆盖
+`extension_error(conversationId)` / `listener_error` / `host_error(onWake)` / `host_error(setTimer)` /
+`session_failed` 的合并用例。同时更新三处既有断言（无进展 fault 现在会多一条上报、open 失败的 close
+错误与 `session_failed` 分成两条、`AgentHooks` 返回形状）。
+
+**与上游差异（3 条）**
+
+1. 端口没有 `session.fail()`，因此「内部监听器抛出」在端口被当作 `listener_error` 上报而不是让会话失败；
+   `session_failed` 只在 Storage 提交/采纳失败时发出。
+2. durable 侧没有 telemetry：上游 `safeReport` 同时记 `pi.durable.reports` 计数器与 span 属性，端口只转发。
+3. `env` 回调失败的 `host_error(env)` 在上游来自 coding-agent 的 `generation.ts`（`runtime.report` 的
+   `from`），不在 durable 调度器里；端口 `runtime.EnvAsync` 抛出走正常的 `task_faulted(threw)`，
+   需要 generation 层对齐时再补。
+
 ### 6.ab 第三十二批（durable：crash-loop guard 与阻塞原因）落地明细
 
 上游同批引入（`scheduler.ts` 的 `restarts` / `parked` / `retry` 与 `task-graph.ts` 的 `blocked`）。目标：一个在
@@ -1265,8 +1337,8 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 
 **与上游差异（4 条）**
 
-1. 报告信息：端口 `Report` 仍是 `Action<Exception>`，本批上报停放/迁移失败的错误文本，`ReportInfo`
-   （`task_parked` / `migration_failed` 的 `type`、`task`、`extension`）留到下一批。
+1. 报告信息：本批上报停放/迁移失败的错误文本；`ReportInfo`（`task_parked` / `migration_failed` 的
+   `type`、`task`、`extension`）已在第三十三批补齐。
 2. `Infinity` 用 `int.MaxValue`；`restartLimit` 的 `Math.floor` 无对应（C# 已是整数）。
 3. `abandonOnRestart` 只经 `TaskOptions` 开放：端口没有嵌套工具调用的子任务。
 4. `writeAtClose` 以 `TaskSchedulerOptions` 委托 + `Session.WriteAtCloseAsync` 表达；上游是同一份代码里的

@@ -211,7 +211,7 @@ public sealed class TaskGraphView
     {
         var (observer, _) = await AttachAsync(
             (value, release) => new CommittedWatch<IReadOnlyDictionary<string, object?>>(
-                value, release, _session.Report),
+                value, release, error => _session.Report(error)),
             context).ConfigureAwait(false);
         var signal = context.AbortSignal;
         if (signal?.IsCancellationRequested == true)

@@ -235,7 +235,7 @@ public static class ExperimentalRuntime
             object reportGate = new();
             ExperimentalViewSource? viewSource = null;
             var noticeId = 0;
-            void Report(object error)
+            void Report(Exception error, ReportInfo info)
             {
                 lock (reportGate)
                 {

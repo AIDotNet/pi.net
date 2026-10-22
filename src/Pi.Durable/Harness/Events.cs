@@ -538,7 +538,7 @@ public static class Events
             // 批次是 watch 的值；溢出投递最新视图的一份快照。
             EventsObserver? self = null;
             var watch = new CommittedWatch<IReadOnlyList<AgentEvent>>(
-                [], release, harness.Report, replace: () => [SnapshotOf(self!._current)]);
+                [], release, error => harness.Report(error), replace: () => [SnapshotOf(self!._current)]);
             var observer = new EventsObserver(conversationId, initial, watch, snapshot, held);
             self = observer;
             return observer;

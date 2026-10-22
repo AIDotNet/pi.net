@@ -101,8 +101,11 @@ public interface ITaskRuntime : IDocumentObserver, IDocumentReader, IHookApi
     /// </summary>
     Action SetTimer(Action callback, long delayMs);
 
-    /// <summary>把非致命失败转发给 <c>HarnessOptions.onReport</c>。</summary>
-    void Report(Exception error);
+    /// <summary>
+    /// 把非致命失败转发给 <c>HarnessOptions.onReport</c>。<paramref name="from"/> 指出失败代码不属于任务自身时
+    /// 的来源（某个扩展或某个宿主回调）；缺省为任务自己的代码（<c>task_error</c>）。对应 TS <c>runtime.report()</c>。
+    /// </summary>
+    void Report(Exception error, ReportFrom? from = null);
 
     /// <summary>
     /// 提交一次睡眠：该任务在 Harness 时钟到达 <paramref name="until"/> 之前不持任何调用，之后在

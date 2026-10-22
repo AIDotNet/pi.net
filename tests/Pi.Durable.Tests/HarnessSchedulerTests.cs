@@ -61,14 +61,14 @@ public class SchedulerTests
             // fake 任务不触达模型目录。
             Models = null!,
             Agent = (conversationId, snapshot, context) => Task.FromResult(
-                AgentDocs.ResolveAgent(null, snapshot, AgentDocs.ResolveSettings(null), _ => { })),
+                AgentDocs.ResolveAgent(null, snapshot, AgentDocs.ResolveSettings(null), (_, _) => { })),
             Settings = () => AgentDocs.ResolveSettings(null),
             Env = (_, _) => Task.FromResult<Pi.Durable.Env.IExecutionEnv?>(null),
             Now = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             // 关闭时的写回直落 Storage（Session 已封印受理）。
             WriteAtClose = writes => storage.CommitAsync(writes(), static _ => { }),
             Timers = HostTimers.Create(null, reports.Add),
-            Report = reports.Add,
+            Report = (error, _) => reports.Add(error),
             SettleOutcome = (_, record, outcome) =>
             {
                 settled.Add((record, outcome));
@@ -234,7 +234,9 @@ public class SchedulerTests
         var (settledRecord, settledOutcome) = Assert.Single(fixture.Settled);
         Assert.Equal(id.Value, settledRecord.Id.Value);
         Assert.Equal(TaskOutcomeStatus.Faulted, settledOutcome.Status);
-        Assert.Empty(fixture.Reports);
+        // 结局落定之后上报一次 fault（宿主可能据此计数），reason 是 threw。
+        var report = Assert.Single(fixture.Reports);
+        Assert.Contains("without durable progress", report.Message);
     }
 
     [Fact]

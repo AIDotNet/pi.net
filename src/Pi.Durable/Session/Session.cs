@@ -369,10 +369,11 @@ public class DurableSession : ISession
         });
 
     /// <summary>
-    /// 上报一个宿主回调或观察者的意外失败，不得抛出。普通 Session 丢弃它；Harness 覆盖它以转发给宿主。
-    /// 对应 TS <c>report(error)</c>。
+    /// 上报一个宿主回调或观察者的意外失败，附带说明来源的 <see cref="Harness.ReportInfo"/>，不得抛出。
+    /// 普通 Session 丢弃它；Harness 覆盖它以转发给宿主。缺省来源为 <see cref="Harness.ReportInfo.ListenerError"/>。
+    /// 对应 TS <c>report(error, info)</c>。
     /// </summary>
-    public virtual void Report(Exception error)
+    public virtual void Report(Exception error, Harness.ReportInfo? info = null)
     {
     }
 
@@ -463,7 +464,12 @@ public class DurableSession : ISession
             // 采纳之前失败：没有已提交批次需要丢弃。采纳之后失败则没有暂存可丢。
             if (!adopted) tx.Discard();
             // 回调错误从不进入此分支；只有 StorageRejected 能保证无批次效果被提交。
-            if (error is not StorageRejected) _poison = error;
+            if (error is not StorageRejected)
+            {
+                _poison = error;
+                Report(error, new Harness.ReportInfo.SessionFailed());
+            }
+
             throw;
         }
         if (!adopted)
@@ -471,12 +477,14 @@ public class DurableSession : ISession
             // Storage 已报告提交，却没采纳批次：内存与持久状态已经无法对齐。
             var error = new InvalidOperationException("Storage committed without adopting the batch");
             _poison = error;
+            Report(error, new Harness.ReportInfo.SessionFailed());
             throw error;
         }
         if (adoptionError is not null)
         {
             // Storage 已提交；采纳失败使内存落后于持久状态。
             _poison = adoptionError;
+            Report(adoptionError, new Harness.ReportInfo.SessionFailed());
             throw adoptionError;
         }
         Publish(seq, writes, adoptedDocuments!, context);
@@ -519,7 +527,18 @@ public class DurableSession : ISession
             });
         }
         var publication = new CommitPublication { Seq = seq, Changes = changes };
-        foreach (var listener in _commitListeners.ToArray()) listener(publication, context);
+        // 提交已持久化：一个监听器抛出既不让提交失败，也不跳过其余监听器。对应 TS <c>publish</c>。
+        foreach (var listener in _commitListeners.ToArray())
+        {
+            try
+            {
+                listener(publication, context);
+            }
+            catch (Exception error)
+            {
+                Report(error);
+            }
+        }
     }
 
     /// <summary>
@@ -540,7 +559,7 @@ public class DurableSession : ISession
             unsubscribeClose.Dispose();
         };
         var observer = new CommittedWatch<IReadOnlyDictionary<string, object?>?>(
-            loaded.Tracker.Value, detach, Report);
+            loaded.Tracker.Value, detach, error => Report(error));
         var observed = new ObservedVersion { Version = loaded.ValueVersion };
         unsubscribeCommit = SubscribeCommits((publication, context) =>
         {

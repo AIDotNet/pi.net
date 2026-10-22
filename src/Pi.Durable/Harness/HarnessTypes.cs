@@ -722,6 +722,107 @@ public sealed record CompactionResult
     public SubmissionId? SubmissionId { get; init; }
 }
 
+/// <summary>上报所指的任务。对应 TS <c>ReportTask</c>。</summary>
+public sealed record ReportTask
+{
+    public required TaskId<object?> Id { get; init; }
+
+    /// <summary>任务注册名。</summary>
+    public required string Kind { get; init; }
+
+    public required ConversationId ConversationId { get; init; }
+}
+
+/// <summary>
+/// 可能抛出的宿主回调名（<see cref="HarnessOptions"/> 的字段名）。对应 TS <c>HostCallback</c>。
+/// </summary>
+public static class HostCallbacks
+{
+    public const string Now = "now";
+
+    public const string Settings = "settings";
+
+    public const string Registry = "registry";
+
+    public const string Env = "env";
+
+    public const string Models = "models";
+
+    public const string SetTimer = "setTimer";
+
+    public const string OnWake = "onWake";
+}
+
+/// <summary><see cref="ReportInfo.TaskFaulted"/> 与 <see cref="ReportInfo.TaskOutdated"/> 的原因值。</summary>
+public static class ReportReasons
+{
+    /// <summary>阶段抛出。</summary>
+    public const string Threw = "threw";
+
+    /// <summary>abort 处理器连续被切断 <c>settings.restartLimit</c> 次。</summary>
+    public const string RestartLimit = "restart_limit";
+
+    /// <summary>任务的定义被卸载。</summary>
+    public const string MissingTask = "missing_task";
+
+    /// <summary>替换定义接手不了其状态。</summary>
+    public const string IncompatibleTask = "incompatible_task";
+}
+
+/// <summary>
+/// 一次上报到 <see cref="HarnessOptions.OnReport"/> 的内容。带 <see cref="ExtensionError"/> 处的扩展名（若有）
+/// 指出失败代码所属的扩展；任务自身代码的失败带安装其定义的扩展。对应 TS <c>ReportInfo</c>。
+/// </summary>
+public abstract record ReportInfo
+{
+    private ReportInfo()
+    {
+    }
+
+    /// <summary>错误使 Session 失败并关闭：Storage 错误，通常是平台重置。</summary>
+    public sealed record SessionFailed : ReportInfo;
+
+    /// <summary>任务以 <c>faulted</c> 结束：阶段抛出，或 abort 处理器被切断 <c>restartLimit</c> 次。</summary>
+    public sealed record TaskFaulted(ReportTask Task, string Reason, string? Extension = null) : ReportInfo;
+
+    /// <summary>重启上限把任务停放到 <c>RetryTaskAsync()</c>。</summary>
+    public sealed record TaskParked(ReportTask Task, string? Extension = null) : ReportInfo;
+
+    /// <summary>任务的存储状态无法迁移；它在注册表变化前一直阻塞。</summary>
+    public sealed record MigrationFailed(ReportTask Task, string? Extension = null) : ReportInfo;
+
+    /// <summary>运行中的任务继续按旧定义运行，而该定义已被卸载或替换成接手不了的版本。</summary>
+    public sealed record TaskOutdated(ReportTask Task, string Reason, string? Extension = null) : ReportInfo;
+
+    /// <summary>任务自己的 <c>runtime.Report()</c>，或运行它时的失败。</summary>
+    public sealed record TaskError(ReportTask Task, string? Extension = null) : ReportInfo;
+
+    /// <summary>钩子、提示段、包装或工具的结构化输出非法；带运行它的任务，或（任务之外）解析 agent 的对话。</summary>
+    public sealed record ExtensionError(
+        string? Extension = null, ReportTask? Task = null, ConversationId? ConversationId = null) : ReportInfo;
+
+    /// <summary>宿主回调抛出；带调用它的任务（若有）。</summary>
+    public sealed record HostError(string Callback, ReportTask? Task = null) : ReportInfo;
+
+    /// <summary>提交、关闭、watch、视图或文档监听器抛出。</summary>
+    public sealed record ListenerError : ReportInfo;
+}
+
+/// <summary>
+/// 任务的 <c>runtime.Report()</c> 所指代码不属于任务自身时的来源：某个扩展，或某个宿主回调。
+/// 对应 TS <c>ReportFrom</c>。
+/// </summary>
+public abstract record ReportFrom
+{
+    private ReportFrom()
+    {
+    }
+
+    public sealed record FromExtension(string? Extension) : ReportFrom;
+
+    public sealed record FromHost(string Callback) : ReportFrom;
+}
+
 /// <summary>
 /// Harness 级运行策略。每次解析都读取且从不拷贝；getter 亦可。同步：一些读取器运行在 Session 线上。
 /// 对应 TS <c>HarnessSettings</c>。
@@ -849,8 +950,11 @@ public sealed record HarnessOptions
     /// </summary>
     public Action<Wake>? OnWake { get; init; }
 
-    /// <summary>接收不使调用操作失败的扩展失败。不得抛出。</summary>
-    public Action<object>? OnReport { get; init; }
+    /// <summary>
+    /// 接收不使调用操作失败的扩展失败，附带说明其来源的 <see cref="ReportInfo"/>。不得抛出。
+    /// 对应 TS <c>HarnessOptions.onReport</c>。
+    /// </summary>
+    public Action<Exception, ReportInfo>? OnReport { get; init; }
 }
 
 /// <summary>

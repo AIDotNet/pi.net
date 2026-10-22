@@ -241,7 +241,7 @@ public sealed class HarnessContextCacheTests
             Registry = registry,
             Settings = settings,
             Now = now,
-            OnReport = reports.Add,
+            OnReport = (error, _) => reports.Add(error),
         }, Ctx);
         return new Fixture(harness, await harness.RootAsync(Ctx), storage, reports);
     }
