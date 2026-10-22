@@ -38,11 +38,32 @@ public static partial class Shell
     /// A legacy WSL bash shim at <c>%SystemRoot%\System32\bash.exe</c> or <c>Sysnative\bash.exe</c>, which
     /// needs the command on stdin rather than as <c>-c</c>.
     /// </summary>
-    internal static bool IsLegacyWslBashPath(string path)
+    /// <param name="path">The shell path to classify.</param>
+    /// <param name="systemRoot">
+    /// Overrides <c>%SystemRoot%</c> (tests). When it is missing or not a drive-qualified path, only the
+    /// conventional <c>C:\Windows</c> form is recognised — upstream's fallback for an unknown Windows dir.
+    /// </param>
+    internal static bool IsLegacyWslBashPath(string path, string? systemRoot = null)
     {
+        // win32.normalize: separators folded to backslashes (upstream normalises the same way).
         var normalized = path.Replace('/', '\\').ToLowerInvariant();
+        var root = systemRoot ?? Environment.GetEnvironmentVariable("SystemRoot");
+        if (!string.IsNullOrEmpty(root))
+        {
+            // 只有盘符限定的 SystemRoot 才能拿来拼路径，否则退回约定形态。
+            if (!DriveQualifiedRegex().IsMatch(root)) return false;
+            return LegacyWslBashDirectories.Any(directory =>
+                normalized == $"{root.TrimEnd('\\', '/').Replace('/', '\\')}\\{directory}\\bash.exe"
+                    .ToLowerInvariant());
+        }
+
         return LegacyWslBashRegex().IsMatch(normalized);
     }
+
+    private static readonly string[] LegacyWslBashDirectories = ["System32", "Sysnative"];
+
+    [GeneratedRegex(@"^[a-z]:[\\/]", RegexOptions.IgnoreCase)]
+    private static partial Regex DriveQualifiedRegex();
 
     private static ShellConfig GetBashShellConfig(string shell) =>
         IsLegacyWslBashPath(shell)

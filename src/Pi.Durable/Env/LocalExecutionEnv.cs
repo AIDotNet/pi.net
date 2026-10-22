@@ -434,9 +434,28 @@ public sealed class LocalExecutionEnv : IExecutionEnv
 
     private sealed record ShellConfig(string Shell, IReadOnlyList<string> Args, bool CommandTransportStdin = false);
 
-    private static bool IsLegacyWslBashPath(string path)
+    /// <summary>
+    /// 旧版 WSL 的 bash 垫片（<c>%SystemRoot%\System32\bash.exe</c> 或 <c>Sysnative\bash.exe</c>）：命令必须走 stdin
+    /// 而不是 <c>-c</c>。上游 <c>28bea006b</c> 起改跟随 <c>%SystemRoot%</c>，不再写死 <c>C:\Windows</c>。
+    /// </summary>
+    /// <param name="path">待判定的 shell 路径。</param>
+    /// <param name="systemRoot">覆盖 <c>%SystemRoot%</c>（测试用）；缺失或非盘符限定时只认约定形态。</param>
+    private static bool IsLegacyWslBashPath(string path, string? systemRoot = null)
     {
+        // win32.normalize：分隔符折叠成反斜杠（与上游一致）。
         var normalized = path.Replace('/', '\\').ToLowerInvariant();
+        var root = systemRoot ?? Environment.GetEnvironmentVariable("SystemRoot");
+        if (!string.IsNullOrEmpty(root))
+        {
+            // 只有盘符限定的 SystemRoot 才能拿来拼路径，否则退回约定形态。
+            if (!System.Text.RegularExpressions.Regex.IsMatch(
+                    root, @"^[a-z]:[\\/]", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                return false;
+            var windowsDirectory = root.TrimEnd('\\', '/').Replace('/', '\\').ToLowerInvariant();
+            return normalized == $"{windowsDirectory}\\system32\\bash.exe"
+                || normalized == $"{windowsDirectory}\\sysnative\\bash.exe";
+        }
+
         return System.Text.RegularExpressions.Regex.IsMatch(
             normalized, @"^[a-z]:\\windows\\(?:system32|sysnative)\\bash\.exe$");
     }

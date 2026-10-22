@@ -89,7 +89,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 本次移植（第十批） |
 | `agent_settled` 增加 `aborted` | 1.1.0 #10607 | 事件字段 | 本次移植（第十一批） |
 | 程序状态上报（OSC 7501） | 1.1.0 #10607 | 终端集成 | 待办 |
-| Windows shell 探测补充（Store 别名、非 `C:\Windows`） | 1.1.0–1.4.0 #9501/#9504 | 端口已有同类逻辑，需逐条比对 | 待办 |
+| Windows shell 探测补充（Store 别名、非 `C:\Windows`） | 1.1.0–1.4.0 #9501/#9504 | 端口已有同类逻辑，需逐条比对 | 本次移植（第十四批，Store 别名部分不适用） |
 | 移除 `@earendil-works/chord` 依赖、移除实验性 server/client/plugin 栈 | 1.2.0 | 上游删除，端口保留自有实现 | 不适用 |
 
 ### 3.4 `packages/tui`
@@ -162,9 +162,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 480 / 480 通过（第十三批新增 10 例；第十三批前为 470） |
-| `Pi.CodingAgent.Tests` | 4990 / 4990 通过（第十二批新增 1 例；第十一批为 4989） |
+| `Pi.CodingAgent.Tests` | 5009 / 5009 通过（第十四批新增 19 例；第十三批为 4990） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 457 / 457 通过（第十二批改了 1 例断言，数量不变） |
+| `Pi.Durable.Tests` | 457 / 457 通过（第十四批同步了 shell 探测，数量不变） |
 | `Pi.Mcp.Tests` | 52 / 52 通过 |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
 | `Pi.Tui.Tests` | 23878 / 23878 通过 |
@@ -207,7 +207,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）。
+3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -450,3 +450,32 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   非 JSON body 判否）；`MistralStreamTests.AStreamThatOutlivesTheTimeoutKeepsGoing`（`TimeoutMs = 100`，
   正文两片间隔 400ms，断言 delta 与 `StopReason.Stop` 都到位 —— 这条同时钉住了上面那个 Dispose bug，
   修之前它一片 delta 都收不到）。
+
+### 6.q 第十四批（Windows shell 探测跟随 `%SystemRoot%`）落地明细
+
+上游 `28bea006b`（#9501/#9504）把 Windows shell 探测改了两处，端口分开处理。
+
+**一、`isLegacyWslBashPath` 跟随系统目录（已移植）**
+
+上游原来写死 `/^[a-z]:\windows\(system32|sysnative)\bash\.exe$/`，Windows 装在别处（`D:\WINNT`、
+精简镜像、改过系统盘符）时旧版 WSL 垫片识别不出来，于是拿 `-c` 去调一个只认 stdin 的 bash。
+
+- `Pi.CodingAgent.Utils.Shell.IsLegacyWslBashPath(path, systemRoot = null)`：新增可选 `systemRoot`
+  （测试缝，缺省读 `%SystemRoot%`），按它拼 `System32` / `Sysnative` 两个目录名比较；`systemRoot`
+  缺失或**不是盘符限定**（`\\server\share`、相对路径）时退回原来的约定形态正则 —— 与上游
+  「未知 Windows 目录就按 `C:\Windows` 认」的兜底一致。`DriveQualifiedRegex` 必须带
+  `RegexOptions.IgnoreCase`，否则 `C:\Windows` / `D:\WINNT` 这种大写盘符匹配不上（实测踩过）。
+- `Pi.Durable.Env.LocalExecutionEnv` 里有一份同名私有方法（Pi.Durable 不引用 Pi.CodingAgent），
+  同步成同一语义，`GetBashShellConfig` 的 `-s` / `-c` 分支行为随之对齐。
+- 测试：`ShellProbeTests` 19 例 —— 13 例覆盖「约定形态 / 已知 SystemRoot / Windows 装在别处 /
+  非盘符 SystemRoot」，6 例钉住只有 `System32` 与 `Sysnative` 两个目录名命中。
+  `CoreUtilsCorpusTests` 里那两条向量改为显式传 `systemRoot: ""`，避免本机 `%SystemRoot%`
+  让语料结果随机器变化。
+
+**二、Store 别名探测（不适用）**
+
+上游另一半把 `existsSync(path)` 换成 `accessSync(path, F_OK)`，因为 node 的 `existsSync` 在
+Windows 上会额外 stat，让可正常执行的 Store 应用别名（`WindowsApps\...`）返回 EACCES 而被判不存在
+（nodejs/node#36790）。这条在 .NET 没有对应物：`File.Exists` 走 `GetFileAttributesEx`，不额外 stat，
+对符号链接/重解析点只报存在性，不会因权限位把可执行别名判死。端口维持 `File.Exists`，无需改动 ——
+硬造一个「访问检查」反而会引入上游要规避的那个误判。

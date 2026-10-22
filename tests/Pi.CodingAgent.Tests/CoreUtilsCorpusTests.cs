@@ -708,7 +708,9 @@ public class CoreUtilsCorpusTests
         {
             var input = vector.GetProperty("input").GetString()!;
             var expected = vector.GetProperty("expected").GetBoolean();
-            var actual = Shell.IsLegacyWslBashPath(input);
+            // 这些向量钉的是「SystemRoot 未知」时的约定形态回退（见 x:\windows\... 那条），
+            // 因此显式传空串，不走本机的 %SystemRoot%。
+            var actual = Shell.IsLegacyWslBashPath(input, systemRoot: "");
             if (actual != expected)
             {
                 failures.Add($"isLegacyWslBashPath(\"{Quote(input)}\"): expected {expected}, got {actual}");
