@@ -287,6 +287,31 @@ public class CompactionCorpusTests
         Assert.Equal(vectors[1].GetProperty("out").GetString(), CompactionUtils.SerializeConversation(messages));
     }
 
+    [Fact]
+    public void SerializeConversation_OmitsThinking()
+    {
+        // 上游 15e7bdc14：回放的思维块常常不在模型活上下文里（与其请求不匹配的块会被丢掉），
+        // 带上它会让摘要请求比它所摘要的上下文还大。可见文本、工具调用与工具结果已经记录了发生了什么。
+        ChatMessage[] messages =
+        [
+            new UserMessage([new TextContent("check status")], 0),
+            new AssistantMessage([
+                new ThinkingContent("hidden reasoning"),
+                new TextContent("running it"),
+                new ToolCallContent("call", "bash", new JsonObject { ["command"] = "echo" }),
+            ]),
+            new ToolResultMessage("call", "bash", [new TextContent("ok")]),
+        ];
+
+        var serialized = CompactionUtils.SerializeConversation(messages);
+
+        Assert.DoesNotContain("hidden reasoning", serialized);
+        Assert.DoesNotContain("[Assistant thinking]", serialized);
+        Assert.Contains("[Assistant]: running it", serialized);
+        Assert.Contains("[Assistant tool calls]: bash(command=\"echo\")", serialized);
+        Assert.Contains("[Tool result]: ok", serialized);
+    }
+
     // ─── fileOps ───────────────────────────────────────────────────────────────────────────────────
 
     [Fact]

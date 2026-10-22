@@ -123,6 +123,11 @@ public static class CompactionUtils
     /// 把 LLM 消息序列化为文本供摘要——避免模型把它当成要继续的对话。
     /// 先调 <c>ConvertToLlm</c> 处理自定义消息类型。对应 TS <c>serializeConversation</c>。
     /// </summary>
+    /// <remarks>
+    /// 工具结果按 <c>ToolResultMaxChars</c> 截断。**思维链整段省略**：provider 返回的本来就是真实推理的
+    /// 摘要，而回放的思维块常常不在模型活上下文里（与其请求不匹配的块会被丢掉），一起塞进去反而可能
+    /// 让摘要请求比它所摘要的上下文还大。可见文本、工具调用与工具结果已经记录了发生了什么。
+    /// </remarks>
     public static string SerializeConversation(IReadOnlyList<ChatMessage> messages)
     {
         var parts = new List<string>();
@@ -139,16 +144,12 @@ public static class CompactionUtils
                 }
                 case AssistantMessage assistant:
                 {
-                    var thinkingParts = new List<string>();
                     var toolCalls = new List<string>();
 
                     foreach (var block in assistant.Content)
                     {
                         switch (block)
                         {
-                            case ThinkingContent thinking:
-                                thinkingParts.Add(thinking.Thinking);
-                                break;
                             case ToolCallContent toolCall:
                             {
                                 // TS 用 JSON.stringify(key=value) 列举参数；参数对象键序用字面键序近似。
@@ -157,11 +158,6 @@ public static class CompactionUtils
                                 break;
                             }
                         }
-                    }
-
-                    if (thinkingParts.Count > 0)
-                    {
-                        parts.Add($"[Assistant thinking]: {string.Join("\n", thinkingParts)}");
                     }
 
                     if (assistant.Content.Any(block => block is TextContent))

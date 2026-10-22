@@ -669,6 +669,11 @@ public static partial class Compaction
     /// <summary>
     /// 消息的纯文本，让摘要器读 transcript 而非继续对话；系统消息省略。对应 TS <c>serializeConversation()</c>。
     /// </summary>
+    /// <remarks>
+    /// 思维链同样省略：provider 返回的已经是真实推理的摘要，而回放的思维块常常不在模型活上下文里
+    /// （与其请求不匹配的块会被丢掉），带上它会让摘要请求比所摘要的上下文还大。可见文本、工具调用与
+    /// 工具结果已经记录了发生了什么。
+    /// </remarks>
     public static string SerializeConversation(IReadOnlyList<ChatMessage> messages)
     {
         var parts = new List<string>();
@@ -682,14 +687,12 @@ public static partial class Compaction
                     break;
                 case AssistantMessage assistant:
                 {
-                    var thinking = assistant.Content.OfType<ThinkingContent>().Select(block => block.Thinking).ToList();
                     var texts = assistant.Content.OfType<TextContent>().Select(block => block.Text).ToList();
                     var calls = assistant.ToolCalls.Select(call =>
                     {
                         var args = ToolArgumentsText(call.Arguments);
                         return $"{call.Name}({args})";
                     }).ToList();
-                    if (thinking.Count > 0) parts.Add($"[Assistant thinking]: {string.Join("\n", thinking)}");
                     if (texts.Count > 0) parts.Add($"[Assistant]: {string.Join("\n", texts)}");
                     if (calls.Count > 0) parts.Add($"[Assistant tool calls]: {string.Join("; ", calls)}");
                     break;

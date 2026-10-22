@@ -87,7 +87,7 @@ public sealed class HarnessCompactionTests
     };
 
     [Fact]
-    public void SerializeConversationFormatsTranscriptAndTruncatesToolResults()
+    public void SerializeConversationFormatsTranscriptOmitsThinkingAndTruncatesToolResults()
     {
         var messages = new ChatMessage[]
         {
@@ -105,7 +105,9 @@ public sealed class HarnessCompactionTests
 
         Assert.DoesNotContain("hidden", serialized);
         Assert.Contains("[User]: hello", serialized);
-        Assert.Contains("[Assistant thinking]: hmm", serialized);
+        // 思维链整段省略（上游 15e7bdc14）：回放的思维块常常不在模型活上下文里。
+        Assert.DoesNotContain("hmm", serialized);
+        Assert.DoesNotContain("[Assistant thinking]", serialized);
         Assert.Contains("[Assistant]: sure", serialized);
         Assert.Contains("[Assistant tool calls]: read(path=\"a.ts\")", serialized);
         Assert.Contains(

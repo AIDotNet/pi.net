@@ -85,7 +85,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | codemode worker 排队与 `PI_CODEMODE_MAX_WORKERS` | 1.4.0 #11184 | 并发脚本从失败改为等待 | 不适用（见 §6） |
 | `reachesTools`、命名空间 `aliases` | 1.2.0 | 工具可达性与 MCP 等待 | 待办 |
 | `before_agent_start` 覆盖自定义触发轮次（破坏性） | 1.2.0 #10267 | 事件语义变更 | 待办 |
-| `serializeConversation` 省略 thinking | 1.2.0 | 摘要请求体积 | 待办 |
+| `serializeConversation` 省略 thinking | 1.2.0 #15e7bdc14 | 摘要请求体积 | 本次移植（第十二批） |
 | 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 本次移植（第十批） |
 | `agent_settled` 增加 `aborted` | 1.1.0 #10607 | 事件字段 | 本次移植（第十一批） |
 | 程序状态上报（OSC 7501） | 1.1.0 #10607 | 终端集成 | 待办 |
@@ -162,9 +162,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 470 / 470 通过 |
-| `Pi.CodingAgent.Tests` | 4989 / 4989 通过（第十一批新增 1 例；第十批为 4988） |
+| `Pi.CodingAgent.Tests` | 4990 / 4990 通过（第十二批新增 1 例；第十一批为 4989） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 457 / 457 通过 |
+| `Pi.Durable.Tests` | 457 / 457 通过（第十二批改了 1 例断言，数量不变） |
 | `Pi.Mcp.Tests` | 52 / 52 通过 |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
 | `Pi.Tui.Tests` | 23878 / 23878 通过 |
@@ -207,7 +207,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）。
+3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -384,3 +384,27 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   `RunAgentPromptAsync_AgentRunFailure_StillSettlesWithoutThrowing`（强化为断言 `Aborted == false`）。
   新用例用一条阻塞式 `StreamFn`（TCS 放行）把 run 卡在流里，再 `AbortAsync()` —— 中止标志是同步
   置位的，所以「先中止、后放行」不会死锁。
+### 6.s 第十二批（摘要序列化省略思维链）落地明细
+
+上游 `15e7bdc14`：回放的思维块常常不在模型活上下文里（radius 会丢，Anthropic 会丢掉与其请求不匹配的
+块），而 `serializeConversation` 把它们全塞进去 —— 一个 ~996K/1M token 的会话因此产生了 1.38M token 的
+摘要请求，每次重试都失败。provider 本来就只返回真实推理的摘要，可见文本、工具调用与工具结果已经把
+「发生了什么」记全了。
+
+- `Pi.CodingAgent/Core/CompactionUtils.SerializeConversation`：删掉 `[Assistant thinking]: …` 这一段与
+  收集它的 `thinkingParts`（`case ThinkingContent` 分支一并删掉）。助手消息现在只产出
+  `[Assistant]: …` 与 `[Assistant tool calls]: …`。
+- `Pi.Durable/Harness/Compaction.SerializeConversation`：同一改法（`thinking` 列表与那段 push 删除）。
+  其余格式不变 —— 助手文本块仍按 `\n` 连接，工具结果仍按 2000 字符截断。
+- 文档：`Assets/docs/compaction.md` 的序列化示例与扩展示例注释各去掉一行 thinking，并补一句
+  「Thinking blocks are omitted…」。
+- 语料：`tests/Pi.CodingAgent.Tests/compaction-corpus.json` 的 `serializeConversation` 向量去掉
+  `[Assistant thinking]: hidden reasoning\n\n`。**这条不是靠手改拍板**：`tools/gen-coding-agent-compaction-corpus.mjs`
+  在本机可以跑（`node --experimental-strip-types --import ./tools/register-compaction-shims.mjs …`），
+  重新生成后与手改结果逐字段对比，只有 `__tmp` 与几个未 token 化的时间戳不同，
+  `/serializeConversation` 整段**完全一致**，因此没有把重新生成的文件整体写回（避免引入无关抖动）。
+- 与上游差异：无。
+- 测试：`CompactionCorpusTests.SerializeConversation_OmitsThinking`（新增，直接钉住「思维链不出现、
+  文本/工具调用/工具结果还在」），`Pi.Durable.Tests` 的
+  `SerializeConversationFormatsTranscriptOmitsThinkingAndTruncatesToolResults`（原断言 `Contains`
+  改为 `DoesNotContain`，方法名一并改）。
