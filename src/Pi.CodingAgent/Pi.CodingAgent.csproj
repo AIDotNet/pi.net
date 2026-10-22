@@ -44,6 +44,14 @@
       <PackagePath>contentFiles/any/any/Assets/theme/</PackagePath>
       <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
+    <!-- 配置文件的 JSON Schema（settings / models / theme / keybindings）。随包分发，用户可以在
+         本地 settings.json 里用相对路径引用，也可以直接指向 pi.dev 的发布地址（上游 96abe9a5a）。 -->
+    <Content Include="Assets\schemas\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/Assets/schemas/</PackagePath>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
+    </Content>
     <Content Include="Assets\assets\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Pack>true</Pack>

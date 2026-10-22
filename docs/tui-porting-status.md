@@ -376,12 +376,12 @@ node --experimental-strip-types --no-warnings --test test/tui-alt-screen.test.ts
 
 ## 测试覆盖
 
-`tests/Pi.Tui.Tests`（23,929 项，已禁用并行化——多个用例共享进程级全局状态：能力缓存、Kitty 元数据注册表、环境变量探测、全局键位注册表、native helper）：
+`tests/Pi.Tui.Tests`（23,931 项，已禁用并行化——多个用例共享进程级全局状态：能力缓存、Kitty 元数据注册表、环境变量探测、全局键位注册表、native helper）：
 
 | 测试文件 | 项数 | 覆盖 |
 |---|---|---|
 | `TextEngineTests.cs` | 24 | 可见宽度、ANSI/OSC/APC 提取、tab 展开、截断/切片/换行、SGR 跨行携带、overlay 合成 |
-| `KeysAndUtilTests.cs` | 15 | 传统与 Kitty 按键匹配、`parseKey`、释放/重复判定、可打印解码、模糊匹配、kill ring、undo 栈、词导航（含 CJK 近似与 JS 空白集）、鼠标派发的重定位/结果归类/焦点目标 |
+| `KeysAndUtilTests.cs` | 17 | 传统与 Kitty 按键匹配、`parseKey`、释放/重复判定、可打印解码、移位符号归一化（`+` 报成 Shift+`=` 时 `+` 与 `ctrl++` 都命中，`shift+=` 仍有效）、畸形键位 id 拒绝、模糊匹配、kill ring、undo 栈、词导航（含 CJK 近似与 JS 空白集）、鼠标派发的重定位/结果归类/焦点目标 |
 | `ComponentTests.cs` | 17 | Text/Spacer/Box/TruncatedText/VStack/HStack 渲染、栈可见性、`TuiMainScreen` 差分渲染与同步输出、宽度变更全量重绘、超宽行守卫、overlay 合成 |
 | `ColorAndUtilTests.cs` | 25 | 颜色解析（hex/oklch/okhsl）、调色板索引、JS 舍入、OKLCH/OKHSL 转换与往返、混色、ANSI 序列、样式嵌套顺序、滚轮加速、native helper 缺失路径 |
 | `InputTests.cs` | 50 | 键位注册表（默认/覆盖/冲突/形状/全局单例）、stdin 缓冲（分块 CSI、SGR 鼠标、WezTerm ESC 对、括号粘贴、kitty 可打印去重、超时冲刷、字节与 UTF-8 入口）、终端回复串（6 类 OSC/APC 头在任意位置分块都整条送达、多条回复跨多次超时仍不切碎、裸 `ESC ]` 仍按 Alt 键超时、批量 legacy Alt 在序列超时内可恢复、回复头在歧义超时内拼齐也能识别、未终结回复遇到新转义序列时的重同步、`0x18`/`0x1a` 取消后不吞后续输入） |

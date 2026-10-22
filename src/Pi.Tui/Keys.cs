@@ -54,6 +54,18 @@ public static partial class Keys
         "&", "*", "(", ")", "_", "+", "|", "~", "{", "}", ":", "<", ">", "?",
     };
 
+    // Keys whose characters are only reachable with Shift on a US layout. Kitty reports them as
+    // "Shift + the physical key", so the binding name (the produced symbol) has to consume that
+    // implicit Shift. TS <c>SHIFTED_SYMBOL_KEYS</c>.
+    private static readonly HashSet<string> ShiftedSymbolKeys = new()
+    {
+        "~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+", "|", "{", "}", ":", "<", ">", "?",
+    };
+
+    // TS <c>MODIFIER_NAMES</c>: the order in which <c>parseKeyId</c> consumes leading modifier
+    // prefixes, which is what makes <c>ctrl++</c> parse as ctrl plus "+".
+    private static readonly string[] ModifierNames = ["shift", "alt", "ctrl", "super"];
+
     private static readonly Dictionary<int, int> KittyFunctionalEquivalents = new()
     {
         [57399] = 48, [57400] = 49, [57401] = 50, [57402] = 51, [57403] = 52, [57404] = 53,
@@ -172,6 +184,30 @@ public static partial class Keys
         return codepoint;
     }
 
+    /// <summary>
+    /// Treat a Shift-plus-physical-key report as the symbol it produces. Kitty reports <c>+</c> as
+    /// Shift plus the physical <c>=</c> key and also sends the produced codepoint as the shifted
+    /// key, so a binding written as <c>+</c> must consume the implicit Shift while keeping Ctrl,
+    /// Alt, and Super. TS <c>getLogicalShiftedSymbolCandidate</c>.
+    /// </summary>
+    private static (int Codepoint, int Modifier)? GetLogicalShiftedSymbolCandidate(
+        int? codepoint,
+        int modifier,
+        IReadOnlySet<string> allowedSymbols)
+    {
+        if (codepoint is not { } cp || (modifier & ModShift) == 0)
+        {
+            return null;
+        }
+        var normalizedCodepoint = NormalizeKittyFunctionalCodepoint(cp);
+        // JS reads String.fromCharCode(codepoint), which keeps the low 16 bits.
+        if (!allowedSymbols.Contains(((char)normalizedCodepoint).ToString()))
+        {
+            return null;
+        }
+        return (normalizedCodepoint, modifier & ~ModShift);
+    }
+
     /// <summary>Check if input carries a Kitty key-release event (flag 2).</summary>
     public static bool IsKeyRelease(string data)
     {
@@ -276,16 +312,29 @@ public static partial class Keys
         }
         var actualMod = p.Modifier & ~LockMask;
         var expectedMod = expectedModifier & ~LockMask;
-        if (actualMod != expectedMod)
-        {
-            return false;
-        }
 
         var normalizedCodepoint = NormalizeShiftedLetterIdentityCodepoint(NormalizeKittyFunctionalCodepoint(p.Codepoint), p.Modifier);
         var normalizedExpected = NormalizeShiftedLetterIdentityCodepoint(NormalizeKittyFunctionalCodepoint(expectedCodepoint), expectedModifier);
-        if (normalizedCodepoint == normalizedExpected)
+
+        // Physical match: primary codepoint and every reported modifier match.
+        if (actualMod == expectedMod && normalizedCodepoint == normalizedExpected)
         {
             return true;
+        }
+
+        // Logical match: bindings name the produced symbol, so consume the implicit Shift that
+        // produced it. The physical `shift+=` spelling stays valid through the match above.
+        var logicalShiftedSymbol = GetLogicalShiftedSymbolCandidate(p.ShiftedKey, actualMod, SymbolKeys);
+        if (logicalShiftedSymbol is { } logical
+            && (logical.Modifier & ~LockMask) == expectedMod
+            && logical.Codepoint == NormalizeKittyFunctionalCodepoint(expectedCodepoint))
+        {
+            return true;
+        }
+
+        if (actualMod != expectedMod)
+        {
+            return false;
         }
 
         if (p.BaseLayoutKey is { } baseLayout && baseLayout == expectedCodepoint)
@@ -357,17 +406,22 @@ public static partial class Keys
 
     private static bool MatchesPrintableModifyOtherKeys(string data, int expectedKeycode, int expectedModifier)
     {
-        if (expectedModifier == 0)
-        {
-            return false;
-        }
         var parsed = ParseModifyOtherKeysSequence(data);
-        if (parsed is not { } p || p.Modifier != expectedModifier)
+        if (parsed is not { } p)
         {
             return false;
         }
-        return NormalizeShiftedLetterIdentityCodepoint(p.Codepoint, p.Modifier)
-            == NormalizeShiftedLetterIdentityCodepoint(expectedKeycode, expectedModifier);
+        var physicalMatch = p.Modifier == expectedModifier
+            && NormalizeShiftedLetterIdentityCodepoint(p.Codepoint, p.Modifier)
+                == NormalizeShiftedLetterIdentityCodepoint(expectedKeycode, expectedModifier);
+        if (physicalMatch)
+        {
+            return true;
+        }
+        var logicalShiftedSymbol = GetLogicalShiftedSymbolCandidate(p.Codepoint, p.Modifier, ShiftedSymbolKeys);
+        return logicalShiftedSymbol is { } logical
+            && logical.Modifier == expectedModifier
+            && logical.Codepoint == expectedKeycode;
     }
 
     private static string? FormatKeyNameWithModifiers(string keyName, int modifier)
@@ -390,13 +444,27 @@ public static partial class Keys
 
     private static ParsedKeyId? ParseKeyId(string keyId)
     {
-        var parts = JsString.ToLowerCase(keyId).Split('+');
-        var key = parts[^1];
-        if (key.Length == 0)
+        var key = JsString.ToLowerCase(keyId);
+        var modifiers = new HashSet<string>(StringComparer.Ordinal);
+        while (true)
+        {
+            var modifier = ModifierNames.FirstOrDefault(name => key.StartsWith($"{name}+", StringComparison.Ordinal));
+            if (modifier is null)
+            {
+                break;
+            }
+            if (!modifiers.Add(modifier))
+            {
+                return null;
+            }
+            key = key[(modifier.Length + 1)..];
+        }
+        // A bare "+" is a key; any other remaining "+" means a malformed binding such as "ctrl+foo+".
+        if (key.Length == 0 || (key.Contains('+') && key != "+"))
         {
             return null;
         }
-        return new ParsedKeyId(key, parts.Contains("ctrl"), parts.Contains("shift"), parts.Contains("alt"), parts.Contains("super"));
+        return new ParsedKeyId(key, modifiers.Contains("ctrl"), modifiers.Contains("shift"), modifiers.Contains("alt"), modifiers.Contains("super"));
     }
 
     private static bool MatchesLegacySequence(string data, string[] sequences) => sequences.Contains(data);
@@ -661,7 +729,9 @@ public static partial class Keys
                 return MatchesKittySequence(data, codepoint, modifier) || MatchesPrintableModifyOtherKeys(data, codepoint, modifier);
             }
 
-            return data == key || MatchesKittySequence(data, codepoint, 0);
+            return data == key
+                || MatchesKittySequence(data, codepoint, 0)
+                || MatchesPrintableModifyOtherKeys(data, codepoint, 0);
         }
 
         return false;
@@ -712,12 +782,20 @@ public static partial class Keys
         var kitty = ParseKittySequence(data);
         if (kitty is { } k)
         {
+            if (GetLogicalShiftedSymbolCandidate(k.ShiftedKey, k.Modifier, SymbolKeys) is { } logical)
+            {
+                return FormatParsedKey(logical.Codepoint, logical.Modifier, k.BaseLayoutKey);
+            }
             return FormatParsedKey(k.Codepoint, k.Modifier, k.BaseLayoutKey);
         }
 
         var modifyOtherKeys = ParseModifyOtherKeysSequence(data);
         if (modifyOtherKeys is { } mok)
         {
+            if (GetLogicalShiftedSymbolCandidate(mok.Codepoint, mok.Modifier, ShiftedSymbolKeys) is { } logical)
+            {
+                return FormatParsedKey(logical.Codepoint, logical.Modifier, null);
+            }
             return FormatParsedKey(mok.Codepoint, mok.Modifier, null);
         }
 

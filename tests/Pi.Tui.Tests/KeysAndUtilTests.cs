@@ -54,6 +54,47 @@ public class KeysAndUtilTests
         // (release/repeat filtering happens via isKeyRelease / isKeyRepeat).
         Assert.Equal("ctrl+c", Keys.ParseKey("\x1b[99;5:3u"));
         Assert.Null(Keys.ParseKey("hello"));
+        // A bare "+" stays a key of its own rather than a modifier separator.
+        Assert.Equal("+", Keys.ParseKey("+"));
+        Assert.True(Keys.MatchesKey("+", "+"));
+    }
+
+    [Fact]
+    public void MatchesKey_NormalizesShiftedSymbolKeybindings()
+    {
+        Keys.SetKittyProtocolActive(true);
+        try
+        {
+            // Kitty reports "+" as Shift plus the physical "=" key (CSI 61:43;2u). Bindings name
+            // the produced symbol, so "+" matches without spelling the implicit Shift …
+            Assert.True(Keys.MatchesKey("\x1b[61:43;2u", "+"));
+            // … while the physical spelling keeps working, and parseKey reports the symbol.
+            Assert.True(Keys.MatchesKey("\x1b[61:43;2u", "shift+="));
+            Assert.Equal("+", Keys.ParseKey("\x1b[61:43;2u"));
+            // Ctrl survives the Shift consumption: modifier 6 is 1 + shift + ctrl.
+            Assert.True(Keys.MatchesKey("\x1b[61:43;6u", "ctrl++"));
+            Assert.Equal("ctrl++", Keys.ParseKey("\x1b[61:43;6u"));
+        }
+        finally
+        {
+            Keys.SetKittyProtocolActive(false);
+        }
+
+        // xterm modifyOtherKeys (CSI 27;6;43~) takes the same path.
+        Assert.True(Keys.MatchesKey("\x1b[27;6;43~", "ctrl++"));
+        Assert.Equal("ctrl++", Keys.ParseKey("\x1b[27;6;43~"));
+    }
+
+    [Fact]
+    public void MatchesKey_RejectsMalformedKeyIds()
+    {
+        // Modifier prefixes are consumed in a fixed order, each at most once; a leftover "+" that is
+        // not the key itself makes the whole id unusable instead of "the last segment wins".
+        Assert.False(Keys.MatchesKey("\x03", "ctrl+ctrl+c"));
+        Assert.False(Keys.MatchesKey("\x03", "ctrl+foo+"));
+        Assert.False(Keys.MatchesKey("\x03", ""));
+        // "+" is a key, so the shifted-symbol binding still parses.
+        Assert.True(Keys.MatchesKey("\x1b[61:43;6u", "ctrl++"));
     }
 
     [Fact]
