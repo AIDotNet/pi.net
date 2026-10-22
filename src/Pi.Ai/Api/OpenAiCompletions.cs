@@ -860,7 +860,8 @@ public static class OpenAiCompletions
                         var textResult = string.Join("\n",
                             toolMessage.Content.OfType<TextContent>().Select(block => block.Text));
                         var hasImages = toolMessage.Content.Any(block => block is ImageContent);
-                        var toolResultText = textResult.Length > 0
+                        // 仅空白的工具输出（如 bash 的裸 \r\n）按空处理，否则部分 provider 会 400（上游 #8720）。
+                        var toolResultText = textResult.Trim().Length > 0
                             ? textResult
                             : hasImages
                                 ? "(see attached image)"

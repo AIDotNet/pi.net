@@ -19,6 +19,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ### Fixed
 
+- **Upstream 1.1.0–1.4.0 backport (first batch)**: eleven user-visible fixes from the newer
+  stable releases, with the full inventory and the remaining backlog in
+  `docs/upstream-1.4.0-delta.md`.
+  - `grep` runs ripgrep with `--no-config`, so `RIPGREP_CONFIG_PATH` (e.g. `--fixed-strings`)
+    can no longer silently turn regex searches into literal ones (upstream #11203).
+  - `mcp.json` files that start with a UTF-8 BOM are parsed instead of skipping every server
+    (upstream #11191).
+  - `~` is expanded in `extensions` / `skills` / `prompts` / `themes` patterns, so `+~/x`,
+    `-~/x` and `!~/skills/pdf` match (upstream #10765).
+  - Empty quoted prompt-template arguments (`""`, `''`) are kept, so later positional
+    arguments no longer shift and positional defaults apply (upstream #10867).
+  - Print mode keeps printing the partial text but warns on stderr and exits `1` when the
+    response stopped at the model's output token limit (upstream #10799).
+  - `PI_CLIPBOARD_OSC52=1` forces OSC 52 copies for remote clients that leave no SSH markers,
+    such as multiplexer attaches or remote IDE daemons (upstream #10826/#10835/#10114).
+  - Compaction, turn-prefix and branch summaries no longer derive a fixed output cap from
+    `reserveTokens`; the provider sizes them from the request, so long reasoning can no longer
+    make summarization fail with "generation hit the token cap" (upstream #9512/#9075/#10908).
+  - Whitespace-only tool output (a bare `\r\n` from bash) uses the empty-output placeholder on
+    OpenAI Completions, OpenAI Responses and Google instead of being sent verbatim (#8720).
+  - Invalid `\u` escapes such as `\usepackage` are kept as literal text, so tool-call arguments
+    no longer lose the field and everything after it (upstream #10868).
+  - Retry classification matches the newer upstream table: HTTP status codes only count as
+    standalone numbers, and gateway/Codex-proxy transient failures (`unable to forward upstream`,
+    `upstream_stream_read_error`, `stream disconnected before completion`, Vertex OAuth refresh
+    failures) are retried (upstream #10920/#10965/#10996/#11057/#10842).
+  - A display-math block can no longer span a GFM table, so an unclosed `$$` stops swallowing
+    tables while streaming (upstream #11159).
 - `readme.md` / `readme.zh-CN.md` links now use absolute GitHub URLs. Relative links were rewritten
   into self-links by nuget.org, so every doc link on the package page was dead.
 - Dropped the `-m:1` recommendation from the build-from-source snippet: serial execution is slower

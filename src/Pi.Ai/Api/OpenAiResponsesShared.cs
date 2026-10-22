@@ -103,7 +103,8 @@ public static class OpenAiResponsesShared
         var textResult = string.Join("\n",
             content.OfType<TextContent>().Select(c => c.Text));
         var images = content.OfType<ImageContent>().ToList();
-        var hasText = textResult.Length > 0;
+        // 仅空白的工具输出按空处理，与空输出使用同一占位符（上游 #8720）。
+        var hasText = textResult.Trim().Length > 0;
 
         if (images.Count == 0 || !model.Input.Contains("image"))
         {

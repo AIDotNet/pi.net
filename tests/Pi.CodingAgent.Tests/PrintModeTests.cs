@@ -117,10 +117,16 @@ public sealed class PrintModeTests : IDisposable
 
     private async Task<(AgentSessionRuntime Host, List<ExtensionEvent.SessionShutdown> Shutdowns)> CreateHostAsync(
         StopReason stopReason = StopReason.Stop,
-        string? errorMessage = null)
+        string? errorMessage = null,
+        bool disableCompaction = false)
     {
         // 关掉自动重试：错误停止原因不该触发重试循环（否则末条消息不稳定）。
-        File.WriteAllText(Path.Combine(_agentDir, "settings.json"), """{"retry":{"enabled":false}}""");
+        // 截断（length）场景还要关掉压缩：可恢复的长度截断会触发 overflow 自动压缩，
+        // 而压缩会把被截断的助手消息从分支里省略，打印模式就看不到 length 了。
+        var settings = disableCompaction
+            ? """{"retry":{"enabled":false},"compaction":{"enabled":false}}"""
+            : """{"retry":{"enabled":false}}""";
+        File.WriteAllText(Path.Combine(_agentDir, "settings.json"), settings);
 
         var provider = new StubProvider(stopReason, errorMessage);
         var runtime = await ModelRuntime.CreateAsync(new CreateModelRuntimeOptions
@@ -285,6 +291,52 @@ public sealed class PrintModeTests : IDisposable
         {
             Console.SetError(originalError);
         }
+    }
+
+    [Fact]
+    public async Task TruncatedResponse_PrintsPartialTextAndReturnsNonZero()
+    {
+        // 上游 #10799：撞到输出上限时仍打印部分文本，但要告警并以非零码退出。
+        var (host, _) = await CreateHostAsync(StopReason.Length, disableCompaction: true);
+
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        Console.SetOut(stdout);
+        Console.SetError(stderr);
+        try
+        {
+            var exitCode = await PrintMode.RunAsync(host, new PrintModeOptions
+            {
+                Mode = "text",
+                InitialMessage = "Say done",
+            });
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("done", stdout.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Response was truncated", stderr.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public async Task JsonMode_DoesNotTreatTruncationAsFailure()
+    {
+        // JSON 模式由消费者读事件流，退出码保持 0（与上游一致：只有 text 模式改退出码）。
+        var (host, _) = await CreateHostAsync(StopReason.Length, disableCompaction: true);
+
+        var exitCode = await PrintMode.RunAsync(host, new PrintModeOptions
+        {
+            Mode = "json",
+            Messages = ["hello"],
+        });
+
+        Assert.Equal(0, exitCode);
     }
 
     [Fact]

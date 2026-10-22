@@ -145,6 +145,14 @@ internal sealed class PrintModeSession
             }
         }
 
+        // 模型撞到输出上限时仍打印已生成的部分文本，但要告警并以非零码退出，
+        // 否则脚本会把截断的结果当成成功（上游 #10799）。
+        if (assistant.StopReason == StopReason.Length)
+        {
+            Console.Error.WriteLine("Response was truncated: the model reached its output token limit.");
+            return 1;
+        }
+
         return 0;
     }
 

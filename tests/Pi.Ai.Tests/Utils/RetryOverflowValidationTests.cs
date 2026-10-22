@@ -49,6 +49,37 @@ public class RetryTests
     }
 
     [Fact]
+    public void RetryableClassificationMatchesUpstream1_4_0()
+    {
+        // #11057：状态码只在独立出现时才算重试信号，请求 id / 字节数里的数字不行。
+        Assert.False(Retry.IsRetryableAssistantError(Message(StopReason.Error, "req_011CU503xyz failed")));
+        Assert.False(Retry.IsRetryableAssistantError(Message(StopReason.Error, "5242880 bytes written")));
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "HTTP 503 from upstream")));
+
+        // #10965：服务「暂时」不可用（压缩首次失败也走这条）。
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "The service is temporarily unavailable")));
+
+        // #10920 / #11057：网关上游故障与 Codex 代理断流。
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "Unable to forward upstream stream")));
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "upstream_stream_read_error")));
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "Upstream HTTP/2 stream failed")));
+        Assert.True(Retry.IsRetryableAssistantError(
+            Message(StopReason.Error, "stream disconnected before completion: stream closed")));
+
+        // #10996：Google Vertex OAuth token 刷新的瞬时网络错误。
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error,
+            "request to https://oauth2.googleapis.com/token failed, reason:")));
+
+        // #10842：包装过的上游错误文案。
+        Assert.True(Retry.IsRetryableAssistantError(
+            Message(StopReason.Error, "The upstream provider returned an error")));
+
+        // 1.4.0：ChatGPT Business 工作区用量限额不可重试。
+        Assert.False(Retry.IsRetryableAssistantError(Message(StopReason.Error,
+            "subscription_sharing_workplace_individual_usage_limit_exceeded")));
+    }
+
+    [Fact]
     public async Task RetriesUntilSuccessAndReportsCallbacks()
     {
         var attempts = 0;

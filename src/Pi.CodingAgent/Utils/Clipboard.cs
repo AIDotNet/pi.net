@@ -89,11 +89,16 @@ public static class Clipboard
             ? runner(command, args, options)
             : ClipboardCommand.RunAsync(command, args, options);
 
-    /// <summary>Whether the session is remote, where only the terminal's own clipboard can be reached.</summary>
+    /// <summary>
+    /// Whether the session is remote, where only the terminal's own clipboard can be reached.
+    /// <c>PI_CLIPBOARD_OSC52=1</c> forces it for remote clients that leave no SSH markers, such as
+    /// multiplexer attaches from another machine or remote IDE daemons（上游 #10114/#10826/#10835）。
+    /// </summary>
     internal static bool IsRemoteSession(Func<string, string?> env) =>
         !string.IsNullOrEmpty(env("SSH_CONNECTION")) ||
         !string.IsNullOrEmpty(env("SSH_CLIENT")) ||
-        !string.IsNullOrEmpty(env("MOSH_CONNECTION"));
+        !string.IsNullOrEmpty(env("MOSH_CONNECTION")) ||
+        env("PI_CLIPBOARD_OSC52") == "1";
 
     /// <summary>
     /// A Linux session with no display: containers, and WSL without WSLg. The terminal is the only

@@ -1,4 +1,5 @@
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Utils;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;
@@ -210,5 +211,32 @@ public sealed class PackageManagerPatternsTests
         Assert.Matches(PackageManagerPatterns.FilePattern("prompts"), "a.md");
         Assert.Matches(PackageManagerPatterns.FilePattern("themes"), "a.json");
         Assert.Throws<ArgumentException>(() => PackageManagerPatterns.FilePattern("nope"));
+    }
+
+    [Fact]
+    public void NormalizeExactPattern_ExpandsTilde()
+    {
+        // 上游 #10765：+~/x、-~/x、!~/skills/pdf 这类条目此前按字面量 ~ 比较，永不匹配。
+        var homePosix = Skills.ToPosixPath(Paths.NormalizePath("~"));
+        Assert.Equal($"{homePosix}/skills/pdf", PackageManagerPatterns.NormalizeExactPattern("~/skills/pdf"));
+        // 其余归一化规则保持不变。
+        Assert.Equal("skills/pdf", PackageManagerPatterns.NormalizeExactPattern("./skills/pdf"));
+    }
+
+    [Fact]
+    public void MatchesAnyPattern_ExpandsTildeInGlobPatterns()
+    {
+        var home = Paths.NormalizePath("~");
+        var file = Path.Combine(home, "skills", "pdf", "review.md");
+        Assert.True(PackageManagerPatterns.MatchesAnyPattern(file, ["~/skills/pdf/*.md"], Base));
+        Assert.False(PackageManagerPatterns.MatchesAnyPattern(file, ["~/skills/other/*.md"], Base));
+    }
+
+    [Fact]
+    public void MatchesAnyExactPattern_ExpandsTilde()
+    {
+        var home = Paths.NormalizePath("~");
+        var file = Path.Combine(home, "skills", "pdf");
+        Assert.True(PackageManagerPatterns.MatchesAnyExactPattern(file, ["~/skills/pdf"], Base));
     }
 }

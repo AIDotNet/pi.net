@@ -965,7 +965,6 @@
             ]
           },
           "options": {
-            "maxTokens": 819,
             "sessionId": "session-abc",
             "cacheRetention": "none"
           }
@@ -1059,7 +1058,6 @@
             ]
           },
           "options": {
-            "maxTokens": 819,
             "sessionId": "session-abc",
             "cacheRetention": "none"
           }
@@ -1153,7 +1151,6 @@
             ]
           },
           "options": {
-            "maxTokens": 819,
             "sessionId": "session-abc",
             "cacheRetention": "none"
           }
@@ -1235,7 +1232,6 @@
             ]
           },
           "options": {
-            "maxTokens": 819,
             "sessionId": "session-abc",
             "cacheRetention": "none"
           }
@@ -1314,7 +1310,6 @@
             ]
           },
           "options": {
-            "maxTokens": 819,
             "sessionId": "session-abc",
             "cacheRetention": "none"
           }

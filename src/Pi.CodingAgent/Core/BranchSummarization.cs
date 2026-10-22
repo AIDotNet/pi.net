@@ -246,7 +246,7 @@ public static class BranchSummarization
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
         };
 
-        var maxTokens = Math.Min(4096, options.Model.MaxTokens > 0 ? options.Model.MaxTokens : long.MaxValue);
+        // 不再固定 4096 上限：思考与输出共享预算时，固定上限会让分支摘要撞 token 上限（上游 #9512）。
 
         // 优先用会话流函数（SDK 请求行为一致）；经 completeSummarization 重试。
         var context = Transcript.NormalizeContext(
@@ -257,7 +257,6 @@ public static class BranchSummarization
             Headers = options.Headers,
             Env = options.Env,
             Signal = options.Signal,
-            MaxTokens = maxTokens > int.MaxValue ? int.MaxValue : (int)maxTokens,
         };
         var response = await Compaction.CompleteSummarizationAsync(
             options.Model, context, requestOptions, options.StreamFn, options.Retry, options.Callbacks,

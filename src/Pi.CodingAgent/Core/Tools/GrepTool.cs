@@ -46,6 +46,36 @@ public static class GrepTool
 
     private const int DefaultLimit = 100;
 
+    /// <summary>
+    /// ripgrep 参数。首项 <c>--no-config</c>：工具契约（literal/glob/limit…）不能受
+    /// <c>RIPGREP_CONFIG_PATH</c> 等外部配置影响，否则用户配置里的 <c>--fixed-strings</c>
+    /// 会静默把正则搜索变成字面量搜索，模型拿到不完整结果且没有报错（上游 #11203）。
+    /// </summary>
+    internal static List<string> BuildRgArgs(bool ignoreCase, bool literal, string? glob, string pattern, string searchPath)
+    {
+        var rgArgs = new List<string> { "--no-config", "--json", "--line-number", "--color=never", "--hidden" };
+        if (ignoreCase)
+        {
+            rgArgs.Add("--ignore-case");
+        }
+
+        if (literal)
+        {
+            rgArgs.Add("--fixed-strings");
+        }
+
+        if (glob is not null)
+        {
+            rgArgs.Add("--glob");
+            rgArgs.Add(glob);
+        }
+
+        rgArgs.Add("--");
+        rgArgs.Add(pattern);
+        rgArgs.Add(searchPath);
+        return rgArgs;
+    }
+
     private static readonly ToolSchema GrepSchema = new(new Dictionary<string, object?>
     {
         ["type"] = "object",
@@ -180,26 +210,7 @@ public static class GrepTool
                     return lines;
                 }
 
-                var rgArgs = new List<string> { "--json", "--line-number", "--color=never", "--hidden" };
-                if (ignoreCase)
-                {
-                    rgArgs.Add("--ignore-case");
-                }
-
-                if (literal)
-                {
-                    rgArgs.Add("--fixed-strings");
-                }
-
-                if (glob is not null)
-                {
-                    rgArgs.Add("--glob");
-                    rgArgs.Add(glob);
-                }
-
-                rgArgs.Add("--");
-                rgArgs.Add(pattern);
-                rgArgs.Add(searchPath);
+                var rgArgs = BuildRgArgs(ignoreCase, literal, glob, pattern, searchPath);
 
                 var matches = new List<(string FilePath, int LineNumber, string? LineText)>();
                 var outputLines = new List<string>();

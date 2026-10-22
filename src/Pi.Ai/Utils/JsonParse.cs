@@ -10,7 +10,9 @@ namespace Pi.Ai.Utils;
 /// </summary>
 public static class JsonParse
 {
-    private static readonly HashSet<char> ValidJsonEscapes = ['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'];
+    // 'u' 不在此列：非法 \u 转义（如 \usepackage）必须按普通非法转义加倍反斜杠保留为字面量。
+    // 合法的 \uXXXX 由上面的四位十六进制分支单独处理（上游 #10868）。
+    private static readonly HashSet<char> ValidJsonEscapes = ['"', '\\', '/', 'b', 'f', 'n', 'r', 't'];
 
     private static bool IsControlCharacter(char ch) => ch <= 0x1f;
 

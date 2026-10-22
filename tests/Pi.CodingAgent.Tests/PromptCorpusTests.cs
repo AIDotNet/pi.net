@@ -83,6 +83,19 @@ public class PromptCorpusTests : IDisposable
     }
 
     [Fact]
+    public void ParseCommandArgs_KeepsEmptyQuotedArguments()
+    {
+        // 上游 #10867：空引号参数被丢掉会让后面的位置参数整体前移、位置默认值失效。
+        Assert.Equal(["a", "", "c"], PromptTemplates.ParseCommandArgs("""a "" c""").ToList());
+        Assert.Equal(["", ""], PromptTemplates.ParseCommandArgs("""'' "" """).ToList());
+        Assert.Equal([""], PromptTemplates.ParseCommandArgs("\"\"").ToList());
+        // 纯空白仍然不产生参数。
+        Assert.Empty(PromptTemplates.ParseCommandArgs("   "));
+        // 引号内的空白不再是分隔符。
+        Assert.Equal(["a b"], PromptTemplates.ParseCommandArgs("\"a b\"").ToList());
+    }
+
+    [Fact]
     public void SubstituteArgs_MatchesTypeScript()
     {
         var failures = new List<string>();

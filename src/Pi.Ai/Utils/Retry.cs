@@ -81,6 +81,8 @@ public static class Retry
 
         // Sign in with ChatGPT：订阅共享用量限额，按小时而非秒重置。
         "subscription_sharing_usage_limit_exceeded",
+        // Sign in with ChatGPT Business：工作区管理员设置的用量限额，只有管理员能提高（上游 1.4.0）。
+        "subscription_sharing_workplace_individual_usage_limit_exceeded",
     ]);
 
     /// <summary>
@@ -96,20 +98,23 @@ public static class Retry
         "model is at capacity",
         "rate.?limit",
         "too many requests",
-        "429",
-        "500",
-        "502",
-        "503",
-        "504",
-        "520",
-        "524",
-        "service.?unavailable",
+        // HTTP 状态码必须独立出现：请求 id 或字节数里的数字（req_011CU503xyz、5242880 bytes）不算重试信号（上游 #11057）。
+        "(?<![a-z0-9])(?:429|500|502|503|504|520|524)(?![a-z0-9])",
+        // 同时覆盖 "The service is temporarily unavailable"（上游 #10965）。
+        "service.?(?:is.?)?(?:temporarily.?)?unavailable",
         "server.?error",
         "internal.?error",
 
-        // 上游瞬时故障的包装文案（含 OpenRouter "Provider returned error"）。
-        "provider.?returned.?error",
+        // 上游瞬时故障的包装文案（含 OpenRouter "Provider returned error"、"The upstream provider returned an error"）。
+        "provider.?returned.?(?:an.?)?error",
         "exceeded request buffer limit while retrying upstream",
+        // 网关转发上游响应流失败（OpenAI Responses 的 response.failed 事件，无错误码）（上游 #10920）。
+        "unable to forward upstream",
+        // 其他网关上游故障的 response.failed 错误码（上游 #10920）。
+        "upstream.?request.?failed",
+        "upstream_stream_read_error",
+        "stream was interrupted",
+        "http/?2 stream failed",
 
         // 网络/代理/fetch 传输故障（含 Codex raw-fetch 的 upstream connect 等）。
         "network.?error",
@@ -118,6 +123,8 @@ public static class Retry
         "connection.?lost",
         "other side closed",
         "fetch failed",
+        // node-fetch 系统错误，例如 google-vertex 的 Google ADC OAuth token 刷新；reason 常为空（上游 #10996）。
+        "request to \\S+ failed, reason:",
         "getaddrinfo",
         "ENOTFOUND",
         "EAI_AGAIN",
@@ -138,6 +145,8 @@ public static class Retry
         "stream ended before message_stop",
         "stream ended before a terminal response event",
         "http2 request did not get a response",
+        // 代理包装 Codex CLI 时的流中途断连："stream disconnected before completion: ..."（上游 #11057）。
+        "stream disconnected before completion",
         // Node ERR_HTTP2_STREAM_CANCEL：请求发出前 HTTP/2 会话就死了
         // （例如 Bedrock SDK 5 分钟会话超时之后，#10379）。
         "pending stream has been canceled",

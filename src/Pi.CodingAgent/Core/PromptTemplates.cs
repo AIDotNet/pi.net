@@ -86,6 +86,9 @@ public static partial class PromptTemplates
         var args = new List<string>();
         var current = new StringBuilder();
         char? inQuote = null;
+        // 是否已开始一个 token：让空引号参数（"" 或 ''）保留为参数，而不是被丢掉后
+        // 让后续位置参数整体错位、位置默认值失效（上游 #10867）。
+        var hasToken = false;
 
         foreach (var ch in argsString)
         {
@@ -103,22 +106,25 @@ public static partial class PromptTemplates
             else if (ch is '"' or '\'')
             {
                 inQuote = ch;
+                hasToken = true;
             }
             else if (JsString.IsWhitespace(ch))
             {
-                if (current.Length > 0)
+                if (hasToken)
                 {
                     args.Add(current.ToString());
                     current.Clear();
+                    hasToken = false;
                 }
             }
             else
             {
                 current.Append(ch);
+                hasToken = true;
             }
         }
 
-        if (current.Length > 0)
+        if (hasToken)
         {
             args.Add(current.ToString());
         }

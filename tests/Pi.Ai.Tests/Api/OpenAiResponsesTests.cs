@@ -397,4 +397,21 @@ public class OpenAiResponsesTests
         var priority = OpenAiResponses.ApplyServiceTierPricing(usage, "priority", ResponsesModel());
         Assert.Equal(2.0, priority.Cost.Total, 12);
     }
+
+    [Fact]
+    public void WhitespaceOnlyToolOutputUsesEmptyPlaceholder()
+    {
+        // 上游 #8720：bash 常见的裸 \r\n 会被部分 provider 以 400 拒绝。
+        var output = OpenAiResponsesShared.ConvertToolResultOutput(
+            ResponsesModel(reasoning: false), [new TextContent("\r\n")]);
+        Assert.Equal("(no tool output)", output.GetValue<string>());
+    }
+
+    [Fact]
+    public void NonWhitespaceToolOutputIsPreservedVerbatim()
+    {
+        var output = OpenAiResponsesShared.ConvertToolResultOutput(
+            ResponsesModel(reasoning: false), [new TextContent("  ok\n")]);
+        Assert.Equal("  ok\n", output.GetValue<string>());
+    }
 }

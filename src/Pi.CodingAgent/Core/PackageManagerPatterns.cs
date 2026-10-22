@@ -59,7 +59,8 @@ internal static class PackageManagerPatterns
         var normalized = pattern.StartsWith("./", StringComparison.Ordinal) || pattern.StartsWith(".\\", StringComparison.Ordinal)
             ? pattern[2..]
             : pattern;
-        return Skills.ToPosixPath(normalized);
+        // 先展开 ~（+~/x、-~/x、!~/skills/pdf 这类条目），否则会按字面量比较而永不匹配（上游 #10765）。
+        return Skills.ToPosixPath(Paths.NormalizePath(normalized));
     }
 
     /// <summary>TS <c>splitPatterns</c>: partition entries into plain paths and patterns.</summary>
@@ -96,7 +97,8 @@ internal static class PackageManagerPatterns
 
         foreach (var pattern in patterns)
         {
-            var normalizedPattern = Skills.ToPosixPath(pattern);
+            // 与上游一致：glob 模式同样先做 ~ 展开，再做 posix 归一（上游 #10765）。
+            var normalizedPattern = Skills.ToPosixPath(Paths.NormalizePath(pattern));
             if (Matches(rel, normalizedPattern)
                 || Matches(name, normalizedPattern)
                 || Matches(filePathPosix, normalizedPattern))

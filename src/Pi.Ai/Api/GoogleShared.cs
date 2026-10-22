@@ -267,7 +267,8 @@ public static class GoogleShared
                         ? toolResult.Content.OfType<ImageContent>().ToList()
                         : [];
 
-                    var hasText = textResult.Length > 0;
+                    // 仅空白的工具输出按空处理，与空输出走同一分支（上游 #8720）。
+                    var hasText = textResult.Trim().Length > 0;
                     var hasImages = imageContent.Count > 0;
                     var modelSupportsMultimodalFunctionResponse = SupportsMultimodalFunctionResponse(model.Id);
 

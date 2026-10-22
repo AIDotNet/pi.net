@@ -68,12 +68,15 @@
       "input": "a '' b",
       "args": [
         "a",
+        "",
         "b"
       ]
     },
     {
       "input": "\"\"",
-      "args": []
+      "args": [
+        ""
+      ]
     },
     {
       "input": "a'b c'd",

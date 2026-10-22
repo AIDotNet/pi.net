@@ -131,6 +131,30 @@ public static class MarkedLatexExtensions
 
     private static bool LooksLikePendingDollarMath(string source) => PendingDollarMathRegex.IsMatch(source);
 
+    /// <summary>GFM 表格分隔行，例如 <c>|---|:--:|</c> 或 <c>--- | ---</c>。</summary>
+    private static readonly Regex TableDelimiterRowRegex =
+        new(@"^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*\z");
+
+    /// <summary>
+    /// 片段里是否起始了一张 GFM 表格：表头行 + 分隔行。表头只有在分隔行不含 <c>|</c> 时才必须含 <c>|</c>，
+    /// 否则无竖线的分隔行是 thematic break 而非表格。
+    /// </summary>
+    private static bool ContainsTableStart(string source)
+    {
+        var lines = source.Split('\n');
+        for (var index = 0; index < lines.Length - 1; index++)
+        {
+            var delimiterRow = lines[index + 1];
+            if ((delimiterRow.Contains('|') || lines[index].Contains('|'))
+                && TableDelimiterRowRegex.IsMatch(delimiterRow))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static MarkedToken? TokenizeInlineLatex(MarkedLexer lexer, string source, List<MarkedToken> tokens)
     {
         string opening;
@@ -198,7 +222,10 @@ public static class MarkedLatexExtensions
     private static MarkedToken? TokenizeBlockLatex(MarkedLexer lexer, string source, List<MarkedToken> tokens)
     {
         var dollarMatch = BlockDollarRegex.Match(source);
-        if (dollarMatch.Success && dollarMatch.Groups[1].Value.Length > 0)
+        // 显示公式不跨表格：否则未闭合的 $$ 会与更后面的 $$ 配对、或一直处于 pending，
+        // 把中间的表格整段吞掉（上游 #11159）。
+        if (dollarMatch.Success && dollarMatch.Groups[1].Value.Length > 0
+            && !ContainsTableStart(dollarMatch.Groups[1].Value))
         {
             return new MarkedToken
             {
@@ -209,7 +236,8 @@ public static class MarkedLatexExtensions
         }
 
         var bracketMatch = BlockBracketRegex.Match(source);
-        if (bracketMatch.Success && bracketMatch.Groups[1].Value.Length > 0)
+        if (bracketMatch.Success && bracketMatch.Groups[1].Value.Length > 0
+            && !ContainsTableStart(bracketMatch.Groups[1].Value))
         {
             return new MarkedToken
             {
@@ -220,7 +248,7 @@ public static class MarkedLatexExtensions
         }
 
         var pendingBracket = PendingBracketRegex.Match(source);
-        if (pendingBracket.Success)
+        if (pendingBracket.Success && !ContainsTableStart(pendingBracket.Groups[1].Value))
         {
             return new MarkedToken
             {
@@ -234,7 +262,8 @@ public static class MarkedLatexExtensions
         var pendingDollar = PendingDollarRegex.Match(source);
         if (pendingDollar.Success
             && pendingDollar.Groups[1].Value.Length > 0
-            && LooksLikePendingDollarMath(pendingDollar.Groups[1].Value))
+            && LooksLikePendingDollarMath(pendingDollar.Groups[1].Value)
+            && !ContainsTableStart(pendingDollar.Groups[1].Value))
         {
             return new MarkedToken
             {

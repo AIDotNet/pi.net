@@ -163,4 +163,21 @@ public class JsonParseTests
         Assert.Empty(JsonParse.ParseStreamingJson(""));
         Assert.Empty(JsonParse.ParseStreamingJson(null));
     }
+
+    [Fact]
+    public void InvalidUnicodeEscapeIsKeptAsLiteralText()
+    {
+        // 上游 #10868：\usepackage 这类非法 \u 转义曾被当成合法转义，导致整段 JSON 解析失败、
+        // partial-json 回退丢掉该字段及其后的所有字段。
+        var result = JsonParse.ParseStreamingJson("""{"path":"a\usepackage{x}b","n":1}""");
+        Assert.Equal(@"a\usepackage{x}b", result.Str("path"));
+        Assert.Equal(1, result.Num("n"));
+    }
+
+    [Fact]
+    public void ValidUnicodeEscapeStillDecodes()
+    {
+        var result = JsonParse.ParseStreamingJson("""{"path":"a\u4e2db"}""");
+        Assert.Equal("a中b", result.Str("path"));
+    }
 }

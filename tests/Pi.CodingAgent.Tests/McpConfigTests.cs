@@ -79,6 +79,29 @@ public class McpConfigTests : IDisposable
     }
 
     [Fact]
+    public void Load_AcceptsFileWithUtf8Bom()
+    {
+        // 上游 #11191：Windows PowerShell 5.1 重写 mcp.json 时会写入 UTF-8 BOM，
+        // 带 BOM 的文件曾导致整个配置解析失败、所有 server 被跳过。
+        var dir = NewTempDir();
+        var path = Path.Combine(dir, "mcp.json");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(path, """
+        { "mcpServers": { "filesystem": { "command": "npx" } } }
+        """, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+        var bytes = File.ReadAllBytes(path);
+        Assert.Equal([0xEF, 0xBB, 0xBF], bytes.Take(3)); // 前提：文件确实以 BOM 开头
+
+        var config = McpConfig.Load(dir, dir, projectTrusted: false);
+
+        Assert.Empty(config.Errors);
+        var server = Assert.Single(config.Servers);
+        Assert.Equal("filesystem", server.Name);
+        Assert.Equal("npx", server.Config.Command);
+    }
+
+    [Fact]
     public void Load_ProjectOverride_KeepsGlobalFieldsAndMarksOverride()
     {
         var dir = NewTempDir();

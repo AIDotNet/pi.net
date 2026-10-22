@@ -16,6 +16,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Utils;
 
 namespace Pi.CodingAgent.Extensions.Mcp;
 
@@ -187,7 +188,9 @@ public static class McpConfig
         JsonObject parsed;
         try
         {
-            var node = JsonNode.Parse(File.ReadAllText(path));
+            // 显式剥离 UTF-8 BOM：Windows PowerShell 5.1 重写 mcp.json 时会加上 BOM，
+            // 上游为此在 1.4.0 修复（#11191）；.NET 的 ReadAllText 通常已剥离，这里保证一致。
+            var node = JsonNode.Parse(Text.StripBom(File.ReadAllText(path)));
             parsed = node as JsonObject
                 ?? throw new NotAnObjectException();
         }
@@ -282,7 +285,7 @@ public static class McpConfig
     /// </summary>
     private static void EditMcpServers(string path, Func<JsonObject?, JsonObject, bool> edit)
     {
-        var text = File.Exists(path) ? File.ReadAllText(path) : null;
+        var text = File.Exists(path) ? Text.StripBom(File.ReadAllText(path)) : null;
         JsonObject parsed;
         if (text is null)
         {

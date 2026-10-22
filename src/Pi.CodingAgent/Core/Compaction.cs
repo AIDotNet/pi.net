@@ -441,13 +441,14 @@ public static class Compaction
     }
 
     private static SimpleStreamOptions CreateSummarizationOptions(
-        ModelSpec model, long maxTokens, string? apiKey,
+        ModelSpec model, string? apiKey,
         IReadOnlyDictionary<string, string?>? headers, IReadOnlyDictionary<string, string>? env,
         CancellationToken? signal, string? thinkingLevel, string? sessionId)
     {
+        // 不设 MaxTokens：摘要请求与普通回合一样由 provider 层按实际请求与模型输出上限定尺寸。
+        // 原先按 reserveTokens 折算的上限会在思考占用大部分输出预算时让摘要直接撞 token 上限（上游 #9512）。
         var options = new SimpleStreamOptions
         {
-            MaxTokens = maxTokens > int.MaxValue ? int.MaxValue : (int)maxTokens,
             Signal = signal ?? default,
             ApiKey = apiKey,
             Headers = headers,
@@ -523,9 +524,8 @@ public static class Compaction
         RetryCallbacks? callbacks = null,
         string? sessionId = null)
     {
-        var maxTokens = Math.Min(
-            (long)Math.Floor(0.8 * reserveTokens),
-            model.MaxTokens > 0 ? model.MaxTokens : long.MaxValue);
+        // reserveTokens 仅用于判定「何时开始压缩」，不再折算摘要的输出上限（上游 #9512）。
+        _ = reserveTokens;
 
         var basePrompt = previousSummary is not null ? UpdateSummarizationPrompt : SummarizationPrompt;
         if (customInstructions is not null)
@@ -546,7 +546,7 @@ public static class Compaction
         promptText += basePrompt;
 
         var completionOptions = CreateSummarizationOptions(
-            model, maxTokens, apiKey, headers, env, signal.CanBeCanceled ? signal : null, thinkingLevel, sessionId);
+            model, apiKey, headers, env, signal.CanBeCanceled ? signal : null, thinkingLevel, sessionId);
 
         var response = await CompleteSummarizationAsync(
             model,
@@ -940,10 +940,8 @@ public static class Compaction
         RetryCallbacks? callbacks,
         string? sessionId)
     {
-        // 回合前缀用更小的预算。
-        var maxTokens = Math.Min(
-            (long)Math.Floor(0.5 * reserveTokens),
-            model.MaxTokens > 0 ? model.MaxTokens : long.MaxValue);
+        // 回合前缀不再使用折算预算，与主摘要一致由 provider 层定尺寸（上游 #9512）。
+        _ = reserveTokens;
         var llmMessages = AgentMessages.ConvertToLlm(messages);
         var conversationText = CompactionUtils.SerializeConversation(llmMessages);
         var promptText = $"# Conversation\n{conversationText}\n\n# Instructions\n{TurnPrefixSummarizationPrompt}";
@@ -952,7 +950,7 @@ public static class Compaction
             model,
             BuildSummarizationContext(promptText),
             CreateSummarizationOptions(
-                model, maxTokens, apiKey, headers, env, signal.CanBeCanceled ? signal : null, thinkingLevel, sessionId),
+                model, apiKey, headers, env, signal.CanBeCanceled ? signal : null, thinkingLevel, sessionId),
             streamFn,
             retry,
             callbacks,
