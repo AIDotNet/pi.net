@@ -80,13 +80,20 @@ jobs:
         run: |
           set -uo pipefail
           for attempt in 1 2; do
-            if dotnet test Pi.slnx -c Release --no-build -m:1; then
+            dotnet test Pi.slnx -c Release --no-build -m:1 2>&1 | tee test.log
+            status="${PIPESTATUS[0]}"
+            if [[ "${status}" -eq 0 ]]; then
               exit 0
             fi
             if [[ "${attempt}" -eq 1 ]]; then
               echo "::warning::测试失败，重跑一次以排除已知负载敏感 flake"
             fi
           done
+          # 两次都失败说明不是 flake：把失败用例提升为 annotation 便于直接定位。
+          grep -E "(失败|failed) +Pi\." test.log | head -12 | while IFS= read -r line; do
+            echo "::error title=test::${line}"
+          done
+          tail -50 test.log
           echo "::error::测试连续两次失败"
           exit 1
 
