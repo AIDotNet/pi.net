@@ -24,6 +24,8 @@
     <None Include="editor-corpus.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Differential test vectors captured from the TypeScript Markdown component reference implementation. -->
     <None Include="markdown-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Inline token vectors captured from marked@18.0.11 + marked-cjk-friendly@0.1.2 (em/strong flanking). -->
+    <None Include="markdown-cjk-corpus.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Differential test vectors captured from the TypeScript alt-screen-search.ts reference implementation. -->
     <None Include="alt-screen-search-corpus.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Differential test vectors captured from the TypeScript settings-list/image/mouse-region/alt-screen-flash reference implementations. -->

@@ -100,7 +100,11 @@ internal sealed record InlineStyleContext(Func<string, string> ApplyText, string
 /// </remarks>
 public sealed class Markdown : IComponent
 {
-    private static readonly MarkedOptions ParserOptions = new() { Extensions = MarkedLatexExtensions.Create() };
+    private static readonly MarkedOptions ParserOptions = new()
+    {
+        Extensions = MarkedLatexExtensions.Create(),
+        CjkFriendlyEmphasis = true,
+    };
 
     private static readonly Regex ClosingFenceMarkerRegex = new(@"^(`{3,}|~{3,})");
 

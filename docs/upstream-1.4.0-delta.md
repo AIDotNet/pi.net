@@ -97,7 +97,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 变更 | 版本 | 影响 | 结论 |
 | --- | --- | --- | --- |
 | 未闭合 `$$` 不再吞掉 Markdown 表格 | 1.4.0 #11159 | 流式输出时表格消失 | 本次移植 |
-| CJK 标点相邻的粗体/斜体渲染（`marked-cjk-friendly`） | 1.4.0 #10730 | 中文排版可见缺陷 | 待办（见 §6） |
+| CJK 标点相邻的粗体/斜体渲染（`marked-cjk-friendly`） | 1.4.0 #10730 | 中文排版可见缺陷 | 本次移植（第二十三批，见 §6.h） |
 | Rex 终端支持（OSC 8 / truecolor / 内联图） | 1.4.0 | 终端能力探测 | 待办 |
 | 退出时终端模式未复原、重复对话框、主题 schema 校验等 | 1.2.0–1.4.0 | 多为 TUI 细节修复 | 待办 |
 | `showHardwareCursor` 语义变化 | 1.2.0 | 光标绘制 | 待办 |
@@ -178,7 +178,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
-| `Pi.Tui.Tests` | 23878 / 23878 通过 |
+| `Pi.Tui.Tests` | 23881 / 23881 通过（第二十三批新增 3 例 CJK 强调：1 例 40 向量的内联 token 语料、
+  2 例上游渲染断言） |
 
 说明：两例时序敏感的偶发已确认与改动无交集，隔离运行均通过——
 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）与
@@ -230,7 +231,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
 3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
 4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`--model` provider 选择策略统一~~（第二十一批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
-5. ~~ai：System One 分类器图像输入~~（第二十二批）→ tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
+5. ~~ai：System One 分类器图像输入~~（第二十二批）→ ~~tui：CJK 强调（先补语料生成脚本）~~（第二十三批）
+   → tui：Rex 终端、`showHardwareCursor`、OSC 7501 与其余 TUI 细节。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -951,3 +953,73 @@ provider 的提示词前缀缓存随之失效。
 `messageType == "user"` 且 `prompt` 为原文；随后 `SendCustomMessageAsync(..., TriggerTurn = true)`
 得到 `messageType == "custom"`、`Message.CustomType` 相符，且该自定义消息就是本轮起始消息。
 `ExtensionRunnerTests` / `McpExtensionTests` 的三处调用改成传 trigger。
+
+### 6.h 第二十三批（TUI：CJK 标点相邻的粗体/斜体）落地明细
+
+对应上游 `packages/tui/src/components/markdown.ts` 的两行加上一个新依赖（1.4.0 / #10730，修 #10154）：
+
+```ts
+import markedCjkFriendly from "marked-cjk-friendly";           // 0.1.2
+markdownParser.use({ tokenizer: { emStrong: markedCjkFriendly().tokenizer?.emStrong } });
+```
+
+**问题**
+
+CommonMark 用「前后是不是标点/空白」判定分隔符能否开合。中文的句读几乎全是 Unicode 标点
+（`。` `P*`、`：` `P*`、`「」` `Ps/Pe`），而紧跟其后的汉字是 `Lo`（字母类，不是标点也不是空白），
+所以 `**这是测试。**后面` 的收尾 run 落在「前是标点、后是字母」——按规范既不是左邻接也不是右邻接，
+em/strong 不成立，整段按字面渲染。这是中文界面上最常见的排版形态，属于肉眼可见的破版。
+
+**落地**
+
+- `Pi.Tui.Marked.MarkedCjk`（新）：包的 CJK 区间表（34 BMP + 30 星平面）作为唯一真源，
+  `PunctuationCjk`、`EmStrongRDelimAst`、`EmStrongRDelimUnd` 三条正则由它拼出，
+  `IsPrevCharCjk` / `IsCjkAdjacentToDelimiter` 两个逐码点判定走 `Rune`。
+- `MarkedOptions.CjkFriendlyEmphasis`（默认 `false`）：`MarkedTokenizer.EmStrong` 据此分发到
+  `EmStrongCjk`。`Markdown.ParserOptions` 打开它；CodingAgent 的 Mermaid 解析器不打开——上游
+  `mermaid.ts` 用的也是裸 `new Marked()`，两边仍是「一个装、一个不装」。
+- 只换 `emStrong`。`del` 依旧是 `StrictStrikethroughTokenizer` 的严格正则：`markdown.ts` 的
+  `setOptions({ tokenizer })` 在 `use()` 之前就把整个 tokenizer 换掉了，扩展提供的 `del` 从未生效
+  （`MarkedTokenizer.Del` 的注释早有这条结论）。
+
+**算法差异**（相对 marked 自带 `emStrong`，四处）
+
+1. 开合判断合并成一条：`nextChar` 为空 / `previous` 为空 / `previous` 是标点 / `previous` 是 CJK /
+   `nextChar` 是 CJK，任一成立才进入收尾扫描（原版是「`g1||g3` 且 `previous` 非标点就放弃」）。
+2. 收尾扫描换 CJK 规则集：`*` 用 GFM 变体（保留 `(?!~)` 守卫），`_` 用不带守卫的版本。
+3. `left-only` 的 run 只有**不贴 CJK** 时才累加进开启总数；贴 CJK 一律按 "both" 处理，于是
+   「前是标点、后是汉字」的 run 也能收尾 —— 这是本条修复的核心。
+4. "both" 的 run 若 `previous` 与开启符同字符（`**` 前面紧挨 `*`），直接 `break` 结束扫描，
+   不再折进开启计数。
+
+**语料**
+
+`tools/gen-tui-cjk-corpus.mjs` 驱动真实的 `marked@18.0.11` + `marked-cjk-friendly@0.1.2`
+（临时工作区 `tools/_cjkws`，随 `tools/` 一起 gitignore），对 40 条输入各跑两遍：装覆盖（`cjk`）
+与不装（`plain`），比对内联 token 树。`plain` 那一半专门钉「非 CJK 文本仍按 CommonMark 不闭合」
+（`**end.**Then next`）。生成命令：
+
+```
+node tools/gen-tui-cjk-corpus.mjs > tests/Pi.Tui.Tests/markdown-cjk-corpus.json
+```
+
+没有重建整份 `markdown-corpus.json`：那 4,990 条是整条渲染管线（chalk 样式链、换行、内边距）的输出，
+生成它的 harness 不在仓库里；本轮改的是 tokenizer 层，拿两个真实库的内联 token 树对照更贴近问题、
+也不必复刻渲染栈。渲染这一侧只复刻上游 `markdown.test.ts:1658` 的 6 条断言（主题打印 `<b>`/`<i>`）。
+
+**坑**
+
+- 参考实现必须照抄 `markdown.ts` 的安装顺序：先 `setOptions({ tokenizer: strict })` 再
+  `use({ tokenizer: { emStrong } })`。漏了 strict 那步时，`~~删除。~~后面` 的参考值会按 marked 自带
+  的 flanking 版 `del` 变成字面量，而端口是严格正则 → 语料对不上。这是本轮唯一一次「参考实现与端口
+  不同构」导致的失败，排查要点就是先确认参考实现装了哪些覆盖。
+- 星平面码点进不了 .NET 字符类（详见 `docs/tui-porting-status.md` 的 T32）：正则只用 BMP 区间，
+  逐码点判定用 `Rune` 全表覆盖。
+- 别把语料条数写死：手列输入时数错成 41，实际 40，第一次跑就挂在计数断言上；改成
+  `Assert.Equal(cases.GetArrayLength(), compared)`。
+
+**验证**
+
+构建 0 警告 0 错误；`Pi.Tui.Tests` 23881 / 23881（新增 3 例），`Pi.CodingAgent.Tests` 5020 / 5020。
+既有的 4,990 条 markdown 差分向量全绿 —— 覆盖里本来就含 CJK/emoji 输入，说明这条覆盖没有把
+「非歧义的中文强调」改坏。

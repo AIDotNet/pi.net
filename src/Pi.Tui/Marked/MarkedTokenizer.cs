@@ -16,6 +16,13 @@ public sealed class MarkedOptions
     /// <c>components/markdown.ts</c> installs the latex extensions here.
     /// </summary>
     public MarkedExtensions? Extensions { get; set; }
+
+    /// <summary>
+    /// Install the <c>marked-cjk-friendly</c> em/strong tokenizer (see <see cref="MarkedCjk"/>).
+    /// <c>components/markdown.ts</c> turns this on; the Mermaid component's parser leaves it off,
+    /// exactly like the two parsers upstream.
+    /// </summary>
+    public bool CjkFriendlyEmphasis { get; set; }
 }
 
 /// <summary>
@@ -830,8 +837,18 @@ public sealed class MarkedTokenizer
         return BuildLinkToken(match.Groups[1].Value, definition.Href, definition.Title ?? "", match.Value);
     }
 
+    /// <summary>
+    /// Em/strong. With <see cref="MarkedOptions.CjkFriendlyEmphasis"/> this is the
+    /// <c>marked-cjk-friendly</c> override (what <c>components/markdown.ts</c> installs); otherwise it
+    /// is marked's own delimiter-run search.
+    /// </summary>
     public MarkedToken? EmStrong(string src, string masked, string previous = "")
     {
+        if (Options.CjkFriendlyEmphasis)
+        {
+            return EmStrongCjk(src, masked, previous);
+        }
+
         var match = Rules.Inline.EmStrongLDelim.Match(src);
         if (!match.Success)
         {
@@ -891,6 +908,126 @@ public sealed class MarkedTokenizer
                 skipped += runLength;
                 rightMatch = rightMatch.NextMatch();
                 continue;
+            }
+
+            open -= runLength;
+            if (open > 0)
+            {
+                rightMatch = rightMatch.NextMatch();
+                continue;
+            }
+
+            runLength = Math.Min(runLength, runLength + open + skipped);
+            var firstCharLength = MarkedText.FirstCodePointLength(rightMatch.Value);
+            var whole = JsString.Slice(src, 0, length + rightMatch.Index + firstCharLength + runLength);
+            if (Math.Min(length, runLength) % 2 != 0)
+            {
+                var inner = JsString.Slice(whole, 1, -1);
+                return new MarkedToken
+                {
+                    Type = "em",
+                    Raw = whole,
+                    Text = inner,
+                    Tokens = Lexer.InlineTokens(inner, []),
+                };
+            }
+
+            var strongInner = JsString.Slice(whole, 2, -2);
+            return new MarkedToken
+            {
+                Type = "strong",
+                Raw = whole,
+                Text = strongInner,
+                Tokens = Lexer.InlineTokens(strongInner, []),
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The <c>marked-cjk-friendly</c> em/strong search (see <see cref="MarkedCjk"/>).
+    /// </summary>
+    /// <remarks>
+    /// Four differences from marked's own search: CJK characters next to a run count as punctuation
+    /// when deciding flanking; the right-run scan uses the CJK rule sets; a left-only run that touches
+    /// CJK is treated as "both" so it can close; and a "both" run whose preceding character is the
+    /// same delimiter ends the scan instead of being folded into the opening count.
+    /// </remarks>
+    private MarkedToken? EmStrongCjk(string src, string masked, string previous)
+    {
+        var match = Rules.Inline.EmStrongLDelim.Match(src);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var g1 = match.Groups[1].Value;
+        var g2 = match.Groups[2].Value;
+        var g3 = match.Groups[3].Value;
+        var g4 = match.Groups[4].Value;
+        if (g1.Length == 0 && g2.Length == 0 && g3.Length == 0 && g4.Length == 0)
+        {
+            return null;
+        }
+
+        if (g4.Length > 0 && Rules.Other.UnicodeAlphaNumeric.IsMatch(previous))
+        {
+            return null;
+        }
+
+        var nextChar = g1.Length > 0 ? g1 : g3;
+        var previousIsCjk = MarkedCjk.IsPrevCharCjk(previous, masked, src);
+        if (nextChar.Length > 0 && previous.Length > 0 && !Rules.Inline.Punctuation.IsMatch(previous) &&
+            !previousIsCjk && !MarkedCjk.IsCjk(nextChar))
+        {
+            return null;
+        }
+
+        var length = JsString.CodePointLength(match.Value) - 1;
+        var open = length;
+        var skipped = 0;
+        var search = JsString.Slice(masked, length - src.Length);
+        var right = match.Value[0] == '*'
+            ? MarkedCjk.EmStrongRDelimAst
+            : MarkedCjk.EmStrongRDelimUnd;
+        var previousIsSameDelimiter = previous.Length > 0 && previous == match.Value[..1];
+
+        var rightMatch = right.Match(search);
+        while (rightMatch.Success)
+        {
+            var run = FirstGroup(rightMatch, 1, 2, 3, 4, 5, 6);
+            if (run.Length == 0)
+            {
+                rightMatch = rightMatch.NextMatch();
+                continue;
+            }
+
+            var runLength = JsString.CodePointLength(run);
+            var cjkAdjacent = MarkedCjk.IsCjkAdjacentToDelimiter(rightMatch, search);
+            var leftOnly = rightMatch.Groups[3].Value.Length > 0 || rightMatch.Groups[4].Value.Length > 0;
+            var both = rightMatch.Groups[5].Value.Length > 0 || rightMatch.Groups[6].Value.Length > 0;
+
+            if (leftOnly && !cjkAdjacent)
+            {
+                open += runLength;
+                rightMatch = rightMatch.NextMatch();
+                continue;
+            }
+
+            if (both || cjkAdjacent)
+            {
+                if (length % 3 != 0 && (length + runLength) % 3 == 0)
+                {
+                    skipped += runLength;
+                    rightMatch = rightMatch.NextMatch();
+                    continue;
+                }
+
+                if (previousIsSameDelimiter && both)
+                {
+                    break;
+                }
             }
 
             open -= runLength;
