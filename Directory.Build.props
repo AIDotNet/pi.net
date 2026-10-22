@@ -45,8 +45,13 @@
     <None Include="$(MSBuildThisFileDirectory)readme.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
-  <!-- SourceLink: lets consumers step into Pi sources from a .snupkg. -->
+  <!--
+    SourceLink: lets consumers step into Pi sources from a .snupkg.
+    必须是 10.0.111 / 10.0.303 / 10.0.4xx 这类已修复版本：8.0.0 与 10.0.1xx/2xx/3xx 早期版本
+    通过 Microsoft.Build.Tasks.Git 命中 CVE-2026-62900（GHSA-23fw-v26w-5fgq），
+    而本仓库 TreatWarningsAsErrors 会把 NU1902 升级成 error，导致 restore 直接失败。
+  -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.401" PrivateAssets="all" />
   </ItemGroup>
 </Project>
