@@ -39,7 +39,12 @@ env:
 jobs:
   publish:
     name: Pack and push
-    runs-on: ubuntu-latest
+    # 用 windows-latest 与本地验证环境保持一致：Content 里的 Assets\**\* 用的是反斜杠，
+    # 首次发布不想在路径差异上冒险。发布频率低，平台成本可以忽略。
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 45
     steps:
       - name: Checkout
