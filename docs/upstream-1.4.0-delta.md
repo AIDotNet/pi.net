@@ -100,7 +100,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | CJK 标点相邻的粗体/斜体渲染（`marked-cjk-friendly`） | 1.4.0 #10730 | 中文排版可见缺陷 | 本次移植（第二十三批，见 §6.h） |
 | Rex 终端支持（OSC 8 / truecolor / 内联图） | 1.4.0 | 终端能力探测 | 本次移植（第二十四批，见 §6.g） |
 | 退出时终端模式未复原、重复对话框、主题 schema 校验等 | 1.2.0–1.4.0 | 多为 TUI 细节修复 | 待办 |
-| `showHardwareCursor` 语义变化 | 1.2.0 | 光标绘制 | 待办 |
+| `showHardwareCursor` 语义变化 | 1.2.0 | 光标绘制 | 本次移植（第二十六批，见 §6.e） |
 
 ### 3.5 其他包
 
@@ -179,8 +179,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
-| `Pi.Tui.Tests` | 23895 / 23895 通过（第二十三批 +3 CJK 强调、第二十四批 +1 Rex/Herdr、
-  第二十五批 +13 程序状态协议） |
+| `Pi.Tui.Tests` | 23901 / 23901 通过（第二十六批 +6 假光标、第二十三批 +3 CJK 强调、
+  第二十四批 +1 Rex/Herdr、第二十五批 +13 程序状态协议） |
 
 说明：两例时序敏感的偶发已确认与改动无交集，隔离运行均通过——
 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）与
@@ -234,7 +234,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`--model` provider 选择策略统一~~（第二十一批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 5. ~~ai：System One 分类器图像输入~~（第二十二批）→ ~~tui：CJK 强调（先补语料生成脚本）~~（第二十三批）
    → ~~tui：Rex / Herdr 终端探测~~（第二十四批）→ ~~tui + coding-agent：OSC 7501 程序状态~~（第二十五批）
-   → tui：`showHardwareCursor` 假光标、其余 TUI 细节。
+   → ~~tui：`showHardwareCursor` 假光标~~（第二十六批）→ tui：其余 TUI 细节。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1112,3 +1112,53 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 2048 字节按码点截断（4 字节与 3 字节两种边界）、`IsReply` 的 8 条正反例、三个枚举的线上拼写。
 `ProgramStatusReporterTests`（9 例）：启动 idle、运行 working + 会话名 → settled done、错误首行与重试
 覆盖、中止回 idle、压缩文案与运行内/外分支、阻塞优先级与替换/清理、去重与 reset、无关事件不重报。
+
+### 6.e 第二十六批（`showHardwareCursor` 假光标）落地明细
+
+上游 `1cedd3272`（1.2.0）的动机：把「光标那一格」的绘制权从组件收回到渲染器。此前
+`Editor` / `Input` 直接写 `ESC[7m…ESC[0m`，`showHardwareCursor` 打开时只能靠终端把硬件光标叠在
+同一格上；而某些终端（边缘单元格颜色会渗进窗口 padding）会让这一格的反显被拉长到行尾。改成
+「组件只标记、渲染器决定」之后，硬件光标模式下渲染器直接**丢掉**聚焦那一格的反显。
+
+**端口落点**（`src/Pi.Tui/Tui.cs`）
+
+- `Tui.FakeCursorStart = "\x1b_pi:fc\x07"` / `Tui.FakeCursorEnd = "\x1b_pi:/fc\x07"` /
+  `Tui.RenderFakeCursor(text)`，与 `CursorMarker` 并列导出的零宽 APC 标记。
+- `TuiBase.ResolveFakeCursors(string[])`：逐行短路（不含起始标记就原样返回）；`_showHardwareCursor`
+  为真时先用 `FocusedFakeCursorRegex` 把 `CURSOR_MARKER + START + text + END` 折叠成
+  `CURSOR_MARKER + text`（末尾被截断时 `END` 缺失也能匹配），再把 START/END 换成
+  `\x1b[7m`/`\x1b[27m`。无 `CURSOR_MARKER` 的（未聚焦）假光标保持可见——与上游一致。
+- 三个渲染入口各包一次：`TuiMainScreen` 的 `newLines`、`TuiAltScreen` 的 `DoRender` 屏幕行与
+  `ExitAltScreen` 时的 `_lastDocument`、`TuiBase.CompositeOverlays` 里每个 overlay 的渲染结果。
+  位置刻意与上游一致：都在 OSC 133 前缀剥离之后、搜索高亮/选择高亮/overlay 合成之前，
+  只让后续逻辑看到普通 SGR。
+
+**组件侧**
+
+- `Editor.Render` 两处光标（行内字素 / 行尾补空格）改 `RenderFakeCursor(...)`。
+- `Input.Render` 两处（占位符首字符 / 正文字符）改 `RenderFakeCursor(...)`。
+- `TextLayout.ExtractSegments` 补上上游 `utils.ts` 的那条例外：在 overlay 右边界处，
+  `\x1b_` 开头的零宽 APC 即使 `afterStarted` 还没置位也收进 `after`，这样 overlay 正好结束在
+  光标左侧时 `CURSOR_MARKER` 不丢（`KeepsTheCursorWhenAnOverlayEndsDirectlyLeftOfIt` 两种模式都钉住）。
+
+**偏差与代价（T33）**
+
+- 组件输出从「内联 SGR」变成「标记」，因此**所有内嵌 Input/Editor 渲染的语料**都会失配。
+  这批语料（`editor` / `input` / `extra-components` / `alt-screen-search`）的生成器不在仓库里
+  （配方在 `docs/tui-porting-status.md`，`gen.mjs` 未入库），无法按新源码重录，改由测试侧
+  `LegacyCursorEncoding.Resolve` 把标记形式还原成录制时的字节再比对。对 `Input` 及其派生组件
+  （设置列表、搜索框）这一步是**无损**的：`ResolveFakeCursors` 产出的正是 `\x1b[7m`/`\x1b[27m`。
+- 唯一有损的是 `Editor`：它的光标格以前以 `\x1b[0m`（全重置）收尾，现在是 `\x1b[27m`（只关反显），
+  这是上游刻意的改动，`LegacyCursorEncoding` 用 `EditorLegacyEnd` 单独映射掉，并在测试注释里点明。
+- 上游 `tui-alt-screen.test.ts` 的「选择高亮跨过假光标」用例没有逐字移植：端口没有 SGR 鼠标注入的
+  测试基建。等价保障是 `AltScreenResolvesFakeCursorsBeforeCompositing`（屏幕行里只有 `7m/27m`、
+  没有 `\x1b_pi:`）+ `ApplySelectionHighlight` 在每条 SGR 之后重新补 `\x1b[7m` 的既有实现。
+- 后续修正 `21d1dcd4d` 一并跟上：`LoginDialogTests.RenderDialog` 先剥 APC 再 `StripAnsi`
+  （`stripAnsi` 不管 APC，不剥的话 `> value` 的整行比较会失配）。
+
+**测试**
+
+`FakeCursorTests`（6 例）：聚焦 Input 画反显、硬件光标模式下丢反显且不泄漏标记、未聚焦 Input 在
+硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
+固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
+5029 / 5029 全绿。

@@ -70,9 +70,19 @@ public sealed class LoginDialogComponentTests : SelectorTestFixture
         string? titleOverride = null) =>
         new(new FakeTui(), providerId, onComplete ?? ((_, _) => { }), providerNameOverride, titleOverride);
 
-    /// <summary>TS <c>renderDialog</c>: strip ANSI, trim trailing whitespace on every line.</summary>
+    /// <summary>
+    /// TS <c>renderDialog</c>: <c>stripAnsi</c> keeps APC sequences, so the TUI's zero-width cursor
+    /// markers (<c>\x1b_pi:fc\x07</c>) are dropped first, then ANSI, then trailing whitespace.
+    /// </summary>
     private static string[] RenderDialog(LoginDialogComponent dialog) =>
-        [.. RenderLines(dialog, 120).Select(line => line.TrimEnd())];
+    [
+        .. ((IComponent)dialog).Render(120)
+            .Select(line => AnsiText.StripAnsi(ZeroWidthMarker.Replace(line, "")).TrimEnd()),
+    ];
+
+    /// <summary>APC sequences like <c>\x1b_pi:c\x07</c> and <c>\x1b_pi:fc\x07</c>.</summary>
+    private static readonly System.Text.RegularExpressions.Regex ZeroWidthMarker =
+        new(@"\x1b_[^\x07]*\x07", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     private static int CountRenderedValue(string[] lines, string value) =>
         lines.Count(line => line.Trim() == $"> {value}");

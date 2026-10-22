@@ -579,7 +579,9 @@ public class EditorCorpusTests
             case "render":
             {
                 var width = op[1].GetInt32();
-                observation["R"] = new JsonArray([.. editor.Render(width).Select(line => (JsonNode?)JsonValue.Create(line))]);
+                // T33: the corpus predates the fake cursor markers (see LegacyCursorEncoding).
+                var lines = LegacyCursorEncoding.Resolve(editor.Render(width), LegacyCursorEncoding.EditorLegacyEnd);
+                observation["R"] = new JsonArray([.. lines.Select(line => (JsonNode?)JsonValue.Create(line))]);
                 break;
             }
             case "mouse":

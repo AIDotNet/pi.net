@@ -309,7 +309,7 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
         else
         {
             var width = Math.Max(1, Terminal.Columns);
-            var documentLines = Render(width).Select(line => Osc133ZonePrefix.Replace(line, "")).ToArray();
+            var documentLines = ResolveFakeCursors(Render(width)).Select(line => Osc133ZonePrefix.Replace(line, "")).ToArray();
             _lastDocument = ApplyLineResets(documentLines.Select(line => line.Replace(Tui.CursorMarker, "", StringComparison.Ordinal)).ToArray())
                 .Select(line => TerminalImage.IsImageLine(line) || UnicodeWidth.VisibleWidth(line) <= width
                     ? line
@@ -2081,7 +2081,8 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
         {
             nextLayout = Layout.RenderLayoutFrame(root, width, height, () => RequestRender());
         }
-        var screen = nextLayout.Lines.Select(line => Osc133ZonePrefix.Replace(line, "")).ToArray();
+        // Resolve fake cursors before highlighting and compositing, which only track SGR codes
+        var screen = ResolveFakeCursors(nextLayout.Lines.Select(line => Osc133ZonePrefix.Replace(line, "")).ToArray());
         screen = ApplySearchHighlights(screen, nextLayout);
         screen = CompositeScrollToEndIndicator(screen, nextLayout, width);
         screen = CompositeOverlays(screen, width, height);

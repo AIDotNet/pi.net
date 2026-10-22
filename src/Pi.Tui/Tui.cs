@@ -1080,7 +1080,7 @@ public abstract partial class TuiBase : Container, ITui
             var initialLayout = ResolveOverlayLayoutFull(entry.Options, 0, termWidth, termHeight);
             var width = initialLayout.Width;
             var maxHeight = initialLayout.MaxHeight;
-            var overlayLines = entry.Component.Render(width);
+            var overlayLines = ResolveFakeCursors(entry.Component.Render(width));
             if (maxHeight is { } mh && overlayLines.Length > mh)
             {
                 overlayLines = overlayLines.Take(mh).ToArray();
@@ -1238,6 +1238,41 @@ public abstract partial class TuiBase : Container, ITui
             lines[i] = Ansi.NormalizeTerminalOutput(lines[i]) + Tui.SegmentReset;
         }
         return lines;
+    }
+
+    /// <summary>
+    /// (1) <c>CURSOR_MARKER</c> + <c>FAKE_CURSOR_START</c> + (2) text + <c>FAKE_CURSOR_END</c>.
+    /// Truncating the line right after the cursor cell drops the end marker, which is why the group
+    /// may run to the end of the line.
+    /// </summary>
+    [GeneratedRegex(@"(\x1b_pi:c\x07)\x1b_pi:fc\x07(.*?)(?:\x1b_pi:/fc\x07|\z)", RegexOptions.Singleline)]
+    private static partial Regex FocusedFakeCursorRegex();
+
+    /// <summary>
+    /// Resolve fake cursor markers to reverse video. When the hardware cursor is shown, a fake cursor
+    /// directly after <see cref="Tui.CursorMarker"/> is dropped because the terminal cursor is drawn
+    /// there. Fake cursors of components without focus have no marker and stay visible.
+    /// </summary>
+    protected string[] ResolveFakeCursors(string[] lines)
+    {
+        var resolved = new string[lines.Length];
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            if (!line.Contains(Tui.FakeCursorStart, StringComparison.Ordinal))
+            {
+                resolved[i] = line;
+                continue;
+            }
+            if (_showHardwareCursor)
+            {
+                line = FocusedFakeCursorRegex().Replace(line, "$1$2");
+            }
+            resolved[i] = line
+                .Replace(Tui.FakeCursorStart, "\x1b[7m", StringComparison.Ordinal)
+                .Replace(Tui.FakeCursorEnd, "\x1b[27m", StringComparison.Ordinal);
+        }
+        return resolved;
     }
 
     protected (int Row, int Col)? ExtractCursorPosition(string[] lines, int height)
@@ -1788,8 +1823,21 @@ public static class Tui
 {
     public const string CursorMarker = "\x1b_pi:c\x07";
 
+    /// <summary>
+    /// Zero-width APC markers around the text a component draws as the cursor. They stay unresolved
+    /// in the component output so the renderer can decide how to draw them - see
+    /// <see cref="TuiBase.ResolveFakeCursors"/>.
+    /// </summary>
+    public const string FakeCursorStart = "\x1b_pi:fc\x07";
+
+    /// <inheritdoc cref="FakeCursorStart"/>
+    public const string FakeCursorEnd = "\x1b_pi:/fc\x07";
+
     /// <summary>Segment reset: SGR reset plus OSC 8 hyperlink close.</summary>
     public const string SegmentReset = "\x1b[0m\x1b]8;;\x07";
+
+    /// <summary>Wrap text in fake cursor markers.</summary>
+    public static string RenderFakeCursor(string text) => FakeCursorStart + text + FakeCursorEnd;
 
     /// <summary>Type guard for <see cref="IFocusable"/>.</summary>
     public static bool IsFocusable(IComponent? component) => component is IFocusable;

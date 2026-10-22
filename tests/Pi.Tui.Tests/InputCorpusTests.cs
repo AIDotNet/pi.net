@@ -175,7 +175,8 @@ public class InputCorpusTests
         input.Cursor = entry.C;
         input.Focused = entry.F != 0;
 
-        var lines = input.Render(entry.W);
+        // T33: the corpus predates the fake cursor markers (see LegacyCursorEncoding).
+        var lines = LegacyCursorEncoding.Resolve(input.Render(entry.W));
 
         Assert.Equal(entry.Lines, lines);
         Assert.Equal(entry.Start, input.RenderedStartColumn);

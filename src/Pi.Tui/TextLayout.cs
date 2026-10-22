@@ -675,8 +675,12 @@ public static class TextLayout
                 {
                     pendingAnsiBefore.Append(code.Code);
                 }
-                else if (currentCol >= afterStart && currentCol < afterEnd && afterStarted)
+                else if (currentCol >= afterStart && currentCol < afterEnd &&
+                         (afterStarted || code.Code.StartsWith("\x1b_", StringComparison.Ordinal)))
                 {
+                    // SGR codes are only included after "after" started (styling already prepended).
+                    // Zero-width APC markers like CURSOR_MARKER are not tracked styling, so keep them
+                    // at the boundary too.
                     after.Append(code.Code);
                 }
                 i += code.Length;

@@ -278,7 +278,8 @@ public class ExtraComponentsCorpusTests
                 case "render":
                 {
                     var width = op.GetProperty("width").GetInt32();
-                    var lines = list!.Render(width);
+                    // T33: the corpus predates the fake cursor markers (see LegacyCursorEncoding).
+                    var lines = LegacyCursorEncoding.Resolve(list!.Render(width));
                     var expected = expectedSteps[stepIndex];
                     Assert.Equal("render", expected.GetProperty("op").GetString());
                     Assert.Equal(width, expected.GetProperty("width").GetInt32());

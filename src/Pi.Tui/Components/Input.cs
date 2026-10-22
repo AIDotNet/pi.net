@@ -542,7 +542,7 @@ public class Input : IComponent, IFocusable
             var atCursor = UnicodeWidth.FirstGrapheme(placeholder) ?? " ";
             var afterCursor = JsString.Slice(placeholder, atCursor.Length);
             var marker = Focused ? Tui.CursorMarker : "";
-            var cursorChar = $"\x1b[7m{_placeholderStyle(atCursor)}\x1b[27m";
+            var cursorChar = Tui.RenderFakeCursor(_placeholderStyle(atCursor));
             var textWithCursor = marker + cursorChar + _placeholderStyle(afterCursor);
             var padding = new string(' ', Math.Max(0, availableWidth - UnicodeWidth.VisibleWidth(textWithCursor)));
             return new[] { _prompt + textWithCursor + padding };
@@ -609,8 +609,8 @@ public class Input : IComponent, IFocusable
         // Hardware cursor marker (zero-width, emitted before fake cursor for IME positioning)
         var cursorMarker = Focused ? Tui.CursorMarker : "";
 
-        // Use inverse video to show cursor
-        var cursorChar2 = $"\x1b[7m{at}\x1b[27m"; // ESC[7m = reverse video, ESC[27m = normal
+        // The TUI draws the fake cursor in reverse video, or omits it when the hardware cursor is shown
+        var cursorChar2 = Tui.RenderFakeCursor(at);
         var textWithFakeCursor = before + cursorMarker + cursorChar2 + after;
 
         // Calculate visual width

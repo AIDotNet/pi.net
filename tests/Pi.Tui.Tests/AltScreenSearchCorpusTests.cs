@@ -207,7 +207,8 @@ public class AltScreenSearchCorpusTests
         component.SetResult(state.GetProperty("resultIndex").GetInt32(), state.GetProperty("resultCount").GetInt32());
         component.SetHoveredNavigationDirection(IntOrNull(state.GetProperty("hover")));
 
-        Assert.Equal(Lines(vector), component.Render(width).ToList());
+        // T33: the corpus predates the fake cursor markers (see LegacyCursorEncoding).
+        Assert.Equal(Lines(vector), LegacyCursorEncoding.Resolve(component.Render(width)).ToList());
 
         var expectedDirs = vector.GetProperty("dirs").EnumerateArray().Select(IntOrNull).ToList();
         var actualDirs = new List<int?>();
@@ -247,7 +248,9 @@ public class AltScreenSearchCorpusTests
             component.HandleInput(state.GetProperty("input").GetString() ?? "");
             component.SetResult(state.GetProperty("resultIndex").GetInt32(), state.GetProperty("resultCount").GetInt32());
             component.SetHoveredNavigationDirection(IntOrNull(state.GetProperty("hover")));
-            Assert.Equal(Lines(vector), component.Render(vector.GetProperty("width").GetInt32()).ToList());
+            Assert.Equal(
+                Lines(vector),
+                LegacyCursorEncoding.Resolve(component.Render(vector.GetProperty("width").GetInt32())).ToList());
         }
     }
 
@@ -262,7 +265,9 @@ public class AltScreenSearchCorpusTests
         {
             var component = new AltScreenSearchComponent(_ => { });
             component.Focused = vector.GetProperty("value").GetBoolean();
-            Assert.Equal(Lines(vector), component.Render(vector.GetProperty("width").GetInt32()).ToList());
+            Assert.Equal(
+                Lines(vector),
+                LegacyCursorEncoding.Resolve(component.Render(vector.GetProperty("width").GetInt32())).ToList());
         }
     }
 

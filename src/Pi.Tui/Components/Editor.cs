@@ -837,13 +837,13 @@ public class Editor : IEditorComponent, IFocusable
                     // so a cursor at the start of a merged marker highlights the whole marker.
                     var firstGrapheme = Segment(after, SegmentMode.Grapheme).FirstOrDefault().Segment ?? "";
                     var restAfter = JsString.Slice(after, firstGrapheme.Length);
-                    var cursor = $"\x1b[7m{firstGrapheme}\x1b[0m";
+                    var cursor = Pi.Tui.Tui.RenderFakeCursor(firstGrapheme);
                     displayText = before + marker + cursor + restAfter;
                 }
                 else
                 {
                     // Cursor is at the end - add a highlighted space.
-                    var cursor = "\x1b[7m \x1b[0m";
+                    var cursor = Pi.Tui.Tui.RenderFakeCursor(" ");
                     displayText = before + marker + cursor;
                     lineVisibleWidth += 1;
                     if (lineVisibleWidth > contentWidth && paddingX > 0)

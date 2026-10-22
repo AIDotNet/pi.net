@@ -901,7 +901,7 @@ public sealed class SettingsSelectorComponent : Container
         {
             Id = "show-hardware-cursor",
             Label = "Show hardware cursor",
-            Description = "Show the terminal cursor while still positioning it for IME support",
+            Description = "Use the terminal cursor instead of Pi's drawn cursor",
             CurrentValue = config.ShowHardwareCursor ? "true" : "false",
             Values = ["true", "false"],
         });

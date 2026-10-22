@@ -254,7 +254,8 @@ public sealed class TuiMainScreen : TuiBase
             return targetScreenRow - currentScreenRow;
         }
 
-        var newLines = Render(width);
+        // Resolve fake cursors before compositing so overlays and line slicing see plain SGR codes
+        var newLines = ResolveFakeCursors(Render(width));
 
         if (HasOverlayEntries)
         {
