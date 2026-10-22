@@ -103,7 +103,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 进程直接退出时未复原终端模式（#11170） | 1.4.0 | 退出后终端留在鼠标/粘贴模式 | 本次移植（第二十七批，见 §6.d） |
 | 聚焦 overlay 时未处理的滚轮应滚动转写（#10769） | 1.4.0 | 滚轮被塞给 overlay 的 `handleInput` | 本次移植（第二十七批，见 §6.d） |
 | 延迟到达的终端回复被当成按键（#10256 / #10657） | 1.4.0 | OSC 的 BEL 变成 Ctrl+G | 本次移植（第二十七批，见 §6.d） |
-| 重复对话框、主题 schema 校验等其余零碎修复 | 1.2.0–1.4.0 | 待逐条核对 | 待办 |
+| 发布配置文件 JSON Schema（settings / models / theme / keybindings） | 1.3.0–1.4.0 `7f9e1198f` / `96abe9a5a` | 编辑器校验与补全；内置主题的 `$schema` 指向发布地址 | 本次移植（第二十八批，见 §6.c） |
+| Kitty / modifyOtherKeys 的移位符号键位归一化（`+` = Shift+`=`） | 1.4.0 `7f9e1198f` | `ctrl++` 这类绑定匹配不上 | 本次移植（第二十八批，见 §6.c） |
+| 并发扩展对话框应堆叠而非互相替换（#11166 / #9909） | 1.4.0 `38847563f` | 第二个对话框顶掉第一个且其 Promise 永不 settle | 本次移植（第二十九批，见 §6.b） |
+| `ctx.ui.custom({overlay:true})` 的 `done()` 关掉的是栈顶 overlay（#10648） | 1.3.0 `a4f67eb65` | 下层 overlay 结束时抹掉上层，两边 Promise 都没人收 | 本次移植（第二十九批，见 §6.b） |
 | `showHardwareCursor` 语义变化 | 1.2.0 | 光标绘制 | 本次移植（第二十六批，见 §6.e） |
 
 ### 3.5 其他包
@@ -175,17 +178,18 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 500 / 500 通过（第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5029 / 5029 通过（第二十五批新增 9 例状态上报器；第二十二批新增 1 例
-  「provider 级 `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
+| `Pi.CodingAgent.Tests` | 5042 / 5042 通过（第二十九批新增 5 例对话框栈 / overlay 归属；第二十八批
+  新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
+  `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 459 / 459 通过（第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
-| `Pi.Tui.Tests` | 23929 / 23929 通过（第二十七批 +28：23 例 stdin 回复串、3 例退出复原、1 例滚轮
-  路由、1 例 fd 转义；第二十六批 +6 假光标、第二十三批 +3 CJK 强调、第二十四批 +1 Rex/Herdr、
-  第二十五批 +13 程序状态协议） |
+| `Pi.Tui.Tests` | 23931 / 23931 通过（第二十八批 +2：1 例移位符号键位、1 例畸形键位 id；第二十七批
+  +28：23 例 stdin 回复串、3 例退出复原、1 例滚轮路由、1 例 fd 转义；第二十六批 +6 假光标、
+  第二十三批 +3 CJK 强调、第二十四批 +1 Rex/Herdr、第二十五批 +13 程序状态协议） |
 
 说明：两例时序敏感的偶发已确认与改动无交集，隔离运行均通过——
 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）与
@@ -240,7 +244,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 5. ~~ai：System One 分类器图像输入~~（第二十二批）→ ~~tui：CJK 强调（先补语料生成脚本）~~（第二十三批）
    → ~~tui：Rex / Herdr 终端探测~~（第二十四批）→ ~~tui + coding-agent：OSC 7501 程序状态~~（第二十五批）
    → ~~tui：`showHardwareCursor` 假光标~~（第二十六批）→ ~~tui：fd 转义 / 退出复原 / 滚轮路由 /
-   stdin 回复串~~（第二十七批）→ tui：其余 TUI 细节（重复对话框、主题 schema 校验）。
+   stdin 回复串~~（第二十七批）→ ~~coding-agent：配置文件 JSON Schema 产物、Kitty 移位符号键位~~
+   （第二十八批）→ ~~coding-agent：并发扩展对话框堆叠（`38847563f`）、overlay 归属修复（`a4f67eb65`）~~
+   （第二十九批）→ durable 1.3.0–1.4.0 剩余文件（sleeping state、crash-loop guard、IndexedDB、search、
+   images 等 169 个）。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1108,7 +1115,8 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 - 去重按「线上可见字段」做键（等价于上游的 `JSON.stringify` 比较）；`SetBlocked(source, …)` 后写
   覆盖先写，与上游那个有序 `Map` 一致。
 - 接线：启动后 `Report()`、事件分发最前面 `HandleEvent(event)`、`RebindCurrentSessionAsync` 里
-  `Reset()`、三个扩展对话框（选择/输入/编辑器）用一次性 key 包住 `setBlocked`、登录流程按
+  `Reset()`、扩展对话框（选择/确认/输入/编辑器）统一用 `extension-dialog` 这一个 source 上报
+  「栈顶」的阻塞态（第二十九批改成对话框栈后与上游一致；此前三个对话框各用一次性 key）、登录流程按
   `{kind:"auth", message:"Log in to <provider>"}` 标阻塞（`LoginProviderAsync` 因此多收一个
   `providerName`）。自定义组件的对话框不上报——上游那一处 `pushExtensionDialog(c)` 也没传 blocked。
 
@@ -1168,6 +1176,99 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.b 第二十九批（扩展对话框栈 + overlay 归属）落地明细
+
+两个都在 `showExtensionSelector` / `showExtensionInput` / `showExtensionEditor` /
+`showExtensionCustom` 这一片，合批处理。
+
+**① 并发扩展对话框改为栈**（`38847563f`，#11166 / #9909）
+
+- 原来三个字段 `_extensionSelector` / `_extensionInput` / `_extensionEditor` 各管一种对话框，
+  后开的直接顶掉前一个：前一个的 Promise 永远不 settle，而且关闭时无条件把编辑器塞回容器。
+- 改为 `_extensionDialogs`（`List<ExtensionDialogEntry>`，条目是
+  `record(Component, Blocked)`，`[^1]` 即可见的那个）+ 三个方法：
+  `PushExtensionDialog`（先 `DisposeActiveSelector()`，再入栈、刷栈顶）、
+  `RemoveExtensionDialog`（按引用找到后移除，只有移除的是栈顶才刷）、
+  `ShowTopExtensionDialog`（把栈顶或编辑器装进编辑器容器、交焦点、按**栈顶**上报
+  `extension-dialog` 的阻塞态、请求重绘）。四个 show 方法各自收敛成「建组件 → 一次
+  `Finish(value)`（释放注册、释组件、出栈、完成 Promise）→ 入栈 → await」。
+- `ResetExtensionUI` 改成「逐个释放库存对话框 → 清空 → 刷栈顶」，不再依赖各 Hide 方法。
+- C# 侧两处细节：①闭包不能引用**后**声明的局部，所以组件变量先声明为可空、构造后再赋值；
+  ②取消注册可能在组件挂载**之前**触发（另一线程 `Cancel()`），挂载后补一个
+  `completion.Task.IsCompleted` 分支把刚入栈的对话框摘掉，避免留在屏幕上。
+- 「阻塞态」的 source 从「每个对话框一个 `extension-dialog:N`」收敛成单一的 `extension-dialog`，
+  只由 `ShowTopExtensionDialog` 写——与上游一致，也顺带修掉了原来 `ResetExtensionUI` 直接藏对话框、
+  却不曾清掉那个 key 的泄漏。
+
+**② `ctx.ui.custom({overlay:true})` 只关自己的 overlay**（`a4f67eb65`，#10648 / #10999）
+
+- `Close()` 原来调 `_ui.HideOverlay()`，那是「移除栈顶」：下层 overlay 结束时会把上层一起抹掉，
+  上层对话框的 Promise 就此无解。
+- 改为 `overlayHandle?.Hide()`：句柄在 `ShowOverlay` 之后立刻保存，同一个包装也交给
+  `options.OnHandle`，所以外层拿到的和内部关闭的是同一个对象。
+
+**测试**（`InteractiveModeTests` +5）
+
+`ConcurrentConfirmsStackAndRestoreTheEarlierDialog`（后开的挡在前面、关掉后露出前一个、最后回到编辑器）、
+`AbortingAHiddenDialogRemovesItAndLeavesTheVisibleOne`（信号取消的是**隐藏**的那个，栈顶不受影响）、
+`ConcurrentInlineCustomComponentsStack`（两个内联自定义组件，按后进先出各自 settle）、
+`ConfirmOpenedFromAnInlineCustomComponentRestoresTheComponent`（自定义组件里再开确认框，关掉后回到组件本体）、
+`ClosingALowerOverlayHidesItsOwnOverlayNotTheTopmost`（两个 overlay，关下层后上层仍聚焦、
+`UiForTests.HasOverlay()` 仍为真）。最后这条做过反向验证：把 `overlayHandle?.Hide()` 换回
+`_ui.HideOverlay()` 时它以 `Assert.False()` 变红。
+
+**与上游差异**：上游测试用 Proxy 伪造 `this`（`InteractiveMode.prototype.showExtensionCustom.call(fakeThis, …)`
+配 VirtualTerminal 的 viewport 断言）；端口是真实 `InteractiveMode` + `StringTerminal`，所以断言换成
+「编辑器容器的栈顶组件渲染文本」+ `OverlayHandle.IsFocused()` / `UiForTests.HasOverlay()`，
+覆盖同一批行为。
+
+### 6.c 第二十八批（配置文件 JSON Schema + 移位符号键位归一化）落地明细
+
+上游 `7f9e1198f`（#9880，1.4.0）把四个配置文件的 schema 从 TS 源码生成并发布到 pi.dev，
+`96abe9a5a`（#10751）再把地址统一到 `https://pi.dev/schemas/`。端口取其中与「用户可见产物」
+有关的两块，运行期那套 TypeBox 重构没有对应物。
+
+**① 四份 schema 产物**
+
+- `Assets/schemas/{settings,models,theme,keybindings}.schema.json` 从 v1.4.0 逐字节复制，
+  `$id` 仍是 `https://pi.dev/schemas/<name>.schema.json`、draft 为 2020-12。
+  csproj 里按 `Assets/theme` 同样的方式登记：进构建输出、随 NuGet 作为 `contentFiles` 分发，
+  用户可以拿本地路径引用，也可以直接指向发布地址（与上游文档一致）。
+- 内置主题 `Assets/theme/{dark,light}.json` 的 `$schema` 从 `raw.githubusercontent.com/.../
+  theme-schema.json` 改为 `https://pi.dev/schemas/theme.schema.json`（`96abe9a5a` 原文）。
+- 示例 `Assets/examples/extensions/dynamic-resources/dynamic.json` 同步同一地址。
+- 文档同步四篇：`settings.md` 顶部加 `"$schema"` 一行、`themes.md` 两处链接换成发布地址、
+  `keybindings.md` / `models.md` 的示例块补 `$schema` 键。
+- `ConfigurationSchemaTests`（8 例）钉住产物一致性：四份文件都在、`$id` 与 draft 正确、内置主题的
+  `$schema` 指向发布地址、**theme schema 的 51 个必需色与 56 个已描述色和两套内置主题完全对齐**
+  （任何一侧漂移都会红）、settings schema 覆盖 `outputPad` / `showHardwareCursor` / `terminal` 等
+  键、keybindings schema 枚举了各批次落地的动作 id 且仍允许 `additionalProperties`。
+
+**② 移位符号键位归一化**（同一提交里的 `fix(tui): normalize shifted symbol keybindings`）
+
+- Kitty 把 `+` 报成「Shift + 物理 `=` 键」（`CSI 61:43;2u`），并把产生的符号放在 shifted-key 位。
+  上游新增 `SHIFTED_SYMBOL_KEYS` 与 `getLogicalShiftedSymbolCandidate`：命中时**吃掉隐含的 Shift**、
+  保留 Ctrl/Alt/Super，于是 `matchesKey(…, "+")` 与 `matchesKey(…, "ctrl++")` 都成立，而
+  `shift+=` 这种物理写法仍走原来的直接匹配。端口照抄进 `Keys.cs`
+  （`ShiftedSymbolKeys` / `GetLogicalShiftedSymbolCandidate`），三处接入：
+  `MatchesKittySequence`（物理匹配不中时再试逻辑匹配，之后才 `if (actualMod != expectedMod) return false`）、
+  `ParseKey` 的两条分支（Kitty 与 modifyOtherKeys）、以及 `MatchesKey` 的可打印兜底
+  （未带修饰键时也要试 `MatchesPrintableModifyOtherKeys(data, cp, 0)`）。
+- `MatchesPrintableModifyOtherKeys` 去掉了 `expectedModifier == 0` 的早退——否则裸 `+` 永远匹配不上
+  modifyOtherKeys 形式；Shift 的消耗改用 `SHIFTED_SYMBOL_KEYS`（不含 `` ` `` `-` `=` `[` `]` 等
+  无需 Shift 的符号），避免把 `shift+=` 误判成 `=`。
+- `ParseKeyId` 重写：按 `shift → alt → ctrl → super` 的固定顺序**逐段**消费前缀，重复前缀或
+  残留 `+`（除裸 `+` 本身）一律判无效。旧实现 `split("+")` 取最后一段，`ctrl++` 因此被读成
+  「key 为空」而直接丢弃。测试：
+  `MatchesKey_NormalizesShiftedSymbolKeybindings`（Kitty 与 modifyOtherKeys 两条路径）、
+  `MatchesKey_RejectsMalformedKeyIds`（重复修饰符、残留 `+`、空 id、裸 `+` 仍可用）。
+
+**与上游的差异**：schemas 在端口里是**静态产物**，没有 `scripts/generate-schemas.ts` 的对应物——
+生成器读的是 TS 源码里的 TypeBox 定义，端口没有那层定义，重新生成只能手写。
+运行期校验（`settings-schema.ts` / `theme-schema.ts` / `keybindings-schema.ts` 的 `Compile`）
+也没有移植：端口继续在各自的加载器里校验，`SettingsManager` 的 getter 兜底坏值——见 §6.z 的
+既有说明。schema 与实现的偏差靠 `ConfigurationSchemaTests` 兜，不靠运行期。
 
 ### 6.d 第二十七批（TUI 零碎修复：fd 转义 / 退出复原 / 滚轮路由 / 回复串）落地明细
 

@@ -22,6 +22,7 @@ using Pi.Ai.Stream;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
+using Pi.CodingAgent.Core.Extensions.Types;
 using Pi.CodingAgent.Modes.Interactive;
 using Pi.CodingAgent.Modes.Interactive.Components;
 using Pi.CodingAgent.Utils;
@@ -828,6 +829,114 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         mode.ExtensionSelectorForTests!.HandleInput("\x1b");
         Assert.False(await cancelledPending);
     }
+
+    // Regression for #11166: a second dialog replaced the first one, and the first promise never settled.
+    [Fact]
+    public async Task ConcurrentConfirmsStackAndRestoreTheEarlierDialog()
+    {
+        var mode = await CreateModeAsync();
+
+        var first = mode.ShowExtensionConfirmAsync("First", "first dialog");
+        var second = mode.ShowExtensionConfirmAsync("Second", "second dialog");
+
+        // The later dialog is on top and is the only one on screen.
+        Assert.Contains("Second", RenderTopDialog(mode), StringComparison.Ordinal);
+        Assert.DoesNotContain("First", RenderTopDialog(mode), StringComparison.Ordinal);
+
+        mode.ExtensionSelectorForTests!.HandleInput("\x1b");
+        Assert.False(await second);
+
+        // Closing the top dialog reveals the earlier one instead of falling back to the editor.
+        Assert.Contains("First", RenderTopDialog(mode), StringComparison.Ordinal);
+        Assert.NotSame(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+
+        mode.ExtensionSelectorForTests!.HandleInput("\r");
+        Assert.True(await first);
+        Assert.Same(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+    }
+
+    [Fact]
+    public async Task AbortingAHiddenDialogRemovesItAndLeavesTheVisibleOne()
+    {
+        var mode = await CreateModeAsync();
+        using var cts = new CancellationTokenSource();
+
+        var first = mode.ShowExtensionConfirmAsync("First", "first dialog", new ExtensionUIDialogOptions { Signal = cts.Token });
+        var second = mode.ShowExtensionConfirmAsync("Second", "second dialog");
+
+        cts.Cancel();
+
+        Assert.False(await first);
+        Assert.Contains("Second", RenderTopDialog(mode), StringComparison.Ordinal);
+
+        mode.ExtensionSelectorForTests!.HandleInput("\r");
+        Assert.True(await second);
+        Assert.Same(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+    }
+
+    // Regression for #9909: a second inline custom component replaced the first one, and the first
+    // promise never settled.
+    [Fact]
+    public async Task ConcurrentInlineCustomComponentsStack()
+    {
+        var mode = await CreateModeAsync();
+        var dones = new List<Action<string>>();
+
+        Task<string> Open(string label) => mode.ShowExtensionCustomAsync<string>((_, _, _, complete) =>
+        {
+            dones.Add(complete);
+            var component = new Container();
+            component.AddChild(new Pi.Tui.Components.Text(label, 1, 0));
+            return Task.FromResult<IComponent>(component);
+        });
+
+        var first = Open("custom one");
+        var second = Open("custom two");
+
+        await WaitUntilAsync(() => dones.Count == 2, "concurrent custom components never opened");
+        await WaitUntilAsync(
+            () => RenderTopDialog(mode).Contains("custom two", StringComparison.Ordinal),
+            "second custom component never mounted");
+
+        dones[1]("two");
+        Assert.Equal("two", await second);
+        Assert.Contains("custom one", RenderTopDialog(mode), StringComparison.Ordinal);
+
+        dones[0]("one");
+        Assert.Equal("one", await first);
+        Assert.Same(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+    }
+
+    [Fact]
+    public async Task ConfirmOpenedFromAnInlineCustomComponentRestoresTheComponent()
+    {
+        var mode = await CreateModeAsync();
+        Action<string>? done = null;
+
+        var custom = mode.ShowExtensionCustomAsync<string>((_, _, _, complete) =>
+        {
+            done = complete;
+            var component = new Container();
+            component.AddChild(new Pi.Tui.Components.Text("custom form", 1, 0));
+            return Task.FromResult<IComponent>(component);
+        });
+        await WaitUntilAsync(
+            () => RenderTopDialog(mode).Contains("custom form", StringComparison.Ordinal),
+            "custom form never mounted");
+
+        // A confirm opened from the custom component goes on top of it.
+        var confirmed = mode.ShowExtensionConfirmAsync("Discard?", "discard changes");
+        Assert.Contains("Discard?", RenderTopDialog(mode), StringComparison.Ordinal);
+
+        mode.ExtensionSelectorForTests!.HandleInput("\x1b");
+        Assert.False(await confirmed);
+        Assert.Contains("custom form", RenderTopDialog(mode), StringComparison.Ordinal);
+
+        done!("kept");
+        Assert.Equal("kept", await custom);
+        Assert.Same(mode.EditorForTests, mode.EditorContainerChildrenForTests[0]);
+    }
+
 
     [Fact]
     public async Task PreAbortedSignalResolvesTheInputImmediately()
@@ -2402,6 +2511,50 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
     // 4f-4m-6：扩展自产组件（TS showExtensionCustom L2946-3010）
     // ==================================================================
 
+    // Regression for #10648: closing a lower overlay used to remove the topmost overlay instead,
+    // leaving the finished one on screen and the dialog above it unresolved.
+    [Fact]
+    public async Task ClosingALowerOverlayHidesItsOwnOverlayNotTheTopmost()
+    {
+        var mode = await CreateModeAsync();
+        OverlayHandle? lower = null;
+        OverlayHandle? upper = null;
+        Action<string> closeLower = _ => { };
+        Action<string> closeUpper = _ => { };
+
+        var lowerTask = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, complete) =>
+            {
+                closeLower = complete;
+                return Task.FromResult<IComponent>(new Pi.Tui.Components.Text("LOWER", 1, 0));
+            },
+            new ExtensionCustomOptions { Overlay = true, OnHandle = handle => lower = handle });
+        await WaitUntilAsync(() => lower is not null, "lower overlay never opened");
+
+        var upperTask = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, complete) =>
+            {
+                closeUpper = complete;
+                return Task.FromResult<IComponent>(new Pi.Tui.Components.Text("UPPER", 1, 0));
+            },
+            new ExtensionCustomOptions { Overlay = true, OnHandle = handle => upper = handle });
+        await WaitUntilAsync(() => upper is not null, "upper overlay never opened");
+
+        Assert.True(upper!.IsFocused());
+
+        closeLower("lower closed");
+        Assert.Equal("lower closed", await lowerTask);
+
+        // Only the lower overlay went away: the upper one keeps focus and stays on screen.
+        Assert.False(lower!.IsFocused());
+        Assert.True(upper.IsFocused());
+        Assert.True(mode.UiForTests.HasOverlay());
+
+        closeUpper("upper closed");
+        Assert.Equal("upper closed", await upperTask);
+        Assert.False(mode.UiForTests.HasOverlay());
+    }
+
     [Fact]
     public async Task ShowExtensionCustomAsync_MountsTheComponentAndResolvesOnDone()
     {
@@ -2452,4 +2605,8 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
 
     private static string RenderChat(InteractiveMode mode, int width) =>
         string.Join("\n", mode.ChatChildrenForTests.Select(child => string.Join("\n", child.Render(width))));
+
+    /// <summary>The visible extension dialog (the editor slot holds exactly one component).</summary>
+    private static string RenderTopDialog(InteractiveMode mode) =>
+        AnsiText.StripAnsi(string.Join("\n", mode.EditorContainerChildrenForTests[^1].Render(80)));
 }

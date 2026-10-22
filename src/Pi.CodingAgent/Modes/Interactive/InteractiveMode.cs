@@ -188,9 +188,9 @@ public partial class InteractiveMode
     private bool _installChangeWarningShown;
 
     // Extension UI state
-    private ExtensionSelectorComponent? _extensionSelector;
-    private ExtensionInputComponent? _extensionInput;
-    private ExtensionEditorComponent? _extensionEditor;
+    // Extension dialogs shown in the editor slot (select, confirm, input, editor, inline custom).
+    // The last entry is visible; see PushExtensionDialog.
+    private readonly List<ExtensionDialogEntry> _extensionDialogs = [];
     private readonly HashSet<TerminalInputSubscription> _extensionTerminalInputSubscriptions = [];
 
     // Extension widgets (components rendered above/below the editor)
@@ -278,7 +278,8 @@ public partial class InteractiveMode
     internal IReadOnlyList<IComponent> StatusContainerChildrenForTests => _statusContainer.GetChildrenSnapshot();
     internal IReadOnlyList<IComponent> WidgetContainerAboveChildrenForTests => _widgetContainerAbove.GetChildrenSnapshot();
     internal IReadOnlyList<IComponent> WidgetContainerBelowChildrenForTests => _widgetContainerBelow.GetChildrenSnapshot();
-    internal ExtensionSelectorComponent? ExtensionSelectorForTests => _extensionSelector;
+    internal ExtensionSelectorComponent? ExtensionSelectorForTests =>
+        _extensionDialogs.Count > 0 ? _extensionDialogs[^1].Component as ExtensionSelectorComponent : null;
     internal FooterDataProvider FooterDataProviderForTests => _footerDataProvider;
 
     /// <summary>Test seam: the registered autocomplete wrapper factories.</summary>
@@ -1022,6 +1023,56 @@ public partial class InteractiveMode
 
     // ---------------------------------------------------------------- extension dialogs (L2681-2854)
 
+    /// <summary>A dialog occupying the editor slot. <see cref="_extensionDialogs"/>[^1] is visible.</summary>
+    private sealed record ExtensionDialogEntry(IComponent Component, BlockedStatus? Blocked);
+
+    /// <summary>
+    /// Show an extension dialog in the editor slot.
+    /// Dialogs form a stack: a new dialog hides the visible one, and closing the visible dialog shows
+    /// the previous one again. Every dialog stays answerable, so no dialog promise is left pending,
+    /// and dialogs opened from inside another dialog (a confirm from a custom component) work.
+    /// TS <c>pushExtensionDialog</c>.
+    /// </summary>
+    private void PushExtensionDialog(IComponent component, BlockedStatus? blocked = null)
+    {
+        DisposeActiveSelector();
+        _extensionDialogs.Add(new ExtensionDialogEntry(component, blocked));
+        ShowTopExtensionDialog();
+    }
+
+    /// <summary>
+    /// Remove an extension dialog. If it was the visible one, the previous dialog (or the editor)
+    /// takes its place. TS <c>removeExtensionDialog</c>.
+    /// </summary>
+    private void RemoveExtensionDialog(IComponent component)
+    {
+        var index = _extensionDialogs.FindIndex(dialog => ReferenceEquals(dialog.Component, component));
+        if (index < 0)
+        {
+            return;
+        }
+        _extensionDialogs.RemoveAt(index);
+        if (index == _extensionDialogs.Count)
+        {
+            ShowTopExtensionDialog();
+        }
+    }
+
+    private void ShowTopExtensionDialog()
+    {
+        var top = _extensionDialogs.Count > 0 ? _extensionDialogs[^1] : null;
+        var component = top?.Component ?? _editor;
+        _editorContainer.Clear();
+        _editorContainer.AddChild(component);
+        _ui.SetFocus(component);
+        // The visible dialog blocks the program: terminals that support OSC 7501 show that state.
+        _programStatus.SetBlocked(ExtensionDialogBlockedKey, top?.Blocked);
+        _ui.RequestRender();
+    }
+
+    /// <summary>Key used for <see cref="ProgramStatusReporter.SetBlocked"/>; only the top dialog reports.</summary>
+    private const string ExtensionDialogBlockedKey = "extension-dialog";
+
     internal async Task<string?> ShowExtensionSelectorAsync(string title, IReadOnlyList<string> options, ExtensionUIDialogOptions? opts = null)
     {
         var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1031,31 +1082,30 @@ public partial class InteractiveMode
             return await completion.Task.ConfigureAwait(true);
         }
 
+        ExtensionSelectorComponent? selector = null;
         CancellationTokenRegistration abortRegistration = default;
-        if (opts?.Signal is { } signal)
+
+        void Finish(string? option)
         {
-            abortRegistration = signal.Register(() =>
+            abortRegistration.Dispose();
+            if (selector is not null)
             {
-                HideExtensionSelector();
-                completion.TrySetResult(null);
-            });
+                DisposeWidget(selector);
+                RemoveExtensionDialog(selector);
+            }
+            completion.TrySetResult(option);
         }
 
-        _extensionSelector = new ExtensionSelectorComponent(
+        if (opts?.Signal is { } signal)
+        {
+            abortRegistration = signal.Register(() => Finish(null));
+        }
+
+        selector = new ExtensionSelectorComponent(
             title,
             options,
-            option =>
-            {
-                abortRegistration.Dispose();
-                HideExtensionSelector();
-                completion.TrySetResult(option);
-            },
-            () =>
-            {
-                abortRegistration.Dispose();
-                HideExtensionSelector();
-                completion.TrySetResult(null);
-            },
+            option => Finish(option),
+            () => Finish(null),
             new ExtensionSelectorOptions
             {
                 Tui = _ui,
@@ -1063,39 +1113,14 @@ public partial class InteractiveMode
                 OnToggleToolsExpanded = ToggleToolOutputExpansion,
             });
 
-        DisposeActiveSelector();
-        _editorContainer.Clear();
-        _editorContainer.AddChild(_extensionSelector);
-        _ui.SetFocus(_extensionSelector);
-        _ui.RequestRender();
-
-        // The visible dialog blocks the program: terminals that support OSC 7501 show that state.
-        var blockedKey = NextExtensionDialogKey();
-        _programStatus.SetBlocked(blockedKey, new BlockedStatus(ProgramStatusKind.Question, title));
-        try
+        PushExtensionDialog(selector, new BlockedStatus(ProgramStatusKind.Question, title));
+        if (completion.Task.IsCompleted)
         {
-            return await completion.Task.ConfigureAwait(true);
+            // The abort signal fired before the dialog was mounted.
+            DisposeWidget(selector);
+            RemoveExtensionDialog(selector);
         }
-        finally
-        {
-            _programStatus.SetBlocked(blockedKey, null);
-        }
-    }
-
-    private int _extensionDialogSequence;
-
-    private string NextExtensionDialogKey() =>
-        $"extension-dialog:{Interlocked.Increment(ref _extensionDialogSequence)}";
-
-    /// <summary>Hide the extension selector.</summary>
-    internal void HideExtensionSelector()
-    {
-        DisposeWidget(_extensionSelector!);
-        _editorContainer.Clear();
-        _editorContainer.AddChild(_editor);
-        _extensionSelector = null;
-        _ui.SetFocus(_editor);
-        _ui.RequestRender();
+        return await completion.Task.ConfigureAwait(true);
     }
 
     /// <summary>Show a confirmation dialog for extensions.</summary>
@@ -1117,114 +1142,72 @@ public partial class InteractiveMode
             return await completion.Task.ConfigureAwait(true);
         }
 
+        ExtensionInputComponent? input = null;
         CancellationTokenRegistration abortRegistration = default;
-        if (opts?.Signal is { } signal)
+
+        void Finish(string? value)
         {
-            abortRegistration = signal.Register(() =>
+            abortRegistration.Dispose();
+            if (input is not null)
             {
-                HideExtensionInput();
-                completion.TrySetResult(null);
-            });
+                DisposeWidget(input);
+                RemoveExtensionDialog(input);
+            }
+            completion.TrySetResult(value);
         }
 
-        _extensionInput = new ExtensionInputComponent(
+        if (opts?.Signal is { } signal)
+        {
+            abortRegistration = signal.Register(() => Finish(null));
+        }
+
+        input = new ExtensionInputComponent(
             title,
             placeholder,
-            value =>
-            {
-                abortRegistration.Dispose();
-                HideExtensionInput();
-                completion.TrySetResult(value);
-            },
-            () =>
-            {
-                abortRegistration.Dispose();
-                HideExtensionInput();
-                completion.TrySetResult(null);
-            },
+            value => Finish(value),
+            () => Finish(null),
             new ExtensionInputOptions
             {
                 Tui = _ui,
                 Timeout = opts?.TimeoutMs,
             });
 
-        DisposeActiveSelector();
-        _editorContainer.Clear();
-        _editorContainer.AddChild(_extensionInput);
-        _ui.SetFocus(_extensionInput);
-        _ui.RequestRender();
-
-        var blockedKey = NextExtensionDialogKey();
-        _programStatus.SetBlocked(blockedKey, new BlockedStatus(ProgramStatusKind.Question, title));
-        try
+        PushExtensionDialog(input, new BlockedStatus(ProgramStatusKind.Question, title));
+        if (completion.Task.IsCompleted)
         {
-            return await completion.Task.ConfigureAwait(true);
+            DisposeWidget(input);
+            RemoveExtensionDialog(input);
         }
-        finally
-        {
-            _programStatus.SetBlocked(blockedKey, null);
-        }
-    }
-
-    /// <summary>Hide the extension input.</summary>
-    private void HideExtensionInput()
-    {
-        DisposeWidget(_extensionInput!);
-        _editorContainer.Clear();
-        _editorContainer.AddChild(_editor);
-        _extensionInput = null;
-        _ui.SetFocus(_editor);
-        _ui.RequestRender();
+        return await completion.Task.ConfigureAwait(true);
     }
 
     /// <summary>Show a multi-line editor for extensions (with Ctrl+G support).</summary>
     internal async Task<string?> ShowExtensionEditorAsync(string title, string? prefill = null)
     {
         var completion = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _extensionEditor = new ExtensionEditorComponent(
+        ExtensionEditorComponent? editor = null;
+
+        void Finish(string? value)
+        {
+            if (editor is not null)
+            {
+                RemoveExtensionDialog(editor);
+            }
+            completion.TrySetResult(value);
+        }
+
+        editor = new ExtensionEditorComponent(
             _ui,
             _keybindings,
             title,
             prefill,
-            value =>
-            {
-                HideExtensionEditor();
-                completion.TrySetResult(value);
-            },
-            () =>
-            {
-                HideExtensionEditor();
-                completion.TrySetResult(null);
-            },
+            value => Finish(value),
+            () => Finish(null),
             null,
             SettingsManager.GetExternalEditorCommand());
 
-        DisposeActiveSelector();
-        _editorContainer.Clear();
-        _editorContainer.AddChild(_extensionEditor);
-        _ui.SetFocus(_extensionEditor);
-        _ui.RequestRender();
-
-        var blockedKey = NextExtensionDialogKey();
-        _programStatus.SetBlocked(blockedKey, new BlockedStatus(ProgramStatusKind.Question, title));
-        try
-        {
-            return await completion.Task.ConfigureAwait(true);
-        }
-        finally
-        {
-            _programStatus.SetBlocked(blockedKey, null);
-        }
-    }
-
-    /// <summary>Hide the extension editor.</summary>
-    private void HideExtensionEditor()
-    {
-        _editorContainer.Clear();
-        _editorContainer.AddChild(_editor);
-        _extensionEditor = null;
-        _ui.SetFocus(_editor);
-        _ui.RequestRender();
+        PushExtensionDialog(editor, new BlockedStatus(ProgramStatusKind.Question, title));
+        return await completion.Task.ConfigureAwait(true);
     }
 
     /// <summary>Show a notification for extensions.</summary>
@@ -1260,18 +1243,20 @@ public partial class InteractiveMode
         var savedText = _editor.GetText();
         var isOverlay = options?.Overlay ?? false;
 
-        void RestoreEditor()
-        {
-            _editorContainer.Clear();
-            _editorContainer.AddChild(_editor);
-            _editor.SetText(savedText);
-            _ui.SetFocus(_editor);
-            _ui.RequestRender();
-        }
-
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         var closed = false;
         IComponent? component = null;
+        OverlayHandle? overlayHandle = null;
+
+        void RestoreEditor()
+        {
+            if (component is not null)
+            {
+                RemoveExtensionDialog(component);
+            }
+            _editor.SetText(savedText);
+            _ui.RequestRender();
+        }
 
         void Close(T result)
         {
@@ -1283,7 +1268,8 @@ public partial class InteractiveMode
             closed = true;
             if (isOverlay)
             {
-                _ui.HideOverlay();
+                // Remove this overlay, not the topmost one: another overlay may have opened above it.
+                overlayHandle?.Hide();
             }
             else
             {
@@ -1320,16 +1306,13 @@ public partial class InteractiveMode
                 // Resolve overlay options - TS allows a static value or a factory for dynamic updates.
                 var overlayOptions = options?.OverlayOptions;
                 var handle = _ui.ShowOverlay(component, overlayOptions);
+                overlayHandle = new OverlayHandle(handle);
                 // 把 TUI 的真实句柄交给扩展；overlay 关闭后该句柄的后续调用为空操作。
-                options?.OnHandle?.Invoke(new OverlayHandle(handle));
+                options?.OnHandle?.Invoke(overlayHandle);
             }
             else
             {
-                DisposeActiveSelector();
-                _editorContainer.Clear();
-                _editorContainer.AddChild(component);
-                _ui.SetFocus(component);
-                _ui.RequestRender();
+                PushExtensionDialog(component);
             }
         }
         catch (Exception)
@@ -1477,19 +1460,14 @@ public partial class InteractiveMode
 
     private void ResetExtensionUI()
     {
-        if (_extensionSelector is not null)
+        if (_extensionDialogs.Count > 0)
         {
-            HideExtensionSelector();
-        }
-
-        if (_extensionInput is not null)
-        {
-            HideExtensionInput();
-        }
-
-        if (_extensionEditor is not null)
-        {
-            HideExtensionEditor();
+            foreach (var dialog in _extensionDialogs)
+            {
+                DisposeWidget(dialog.Component);
+            }
+            _extensionDialogs.Clear();
+            ShowTopExtensionDialog();
         }
 
         _ui.HideOverlay();
