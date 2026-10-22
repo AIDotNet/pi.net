@@ -10,6 +10,14 @@ Pi.NET is a .NET 10 port of [Pi](https://github.com/earendil-works/pi). Pi is a 
 
 Pi's philosophy is "make Pi fit your workflow, not the other way around": each library does one minimal-but-complete thing, and you compose the layers above it yourself. This project carries that philosophy over — rather than mechanically translating TS into C#, it rebuilds everything in idiomatic C# with semantic equivalence (discriminated unions → abstract records with pattern matching, JS Proxy → explicit verb APIs).
 
+<p align="center">
+  <a href="https://github.com/xuzeyu91/pi.net/blob/main/docs/media/pi-net-promo.mp4">
+    <img src="https://raw.githubusercontent.com/xuzeyu91/pi.net/main/docs/media/pi-net-promo-poster.png" alt="Pi.NET product promo" width="820">
+  </a>
+  <br>
+  <sub>39-second promo (with voice-over) · click the cover to play (1080p / MP4 / 5.4 MB)</sub>
+</p>
+
 ## What It Does
 
 - **Unified multi-provider LLM API** — 10 built-in API implementations (openai-completions / openai-responses / openai-codex-responses / azure-openai-responses / anthropic-messages / google-generative-ai / google-vertex / mistral-conversations / bedrock-converse-stream / pi-messages) plus a **full catalog of 42 built-in providers**; streaming events, tool calls, thinking budgets, deferred responses, image generation (images) and text classification (classify); OAuth login flows for 9 providers (PKCE / RFC 8628 device code / loopback callback / refresh orchestration).

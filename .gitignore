@@ -32,5 +32,8 @@ full-diff.log
 gen.log
 push.log
 
+# Ad-hoc generated deliverables (articles, exports) that are not part of the package
+/output/
+
 test-*.log
 .eval/

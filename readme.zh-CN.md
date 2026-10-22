@@ -10,6 +10,14 @@ Pi.NET 是 [Pi](https://github.com/earendil-works/pi) 的 .NET 10 移植版。Pi
 
 Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只做最小而完整的事，上层由你自己组合。本项目沿用这一理念——不是把 TS 代码翻成 C# 就完事，而是在语义等价的前提下用 C# 的方式重建（判别联合 → abstract record 模式匹配、JS Proxy → 显式动词 API）。
 
+<p align="center">
+  <a href="https://github.com/xuzeyu91/pi.net/blob/main/docs/media/pi-net-promo.mp4">
+    <img src="https://raw.githubusercontent.com/xuzeyu91/pi.net/main/docs/media/pi-net-promo-poster.png" alt="Pi.NET 产品宣传片" width="820">
+  </a>
+  <br>
+  <sub>39 秒宣传片（带配音） · 点击封面播放（1080p / MP4 / 5.4 MB）</sub>
+</p>
+
 ## 它能做什么
 
 - **统一的多 Provider LLM API**——10 个内建 API 实现（openai-completions / openai-responses / openai-codex-responses / azure-openai-responses / anthropic-messages / google-generative-ai / google-vertex / mistral-conversations / bedrock-converse-stream / pi-messages）+ **42 家内建 provider 全家桶**；流式事件、工具调用、thinking 预算、延后响应（deferred）、图片生成（images）与文本分类（classify）；9 家 provider 的 OAuth 登录流（PKCE / RFC 8628 设备码 / loopback 回调 / 刷新编排）。
