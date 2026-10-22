@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/server: RPC server (session router, transports). -->
+  <PropertyGroup>
+    <Description>RPC server: session router, request dispatch, cancellation, push, and transports including Unix domain sockets and local server discovery.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Pi.Chord\Pi.Chord.csproj" />
     <ProjectReference Include="..\Pi.Protocol\Pi.Protocol.csproj" />

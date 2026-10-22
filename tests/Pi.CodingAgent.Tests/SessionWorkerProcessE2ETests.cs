@@ -216,7 +216,9 @@ public class SessionWorkerProcessE2ETests
     private static string FindCliExecutable()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")))
+        // 仓库根用 Pi.slnx 标记。不能用 Directory.Build.props：tests/ 下也有一个（测试项目的
+        // 共享设置），从中层开始向上找会停在 tests/，随后拼出的 src/Pi.Cli 路径就不存在了。
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Pi.slnx")))
         {
             directory = directory.Parent;
         }

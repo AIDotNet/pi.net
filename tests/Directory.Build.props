@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    MSBuild stops at the nearest Directory.Build.props, so the repo-root one has to be
+    imported explicitly from here.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!--
+      The test projects use xunit.v3 with the Microsoft Testing Platform runner
+      (UseMicrosoftTestingPlatformRunner). Without this switch `dotnet test` falls back to
+      the VSTest path, finds no adapter, and exits 0 without running anything.
+    -->
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+</Project>

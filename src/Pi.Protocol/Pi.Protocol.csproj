@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/protocol: CBOR codec, framing, RPC codec. -->
+  <PropertyGroup>
+    <Description>CBOR wire protocol: framing, codec, and the definite-length strict subset with JS safe-integer boundaries. Wire-compatible with the TypeScript implementation.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Pi.Chord\Pi.Chord.csproj" />
   </ItemGroup>

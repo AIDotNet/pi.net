@@ -2,6 +2,10 @@
 
 [English](readme.md) | [简体中文](readme.zh-CN.md)
 
+[![NuGet](https://img.shields.io/nuget/v/Pi.Ai?label=nuget)](https://www.nuget.org/packages/Pi.Ai)
+[![CI](https://github.com/xuzeyu91/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/xuzeyu91/pi.net/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/xuzeyu91/pi.net)](LICENSE)
+
 Pi.NET is a .NET 10 port of [Pi](https://github.com/earendil-works/pi). Pi is a minimal, extensible Agent harness (TypeScript monorepo, ~171k lines); this project ports its core libraries one by one to `net10.0`, bringing the same capabilities to the .NET ecosystem.
 
 Pi's philosophy is "make Pi fit your workflow, not the other way around": each library does one minimal-but-complete thing, and you compose the layers above it yourself. This project carries that philosophy over — rather than mechanically translating TS into C#, it rebuilds everything in idiomatic C# with semantic equivalence (discriminated unions → abstract records with pattern matching, JS Proxy → explicit verb APIs).
@@ -37,6 +41,21 @@ Pi's philosophy is "make Pi fit your workflow, not the other way around": each l
 The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and documented TypeScript/.NET differences are in [migration-execution-status.md](docs/migration-execution-status.md).
 
 ## Getting Started
+
+### Install from NuGet
+
+All 13 libraries ship to nuget.org under their project names, targeting `net10.0`:
+
+```bash
+dotnet add package Pi.Ai        # unified multi-provider LLM API
+dotnet add package Pi.Agent     # agent loop
+dotnet add package Pi.Mcp       # MCP client
+dotnet add package Pi.CodingAgent   # the whole stack, including the CLI runtime
+```
+
+Package contents, release process and rollback are documented in [docs/publishing.md](docs/publishing.md).
+
+### Build from source
 
 Requires the .NET 10 SDK.
 

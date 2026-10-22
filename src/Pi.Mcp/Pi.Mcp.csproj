@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/mcp: MCP client (jsonrpc, stdio/streamable-http/in-memory transports, OAuth). -->
+  <PropertyGroup>
+    <Description>Model Context Protocol client: JSON-RPC protocol layer, in-memory / stdio / streamable-http transports, and the full OAuth layer (metadata discovery, PKCE, dynamic registration).</Description>
+  </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>

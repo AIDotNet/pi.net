@@ -1,0 +1,170 @@
+name: Publish NuGet packages
+
+# 发布流程：
+#   1. 修改 Directory.Build.props 的 <Version>（以及 CHANGELOG.md）
+#   2. 提交并推送，然后打 tag：git tag v1.0.5 && git push origin v1.0.5
+#   3. 本工作流构建 13 个库项目、打包、推送到 nuget.org、创建 GitHub Release
+#
+# 试跑（不发布）：Actions -> Publish NuGet packages -> Run workflow，保持 dry_run=true。
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号，如 1.0.5（留空则读取 Directory.Build.props 的 <Version>）'
+        required: false
+        default: ''
+      dry_run:
+        description: '只构建打包，不推送到 nuget.org'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nuget-publish
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+jobs:
+  publish:
+    name: Pack and push
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # SourceLink 需要完整历史才能把 commit 写进包元数据。
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'Directory.Build.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Resolve version
+        id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${INPUT_VERSION}" ]]; then
+            version="${INPUT_VERSION}"
+          else
+            version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props | head -n1)"
+          fi
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::无法得到有效版本号（解析结果：'${version}'）"
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "### 发布版本：\`${version}\`" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Restore
+        run: dotnet restore Pi.slnx
+
+      # 构建时就把版本号传进去，pack 阶段用 --no-build 才能保证
+      # 程序集版本与包版本一致（否则 nuspec 是新版本、dll 还是旧版本）。
+      - name: Build
+        run: >
+          dotnet build Pi.slnx -c Release --no-restore
+          -p:ContinuousIntegrationBuild=true
+          -p:Version=${{ steps.ver.outputs.version }}
+
+      - name: Pack
+        run: >
+          dotnet pack Pi.slnx -c Release --no-build -o artifacts
+          -p:ContinuousIntegrationBuild=true
+          -p:Version=${{ steps.ver.outputs.version }}
+
+      - name: Verify package set
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          ls -1 artifacts
+          expected=(Pi.Ai Pi.Agent Pi.Chord Pi.Client Pi.Codemode Pi.CodingAgent Pi.Durable Pi.Env Pi.Mcp Pi.Protocol Pi.Server Pi.Telemetry Pi.Tui)
+          failed=0
+          for pkg in "${expected[@]}"; do
+            if ! compgen -G "artifacts/${pkg}.${VERSION}.nupkg" > /dev/null; then
+              echo "::error::缺少 ${pkg} ${VERSION} 的 nupkg"
+              failed=1
+            fi
+          done
+          # 可执行项目（CLI / 各独立宿主）通过 Directory.Build.targets 关掉了打包，
+          # 这里守住这个约定，避免误把 Exe 发到 nuget.org。
+          for pkg in Pi.Cli Pi.Vacation Pi.DurableHost Pi.Evals; do
+            if compgen -G "artifacts/${pkg}.*.nupkg" > /dev/null; then
+              echo "::error::可执行项目 ${pkg} 不应产出 NuGet 包，检查 IsPackable 设置"
+              failed=1
+            fi
+          done
+          count="$(find artifacts -name '*.nupkg' | wc -l)"
+          echo "### 共 ${count} 个包" >> "${GITHUB_STEP_SUMMARY}"
+          exit "${failed}"
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg-${{ steps.ver.outputs.version }}
+          path: artifacts/*
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Push to nuget.org
+        if: github.event_name == 'push' || inputs.dry_run == false
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NUGET_API_KEY:-}" ]]; then
+            echo "::error::仓库 Secrets 中缺少 NUGET_API_KEY（Settings -> Secrets and variables -> Actions）"
+            exit 1
+          fi
+          # --skip-duplicate 让重复运行变成幂等操作：已存在的版本跳过，不报错。
+          dotnet nuget push "artifacts/*.nupkg" \
+            --api-key "${NUGET_API_KEY}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+          if compgen -G "artifacts/*.snupkg" > /dev/null; then
+            dotnet nuget push "artifacts/*.snupkg" \
+              --api-key "${NUGET_API_KEY}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+          fi
+
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" artifacts/*.nupkg --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" artifacts/*.nupkg \
+              --title "Pi.NET ${VERSION}" \
+              --generate-notes
+          fi

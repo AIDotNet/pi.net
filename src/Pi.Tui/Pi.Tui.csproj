@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/tui: minimal terminal UI framework with differential rendering. -->
+  <PropertyGroup>
+    <Description>Terminal UI framework: differential rendering, grapheme-aware layout and wrapping, ANSI/OSC parsing, Kitty keyboard protocol, overlays, focus management, and a full-screen alternate-screen renderer.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Pi.Tui.Tests" />
   </ItemGroup>

@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/durable: durable conversation, task, and document runtime. -->
+  <PropertyGroup>
+    <Description>Durable sessions, task graphs, and recovery, with memory / SQLite / JSONL-file storage backends and a coding-agent harness.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Pi.Ai\Pi.Ai.csproj" />
     <ProjectReference Include="..\Pi.Chord\Pi.Chord.csproj" />

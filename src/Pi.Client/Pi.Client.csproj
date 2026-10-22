@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/client: RPC client (connection, transport, request/response promise map). -->
+  <PropertyGroup>
+    <Description>RPC client: connection management, transports, and the request/response promise map used to drive a remote Pi server.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Pi.Chord\Pi.Chord.csproj" />
     <ProjectReference Include="..\Pi.Protocol\Pi.Protocol.csproj" />

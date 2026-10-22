@@ -2,6 +2,7 @@
   <!-- Port of packages/coding-agent: the interactive coding agent CLI (sessions, tools, skills,
        themes, RPC mode). See docs/porting-status.md for the per-subphase progress. -->
   <PropertyGroup>
+    <Description>The interactive coding agent: session runtime, built-in tools, skills, themes, RPC mode, and compiled .NET extensions.</Description>
     <!-- 4f-5：RPC/print/json 线路的 JsonStringifyEncoder（复刻 JSON.stringify 的转义）
          需要实现 TextEncoder 的指针式抽象成员。仅此一处使用。 -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -28,32 +29,46 @@
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
   <ItemGroup>
+    <!-- 运行时资源（主题 / 导出模板 / 交互素材）：既复制到构建输出，也随 NuGet 包发布为
+         contentFiles，消费方还原时会落到自己的输出目录，正好命中 Config.GetThemesDir 等
+         对 AppContext.BaseDirectory/Assets 的探测。 -->
     <Content Include="Assets\export-html\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/Assets/export-html/</PackagePath>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
     <Content Include="Assets\theme\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/Assets/theme/</PackagePath>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
     <Content Include="Assets\assets\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/Assets/assets/</PackagePath>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
-    <Content Include="Assets\CHANGELOG.md">
+    <!-- 上游文档 / 示例 / 元数据只进构建输出，不随包分发：
+         它们占 Assets 的 4.1MB，且 examples 里的 .gitignore 会触发 NU5119。 -->
+    <Content Include="Assets\CHANGELOG.md" Pack="false">
       <Link>CHANGELOG.md</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\README.md">
+    <Content Include="Assets\README.md" Pack="false">
       <Link>README.md</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\package.json">
+    <Content Include="Assets\package.json" Pack="false">
       <Link>package.json</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\docs\**\*">
+    <Content Include="Assets\docs\**\*" Pack="false">
       <Link>docs\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\examples\**\*">
+    <Content Include="Assets\examples\**\*" Pack="false">
       <Link>examples\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

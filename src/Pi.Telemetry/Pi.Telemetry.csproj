@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/telemetry: vendor-neutral telemetry contracts. -->
+  <PropertyGroup>
+    <Description>Vendor-neutral telemetry contracts: typed schemas, a reference adapter, and a conformance test suite.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Pi.Telemetry.Tests" />
   </ItemGroup>

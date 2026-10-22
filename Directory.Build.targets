@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Executables (Pi.Cli, Pi.Vacation, Pi.DurableHost, Pi.Evals) and the test hosts are
+    not shipped as NuGet packages - only the 13 src/ libraries are.
+
+    This lives in Directory.Build.targets rather than Directory.Build.props because
+    OutputType is only known after each project file has been evaluated;
+    Directory.Build.props is imported before that.
+  -->
+  <PropertyGroup Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe'">
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

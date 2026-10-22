@@ -4,9 +4,9 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>pi</AssemblyName>
+    <!-- 版本统一由根目录 Directory.Build.props 的 <Version> 提供（与 13 个 NuGet 包同步）。
+         与上游 packages/coding-agent/package.json 的移植基线 1.0.4 一致。 -->
     <RootNamespace>Pi.Cli</RootNamespace>
-    <!-- Matches packages/coding-agent/package.json at the porting baseline. -->
-    <Version>1.0.4</Version>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Pi.CodingAgent\Pi.CodingAgent.csproj" />

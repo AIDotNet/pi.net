@@ -1,0 +1,96 @@
+name: CI
+
+# 提交/PR 的常规校验：构建 + 全量测试 + 打包冒烟检查。
+# 发布本身由 nuget-publish.yml 负责，两者互不阻塞——测试挂了不会挡住已打 tag 的发布，
+# 但会把 main 分支标红，提醒先修问题。
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: '1'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+
+jobs:
+  build-and-test:
+    name: Build and test
+    # 测试以 net10.0 为目标、且已在 Ubuntu 24.04 上做过 POSIX/SSH 验收，默认用 Linux 跑。
+    # 需要额外验证 Windows 行为时，把下面一行换成 windows-latest 或改成 matrix。
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'Directory.Build.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore Pi.slnx
+
+      - name: Build
+        run: dotnet build Pi.slnx -c Release --no-restore -p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        # -m:1 串行执行各测试项目，降低争抢。
+        # 仍保留一次整体重试：ModelSelectorTests / ThemeRuntimeTests 有已知的负载敏感 flake
+        # （见 docs/coding-agent-porting-status.md 的观测名单），单独跑必绿，全量并发下偶发。
+        # 真实失败会在两次都失败后暴露，不影响信号。
+        run: |
+          set -uo pipefail
+          for attempt in 1 2; do
+            if dotnet test Pi.slnx -c Release --no-build -m:1; then
+              exit 0
+            fi
+            if [[ "${attempt}" -eq 1 ]]; then
+              echo "::warning::测试失败，重跑一次以排除已知负载敏感 flake"
+            fi
+          done
+          echo "::error::测试连续两次失败"
+          exit 1
+
+      # 打包冒烟：不推送，只确认 13 个库仍能产出包（防止 Assets/Pack 元数据回归）。
+      - name: Pack (smoke)
+        run: dotnet pack Pi.slnx -c Release --no-build -o artifacts -p:ContinuousIntegrationBuild=true
+
+      - name: Verify 13 packages
+        run: |
+          set -euo pipefail
+          count="$(find artifacts -name '*.nupkg' | wc -l)"
+          if [[ "${count}" -ne 13 ]]; then
+            echo "::error::期望 13 个 nupkg，实际 ${count} 个"
+            ls -1 artifacts
+            exit 1
+          fi
+          for pkg in Pi.Cli Pi.Vacation Pi.DurableHost Pi.Evals; do
+            if compgen -G "artifacts/${pkg}.*.nupkg" > /dev/null; then
+              echo "::error::可执行项目 ${pkg} 不应产出 NuGet 包"
+              exit 1
+            fi
+          done
+          echo "OK: 13 个库包，未包含可执行项目" >> "${GITHUB_STEP_SUMMARY}"

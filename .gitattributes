@@ -1,0 +1,5 @@
+# 工作流文件和 shell 脚本必须是 LF，否则在 Windows 上编辑后提交会变成 CRLF，
+# 影响 Actions 解析与容器内执行。
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf

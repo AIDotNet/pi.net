@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/ai: unified multi-provider LLM API. -->
+  <PropertyGroup>
+    <Description>Unified multi-provider LLM API for .NET: 10 native API implementations, a 42-provider catalog, streaming events, tool calls, thinking budgets, image generation, and OAuth login flows.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Pi.Ai.Tests" />
   </ItemGroup>

@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/agent: minimal agent loop. -->
+  <PropertyGroup>
+    <Description>Agent runtime: the agent state machine with dual queues, the agent-loop main loop, and sequential / parallel tool execution with abort and reset.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Pi.Ai\Pi.Ai.csproj" />
   </ItemGroup>

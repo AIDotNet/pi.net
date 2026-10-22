@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Port of packages/chord: application-composition runtime (services, replicated state, RPC, facets). -->
+  <PropertyGroup>
+    <Description>Standalone application orchestration runtime: services, replicated state, RPC, and the facets dependency graph with topological activation.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Pi.Chord.Tests" />
   </ItemGroup>
