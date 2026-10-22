@@ -3,6 +3,28 @@
 All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/badlogic/pi-mono) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
+## [Unreleased]
+
+### Added
+
+- **Usage docs** (`docs/usage/`): per-package guides for consuming the 13 NuGet packages from C# —
+  which package for which job, minimal working code, credential sources, and pitfalls. Covers
+  `Pi.Ai`, `Pi.Agent`, `Pi.CodingAgent`, `Pi.Mcp`, plus one-liners for the remaining nine.
+- **Runnable samples** (`samples/`): four console projects registered in `Pi.slnx`, so CI compiles
+  them and the documented APIs cannot silently drift. `Pi.Samples.FauxAgent` runs the full agent
+  loop with a scripted provider (no API key), `Pi.Samples.RealModel` streams from a real provider
+  through both the legacy `Model` entry and the catalog `ModelSpec` path,
+  `Pi.Samples.CodingSession` embeds a coding agent via `Sdk.CreateAgentSessionAsync`, and
+  `Pi.Samples.McpClient` drives an MCP server over stdio or streamable HTTP.
+
+### Fixed
+
+- `readme.md` / `readme.zh-CN.md` links now use absolute GitHub URLs. Relative links were rewritten
+  into self-links by nuget.org, so every doc link on the package page was dead.
+- Dropped the `-m:1` recommendation from the build-from-source snippet: serial execution is slower
+  and reproduces two `Pi.Ai.Tests` failures plus a multi-minute `Pi.CodingAgent.Tests` hang that a
+  parallel build does not.
+
 ## [1.0.4] - 2026-10-21
 
 Initial stable release of the .NET port. Full functional parity with the upstream

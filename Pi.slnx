@@ -18,6 +18,12 @@
     <Project Path="src/Pi.Telemetry/Pi.Telemetry.csproj" />
     <Project Path="src/Pi.Tui/Pi.Tui.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Pi.Samples.CodingSession/Pi.Samples.CodingSession.csproj" />
+    <Project Path="samples/Pi.Samples.FauxAgent/Pi.Samples.FauxAgent.csproj" />
+    <Project Path="samples/Pi.Samples.McpClient/Pi.Samples.McpClient.csproj" />
+    <Project Path="samples/Pi.Samples.RealModel/Pi.Samples.RealModel.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Pi.Agent.Tests/Pi.Agent.Tests.csproj" />
     <Project Path="tests/Pi.Ai.Tests/Pi.Ai.Tests.csproj" />

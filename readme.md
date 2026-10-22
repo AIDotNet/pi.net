@@ -1,10 +1,10 @@
 # Pi.NET
 
-[English](readme.md) | [简体中文](readme.zh-CN.md)
+[English](https://github.com/xuzeyu91/pi.net/blob/main/readme.md) | [简体中文](https://github.com/xuzeyu91/pi.net/blob/main/readme.zh-CN.md)
 
 [![NuGet](https://img.shields.io/nuget/v/Pi.Ai?label=nuget)](https://www.nuget.org/packages/Pi.Ai)
 [![CI](https://github.com/xuzeyu91/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/xuzeyu91/pi.net/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/github/license/xuzeyu91/pi.net)](LICENSE)
+[![License: MIT](https://img.shields.io/github/license/xuzeyu91/pi.net)](https://github.com/xuzeyu91/pi.net/blob/main/LICENSE)
 
 Pi.NET is a .NET 10 port of [Pi](https://github.com/earendil-works/pi). Pi is a minimal, extensible Agent harness (TypeScript monorepo, ~171k lines); this project ports its core libraries one by one to `net10.0`, bringing the same capabilities to the .NET ecosystem.
 
@@ -38,7 +38,7 @@ Pi's philosophy is "make Pi fit your workflow, not the other way around": each l
 | **Pi.DurableHost** | Separate durable-session host (`pi-durable`) built on the coding-agent runtime, with the `subagent` tool and per-directory execution environments |
 | **Pi.Evals** | Native .NET host and documentation eval runner; paired documentation evals use Docker |
 
-The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and documented TypeScript/.NET differences are in [migration-execution-status.md](docs/migration-execution-status.md).
+The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](https://github.com/xuzeyu91/pi.net/blob/main/src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and documented TypeScript/.NET differences are in [migration-execution-status.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/migration-execution-status.md).
 
 ## Getting Started
 
@@ -53,14 +53,26 @@ dotnet add package Pi.Mcp       # MCP client
 dotnet add package Pi.CodingAgent   # the whole stack, including the CLI runtime
 ```
 
-Package contents, release process and rollback are documented in [docs/publishing.md](docs/publishing.md).
+### Usage docs and samples
+
+- **[docs/usage](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/README.md)** — how to consume each package from C#: which package for which job, minimal working code, credentials, and the traps worth knowing.
+- **[samples](https://github.com/xuzeyu91/pi.net/blob/main/samples/README.md)** — four runnable console projects, compiled by CI so they cannot silently rot:
+
+```bash
+dotnet run --project samples/Pi.Samples.FauxAgent      # full agent loop, no API key
+dotnet run --project samples/Pi.Samples.RealModel -- anthropic   # streaming from a real model
+dotnet run --project samples/Pi.Samples.CodingSession  # embedded coding agent (SDK)
+dotnet run --project samples/Pi.Samples.McpClient      # standalone MCP client
+```
+
+Package contents, release process and rollback are documented in [docs/publishing.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/publishing.md).
 
 ### Build from source
 
 Requires the .NET 10 SDK.
 
 ```bash
-dotnet build Pi.slnx --no-restore -m:1
+dotnet build Pi.slnx --no-restore
 dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```
 
@@ -72,4 +84,4 @@ dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 
 ## Migration Status
 
-Implementation progress, phase-by-phase evidence, and known TypeScript/.NET differences are tracked in [docs/migration-execution-status.md](docs/migration-execution-status.md).
+Implementation progress, phase-by-phase evidence, and known TypeScript/.NET differences are tracked in [docs/migration-execution-status.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/migration-execution-status.md).

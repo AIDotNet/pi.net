@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    示例工程：不打包（Directory.Build.targets 已按 OutputType=Exe 自动设 IsPackable=false，
+    这里再写一遍是为了让示例目录自身的意图可见）。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Pi.Samples.FauxAgent</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Pi.Agent\Pi.Agent.csproj" />
+    <ProjectReference Include="..\..\src\Pi.Ai\Pi.Ai.csproj" />
+  </ItemGroup>
+
+</Project>
