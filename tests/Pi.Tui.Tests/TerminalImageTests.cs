@@ -665,6 +665,53 @@ public class TerminalImageCapabilityTests
         }
     }
 
+    /// <summary>
+    /// Rex (#11131) and Herdr are detected before the outer-terminal checks: both run inside another
+    /// terminal whose <c>KITTY_WINDOW_ID</c> can leak into their panes, and both speak the Kitty
+    /// graphics protocol well enough for images.
+    /// </summary>
+    [Fact]
+    public void DetectCapabilities_RecognisesRexAndHerdrBeforeLeakedKittyVariables()
+    {
+        using var cleared = EnvScope.ClearTerminalEnvironment();
+
+        using (new EnvScope(
+            ("TERM_PROGRAM", "rex"),
+            ("TERM", "xterm-256color"),
+            ("KITTY_WINDOW_ID", "1")))
+        {
+            var caps = TerminalImage.DetectCapabilities(() => true);
+            Assert.True(caps.Hyperlinks);
+            Assert.Equal(ImageProtocol.Kitty, caps.Images);
+            Assert.True(caps.TrueColor);
+        }
+
+        // Rex forces truecolor on: it does not depend on a COLORTERM hint.
+        using (new EnvScope(("TERM_PROGRAM", "rex"), ("COLORTERM", "256")))
+        {
+            Assert.True(TerminalImage.DetectCapabilities(() => true).TrueColor);
+        }
+
+        using (new EnvScope(("TERM_PROGRAM", "rex"), ("PI_HYPERLINKS", "0")))
+        {
+            Assert.False(TerminalImage.DetectCapabilities(() => true).Hyperlinks);
+        }
+
+        // Herdr keeps the COLORTERM hint for truecolor, like tmux/screen do.
+        using (new EnvScope(("TERM_PROGRAM", "herdr"), ("KITTY_WINDOW_ID", "1")))
+        {
+            var caps = TerminalImage.DetectCapabilities(() => true);
+            Assert.True(caps.Hyperlinks);
+            Assert.Equal(ImageProtocol.Kitty, caps.Images);
+            Assert.False(caps.TrueColor);
+        }
+
+        using (new EnvScope(("TERM_PROGRAM", "herdr"), ("COLORTERM", "truecolor")))
+        {
+            Assert.True(TerminalImage.DetectCapabilities(() => true).TrueColor);
+        }
+    }
+
     [Fact]
     public void DetectCapabilities_EnvironmentOverridesWin()
     {

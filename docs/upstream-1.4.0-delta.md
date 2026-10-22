@@ -98,7 +98,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- | --- | --- |
 | 未闭合 `$$` 不再吞掉 Markdown 表格 | 1.4.0 #11159 | 流式输出时表格消失 | 本次移植 |
 | CJK 标点相邻的粗体/斜体渲染（`marked-cjk-friendly`） | 1.4.0 #10730 | 中文排版可见缺陷 | 本次移植（第二十三批，见 §6.h） |
-| Rex 终端支持（OSC 8 / truecolor / 内联图） | 1.4.0 | 终端能力探测 | 待办 |
+| Rex 终端支持（OSC 8 / truecolor / 内联图） | 1.4.0 | 终端能力探测 | 本次移植（第二十四批，见 §6.g） |
 | 退出时终端模式未复原、重复对话框、主题 schema 校验等 | 1.2.0–1.4.0 | 多为 TUI 细节修复 | 待办 |
 | `showHardwareCursor` 语义变化 | 1.2.0 | 光标绘制 | 待办 |
 
@@ -178,8 +178,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
-| `Pi.Tui.Tests` | 23881 / 23881 通过（第二十三批新增 3 例 CJK 强调：1 例 40 向量的内联 token 语料、
-  2 例上游渲染断言） |
+| `Pi.Tui.Tests` | 23882 / 23882 通过（第二十三批新增 3 例 CJK 强调：1 例 40 向量的内联 token 语料、
+  2 例上游渲染断言；第二十四批新增 1 例 Rex/Herdr 探测） |
 
 说明：两例时序敏感的偶发已确认与改动无交集，隔离运行均通过——
 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）与
@@ -232,7 +232,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
 4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`--model` provider 选择策略统一~~（第二十一批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 5. ~~ai：System One 分类器图像输入~~（第二十二批）→ ~~tui：CJK 强调（先补语料生成脚本）~~（第二十三批）
-   → tui：Rex 终端、`showHardwareCursor`、OSC 7501 与其余 TUI 细节。
+   → ~~tui：Rex / Herdr 终端探测~~（第二十四批）→ tui：OSC 7501 程序状态、`showHardwareCursor`
+   假光标、其余 TUI 细节。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1023,3 +1024,36 @@ node tools/gen-tui-cjk-corpus.mjs > tests/Pi.Tui.Tests/markdown-cjk-corpus.json
 构建 0 警告 0 错误；`Pi.Tui.Tests` 23881 / 23881（新增 3 例），`Pi.CodingAgent.Tests` 5020 / 5020。
 既有的 4,990 条 markdown 差分向量全绿 —— 覆盖里本来就含 CJK/emoji 输入，说明这条覆盖没有把
 「非歧义的中文强调」改坏。
+
+### 6.g 第二十四批（终端能力探测补 Rex / Herdr）落地明细
+
+对应上游四个提交：`b2363841a` + `78a3c10ba`（Herdr，1.4.0 / #10774）与 `0ed1b0431` + `396ecd7b8`
+（Rex，1.4.0 / #11131），每个都是 `detectCapabilitiesFromEnvironment` 里的一段分支。
+
+**为什么要排在外层终端之前**
+
+Rex 与 Herdr 都是**套在别的终端里跑**的（Rex 是自己的终端应用，Herdr 是复用宿主终端的 pane），
+宿主的环境变量——尤其是 `KITTY_WINDOW_ID`——会漏进它们的进程。原顺序里 `KITTY_WINDOW_ID` 分支在
+最前面，于是这两个终端会被判成宿主，拿到"不确定"的能力组合。两个上游提交都特意把分支插在
+`screen` 之后、`KITTY_WINDOW_ID` 之前。
+
+**取值**
+
+| 终端 | images | trueColor | hyperlinks |
+| --- | --- | --- | --- |
+| Herdr（`TERM_PROGRAM=herdr`） | `kitty` | `hasTrueColorHint` | `true` |
+| Rex（`TERM_PROGRAM=rex`） | `kitty` | `true`（硬开） | `true` |
+
+- Herdr 的 truecolor 仍跟随 `COLORTERM` 提示，与 tmux / screen 的处理一致。
+- Rex **硬开** truecolor：它自己就支持 24 位色，不看 `COLORTERM`。图像也开——Rex 只实现了
+  Kitty 协议的一部分（没有 Unicode placeholder），对 Pi 够用；`0ed1b0431` 当时先留 `images: null`，
+  同一天被 `396ecd7b8` 改成 `kitty`，端口直接落到最终形态。
+- `PI_HYPERLINKS` / `PI_IMAGE_PROTOCOL` / `PI_TRUE_COLOR` 的覆盖逻辑在 `DetectCapabilities` 里，
+  位于探测之后，所以 Rex 的硬开 truecolor 也能被 `PI_TRUE_COLOR=0` 关掉。
+
+**测试**
+
+`TerminalImageCapabilityTests.DetectCapabilities_RecognisesRexAndHerdrBeforeLeakedKittyVariables`：
+Rex 带 `KITTY_WINDOW_ID=1` 仍判 Rex（hyperlinks/kitty/truecolor 全开）、`COLORTERM=256` 不影响
+truecolor、`PI_HYPERLINKS=0` 能关掉超链接；Herdr 带 `KITTY_WINDOW_ID=1` 拿到 kitty 图像但
+truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真。
