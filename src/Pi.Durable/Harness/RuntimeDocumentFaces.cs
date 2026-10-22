@@ -67,52 +67,6 @@ internal abstract class RuntimeDocumentFaces : IDocumentReader, IDocumentObserve
         return _reader.SnapshotAsync(token, taskId, key, context);
     }
 
-    public virtual Task<DocumentState<T>?> DocumentStateAsync<T>(DocToken<T> token, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-    {
-        Gate();
-        return _reader.DocumentStateAsync(token, context);
-    }
-
-    public virtual Task<DocumentState<T>?> DocumentStateAsync<T>(
-        DocToken<T> token, ConversationId conversationId, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-    {
-        Gate();
-        return _reader.DocumentStateAsync(token, conversationId, context);
-    }
-
-    public virtual Task<DocumentState<T>?> DocumentStateAsync<T>(DocToken<T> token, TaskId<object?> taskId, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-    {
-        Gate();
-        return _reader.DocumentStateAsync(token, taskId, context);
-    }
-
-    public virtual Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-    {
-        Gate();
-        return _reader.DocumentStateAsync(token, key, context);
-    }
-
-    public virtual Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, ConversationId conversationId, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-    {
-        Gate();
-        return _reader.DocumentStateAsync(token, conversationId, key, context);
-    }
-
-    public virtual Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, TaskId<object?> taskId, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-    {
-        Gate();
-        return _reader.DocumentStateAsync(token, taskId, key, context);
-    }
-
     public virtual Task<IReadOnlyDictionary<string, object?>?> SnapshotAsOfAsync<T>(
         DocToken<T> token, ConversationId conversationId, EntryId at, Context context)
         where T : class, IReadOnlyDictionary<string, object?>

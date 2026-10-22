@@ -287,7 +287,8 @@ public static class ExperimentalRuntime
             }).ConfigureAwait(false);
 
             var conversations = await ReadConversationsAsync(harness, root.Id).ConfigureAwait(false);
-            var conversationState = await root.ViewStateAsync(RuntimeContext).ConfigureAwait(false);
+            var conversationState = WatchState.Attach<ConversationView>(
+                await root.WatchAsync(RuntimeContext).ConfigureAwait(false));
             var initialConversation = conversationState.Value
                 ?? throw new InvalidOperationException($"The root {profile.Label} conversation has no view state");
             var openedViewSource = new ExperimentalViewSource(new ExperimentalView
@@ -812,7 +813,9 @@ public static class ExperimentalRuntime
                     return;
                 }
 
-                var opened = await harness.TaskGraphAsync(context).ConfigureAwait(false);
+                // 上游移除了 taskGraph()；用任务图的精确帧 watch 重建只读复制状态。
+                var opened = WatchState.Attach<IReadOnlyDictionary<string, object?>>(
+                    await harness.WatchTaskGraphAsync(context).ConfigureAwait(false));
                 setTaskGraph(opened);
                 setTaskGraphSubscription(opened.Subscribe((value, _, _) =>
                 {
@@ -832,7 +835,8 @@ public static class ExperimentalRuntime
             {
                 var next = await harness.ConversationAsync(id, context).ConfigureAwait(false)
                     ?? throw new InvalidOperationException($"Conversation {id.Value} does not exist");
-                var nextState = await next.ViewStateAsync(context).ConfigureAwait(false);
+                var nextState = WatchState.Attach<ConversationView>(
+                    await next.WatchAsync(context).ConfigureAwait(false));
                 var nextValue = nextState.Value
                     ?? throw new InvalidOperationException($"Conversation {id.Value} has no view state");
                 var subscription = nextState.Subscribe((value, _, _) =>

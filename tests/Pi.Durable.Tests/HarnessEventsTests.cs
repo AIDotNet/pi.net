@@ -1,4 +1,5 @@
 using Pi.Chord.Context;
+using Pi.Chord.Services;
 using Pi.Durable.Harness;
 using Pi.Durable.Session;
 using Pi.Durable.Storage;
@@ -39,7 +40,7 @@ public sealed class HarnessEventsTests
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
         var stream = await Events.WatchEventsAsync(harness, root.Id, Ctx);
         await harness.CloseAsync(Ctx);
-        Assert.Equal(new WatchEnd.SessionClosed(), await stream.Closed);
+        Assert.Equal(new WatchEnd.Ended(), await stream.Closed);
     }
 
     // ─── 2. 超过待处理上限后折叠为单快照 ───────────────────────────────────────

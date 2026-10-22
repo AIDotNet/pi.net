@@ -874,9 +874,6 @@ public interface IConversation
     /// </summary>
     Task WaitForIdleAsync(Context context);
 
-    /// <summary>结构视图（spec §9.3）作为可释放只读 Chord 状态。对应 TS <c>viewState()</c>。</summary>
-    Task<AttachedReplicatedState<ConversationView>> ViewStateAsync(Context context);
-
     /// <summary>
     /// 结构视图作为有界待发帧的序列化精确帧 watch；取消 <paramref name="context"/> 使其停止。
     /// 对应 TS <c>watch()</c> / <c>ConversationWatch = WatchHandle&lt;ConversationView&gt;</c>。

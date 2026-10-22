@@ -108,11 +108,12 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   回调、`mintId()` 契约收窄 —— **已移植（第三批）**：存储负责在批次持久后、下一次提交开始前
   同步采纳一次，Session 不再自己 `tx.adopt(seq)`，改为发现「已提交却没采纳」即毒化。
   其余 169 个文件的改动（sleeping state、crash-loop guard、IndexedDB、search、images 等）仍待办。
-- **durable 观察面（同一提交 92ab53602）**：移除 `Session.documentState()` /
-  `Conversation.viewState()` / `Harness.taskGraph()`，`WatchHandle`/`WatchEnd` 迁往 chord，
-  结束原因为 `ended`（原 `session_closed`）/ `failed`（原 `session_failed`）。
-  端口仍保留旧 API 且被 `Pi.CodingAgent.Experimental` 直接使用 —— 需与观察/退休重构整批做，
-  单独改名只会得到半套实现。
+- **durable 观察面（同一提交 92ab53602）—— 本次移植（第二十批）**：移除 `Session.documentState()` /
+  `Conversation.viewState()` / `Harness.taskGraph()` 与 `DocumentState<T>`，统一走
+  `watchDoc()` / `watch()` / `watchTaskGraph()`；`WatchHandle`/`WatchEnd` 迁往 chord，
+  结束原因为 `ended`（原 `session_closed`）/ `failed`（原 `session_failed`）；
+  退休改成显式源事件 `retire(context)`，`advance(null, …)` 不再自动退休；终止清空指向源的
+  全部引用（detach / report / replace / listener / 待发帧）。端口细节见 §6.k。
 - **chord（1.3.0）**：`traceIn(options, fn, context)` 参数顺序变更 —— **暂不适用**：端口 chord
   尚无 `telemetry` 成员与 `TelemetrySpan`，`traceIn` 本身不存在；与 telemetry 一起落地。
 - **telemetry（1.4.0）**：`telemetryContext`→`telemetry?: TelemetrySpan` —— **暂不适用**：端口 ai 层
@@ -143,6 +144,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `2ed3118b0` | 显示公式 vs 表格 | `Pi.Tui/Marked/MarkedExtensions.cs` | `MarkdownLatexTableTests`（3） |
 | `#10897`（1.3.0） | 畸形最终参数上报 `argumentsError` | `Pi.Ai/Utils/JsonParse.cs`（`ParseToolCallArguments`）、`Types/Messages.cs`（`ToolCallContent.ArgumentsError`）、5 个 API 实现、`Utils/Validation.cs`、`Pi.Agent/ToolExecution.cs` | `JsonParseTests`（5）、`OpenAiResponsesTests`（2）、`ValidationTests`（2）、`AgentLoopTests`（3） |
 | `92ab53602`（1.4.0） | `Storage.commit(writes, adopt, context)`：持久后同步采纳一次 | `Pi.Durable/Storage/{IStorage,MemoryStorage,JsonlStorage,SqliteStorage}.cs`、`Session/Session.cs` | `StorageConformance`「adopts a durable commit once…」（4 后端）、`SessionTests.CommitWithoutAdoptionPoisonsTheSession` |
+| `92ab53602`（1.4.0，观察面） | 显式退休、watch 类型入 chord、删 `documentState`/`viewState`/`taskGraph` | `Pi.Chord/Services/Watch.cs`（新）、`Pi.Durable/Session/{Observation,Session}.cs`、`Pi.Durable/Harness/*`、`Pi.CodingAgent/Experimental/WatchState.cs`（新）+ 4 处调用点 | `SessionTests`（新增 2 例：null 不退休、`retire` 投递后结束）、`HarnessViewTests` / `HarnessTaskGraphTests` / `HarnessContextTests` 迁到 watch |
 | `67996ab75` | `structuredContent` 接受任意 JSON 值 | `Pi.Mcp/Protocol/{Types,Content}.cs`、`Pi.CodingAgent/Extensions/Mcp/Tools.cs` | `ProtocolContentTests`（4）、`McpToolsTests.CreateMcpResultSchema_WithoutStructuredSchema_DeclaresUnknown` |
 | `c5f5b3282` | 无元数据时拒绝 `iss`（RFC 9207） | `Pi.Mcp/OAuth/{OAuthFlow,OAuthErrors}.cs` | `OAuthFlowTests.IssWithoutDiscoveredMetadataIsRejectedBeforeTheExchange` |
 | `da0eadf04` | 已取消的请求不再在授权刷新后重发 | `Pi.Mcp/Transports/StreamableHttpTransport.cs` | —（.NET 侧 SendAsync 已按 token 取消，仅补齐 MCP 中止错误语义） |
@@ -162,9 +164,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 486 / 486 通过（第十七批 6 例替代 4 例；此前 484） |
-| `Pi.CodingAgent.Tests` | 5019 / 5019 通过（第十九批新增 1 例；第十八批为 5018） |
+| `Pi.CodingAgent.Tests` | 5019 / 5019 通过（第二十批只改夹具，数量不变；第十九批新增 1 例） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 457 / 457 通过（第十四批同步了 shell 探测，数量不变）。
+| `Pi.Durable.Tests` | 459 / 459 通过（第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
@@ -216,8 +218,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 
 ## 7. 建议的后续顺序
 
-1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
-   `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
+1. ~~durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）~~（第二十批已完成；
+   `commit(adopt)` 在第三批，`Pi.CodingAgent.Experimental` 用 `WatchState` 适配器一并改完）。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
 3. ai：~~`additional_tools` 延迟工具输入项~~（第十六批）→ ~~`TranscriptToolSupport` 与前缀缓存~~（第十七批）。
 4. coding-agent：~~`before_agent_start` 覆盖自定义轮次~~（第十九批）→ ~~`reachesTools` / `aliases`~~（第十八批）→ ~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
@@ -713,6 +715,74 @@ resolves on failure too when it returned that object; check its fields.」。重
   无 schema 时 any）。
 - `Pi.Codemode.Tests`：`DetectsMcpCallToolResultStructuredContent` → `RendersAnMcpResultSchemaAsAPlainObject`，
   `McpPreambleIsExportedVerbatim` → `DeclarationLimitsAreExported`。
+
+### 6.k 第二十批（durable 观察面重构：显式退休与 watch 类型入 chord）落地明细
+
+对应上游 `92ab53602`（22 文件 / +482 −473；本条只做其中的观察面部分——`Storage.commit(writes,
+adopt, context)` 的采纳回调已在第三批落地，`chord traceIn` 仍与 telemetry 一并待办）。
+
+**问题**
+
+`Session.documentState()` / `Conversation.viewState()` / `Harness.taskGraph()` 这套「把观察者包成
+`ReplicatedStateSource` 再挂成只读复制状态」的 API 与 `watchDoc()` / `watch()` / `watchTaskGraph()`
+重叠，而且退休只能从「投递的值是 null」推断：一个合法的 null 值会被误判成退休。同时一个已停止的
+watch 仍持有指向 Session 的 detach / report / listener，Session 因此无法被回收。
+
+**chord**（新增 `src/Pi.Chord/Services/Watch.cs`）
+
+- `WatchEnd` 与 `IWatchHandle<T>` 迁到 chord（端口命名空间 `Pi.Chord.Services`），durable 不再定义；
+  六个变体：`Stopped` / `Cancelled` / `Retired` / `Ended`（原 `SessionClosed`）/ `ListenerError` /
+  `Failed`（原 `SessionFailed`，端口此前缺这个变体，本次补上）。
+- `Pi.Chord.Services` 里 `Context` 会先命中命名空间 `Pi.Chord.Context`，文件内用
+  `using ChordContext = Pi.Chord.Context.Context;` 消歧。
+
+**Observation.cs**
+
+- 删除 `CommittedStateSource<T>` 与 `SessionSourceAttachment<T>`（两者只为
+  `documentState()` / `viewState()` / `taskGraph()` 服务）：`MaxPendingWatchFrames` 与
+  `RetirementOperations` 上移到 `CommittedWatch<T>`。
+- `CommittedWatch` 构造改为 `(value, detach, report = null, replace = null)`：监听器抛出时先
+  `report(error)`（Harness 把观察者错误转给宿主），再以 `ListenerError` 结束。
+- 帧带 `Retires` 标记；`Retire(context)` 入队「值 null + `[["r", null]]` + Retires」，投递之后
+  才以 `Retired` 结束；`Advance` 不再自己判 null。
+- `CloseSession()` → `End(failure?)`：无 failure 走 `Ended`，有 failure 走 `Failed`。
+- `Terminate` 现在是唯一的终结点：一次性清空 `_detach` / `_report` / `_replace` / `_listener` /
+  待发帧与取消注册，再脱钩并落定 `Closed`（`_resolved` / `FinishIfReady` 随之取消）。
+
+**Session.cs**
+
+- 删除 6 个 `DocumentStateAsync` 重载与 `DocumentStateCoreAsync`；`AttachDocument` 不再收
+  `create` 工厂，直接造 `CommittedWatch`，`change.Value is null` 分支改走 `observer.Retire(context)`。
+- `ObservedOperations` 去掉 `change.Value is null → RetirementOperations`：退休不再借用变更操作。
+- 新增 `virtual void Report(Exception)`（普通 Session 丢弃，`HarnessImpl` 覆盖为 `options.OnReport`）
+  与只读 `Failure`（当前 `_poison`），供观察者在关闭时拿到 `Failed` 的负载。
+
+**Harness 层**
+
+`ConversationViews.StateAsync` / `TaskGraphView.StateAsync` / `ConversationImpl.ViewStateAsync` /
+`HarnessImpl.TaskGraphAsync` 与 `IDocumentReader` 的 6 个 `DocumentStateAsync` 全部删除；
+`ViewObserver.CloseSession()` → `End(Exception? failure)`；观察者与关闭分发里的
+`CommittedStateSource` 分支删掉，`CommittedWatch` 的构造分别传入 `_session.Report`。
+
+**Pi.CodingAgent.Experimental（端口自留实现）**
+
+上游在执行这条改动**之前**（`7472cda0d`）就删掉了整套实验性 server/client 栈，所以 `documentState()`
+等移除在上游没有对应的改写可以照搬；端口保留该栈，于是在
+`src/Pi.CodingAgent/Experimental/WatchState.cs` 用一个 `IReplicatedStateSource<T>` 适配器把
+watch 重新挂成 `AttachedReplicatedState<T>`（快照取 watch 当前修订，帧按投递顺序自增游标，处置时
+`watch.Stop()`）。`ModelsProvider` / `TranscriptProvider` / `ExperimentalRuntime` /
+`SessionWorkerEntry` 与 `ClientTuiTests` 的夹具改用 `WatchDocAsync` / `WatchAsync` /
+`WatchTaskGraphAsync` + `WatchState.Attach`。
+
+**测试**
+
+`SessionTests` 新增两例钉住新语义：`WatchEndsRetiredOnlyOnItsSourcesRetirementNeverOnANullValue`
+（`advance(null, [["r", null]])` 只是又一个值，仍继续投递、不以 `Retired` 结束）与
+`WatchRetireDeliversTheRetirementFrameThenEndsRetired`（`retire` 投递退休帧后才结束、之后不再有帧）。
+`HarnessViewTests` / `HarnessTaskGraphTests` / `HarnessContextTests` 按上游同批测试的写法从
+`state()` / `taskGraph()` 迁到「启动过的 watch」：`Start` 之后 `Value` 才随提交推进，未启动的
+watch 读到的就是取得的那个修订；`Dispose()` 一律换成 `await Stop()`。
+
 
 ### 6.l 第十九批（`before_agent_start` 覆盖自定义触发轮次）落地明细
 

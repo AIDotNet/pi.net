@@ -66,13 +66,14 @@ public class HarnessTaskGraphTests
         {
             var root = await harness.RootAsync(Ctx);
             var seen = new List<JsonDict>();
-            async Task<AttachedReplicatedState<JsonDict>> ObserveAsync()
+            // 上游移除了 taskGraph()：启动过的 watch 保持其 value 为最新修订。
+            async Task<CommittedWatch<JsonDict>> ObserveAsync()
             {
-                var opened = await harness.TaskGraphAsync(Ctx);
-                opened.Subscribe((value, _, delivery) =>
+                var opened = await harness.WatchTaskGraphAsync(Ctx);
+                opened.Start((value, _, _) =>
                 {
-                    if (delivery.Kind == ReplicatedStateDeliveryKind.Update) seen.Add(value);
-                    return null;
+                    lock (seen) seen.Add(value);
+                    return Task.CompletedTask;
                 });
                 return opened;
             }
@@ -84,7 +85,7 @@ public class HarnessTaskGraphTests
             async Task RebuildAsync()
             {
                 var advanced = graph.Value;
-                graph.Dispose();
+                await graph.Stop();
                 graph = await ObserveAsync();
                 Assert.NotSame(advanced, graph.Value);
                 AssertDeepEqual(graph.Value, advanced);
@@ -161,7 +162,7 @@ public class HarnessTaskGraphTests
             // 创建两个对话的提交发布了一个把它们设上的修订。
             Assert.Contains(seen, value =>
                 TaskGraphReader.Node(value, parentId.Value.ToString())?.Conversations.Count == 2);
-            graph.Dispose();
+            await graph.Stop();
         }
         finally
         {
@@ -203,7 +204,7 @@ public class HarnessTaskGraphTests
             var inspection = await firstHarness.InspectAsync(Ctx);
             return inspection.Tasks.All(task => task is TaskInspection.Running);
         });
-        var running = await firstHarness.TaskGraphAsync(Ctx);
+        var running = await firstHarness.WatchTaskGraphAsync(Ctx);
         Assert.Equal(
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -211,7 +212,7 @@ public class HarnessTaskGraphTests
                 [$"test.graph-work#{created.Background.Value}"] = "running",
             },
             Statuses(running.Value!));
-        running.Dispose();
+        await running.Stop();
         await firstHarness.CloseAsync(Ctx);
 
         // reopen 后再获取：由已提交记录与属主边构建；open 把 running 核回 pending。
@@ -283,7 +284,8 @@ public class HarnessTaskGraphTests
         try
         {
             var root = await harness.RootAsync(Ctx);
-            var graph = await harness.TaskGraphAsync(Ctx);
+            var graph = await harness.WatchTaskGraphAsync(Ctx);
+            graph.Start((_, _, _) => Task.CompletedTask);
             var id = await root.CommitAsync(async tx =>
             {
                 var entry = await tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "note" });
@@ -297,10 +299,10 @@ public class HarnessTaskGraphTests
             var advanced = graph.Value!;
             var node = TaskGraphReader.Node(advanced, id.Value.ToString())!;
             Assert.Equal(created.OrderBy(value => value).ToArray(), node.Conversations.Select(c => c.Value).ToArray());
-            graph.Dispose();
-            var rebuilt = await harness.TaskGraphAsync(Ctx);
+            await graph.Stop();
+            var rebuilt = await harness.WatchTaskGraphAsync(Ctx);
             AssertDeepEqual(rebuilt.Value, advanced);
-            rebuilt.Dispose();
+            await rebuilt.Stop();
             gate.Resolve(default);
             await harness.WaitForTaskAsync(Obj(id), Ctx);
         }
@@ -346,13 +348,13 @@ public class HarnessTaskGraphTests
             await Assert.ThrowsAnyAsync<Exception>(() => cancelled);
 
             // 没有观察者保留挂载：每个新观察者构建新修订。
-            var first = await harness.TaskGraphAsync(Ctx);
+            var first = await harness.WatchTaskGraphAsync(Ctx);
             var value = first.Value;
-            first.Dispose();
-            var second = await harness.TaskGraphAsync(Ctx);
+            await first.Stop();
+            var second = await harness.WatchTaskGraphAsync(Ctx);
             Assert.NotSame(value, second.Value);
             AssertDeepEqual(second.Value, value);
-            second.Dispose();
+            await second.Stop();
         }
         finally
         {
@@ -380,21 +382,17 @@ public class HarnessTaskGraphTests
                     ConversationId = root.Id,
                 }), Ctx);
 
-            var first = await harness.TaskGraphAsync(Ctx);
-            var second = await harness.TaskGraphAsync(Ctx);
+            var first = await harness.WatchTaskGraphAsync(Ctx);
+            var second = await harness.WatchTaskGraphAsync(Ctx);
             Assert.Same(first.Value, second.Value);
 
             var updates = new List<string>();
-            first.Subscribe((value, _, delivery) =>
+            first.Start((value, _, _) =>
             {
-                if (delivery.Kind == ReplicatedStateDeliveryKind.Update)
-                {
-                    updates.Add(TaskGraphReader.Node(value, id.Value.ToString()) is { } node
-                        ? StatusOf(node)
-                        : "gone");
-                }
-
-                return null;
+                updates.Add(TaskGraphReader.Node(value, id.Value.ToString()) is { } node
+                    ? StatusOf(node)
+                    : "gone");
+                return Task.CompletedTask;
             });
 
             harness.Resume();
@@ -408,13 +406,13 @@ public class HarnessTaskGraphTests
             await HarnessTestSupport.WaitForAsync(() => updates.Count == 2);
             Assert.Equal(["running", "gone"], updates);
             var last = first.Value!;
-            first.Dispose();
-            second.Dispose();
+            await first.Stop();
+            await second.Stop();
             // 没有观察者留下，挂载被丢弃：新观察者构建新修订。
-            var rebuilt = await harness.TaskGraphAsync(Ctx);
+            var rebuilt = await harness.WatchTaskGraphAsync(Ctx);
             AssertDeepEqual(rebuilt.Value, last);
             Assert.NotSame(last, rebuilt.Value);
-            rebuilt.Dispose();
+            await rebuilt.Stop();
         }
         finally
         {

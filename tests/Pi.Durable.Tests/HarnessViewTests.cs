@@ -2,6 +2,7 @@ using System.Text.Json;
 using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Chord.Delta;
+using Pi.Chord.Services;
 using Pi.Durable.Harness;
 using Pi.Durable.Session;
 using Pi.Durable.Storage;
@@ -44,9 +45,9 @@ public sealed class HarnessViewTests
     /// <summary>一次从已提交状态重建的视图，用于与推进过的视图比较。</summary>
     private static async Task<ConversationView> FreshAsync(IConversation conversation)
     {
-        var state = await conversation.ViewStateAsync(Ctx);
-        var value = state.Value!;
-        state.Dispose();
+        var watch = await conversation.WatchAsync(Ctx);
+        var value = watch.Value;
+        await watch.Stop();
         return value;
     }
 
@@ -383,22 +384,22 @@ public sealed class HarnessViewTests
     }
 
     [Fact]
-    public async Task KeepsStatesAndWatchesOfOneConversationIndependentAndRemountsAfterTheLastOneDetaches()
+    public async Task KeepsWatchesOfOneConversationIndependentAndRemountsAfterTheLastOneDetaches()
     {
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(
             new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("ok")));
-        var state = await root.ViewStateAsync(Ctx);
+        var kept = await RecordAsync(root);
         var (_, frames, stop) = await RecordAsync(root);
         await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "one" }), Ctx);
         await DrainedAsync();
-        Assert.Equal(["one"], KindsOf(state.Value!));
+        Assert.Equal(["one"], KindsOf(kept.Frames[^1].Value));
         await stop();
         Assert.Single(frames);
         await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "two" }), Ctx);
         await DrainedAsync();
-        Assert.Equal(["one", "two"], KindsOf(state.Value!));
-        var last = state.Value!;
-        state.Dispose();
+        var last = kept.Frames[^1].Value;
+        Assert.Equal(["one", "two"], KindsOf(last));
+        await kept.Stop();
         // 没有观察者剩下，挂载被丢弃：新观察者从已提交状态构建新修订。
         var rebuilt = await FreshAsync(root);
         AssertViewEqual(last, rebuilt);
@@ -407,17 +408,15 @@ public sealed class HarnessViewTests
     }
 
     [Fact]
-    public async Task EndsStatesAndWatchesAtCloseAndRejectsLaterAcquisition()
+    public async Task EndsWatchesAtCloseAndRejectsLaterAcquisition()
     {
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(
             new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("ok")));
         var watch = await root.WatchAsync(Ctx);
-        var state = await root.ViewStateAsync(Ctx);
         await harness.CloseAsync(Ctx);
-        Assert.Equal(new WatchEnd.SessionClosed(), await watch.Closed);
-        Assert.Empty(state.Value!.Entries);
+        Assert.Equal(new WatchEnd.Ended(), await watch.Closed);
+        Assert.Empty(watch.Value.Entries);
         await Assert.ThrowsAnyAsync<Exception>(() => root.WatchAsync(Ctx));
-        await Assert.ThrowsAnyAsync<Exception>(() => root.ViewStateAsync(Ctx));
     }
 
     [Fact]
@@ -457,9 +456,9 @@ public sealed class HarnessViewTests
             new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("ok")));
         var failing = await root.WatchAsync(Ctx);
         var (_, frames, stop) = await RecordAsync(root);
-        var shared = await root.ViewStateAsync(Ctx);
+        var shared = await root.WatchAsync(Ctx);
         Assert.Same(failing.Value, shared.Value);
-        shared.Dispose();
+        await shared.Stop();
         failing.Start((_, _, _) => throw new InvalidOperationException("listener failed"));
         await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "one" }), Ctx);
         await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "two" }), Ctx);

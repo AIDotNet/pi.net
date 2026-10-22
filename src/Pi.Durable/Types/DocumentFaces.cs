@@ -38,8 +38,8 @@ public interface IDocumentObserver
 }
 
 /// <summary>
-/// 已提交文档的只读读取面。对应 TS <c>DocumentReader</c>：<c>snapshot</c> / <c>documentState</c> /
-/// <c>snapshotAsOf</c> 的全部令牌重载。
+/// 已提交文档的只读读取面。对应 TS <c>DocumentReader</c>：<c>snapshot</c> / <c>snapshotAsOf</c>
+/// 的全部令牌重载（<c>documentState</c> 已在 1.4.0 移除，改用 <c>watchDoc</c>）。
 /// </summary>
 public interface IDocumentReader
 {
@@ -69,34 +69,6 @@ public interface IDocumentReader
 
     /// <summary>读任务级文档族成员的已提交快照。</summary>
     Task<IReadOnlyDictionary<string, object?>?> SnapshotAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, TaskId<object?> taskId, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>;
-
-    /// <summary>取得绑定到已提交会话级文档化身的可释放只读状态。</summary>
-    Task<DocumentState<T>?> DocumentStateAsync<T>(DocToken<T> token, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>;
-
-    /// <summary>取得绑定到已提交对话级文档化身的可释放只读状态。</summary>
-    Task<DocumentState<T>?> DocumentStateAsync<T>(
-        DocToken<T> token, ConversationId conversationId, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>;
-
-    /// <summary>取得绑定到已提交任务级文档化身的可释放只读状态。</summary>
-    Task<DocumentState<T>?> DocumentStateAsync<T>(DocToken<T> token, TaskId<object?> taskId, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>;
-
-    /// <summary>取得绑定到已提交会话级文档族成员的可释放只读状态。</summary>
-    Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>;
-
-    /// <summary>取得绑定到已提交对话级文档族成员的可释放只读状态。</summary>
-    Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, ConversationId conversationId, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>;
-
-    /// <summary>取得绑定到已提交任务级文档族成员的可释放只读状态。</summary>
-    Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
         DocFamilyToken<T, TSeed> token, TaskId<object?> taskId, string key, Context context)
         where T : class, IReadOnlyDictionary<string, object?>;
 

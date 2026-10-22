@@ -173,32 +173,16 @@ public sealed class TaskGraphView
                 _mount = null;
             }
 
-            foreach (var observer in observers) CloseObserver(observer);
+            foreach (var observer in observers) CloseObserver(observer, _session.Failure);
         });
-    }
-
-    /// <summary>图的可释放只读 Chord 状态（JSON 形状）。对应 TS <c>state()</c>。</summary>
-    public async Task<AttachedReplicatedState<IReadOnlyDictionary<string, object?>>> StateAsync(Context context)
-    {
-        var (observer, detach) = await AttachAsync(
-            (value, release) => new CommittedStateSource<IReadOnlyDictionary<string, object?>>(value, release),
-            context).ConfigureAwait(false);
-        try
-        {
-            return ReplicatedStateAttachments.AttachReplicatedStateSource(observer);
-        }
-        catch (Exception)
-        {
-            detach();
-            throw;
-        }
     }
 
     /// <summary>图的序列化精确帧 watch（JSON 形状）；取消 context 使其停止。对应 TS <c>watch()</c>。</summary>
     public async Task<CommittedWatch<IReadOnlyDictionary<string, object?>>> WatchAsync(Context context)
     {
         var (observer, _) = await AttachAsync(
-            (value, release) => new CommittedWatch<IReadOnlyDictionary<string, object?>>(value, release),
+            (value, release) => new CommittedWatch<IReadOnlyDictionary<string, object?>>(
+                value, release, _session.Report),
             context).ConfigureAwait(false);
         var signal = context.AbortSignal;
         if (signal?.IsCancellationRequested == true)
@@ -366,19 +350,15 @@ public sealed class TaskGraphView
         }
 
         if (ops.Count == 0) return;
-        mount.Value = (IReadOnlyDictionary<string, object?>)DeltaApply.Apply(ops, mount.Value)!;        var frameContext = ContextSignals.WithoutAbortSignal(context);
+        mount.Value = (IReadOnlyDictionary<string, object?>)DeltaApply.Apply(ops, mount.Value)!;
+        var frameContext = ContextSignals.WithoutAbortSignal(context);
         object[] observers;
         lock (mount.Observers) observers = [.. mount.Observers];
         foreach (var observer in observers)
         {
-            switch (observer)
+            if (observer is CommittedWatch<IReadOnlyDictionary<string, object?>> watch)
             {
-                case CommittedWatch<IReadOnlyDictionary<string, object?>> watch:
-                    watch.Advance(mount.Value, ops, frameContext);
-                    break;
-                case CommittedStateSource<IReadOnlyDictionary<string, object?>> source:
-                    source.Advance(mount.Value, ops, frameContext);
-                    break;
+                watch.Advance(mount.Value, ops, frameContext);
             }
         }
     }
@@ -467,16 +447,8 @@ public sealed class TaskGraphView
         => System.Text.Json.JsonSerializer.SerializeToElement(a).ToString()
             == System.Text.Json.JsonSerializer.SerializeToElement(b).ToString();
 
-    private static void CloseObserver(object observer)
+    private static void CloseObserver(object observer, Exception? failure)
     {
-        switch (observer)
-        {
-            case CommittedWatch<IReadOnlyDictionary<string, object?>> watch:
-                watch.CloseSession();
-                break;
-            case CommittedStateSource<IReadOnlyDictionary<string, object?>> source:
-                source.CloseSession();
-                break;
-        }
+        if (observer is CommittedWatch<IReadOnlyDictionary<string, object?>> watch) watch.End(failure);
     }
 }

@@ -796,7 +796,8 @@ public static class SessionWorkerEntry
             runtime = await createHarness(SessionCatalog.SessionStoragePath(new SessionCatalogMetadata(
                 options.Metadata.Id, options.Metadata.CreatedAt, options.Metadata.Cwd, options.Metadata.Path)),
             options).ConfigureAwait(false);
-            activity = await runtime.Harness.TaskGraphAsync(Context.Todo).ConfigureAwait(false);
+            activity = WatchState.Attach<IReadOnlyDictionary<string, object?>>(
+                await runtime.Harness.WatchTaskGraphAsync(Context.Todo).ConfigureAwait(false));
             var built = await SessionWorkerProvider.CreateSessionWorkerServicesAsync(new ServicesWorkerOptions
             {
                 Harness = runtime.Harness,

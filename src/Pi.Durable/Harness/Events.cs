@@ -1,6 +1,7 @@
 using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Chord.Delta;
+using Pi.Chord.Services;
 using Pi.Durable.Session;
 using Pi.Durable.Types;
 
@@ -537,7 +538,7 @@ public static class Events
             // 批次是 watch 的值；溢出投递最新视图的一份快照。
             EventsObserver? self = null;
             var watch = new CommittedWatch<IReadOnlyList<AgentEvent>>(
-                [], release, () => [SnapshotOf(self!._current)]);
+                [], release, harness.Report, replace: () => [SnapshotOf(self!._current)]);
             var observer = new EventsObserver(conversationId, initial, watch, snapshot, held);
             self = observer;
             return observer;
@@ -552,7 +553,7 @@ public static class Events
             if (events.Count > 0) Watch.Advance(events, [], context);
         }
 
-        public override void CloseSession() => Watch.CloseSession();
+        public override void End(Exception? failure) => Watch.End(failure);
     }
 
     /// <summary>结果条目 <c>callId</c> 在 <paramref name="entries"/> 中。对应 TS <c>resultOf</c>。</summary>

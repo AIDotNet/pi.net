@@ -1,6 +1,7 @@
 using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Chord.Delta;
+using Pi.Chord.Services;
 using Pi.Durable;
 using Pi.Durable.Harness;
 using Pi.Durable.Session;
@@ -761,7 +762,7 @@ public class HarnessDocsTests
             CommitPublication publication, Context context)
             => Publications++;
 
-        public override void CloseSession() => Closes++;
+        public override void End(Exception? failure) => Closes++;
     }
 
     [Fact]
@@ -845,7 +846,7 @@ public class HarnessDocsTests
         Assert.Single(observed.Entries);
 
         await session.CloseAsync(Ctx);
-        Assert.IsType<WatchEnd.SessionClosed>(await watch.Closed);
+        Assert.IsType<WatchEnd.Ended>(await watch.Closed);
     }
 
     // ─── 测试夹具 ───────────────────────────────────────────────────────────

@@ -41,7 +41,8 @@ public abstract class ViewObserver
     {
     }
 
-    public abstract void CloseSession();
+    /// <summary>Session 已关闭；<paramref name="failure"/> 给出使其失败的错误（若失败）。</summary>
+    public abstract void End(Exception? failure);
 }
 
 /// <summary>
@@ -118,27 +119,9 @@ public sealed class ConversationViews
 
             foreach (var group in observers)
             {
-                foreach (var observer in group) CloseObserver(observer);
+                foreach (var observer in group) CloseObserver(observer, _session.Failure);
             }
         });
-    }
-
-    /// <summary>视图的可释放只读 Chord 状态。对应 TS <c>state()</c>。</summary>
-    public async Task<AttachedReplicatedState<ConversationView>> StateAsync(ConversationId id, Context context)
-    {
-        var (observer, detach) = await AttachAsync(
-            id,
-            (value, release) => new CommittedStateSource<ConversationView>(value, release),
-            context).ConfigureAwait(false);
-        try
-        {
-            return ReplicatedStateAttachments.AttachReplicatedStateSource(observer);
-        }
-        catch (Exception)
-        {
-            detach();
-            throw;
-        }
     }
 
     /// <summary>视图的序列化精确帧 watch；取消 <paramref name="context"/> 使其停止。对应 TS <c>watch()</c>。</summary>
@@ -146,7 +129,7 @@ public sealed class ConversationViews
     {
         var (observer, _) = await AttachAsync(
             id,
-            (value, release) => new CommittedWatch<ConversationView>(value, release),
+            (value, release) => new CommittedWatch<ConversationView>(value, release, _session.Report),
             context).ConfigureAwait(false);
         var signal = context.AbortSignal;
         if (signal?.IsCancellationRequested == true)
@@ -415,9 +398,6 @@ public sealed class ConversationViews
             case CommittedWatch<ConversationView> watch:
                 watch.Advance(value, ops, context);
                 break;
-            case CommittedStateSource<ConversationView> source:
-                source.Advance(value, ops, context);
-                break;
             case ViewObserver viewObserver:
                 viewObserver.Advance(value, ops, context);
                 break;
@@ -428,25 +408,22 @@ public sealed class ConversationViews
         object observer, ConversationView before, ConversationView after, IReadOnlyList<DeltaOp> ops,
         CommitPublication publication, Context context)
     {
-        // CommittedWatch / CommittedStateSource 没有 publication 回调（TS 的可选方法缺省）。
+        // CommittedWatch 没有 publication 回调（TS 的可选方法缺省）。
         if (observer is ViewObserver viewObserver)
         {
             viewObserver.Publication(before, after, ops, publication, context);
         }
     }
 
-    private static void CloseObserver(object observer)
+    private static void CloseObserver(object observer, Exception? failure)
     {
         switch (observer)
         {
             case CommittedWatch<ConversationView> watch:
-                watch.CloseSession();
-                break;
-            case CommittedStateSource<ConversationView> source:
-                source.CloseSession();
+                watch.End(failure);
                 break;
             case ViewObserver viewObserver:
-                viewObserver.CloseSession();
+                viewObserver.End(failure);
                 break;
         }
     }

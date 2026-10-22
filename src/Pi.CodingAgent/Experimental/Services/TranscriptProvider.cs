@@ -4,7 +4,8 @@
 //
 // The facet that serves a conversation's durable view as the `pi.transcript` service. The facet owns
 // the attached state: disposing the facet disposes the replicated view, which stops the underlying
-// watch.
+// watch. Upstream removed `viewState()`, so the attached state is rebuilt over the view's exact-frame
+// watch (see WatchState).
 //
 // TS builds the facet with `defineFacet({ id, setup })`; C# implements `IFacet` directly (C317).
 
@@ -23,7 +24,8 @@ public static class TranscriptProvider
     /// </summary>
     public static async Task<IFacet> CreateTranscriptServiceFacetAsync(IConversation conversation, Context context)
     {
-        var state = await conversation.ViewStateAsync(context).ConfigureAwait(false);
+        var watch = await conversation.WatchAsync(context).ConfigureAwait(false);
+        var state = WatchState.Attach<ConversationView>(watch);
         return new TranscriptFacet(state);
     }
 

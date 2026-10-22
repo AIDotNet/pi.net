@@ -11,7 +11,7 @@ namespace Pi.Durable.Harness;
 using JsonDict = IReadOnlyDictionary<string, object?>;
 using Json = Pi.Chord.Json;
 using TaskStatus = Pi.Durable.Types.TaskStatus;
-using Watch = Pi.Durable.Types.IWatchHandle<IReadOnlyDictionary<string, object?>?>;
+using Watch = Pi.Chord.Services.IWatchHandle<IReadOnlyDictionary<string, object?>?>;
 using BclTaskScheduler = System.Threading.Tasks.TaskScheduler;
 
 /// <summary>

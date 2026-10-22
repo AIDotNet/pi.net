@@ -353,28 +353,6 @@ public class ToolTaskTests
             DocFamilyToken<T, TSeed> token, TaskId<object?> taskId, string key, Context context)
             where T : class, IReadOnlyDictionary<string, object?> => _session.SnapshotAsync(token, taskId, key, context);
 
-        public Task<DocumentState<T>?> DocumentStateAsync<T>(DocToken<T> token, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => _session.DocumentStateAsync(token, context);
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T>(
-            DocToken<T> token, ConversationId conversationId, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => _session.DocumentStateAsync(token, conversationId, context);
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T>(DocToken<T> token, TaskId<object?> taskId, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => _session.DocumentStateAsync(token, taskId, context);
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-            DocFamilyToken<T, TSeed> token, string key, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => _session.DocumentStateAsync(token, key, context);
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-            DocFamilyToken<T, TSeed> token, ConversationId conversationId, string key, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => _session.DocumentStateAsync(token, conversationId, key, context);
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-            DocFamilyToken<T, TSeed> token, TaskId<object?> taskId, string key, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => _session.DocumentStateAsync(token, taskId, key, context);
-
         public Task<IReadOnlyDictionary<string, object?>?> SnapshotAsOfAsync<T>(
             DocToken<T> token, ConversationId conversationId, EntryId at, Context context)
             where T : class, IReadOnlyDictionary<string, object?> => _session.SnapshotAsOfAsync(token, conversationId, at, context);

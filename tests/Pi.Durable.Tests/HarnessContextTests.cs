@@ -179,7 +179,10 @@ public class HarnessContextTests
         var taskId = owner.Id;
         var childId = owner.Child;
 
-        var graph = (await view.StateAsync(Ctx)).Value!;
+        // 上游移除了 taskGraph()：改用启动过的 watch，其 value 随提交推进。
+        var watch = await view.WatchAsync(Ctx);
+        watch.Start((_, _, _) => Task.CompletedTask);
+        var graph = watch.Value!;
         var node = Assert.Single(TaskGraphReader.Nodes(graph));
         Assert.Equal(taskId.Value, node.Id.Value);
         Assert.Equal("demo", node.Kind);
@@ -201,9 +204,17 @@ public class HarnessContextTests
                 });
             return TaskId<object?>.From(id.Value);
         }, Ctx);
-        graph = (await view.StateAsync(Ctx)).Value!;
+        await SettledAsync(() => TaskGraphReader.Count(watch.Value!) == 2);
+        graph = watch.Value!;
         Assert.Equal(2, TaskGraphReader.Count(graph));
         Assert.NotNull(TaskGraphReader.Node(graph, second.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        await watch.Stop();
+    }
+
+    /// <summary>等待 watch 的已交付修订满足条件（投递经线程池，异步于提交）。</summary>
+    private static async Task SettledAsync(Func<bool> ready)
+    {
+        for (var i = 0; i < 100 && !ready(); i++) await Task.Delay(10);
     }
 
     [Fact]

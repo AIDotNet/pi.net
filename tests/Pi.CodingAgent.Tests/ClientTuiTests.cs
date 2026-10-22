@@ -517,7 +517,8 @@ public sealed class ClientTuiTests : IAsyncDisposable
                 .GetAwaiter().GetResult();
 
             // The durable view is republished as the value tree the wire carries.
-            var view = _root.ViewStateAsync(Context.Background).GetAwaiter().GetResult();
+            var view = WatchState.Attach<ConversationView>(
+                _root.WatchAsync(Context.Background).GetAwaiter().GetResult());
             _transcript = new MutableReplicatedState<Dictionary<string, object?>>(Tree(view.Value));
             view.Subscribe((value, _, _) =>
             {

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Pi.Chord.Context;
 using Pi.Chord.Delta;
+using Pi.Chord.Services;
 using Pi.Durable.Session;
 using Pi.Durable.Storage;
 using Pi.Durable.Types;
@@ -560,7 +561,7 @@ public class SessionTests
         Assert.NotNull(watch2);
         watch2.Start((_, _, _) => Task.CompletedTask);
         await test.Session.CloseAsync(Ctx);
-        Assert.IsType<WatchEnd.SessionClosed>(await watch2.Closed);
+        Assert.IsType<WatchEnd.Ended>(await watch2.Closed);
     }
 
     [Fact]
@@ -580,6 +581,55 @@ public class SessionTests
         var end = await watch.Closed;
         var listenerError = Assert.IsType<WatchEnd.ListenerError>(end);
         Assert.Contains("listener boom", listenerError.Error.Message);
+    }
+
+    [Fact]
+    public async Task WatchEndsRetiredOnlyOnItsSourcesRetirementNeverOnANullValue()
+    {
+        var watch = new CommittedWatch<object?>(1, () => { });
+        var frames = new List<(object? Value, int OpCount)>();
+        watch.Start((value, ops, _) =>
+        {
+            lock (frames) frames.Add((value, ops.Count));
+            return Task.CompletedTask;
+        });
+        object? settled = null;
+        _ = watch.Closed.ContinueWith(task => settled = task.Result, TaskScheduler.Default);
+        // null 只是又一个值：源没有退休，watch 继续投递。
+        watch.Advance(null, CommittedWatch<object?>.RetirementOperations, Ctx);
+        watch.Advance(2, [new DeltaOp.Replace(2)], Ctx);
+        await WaitUntilAsync(() =>
+        {
+            lock (frames) return frames.Count == 2;
+        });
+        lock (frames) Assert.Equal([(null, 1), (2, 1)], frames);
+        Assert.Null(settled);
+        Assert.IsType<WatchEnd.Stopped>(await watch.Stop());
+    }
+
+    [Fact]
+    public async Task WatchRetireDeliversTheRetirementFrameThenEndsRetired()
+    {
+        var watch = new CommittedWatch<object?>(1, () => { });
+        var frames = new List<(object? Value, IReadOnlyList<DeltaOp> Ops)>();
+        watch.Start((value, ops, _) =>
+        {
+            lock (frames) frames.Add((value, ops));
+            return Task.CompletedTask;
+        });
+        watch.Retire(Ctx);
+        Assert.IsType<WatchEnd.Retired>(await watch.Closed);
+        lock (frames)
+        {
+            var frame = Assert.Single(frames);
+            Assert.Null(frame.Value);
+            var op = Assert.IsType<DeltaOp.Replace>(Assert.Single(frame.Ops));
+            Assert.Null(op.Value);
+        }
+        // 退休之后不再有帧。
+        watch.Advance(3, [new DeltaOp.Replace(3)], Ctx);
+        await Task.Delay(50);
+        lock (frames) Assert.Single(frames);
     }
 
     // ─── 生命周期 ───────────────────────────────────────────────────────────

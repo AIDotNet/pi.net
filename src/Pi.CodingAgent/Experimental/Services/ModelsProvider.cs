@@ -64,16 +64,17 @@ public static class ModelsProvider
     /// </summary>
     public static async Task<IFacet> CreateModelsServiceFacetAsync(ModelsServiceFacetOptions options)
     {
-        var agent = await options.Harness
-            .DocumentStateAsync(AgentDocs.AgentDoc, options.Conversation.Id, options.Context)
+        var watch = await options.Harness
+            .WatchDocAsync(AgentDocs.AgentDoc, options.Conversation.Id, options.Context)
             .ConfigureAwait(false);
-        if (agent is null)
+        if (watch is null)
         {
             throw new InvalidOperationException(
                 $"Conversation {options.Conversation.Id.Value} has no agent document");
         }
 
-        return new ModelsFacet(agent, options);
+        // 上游移除了 documentState()；这里用 agent 文档的精确帧 watch 重建只读复制状态。
+        return new ModelsFacet(WatchState.Attach<IReadOnlyDictionary<string, object?>?>(watch), options);
     }
 
     /// <summary>
@@ -82,7 +83,7 @@ public static class ModelsProvider
     /// </summary>
     public static ModelsServiceRuntime CreateModelsService(
         IConversation conversation,
-        DocumentState<Dictionary<string, object?>> agent,
+        AttachedReplicatedState<IReadOnlyDictionary<string, object?>?> agent,
         ModelRuntime? modelRuntime,
         SettingsManager? settingsManager,
         Func<ModelsState, MutableReplicatedState<ModelsState>> createState)
@@ -173,7 +174,7 @@ public static class ModelsProvider
 
     /// <summary>The facet itself: id <c>@pi/models</c>, providing <see cref="Models.Service"/>.</summary>
     private sealed class ModelsFacet(
-        DocumentState<Dictionary<string, object?>> agent,
+        AttachedReplicatedState<IReadOnlyDictionary<string, object?>?> agent,
         ModelsServiceFacetOptions options) : IFacet
     {
         public string Id => "@pi/models";
@@ -220,7 +221,7 @@ public static class ModelsProvider
     /// </summary>
     private sealed class ModelsService(
         IConversation conversation,
-        DocumentState<Dictionary<string, object?>> agent,
+        AttachedReplicatedState<IReadOnlyDictionary<string, object?>?> agent,
         ModelRuntime? modelRuntime,
         SettingsManager? settingsManager,
         Func<ModelsState, MutableReplicatedState<ModelsState>> createState)

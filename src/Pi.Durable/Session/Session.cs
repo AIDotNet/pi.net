@@ -191,76 +191,6 @@ public class DurableSession : ISession
         return loaded.Tracker.Value;
     }
 
-    // ─── 文档状态 ───────────────────────────────────────────────────────────
-
-    /// <inheritdoc />
-    public Task<DocumentState<T>?> DocumentStateAsync<T>(DocToken<T> token, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-        => DocumentStateCoreAsync<T>(DurableDocuments.Erase(token.Definition), [], context);
-
-    /// <inheritdoc />
-    public Task<DocumentState<T>?> DocumentStateAsync<T>(
-        DocToken<T> token, ConversationId conversationId, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-        => DocumentStateCoreAsync<T>(DurableDocuments.Erase(token.Definition), [conversationId.Value], context);
-
-    /// <inheritdoc />
-    public Task<DocumentState<T>?> DocumentStateAsync<T>(
-        DocToken<T> token, TaskId<object?> taskId, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-        => DocumentStateCoreAsync<T>(DurableDocuments.Erase(token.Definition), [taskId.Value], context);
-
-    /// <inheritdoc />
-    public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-        => DocumentStateCoreAsync<T>(DurableDocuments.Erase(token.Definition), [key], context);
-
-    /// <inheritdoc />
-    public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, ConversationId conversationId, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-        => DocumentStateCoreAsync<T>(
-            DurableDocuments.Erase(token.Definition), [conversationId.Value, key], context);
-
-    /// <inheritdoc />
-    public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-        DocFamilyToken<T, TSeed> token, TaskId<object?> taskId, string key, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-        => DocumentStateCoreAsync<T>(
-            DurableDocuments.Erase(token.Definition), [taskId.Value, key], context);
-
-    private async Task<DocumentState<T>?> DocumentStateCoreAsync<T>(
-        DurableDocuments.AnyDocDefinition definition, object?[] args, Context context)
-        where T : class, IReadOnlyDictionary<string, object?>
-    {
-        AssertUsable();
-        var resolved = DurableDocuments.ResolveAddress(definition, args);
-        var state = await Enqueue(async () =>
-        {
-            AssertHealthy();
-            var loaded = await LoadDocumentAsync(definition, resolved.Id, resolved.Address, context)
-                .ConfigureAwait(false);
-            if (loaded is null) return null;
-            var (observer, detach) = AttachDocument(
-                definition,
-                loaded,
-                (value, release) => new CommittedStateSource<IReadOnlyDictionary<string, object?>?>(
-                    value, release));
-            try
-            {
-                var attached = ReplicatedStateAttachments.AttachReplicatedStateSource(observer);
-                return new DocumentState<T>(attached);
-            }
-            catch (Exception)
-            {
-                detach();
-                throw;
-            }
-        }).ConfigureAwait(false);
-        return state;
-    }
-
     // ─── Watch ──────────────────────────────────────────────────────────────
 
     /// <inheritdoc />
@@ -314,11 +244,7 @@ public class DurableSession : ISession
                 .ConfigureAwait(false);
             if (cancelled) throw CancellationError(signal!.Value);
             if (loaded is null) return null;
-            var inner = AttachDocument(
-                definition,
-                loaded,
-                (value, release) => new CommittedWatch<IReadOnlyDictionary<string, object?>?>(
-                    value, release)).Observer;
+            var inner = AttachDocument(definition, loaded);
             return new DocumentWatch<T>(inner);
         }).ConfigureAwait(false);
         if (watch is null) return null;
@@ -423,6 +349,17 @@ public class DurableSession : ISession
 
     /// <summary>在 close 封闭受理之后、变更线关闭 Storage 之前运行；不得拒绝。对应 TS protected <c>beforeClose</c>。</summary>
     protected virtual Task OnBeforeCloseAsync() => Task.CompletedTask;
+
+    /// <summary>
+    /// 上报一个宿主回调或观察者的意外失败，不得抛出。普通 Session 丢弃它；Harness 覆盖它以转发给宿主。
+    /// 对应 TS <c>report(error)</c>。
+    /// </summary>
+    public virtual void Report(Exception error)
+    {
+    }
+
+    /// <summary>使 Session 失败的错误（若尚未失败为 null）。对应 TS <c>failure</c>。</summary>
+    public Exception? Failure => _poison;
 
     /// <summary>
     /// 注册同步的采纳后监听器。不得抛出、阻塞或调用 Session 操作。
@@ -568,14 +505,12 @@ public class DurableSession : ISession
     }
 
     /// <summary>
-    /// 把观察者附着到一个已提交化身：校验定义，然后转发本化身的已提交变更并关闭。
-    /// <c>detach</c> 同时移除两个订阅。对应 TS <c>#attachDocument</c>。
+    /// 把一个 watch 附着到一个已提交化身：校验定义，然后转发本化身的已提交变更、它的退休与关闭。
+    /// watch 的 detach 移除两个订阅。对应 TS <c>#attachDocument</c>。
     /// </summary>
-    private (TObserver Observer, Action Detach) AttachDocument<TObserver>(
+    private CommittedWatch<IReadOnlyDictionary<string, object?>?> AttachDocument(
         DurableDocuments.AnyDocDefinition definition,
-        LoadedDocument loaded,
-        Func<IReadOnlyDictionary<string, object?>?, Action, TObserver> create)
-        where TObserver : class
+        LoadedDocument loaded)
     {
         DurableDocuments.CheckRecordScope(definition, loaded.Record);
         DurableDocuments.CheckRecordVersion(definition, loaded.Record, loaded.StoredVersion);
@@ -586,7 +521,8 @@ public class DurableSession : ISession
             unsubscribeCommit.Dispose();
             unsubscribeClose.Dispose();
         };
-        var observer = create(loaded.Tracker.Value, detach);
+        var observer = new CommittedWatch<IReadOnlyDictionary<string, object?>?>(
+            loaded.Tracker.Value, detach, Report);
         var observed = new ObservedVersion { Version = loaded.ValueVersion };
         unsubscribeCommit = SubscribeCommits((publication, context) =>
         {
@@ -597,37 +533,21 @@ public class DurableSession : ISession
                 {
                     continue;
                 }
-                // 文档状态的帧不带调用方取消；watch 观察自己的取消。
-                var frameContext = observer is CommittedStateSource<IReadOnlyDictionary<string, object?>?>
-                    ? ContextSignals.WithoutAbortSignal(context)
-                    : context;
+                if (document.Change.Value is null)
+                {
+                    // 已退休的化身不再变化：其 watch 投递退休，但不再持有任何东西。
+                    observer.Retire(context);
+                    continue;
+                }
+
                 var ops = ObservedOperations(observed, document.Change);
                 // 仅迁移的 base 对新版本的观察者没有任何改变。
                 if (ops.Count == 0) continue;
-                switch (observer)
-                {
-                    case CommittedStateSource<IReadOnlyDictionary<string, object?>?> source:
-                        source.Advance(document.Change.Value, ops, frameContext);
-                        break;
-                    case CommittedWatch<IReadOnlyDictionary<string, object?>?> watch:
-                        watch.Advance(document.Change.Value, ops, frameContext);
-                        break;
-                }
+                observer.Advance(document.Change.Value, ops, context);
             }
         });
-        unsubscribeClose = SubscribeClose(() =>
-        {
-            switch (observer)
-            {
-                case CommittedStateSource<IReadOnlyDictionary<string, object?>?> source:
-                    source.CloseSession();
-                    break;
-                case CommittedWatch<IReadOnlyDictionary<string, object?>?> watch:
-                    watch.CloseSession();
-                    break;
-            }
-        });
-        return (observer, detach);
+        unsubscribeClose = SubscribeClose(() => observer.End(_poison));
+        return observer;
     }
 
     private sealed class ObservedVersion
@@ -706,7 +626,6 @@ public class DurableSession : ISession
     private static IReadOnlyList<DeltaOp> ObservedOperations(
         ObservedVersion observed, DocumentCommitChange.Document change)
     {
-        if (change.Value is null) return CommittedStateSource<object?>.RetirementOperations;
         if (change.Version == observed.Version) return change.Ops;
         observed.Version = change.Version!.Value;
         return [new DeltaOp.Replace(change.Value)];

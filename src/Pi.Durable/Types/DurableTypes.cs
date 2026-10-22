@@ -723,70 +723,14 @@ public abstract record CommitChange
     public sealed record DocumentCopied(DocumentCommitChange.Copy Change) : CommitChange;
 }
 
-/// <summary>一个文档 watch 的终态结果。对应 TS <c>WatchEnd</c>。</summary>
-public abstract record WatchEnd
-{
-    private WatchEnd() { }
-
-    public sealed record Stopped : WatchEnd;
-
-    public sealed record Cancelled : WatchEnd;
-
-    public sealed record SessionClosed : WatchEnd;
-
-    public sealed record Retired : WatchEnd;
-
-    public sealed record ListenerError(Exception Error) : WatchEnd;
-}
-
-/// <summary>不可变值的精确帧观察句柄（有待发上限的序列化观察）。对应 TS <c>WatchHandle&lt;T&gt;</c>。</summary>
-public interface IWatchHandle<T>
-{
-    /// <summary>获取时的修订；最新交付的不可变修订。</summary>
-    T Value { get; }
-
-    /// <summary>安装唯一异步监听器；绝不内联调用。</summary>
-    void Start(Func<T, IReadOnlyList<DeltaOp>, Pi.Chord.Context.Context, Task> listener);
-
-    /// <summary>幂等地停止未来回调并返回该 watch 的终态结果。</summary>
-    Task<WatchEnd> Stop();
-
-    /// <summary>watch 终止时落定；已运行的回调仍由调用方负责。</summary>
-    Task<WatchEnd> Closed { get; }
-}
-
 /// <summary>文档 watch（值可空：化身可能尚未物化）。对应 TS <c>DocumentWatch&lt;T&gt;</c>。</summary>
 public interface IDocumentWatch<T> : IWatchHandle<IReadOnlyDictionary<string, object?>?> where T : class;
 
 /// <summary>
-/// 绑定到一个已提交文档化身的可释放只读 Chord 状态。对应 TS
-/// <c>DocumentState&lt;T&gt; = AttachedReplicatedState&lt;Readonly&lt;T&gt; | null&gt;</c>。
-/// </summary>
-public sealed class DocumentState<T> : IDisposable where T : class
-{
-    private readonly Pi.Chord.Services.AttachedReplicatedState<IReadOnlyDictionary<string, object?>?> _inner;
-
-    internal DocumentState(Pi.Chord.Services.AttachedReplicatedState<IReadOnlyDictionary<string, object?>?> inner)
-        => _inner = inner;
-
-    /// <summary>当前值快照（未物化时为 null）。</summary>
-    public IReadOnlyDictionary<string, object?>? Value => _inner.Value;
-
-    /// <summary>
-    /// 订阅值变更；注册即投递一帧 hydrate（当前值）。对应 TS <c>DocumentState&lt;T&gt; =
-    /// AttachedReplicatedState&lt;Readonly&lt;T&gt; | null&gt;</c> 的 <c>subscribe</c>（TS 返回取消订阅函数，C# 返回
-    /// <see cref="IDisposable"/>）。
-    /// </summary>
-    public IDisposable Subscribe(StateListener<IReadOnlyDictionary<string, object?>?> listener)
-        => _inner.Subscribe(listener);
-
-    /// <inheritdoc />
-    public void Dispose() => _inner.Dispose();
-}
-
-/// <summary>
-/// 绑定到一个已提交文档化身的精确帧 watch。对应 TS
-/// <c>DocumentWatch&lt;T&gt; = WatchHandle&lt;Readonly&lt;T&gt; | null&gt;</c>。
+/// 一个已提交文档化身的 watch。退休会投递值为 <c>null</c> 的 <c>[["r", null]]</c>，随后以
+/// <see cref="WatchEnd.Retired"/> 结束；Session 的关闭使其以 <see cref="WatchEnd.Ended"/> 结束，
+/// 其失败以 <see cref="WatchEnd.Failed"/> 携带该错误结束。
+/// 对应 TS <c>DocumentWatch&lt;T&gt; = WatchHandle&lt;Readonly&lt;T&gt; | null&gt;</c>。
 /// C# 无结构化类型，TS 的接口与具体类之分由本包装承载（Cancel / ObserveCancellation
 /// 位于具体类型，对齐 TS <c>CommittedWatch</c> 的公开面）。
 /// </summary>

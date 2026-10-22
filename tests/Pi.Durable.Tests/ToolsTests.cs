@@ -97,29 +97,6 @@ public class ToolsTests
             DocFamilyToken<T, TSeed> token, TaskId<object?> taskId, string key, Context context)
             where T : class, IReadOnlyDictionary<string, object?> => throw new NotSupportedException();
 
-        public Task<DocumentState<T>?> DocumentStateAsync<T>(DocToken<T> token, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => throw new NotSupportedException();
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T>(
-            DocToken<T> token, ConversationId conversationId, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => throw new NotSupportedException();
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T>(
-            DocToken<T> token, TaskId<object?> taskId, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => throw new NotSupportedException();
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-            DocFamilyToken<T, TSeed> token, string key, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => throw new NotSupportedException();
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-            DocFamilyToken<T, TSeed> token, ConversationId conversationId, string key, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => throw new NotSupportedException();
-
-        public Task<DocumentState<T>?> DocumentStateAsync<T, TSeed>(
-            DocFamilyToken<T, TSeed> token, TaskId<object?> taskId, string key, Context context)
-            where T : class, IReadOnlyDictionary<string, object?> => throw new NotSupportedException();
-
         public Task<IReadOnlyDictionary<string, object?>?> SnapshotAsOfAsync<T>(
             DocToken<T> token, ConversationId conversationId, EntryId at, Context context)
             where T : class, IReadOnlyDictionary<string, object?> => throw new NotSupportedException();

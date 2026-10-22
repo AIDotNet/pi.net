@@ -146,9 +146,6 @@ internal sealed class ConversationImpl : IConversation
         return _host.Tasks.WaitForIdleAsync(Id, context);
     }
 
-    public Task<AttachedReplicatedState<ConversationView>> ViewStateAsync(Context context)
-        => _host.Views.StateAsync(Id, context);
-
     public Task<CommittedWatch<ConversationView>> WatchAsync(Context context)
         => _host.Views.WatchAsync(Id, context);
 }
@@ -339,9 +336,6 @@ public sealed class HarnessImpl : DurableSession, IHarness
 
     public Task<CommittedWatch<JsonDict>> WatchTaskGraphAsync(Context context) => _taskGraph.WatchAsync(context);
 
-    /// <summary>任务图的图状态快照（spec §9.5）。对应 TS <c>taskGraph()</c>。</summary>
-    public Task<AttachedReplicatedState<JsonDict>> TaskGraphAsync(Context context) => _taskGraph.StateAsync(context);
-
     public Task<IConversation> RootAsync(Context context, AgentChange? agent = null, ConversationInit? init = null)
         => CreateCoreAsync(
             new CreateTarget.Root(), new CreateOptions { Agent = agent, Init = init }, context);
@@ -424,6 +418,9 @@ public sealed class HarnessImpl : DurableSession, IHarness
     {
         if (_closed) throw HarnessUtil.ClosedError();
     }
+
+    /// <inheritdoc />
+    public override void Report(Exception error) => _report(error);
 
     private static IReadOnlyDictionary<string, Pi.Ai.Types.Usage> ReadBucket(
         Dictionary<string, object?> total, string bucket)

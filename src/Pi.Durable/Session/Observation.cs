@@ -1,15 +1,20 @@
 using Pi.Chord.Context;
 using Pi.Chord.Delta;
 using Pi.Chord.Services;
-using Pi.Durable.Types;
 
 namespace Pi.Durable.Session;
 
+/// <summary>watch 的一帧（值 + ops + 上下文 + 退休标记）。对应 TS <c>WatchFrame&lt;T&gt;</c>。</summary>
+internal sealed record WatchFrame<T>(
+    T Value, IReadOnlyList<DeltaOp> Ops, Context Context, bool Retires = false);
+
 /// <summary>
-/// Session 到 Chord 的桥，与一个附加态（文档或对话视图）一对一拥有。null 值使其退休。
-/// 对应 TS <c>CommittedStateSource&lt;T&gt;</c>（实现 chord 的 <c>ReplicatedStateSource</c>）。
+/// 绑定到一个文档化身或对话视图的串行化精确帧 watch。其源显式结束它：退休文档用
+/// <see cref="Retire"/>，关闭或失败的 Session 用 <see cref="End"/>。终止会丢弃该 watch 持有的
+/// 每个指向其源的引用，因此一个仍被引用的已停止 watch 只保留其最后一个值。
+/// 对应 TS <c>CommittedWatch&lt;T&gt;</c>（实现 <c>WatchHandle&lt;T&gt;</c>）。
 /// </summary>
-public sealed class CommittedStateSource<T> : IReplicatedStateSource<T>
+public sealed class CommittedWatch<T> : IWatchHandle<T>
 {
     /// <summary>一个不可用 watch 监听器之后保留的精确已提交帧上限。</summary>
     internal const int MaxPendingWatchFrames = 100;
@@ -17,178 +22,9 @@ public sealed class CommittedStateSource<T> : IReplicatedStateSource<T>
     /// <summary>退役文档化身的规范终局更新。对应 TS <c>RETIREMENT_OPERATIONS = [["r", null]]</c>。</summary>
     public static readonly IReadOnlyList<DeltaOp> RetirementOperations = [new DeltaOp.Replace(null)];
 
-    private readonly HashSet<SessionSourceAttachment<T>> _attachments = [];
-    private Action? _release;
-
-    /// <summary>dispose 时释放。</summary>
-    private T? _value;
-    private long _cursor;
-    private bool _retired;
-    private bool _closed;
-
-    public CommittedStateSource(T value, Action release)
-    {
-        _value = value;
-        _release = release;
-    }
-
-    /// <summary>当前快照（值 + 游标）。对应 TS <c>attach()</c> 前的源状态。</summary>
-    public ReplicatedStateSourceSnapshot<T> Snapshot
-    {
-        get
-        {
-            if (_closed) throw new InvalidOperationException("State source is closed");
-            return new ReplicatedStateSourceSnapshot<T>(_value!, _cursor);
-        }
-    }
-
-    public IReplicatedStateSourceAttachment<T> Attach()
-    {
-        if (_closed) throw new InvalidOperationException("State source is closed");
-        SessionSourceAttachment<T>? attachment = null;
-        attachment = new SessionSourceAttachment<T>(new ReplicatedStateSourceSnapshot<T>(_value!, _cursor), () =>
-        {
-            _attachments.Remove(attachment!);
-            if (_attachments.Count == 0) FinishDisposal();
-        });
-        _attachments.Add(attachment);
-        return attachment;
-    }
-
-    /// <summary>推进源状态并向全部附着发布帧。对应 TS <c>advance</c>。</summary>
-    public void Advance(T value, IReadOnlyList<DeltaOp> ops, Context context)
-    {
-        if (_closed || _retired) return;
-        _value = value;
-        _cursor += 1;
-        if (value is null) _retired = true;
-        var frame = new ReplicatedStateSourceFrame<T>(value, ops, _cursor, context);
-        foreach (var attachment in _attachments.ToArray()) attachment.Publish(frame);
-    }
-
-    /// <summary>关闭会话时处置全部附着。对应 TS <c>closeSession</c>。</summary>
-    public void CloseSession()
-    {
-        if (_closed) return;
-        foreach (var attachment in _attachments.ToArray()) attachment.Dispose();
-        FinishDisposal();
-    }
-
-    private void FinishDisposal()
-    {
-        if (_closed) return;
-        _closed = true;
-        _value = default;
-        var release = _release;
-        _release = null;
-        release?.Invoke();
-    }
-}
-
-/// <summary>
-/// 单个授权源附着的句柄：快照 + 帧队列 + 异步投递。
-/// 对应 TS <c>SessionSourceAttachment</c>。
-/// </summary>
-public sealed class SessionSourceAttachment<T> : IReplicatedStateSourceAttachment<T>
-{
-    private readonly ReplicatedStateSourceSnapshot<T> _snapshot;
-    private Action? _release;
-    private readonly List<ReplicatedStateSourceFrame<T>> _frames = [];
-    private Action<ReplicatedStateSourceFrame<T>>? _listener;
-    private bool _activated;
-    private bool _disposed;
-    private bool _scheduled;
-    private bool _delivering;
-
-    public SessionSourceAttachment(ReplicatedStateSourceSnapshot<T> snapshot, Action release)
-    {
-        _snapshot = snapshot;
-        _release = release;
-    }
-
-    /// <summary>附着时的快照（值 + 游标）。对应 TS <c>snapshot</c>。</summary>
-    public ReplicatedStateSourceSnapshot<T> Snapshot => _snapshot;
-
-    /// <summary>开始接收帧（回调到 receive）。对应 TS <c>activate(listener)</c>。</summary>
-    public void Activate(Action<ReplicatedStateSourceFrame<T>> receive)
-    {
-        if (_activated) throw new InvalidOperationException("State attachment is already active");
-        if (_disposed) throw new InvalidOperationException("State attachment is disposed");
-        _activated = true;
-        _listener = receive;
-        Drain();
-    }
-
-    /// <summary>入队一帧并调度异步投递。对应 TS <c>publish</c>（queueMicrotask）。</summary>
-    public void Publish(ReplicatedStateSourceFrame<T> frame)
-    {
-        if (_disposed) return;
-        _frames.Add(frame);
-        if (!_activated || _delivering || _scheduled) return;
-        _scheduled = true;
-        // 设计差异：TS 用 queueMicrotask 保证「当前同步栈结束之后」投递；C# 用线程池任务近似
-        // （投递仍严格晚于当前同步段、帧序不变），时序粒度不同但观察语义一致。
-        _ = Task.Run(() =>
-        {
-            _scheduled = false;
-            if (_disposed) return;
-            try
-            {
-                Drain();
-            }
-            catch
-            {
-                // Chord 的帧监听器包含源契约失败；把监听器的意外失败同样隔离在本附着内。
-                Dispose();
-            }
-        });
-    }
-
-    /// <summary>处置附着并释放。对应 TS <c>dispose</c>。</summary>
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        _frames.Clear();
-        _listener = null;
-        var release = _release;
-        _release = null;
-        release?.Invoke();
-    }
-
-    private void Drain()
-    {
-        var listener = _listener;
-        if (listener is null || _delivering || _disposed) return;
-        _delivering = true;
-        try
-        {
-            while (!_disposed)
-            {
-                if (_frames.Count == 0) break;
-                var frame = _frames[0];
-                _frames.RemoveAt(0);
-                listener(frame);
-            }
-        }
-        finally
-        {
-            _delivering = false;
-        }
-    }
-}
-
-/// <summary>watch 的一帧（值 + ops + 上下文）。对应 TS <c>WatchFrame&lt;T&gt;</c>。</summary>
-internal sealed record WatchFrame<T>(T Value, IReadOnlyList<DeltaOp> Ops, Context Context);
-
-/// <summary>
-/// 绑定到一个文档化身或对话视图的串行化精确帧 watch。null 值使其退休。
-/// 对应 TS <c>CommittedWatch&lt;T&gt;</c>（实现 <c>WatchHandle&lt;T&gt;</c>）。
-/// </summary>
-public sealed class CommittedWatch<T> : IWatchHandle<T>
-{
-    private readonly Action _detach;
-    private readonly Func<T>? _replace;
+    private Action? _detach;
+    private Action<Exception>? _report;
+    private Func<T>? _replace;
     private readonly TaskCompletionSource<WatchEnd> _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly List<WatchFrame<T>> _pending = [];
     private T _value;
@@ -196,17 +32,20 @@ public sealed class CommittedWatch<T> : IWatchHandle<T>
     private bool _started;
     private bool _scheduled;
     private bool _running;
-    private bool _detached;
     private bool _retired;
     private WatchEnd? _end;
-    private bool _resolved;
+    private bool _cancellationInstalled;
     private CancellationTokenRegistration _cancellationRegistration;
 
-    /// <summary><paramref name="replace"/> 给出溢出时投递的值；缺省取最新值。</summary>
-    public CommittedWatch(T value, Action detach, Func<T>? replace = null)
+    /// <summary>
+    /// <paramref name="report"/> 接收监听器的抛出（该抛出同时结束 watch）。<paramref name="replace"/>
+    /// 给出溢出时投递的值；缺省取最新值。
+    /// </summary>
+    public CommittedWatch(T value, Action detach, Action<Exception>? report = null, Func<T>? replace = null)
     {
         _value = value;
         _detach = detach;
+        _report = report;
         _replace = replace;
     }
 
@@ -236,7 +75,10 @@ public sealed class CommittedWatch<T> : IWatchHandle<T>
     /// <summary>安装取消信号观察。对应 TS <c>observeCancellation(signal)</c>。</summary>
     public void ObserveCancellation(CancellationToken signal)
     {
+        if (_cancellationInstalled)
+            throw new InvalidOperationException("Watch cancellation is already installed");
         if (_end is not null) return;
+        _cancellationInstalled = true;
         _cancellationRegistration = signal.Register(Cancel);
         if (signal.IsCancellationRequested) Cancel();
     }
@@ -244,15 +86,32 @@ public sealed class CommittedWatch<T> : IWatchHandle<T>
     /// <summary>以 cancelled 终态终止。对应 TS <c>cancel()</c>。</summary>
     public void Cancel() => Terminate(new WatchEnd.Cancelled());
 
-    /// <summary>以 session_closed 终态终止。对应 TS <c>closeSession()</c>。</summary>
-    public void CloseSession() => Terminate(new WatchEnd.SessionClosed());
+    /// <summary>
+    /// 源已关闭：以 <see cref="WatchEnd.Ended"/> 结束；Session 失败时以 <see cref="WatchEnd.Failed"/>
+    /// 携带该错误结束。对应 TS <c>end(failure?)</c>。
+    /// </summary>
+    public void End(Exception? failure = null)
+        => Terminate(failure is null ? new WatchEnd.Ended() : new WatchEnd.Failed(failure));
+
+    /// <summary>
+    /// 文档化身已退休：在末尾排队最后一帧（值为 <c>null</c> 的 <c>[["r", null]]</c>），
+    /// 投递之后 watch 以 <see cref="WatchEnd.Retired"/> 结束。溢出中的积压会被丢弃，因为该帧本就替换根。
+    /// 对应 TS <c>retire(context)</c>（仅用于 <c>CommittedWatch&lt;ObservedDocumentValue&gt;</c>）。
+    /// </summary>
+    public void Retire(Context context)
+    {
+        if (_end is not null || _retired) return;
+        _retired = true;
+        if (_pending.Count >= MaxPendingWatchFrames) _pending.Clear();
+        _pending.Add(new WatchFrame<T>(default!, RetirementOperations, context, Retires: true));
+        if (_started) Schedule();
+    }
 
     /// <summary>推进 watch：入队一帧（超限则整批折叠）。对应 TS <c>advance</c>。</summary>
     public void Advance(T value, IReadOnlyList<DeltaOp> ops, Context context)
     {
         if (_end is not null || _retired) return;
-        if (value is null) _retired = true;
-        if (_pending.Count >= CommittedStateSource<object?>.MaxPendingWatchFrames)
+        if (_pending.Count >= MaxPendingWatchFrames)
         {
             _pending.Clear();
             var replacement = _replace is not null ? _replace() : value;
@@ -269,7 +128,8 @@ public sealed class CommittedWatch<T> : IWatchHandle<T>
     {
         if (_scheduled || _running || _end is not null) return;
         _scheduled = true;
-        // 设计差异：TS 用 queueMicrotask；C# 用线程池任务近似（见 SessionSourceAttachment.Publish）。
+        // 设计差异：TS 用 queueMicrotask 保证「当前同步栈结束之后」投递；C# 用线程池任务近似
+        // （投递仍严格晚于当前同步段、帧序不变），时序粒度不同但观察语义一致。
         _ = Task.Run(async () =>
         {
             _scheduled = false;
@@ -279,11 +139,7 @@ public sealed class CommittedWatch<T> : IWatchHandle<T>
 
     private async Task DrainAsync()
     {
-        if (_running || _end is not null || !_started)
-        {
-            FinishIfReady();
-            return;
-        }
+        if (_running || _end is not null || !_started) return;
         _running = true;
         try
         {
@@ -292,18 +148,24 @@ public sealed class CommittedWatch<T> : IWatchHandle<T>
                 if (_pending.Count == 0) break;
                 var frame = _pending[0];
                 _pending.RemoveAt(0);
+                var listener = _listener;
+                if (listener is null) break;
                 _value = frame.Value;
                 var deliveryContext = ContextSignals.WithoutAbortSignal(frame.Context);
                 try
                 {
-                    await _listener!(frame.Value, frame.Ops, deliveryContext).ConfigureAwait(false);
+                    await listener(frame.Value, frame.Ops, deliveryContext).ConfigureAwait(false);
                 }
                 catch (Exception error)
                 {
-                    if (_end is null) Terminate(new WatchEnd.ListenerError(error));
+                    if (_end is null)
+                    {
+                        _report?.Invoke(error);
+                        Terminate(new WatchEnd.ListenerError(error));
+                    }
                     break;
                 }
-                if (frame.Value is null)
+                if (frame.Retires)
                 {
                     Terminate(new WatchEnd.Retired());
                     break;
@@ -314,31 +176,26 @@ public sealed class CommittedWatch<T> : IWatchHandle<T>
         {
             _running = false;
             if (_end is null && _pending.Count > 0) Schedule();
-            FinishIfReady();
         }
     }
 
+    /// <summary>
+    /// 只结束一次：脱钩、丢弃待发帧与每个指向源的引用，并落定 <see cref="Closed"/>。
+    /// 已在运行的回调继续运行。
+    /// </summary>
     private void Terminate(WatchEnd end)
     {
         if (_end is not null) return;
         _end = end;
-        DetachNow();
+        var detach = _detach;
+        _detach = null;
+        _report = null;
+        _replace = null;
+        _listener = null;
         _pending.Clear();
-        FinishIfReady();
-    }
-
-    private void DetachNow()
-    {
-        if (_detached) return;
-        _detached = true;
-        _detach();
-    }
-
-    private void FinishIfReady()
-    {
-        if (_resolved || _end is null) return;
-        _resolved = true;
         _cancellationRegistration.Dispose();
-        _closed.TrySetResult(_end);
+        _cancellationRegistration = default;
+        detach?.Invoke();
+        _closed.TrySetResult(end);
     }
 }
