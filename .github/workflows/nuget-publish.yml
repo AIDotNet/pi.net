@@ -43,18 +43,18 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # SourceLink 需要完整历史才能把 commit 写进包元数据。
           fetch-depth: 0
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.NUGET_PACKAGES }}
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'Directory.Build.targets') }}
@@ -82,7 +82,16 @@ jobs:
           echo "### 发布版本：\`${version}\`" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Restore
-        run: dotnet restore Pi.slnx
+        run: |
+          set +e
+          dotnet restore Pi.slnx 2>&1 | tee restore.log
+          status="${PIPESTATUS[0]}"
+          if [[ "${status}" -ne 0 ]]; then
+            grep -E "error|NU[0-9]{4}|MSB[0-9]{4}" restore.log | head -8 | while IFS= read -r line; do
+              echo "::error title=restore::${line}"
+            done
+            exit 1
+          fi
 
       # 构建时就把版本号传进去，pack 阶段用 --no-build 才能保证
       # 程序集版本与包版本一致（否则 nuspec 是新版本、dll 还是旧版本）。
@@ -125,7 +134,7 @@ jobs:
           exit "${failed}"
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nupkg-${{ steps.ver.outputs.version }}
           path: artifacts/*

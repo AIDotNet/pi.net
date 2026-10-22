@@ -33,17 +33,22 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
+      - name: Report SDK
+        run: |
+          echo "::notice title=SDK version::$(dotnet --version)"
+          dotnet --list-sdks
+
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.NUGET_PACKAGES }}
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'Directory.Build.targets') }}
@@ -51,7 +56,18 @@ jobs:
             nuget-${{ runner.os }}-
 
       - name: Restore
-        run: dotnet restore Pi.slnx
+        run: |
+          set +e
+          dotnet restore Pi.slnx 2>&1 | tee restore.log
+          status="${PIPESTATUS[0]}"
+          if [[ "${status}" -ne 0 ]]; then
+            # 把报错行提升为 annotation，这样在 run 页面和 API 上都能直接看到原因，
+            # 不必下载完整日志。
+            grep -E "error|NU[0-9]{4}|MSB[0-9]{4}" restore.log | head -8 | while IFS= read -r line; do
+              echo "::error title=restore::${line}"
+            done
+            exit 1
+          fi
 
       - name: Build
         run: dotnet build Pi.slnx -c Release --no-restore -p:ContinuousIntegrationBuild=true
