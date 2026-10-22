@@ -115,8 +115,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   回调、`mintId()` 契约收窄 —— **已移植（第三批）**：存储负责在批次持久后、下一次提交开始前
   同步采纳一次，Session 不再自己 `tx.adopt(seq)`，改为发现「已提交却没采纳」即毒化。
   其余改动的现状见下面 §3.5.1 的分项清单。
-- **durable 1.4.0 剩余项（§3.5.1）**：按「是否影响日常使用」排序，逐批推进。已完成的单一特性：
-  `settings.compaction.modelOverrides`（第三十批，见 §6.a）。
+- **durable 1.4.0 剩余项（§3.5.1）**：按「是否影响日常使用」排序，逐批推进；**已全部落地**（第三十批
+  `compaction.modelOverrides` → 第三十一批持久睡眠 → 第三十二批 crash-loop guard → 第三十三批
+  `onReport` info → 第三十四批 `settings.afterFailedRun`），表内只剩两项判不适用。
 
 #### 3.5.1 durable 1.4.0 剩余清单
 
@@ -127,8 +128,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `HarnessOptions.setTimer` / `now` / `ToolExecutionApi.now()` | 1.4.0 | 宿主/假时钟接管定时器与脚本超时 | 本次移植（第三十一批，见 §6.aa） |
 | `Harness.wake()` / `HarnessOptions.onWake` | 1.4.0 | Cloudflare Durable Object 等宿主可休眠 | 本次移植（第三十一批，见 §6.aa） |
 | Crash-loop guard：`TaskRecord.restarts`、`settings.restartLimit`、parked、`Harness.retryTask()` | 1.4.0 | 连续崩溃的任务不再无限重跑 | 本次移植（第三十二批，见 §6.ab） |
-| `onReport(error, info)` 的 `ReportInfo`（`task_parked` / `task_outdated` / `extension_error` / `host_error` / `listener_error` / `migration_failed`） | 1.4.0 | 上报分类 | 待办（crash-loop guard 已在第三十二批落地，上报点已就位，只缺 info 形状） |
-| `settings.afterFailedRun`（`keep` / `continue` / `withdraw`） | 1.4.0 | 失败运行后排队输入的去向 | 待办 |
+| `onReport(error, info)` 的 `ReportInfo`（`task_parked` / `task_outdated` / `extension_error` / `host_error` / `listener_error` / `migration_failed`） | 1.4.0 | 上报分类 | 本次移植（第三十三批，见 §6.ac） |
+| `settings.afterFailedRun`（`keep` / `continue` / `withdraw`） | 1.4.0 | 失败运行后排队输入的去向 | 本次移植（第三十四批，见 §6.ad） |
 | Task graph `blocked` 原因（`missing_task` / `task_too_old` / `migration_failed` / `restart_limit`） | 1.4.0 | `/tree` 里能看出任务为何跑不了 | 本次移植（第三十二批，见 §6.ab） |
 | `IndexedDbStorage`（浏览器存储） | 1.4.0 | 浏览器侧持久化 | 不适用（端口没有浏览器宿主） |
 | telemetry span / metrics / trace 传播 | 1.4.0 | 可观测性 | 不适用（按此前判定，端口不接 OpenTelemetry） |
@@ -204,7 +205,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 490 / 490 通过（第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
+| `Pi.Durable.Tests` | 501 / 501 通过（第三十四批新增 4 例 `afterFailedRun`；第三十三批新增 7 例上报分类；第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
@@ -269,8 +270,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    stdin 回复串~~（第二十七批）→ ~~coding-agent：配置文件 JSON Schema 产物、Kitty 移位符号键位~~
    （第二十八批）→ ~~coding-agent：并发扩展对话框堆叠（`38847563f`）、overlay 归属修复（`a4f67eb65`）~~
    （第二十九批）→ ~~durable：按模型压缩阈值~~（第三十批）→ ~~durable：持久睡眠 + 宿主时钟/唤醒~~
-   （第三十一批）→ ~~durable：crash-loop guard + task graph `blocked` 原因~~（第三十二批）→ durable
-   剩余项按 §3.5.1 的表推进（`onReport` info → `afterFailedRun`）。
+   （第三十一批）→ ~~durable：crash-loop guard + task graph `blocked` 原因~~（第三十二批）→ ~~durable：
+   `onReport` info（`ReportInfo`）~~（第三十三批）→ ~~durable：`settings.afterFailedRun`~~（第三十四批）。
+   至此 §3.5.1 表中除已判不适用的两项外无待办项。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1199,6 +1201,51 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.ad 第三十四批（durable：`settings.afterFailedRun`）落地明细
+
+上游给 `HarnessSettings` 加了 `afterFailedRun`（spec §6）：一次失败的运行（`model_error` / `no_model`）对排在它
+**后面**的输入做什么——`keep`（缺省）留着等下一个输入、`continue` 像拿到答案一样立刻用它们开下一个运行、
+`withdraw` 以 `run_failed` 结算为 `unanswered`。这是 1.4.0 的最后一个 durable 变更项。
+
+**1. 类型（`src/Pi.Durable/Harness/HarnessTypes.cs`）**
+
+- `enum AfterFailedRun { Keep, Continue, Withdraw }`；
+  `HarnessSettings.AfterFailedRun`（`AfterFailedRun?`，缺省 `null`）；
+  `Settings.AfterFailedRun`（`required`，`ResolveSettings` 落为 `settings?.AfterFailedRun ?? AfterFailedRun.Keep`）。
+- 上游的 `keep` 不是「什么都不做」的同义词：它把输入留在收件箱里，之后的输入或排队写入仍会在边界把它们
+  与自己的队列一起放置——端口原本就是这个行为，因此 `keep` 无需新代码。
+
+**2. 三种失败路径统一到一处（`src/Pi.Durable/Harness/Generation.cs`）**
+
+- `FailurePolicy(Policy, Boundary?)` + `PrepareFailureAsync(tx, runtime)`：`continue` 时在这里
+  `Inbox.PrepareBoundaryAsync`；**表读必须先于提交的首次表写**，所以三个调用点都把它放在提交回调的最前面。
+- `EndFailedRunAsync(tx, runtime, live, failure, settlement)`：`Live.EndRun` → `withdraw` 时
+  `Inbox.WithdrawQueuedInputsAsync(tx, id, "run_failed")` → `boundary` 存在时
+  `ApplyBoundaryAsync(..., BoundaryAt.Final, ...)`，产生了用户项就 `StartRunAsync` 起下一个运行。
+- 三处调用点：`FailModelErrorAsync`、`FailNoModelAsync`，以及生成循环里非 retry 的 `model_error` 分支
+  （该分支的 `failure` 在 `AppendAssistantAsync` 之前读好，retry 分支则为 `null`，不会用到）。
+  原先散落的 `Live.EndRun(...)` 调用被这一处替换，语义收敛成「结束运行 + 处置队列」一个动作。
+
+**3. `Inbox.WithdrawQueuedInputsAsync` 加 `reason` 参数（缺省 `aborted`）**
+
+`Conversation.abort()` / 中止级联用缺省值，失败运行传 `run_failed`。行为不变的部分值得写明：撤回**只撤
+用户输入**，排队写入（`mode: "write"`）留在收件箱等后续边界放置——`withdraw` 不丢弃宿主已经受理的被动写入。
+
+**4. 测试（`tests/Pi.Durable.Tests/HarnessFailedRunTests.cs`，4 例）**
+
+`KeepsTheQueuedInputBehindAFailedRunByDefault`（留队且下一个输入把队列跑完）、
+`StartsTheNextRunWithTheQueuedInputWhenContinue`（转发作答来自第二次应答）、
+`WithdrawsTheQueuedInputBehindAFailedRunWhenWithdraw`（`unanswered` + `run_failed`）、
+`PlacesQueuedWritesAndKeepsThemWithWithdraw`（同一用例跑两种策略：`continue` 放置成 `done`、`withdraw` 仍
+`queued`）。语料面 `Pi.Durable.Tests` 501 / 501、`Pi.CodingAgent.Tests` 5042 / 5042 全绿。
+
+**与上游差异（2 条）**
+
+1. 端口没有把 `afterFailedRun` 暴露到 coding-agent 的配置文件 / CLI；上游同样没有（`packages/coding-agent`
+   中无此键），因此两边都只在 `HarnessSettings` 层可配。
+2. `Settings.AfterFailedRun` 在端口是 `required`，`HarnessSettings.AfterFailedRun` 是可空——与端口既有的
+   「解析后的设置字段全部 `required`、原始设置字段可缺省」约定一致；上游 `Settings` 用一个 `type` 表达同一件事。
 
 ### 6.ac 第三十三批（durable：上报分类 `ReportInfo`）落地明细
 

@@ -171,11 +171,12 @@ public static class Inbox
         => inbox.Splice(ItemsPath, Items(inbox.Draft).Count, 0, [item]);
 
     /// <summary>
-    /// 撤回一个对话的每个排队输入，如 <c>Conversation.abort()</c> 与中止级联：
-    /// 每个以 <c>aborted</c> 结算为 <c>unanswered</c> 并离开收件箱；排队写入保留待后续放置。
-    /// 对应 TS <c>withdrawQueuedInputs()</c>。
+    /// 撤回一个对话的每个排队输入，如 <c>Conversation.abort()</c>、中止级联与失败的运行
+    /// （<c>settings.afterFailedRun = withdraw</c>）：每个以 <paramref name="reason"/> 结算为 <c>unanswered</c>
+    /// 并离开收件箱；排队写入保留待后续放置。对应 TS <c>withdrawQueuedInputs()</c>。
     /// </summary>
-    public static async Task WithdrawQueuedInputsAsync(Transaction tx, ConversationId conversationId)
+    public static async Task WithdrawQueuedInputsAsync(
+        Transaction tx, ConversationId conversationId, string reason = "aborted")
     {
         var inbox = await tx.DocAsync(InboxDoc, conversationId).ConfigureAwait(false);
         var items = Items(inbox.Draft);
@@ -183,7 +184,7 @@ public static class Inbox
         {
             var item = items[index];
             if (item.TryGetValue("mode", out var mode) && mode is "write") continue;
-            tx.SettleSubmission(IdOf(item), new SubmissionSettlement.Unanswered("aborted"));
+            tx.SettleSubmission(IdOf(item), new SubmissionSettlement.Unanswered(reason));
             inbox.Splice(ItemsPath, index, 1, []);
         }
     }

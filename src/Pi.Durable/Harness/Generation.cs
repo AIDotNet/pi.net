@@ -523,13 +523,57 @@ public static partial class Generation
         return over;
     }
 
+    /// <summary>失败运行的结束所需要从表里读到的内容。对应 TS <c>Failure</c>。</summary>
+    private sealed record FailurePolicy(AfterFailedRun Policy, Inbox.Boundary? Boundary);
+
+    /// <summary>
+    /// 读取失败运行所需的策略，以及（<c>continue</c> 时）放置排队项用的边界。表读必须先于提交的首次表写，
+    /// 因此调用方在其提交开始处调用它。对应 TS <c>prepareFailure()</c>。
+    /// </summary>
+    private static async Task<FailurePolicy> PrepareFailureAsync(Transaction tx, ITaskRuntime runtime)
+    {
+        var settings = runtime.Settings;
+        if (settings.AfterFailedRun != AfterFailedRun.Continue) return new FailurePolicy(settings.AfterFailedRun, null);
+        return new FailurePolicy(
+            settings.AfterFailedRun,
+            await Inbox.PrepareBoundaryAsync(
+                tx, runtime.ConversationId, settings.SteeringMode, settings.FollowUpMode).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// 以 <paramref name="settlement"/> 结束失败的运行，并按 <c>settings.afterFailedRun</c> 处理其后排队的输入
+    /// （spec §6）：留着、用它们启动下一个运行，或以 <c>run_failed</c> 撤回。对应 TS <c>endFailedRun()</c>。
+    /// </summary>
+    private static async Task EndFailedRunAsync(
+        Transaction tx, ITaskRuntime runtime, TxDocChange live, FailurePolicy failure,
+        SubmissionSettlement settlement)
+    {
+        var conversationId = runtime.ConversationId;
+        Live.EndRun(tx, live, runtime.TaskId, settlement);
+        if (failure.Policy == AfterFailedRun.Withdraw)
+        {
+            await Inbox.WithdrawQueuedInputsAsync(tx, conversationId, "run_failed").ConfigureAwait(false);
+        }
+
+        if (failure.Boundary is null) return;
+        var applied = await Inbox.ApplyBoundaryAsync(tx, failure.Boundary, BoundaryAt.Final, runtime.Now())
+            .ConfigureAwait(false);
+        if (applied.Users.Count > 0)
+        {
+            await StartRunAsync(tx, conversationId, live, applied.Users).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>把运行的输入以 <c>model_error</c> 结算为 unanswered 并以 <paramref name="text"/> 失败。</summary>
     private static async Task FailModelErrorAsync(ITaskRuntime runtime, string text, Context context)
     {
         await runtime.CommitAsync(async (tx, _) =>
         {
+            var failure = await PrepareFailureAsync(tx, runtime).ConfigureAwait(false);
             var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
-            Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Unanswered("model_error", text));
+            await EndFailedRunAsync(
+                tx, runtime, live, failure, new SubmissionSettlement.Unanswered("model_error", text))
+                .ConfigureAwait(false);
             return new TaskState
             {
                 Status = TaskStatus.Terminal,
@@ -553,8 +597,10 @@ public static partial class Generation
             : $"Model {reference.Provider}/{reference.ModelId} is not available";
         await runtime.CommitAsync(async (tx, _) =>
         {
+            var failure = await PrepareFailureAsync(tx, runtime).ConfigureAwait(false);
             var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
-            Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Unanswered("no_model"));
+            await EndFailedRunAsync(tx, runtime, live, failure, new SubmissionSettlement.Unanswered("no_model"))
+                .ConfigureAwait(false);
             return new TaskState
             {
                 Status = TaskStatus.Terminal,
@@ -843,6 +889,8 @@ public static partial class Generation
             : 0L;
         await runtime.CommitAsync(async (tx, _) =>
         {
+            // 首次表写之前读取；只有失败才用它。
+            var failure = retry ? null : await PrepareFailureAsync(tx, runtime).ConfigureAwait(false);
             var live = await tx.DocAsync(Live.LiveDoc, conversationId).ConfigureAwait(false);
             await AppendAssistantAsync(tx, conversationId, message).ConfigureAwait(false);
             if (retry)
@@ -863,9 +911,11 @@ public static partial class Generation
                 };
             }
 
-            var failure = message.ErrorMessage
+            var failureText = message.ErrorMessage
                 ?? $"Model response ended with stop reason {message.StopReason.ToString().ToLowerInvariant()}";
-            Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Unanswered("model_error", failure));
+            await EndFailedRunAsync(
+                tx, runtime, live, failure!, new SubmissionSettlement.Unanswered("model_error", failureText))
+                .ConfigureAwait(false);
             return new TaskState
             {
                 Status = TaskStatus.Terminal,
@@ -874,7 +924,8 @@ public static partial class Generation
                     Status = TaskOutcomeStatus.Failed,
                     Error = new TaskOutcomeError
                     {
-                        Message = failure, Detail = new Dictionary<string, object?> { ["reason"] = "model_error" },
+                        Message = failureText,
+                        Detail = new Dictionary<string, object?> { ["reason"] = "model_error" },
                     },
                 },
             };

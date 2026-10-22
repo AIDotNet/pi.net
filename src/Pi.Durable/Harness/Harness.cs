@@ -207,7 +207,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
             Timers = HostTimers.Create(options.SetTimer, reportSetTimer),
             Report = _report,
             SettleOutcome = LiveSettle.SettleSchedulerOutcomeAsync,
-            WithdrawInputs = Inbox.WithdrawQueuedInputsAsync,
+            WithdrawInputs = (tx, id) => Inbox.WithdrawQueuedInputsAsync(tx, id),
             Conversation = async (id, binding, callContext) =>
             {
                 var record = await ReadOnLineAsync(() => storage.GetConversationAsync(id)).ConfigureAwait(false);

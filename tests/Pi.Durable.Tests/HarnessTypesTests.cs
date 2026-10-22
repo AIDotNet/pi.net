@@ -125,9 +125,11 @@ public class HarnessTypesTests
             FollowUpMode = QueueMode.All,
             RestartLimit = AgentDocs.DefaultRestartLimit,
             ContextRetentionMs = AgentDocs.DefaultContextRetentionMs,
+            AfterFailedRun = AfterFailedRun.Keep,
         };
         Assert.True(settings.Retry.Enabled);
         Assert.Equal(ToolExecutionMode.Parallel, settings.ToolExecution);
+        Assert.Equal(AfterFailedRun.Keep, AgentDocs.ResolveSettings(null).AfterFailedRun);
     }
 
     [Fact]

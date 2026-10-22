@@ -850,6 +850,14 @@ public sealed record HarnessSettings
     public double? ContextRetentionMs { get; init; }
 
     /// <summary>
+    /// 失败的运行（<c>model_error</c>、<c>no_model</c>）对它后面排队的输入做什么：<c>keep</c> 留在队列里等下一个
+    /// 输入或排队的写入，<c>continue</c> 如同一次回答那样用它启动下一个运行，<c>withdraw</c> 以 reason
+    /// <c>run_failed</c> 结算为 unanswered。缺省 <see cref="Harness.AfterFailedRun.Keep"/>。
+    /// 对应 TS <c>HarnessSettings.afterFailedRun</c>。
+    /// </summary>
+    public AfterFailedRun? AfterFailedRun { get; init; }
+
+    /// <summary>
     /// 一个任务连续被崩溃、驱逐或重置切断多少次后停放而不再重跑（关闭不计）；停放的任务显示为
     /// blocked（<c>restart_limit</c>），直到 <c>Harness.RetryTaskAsync()</c> 让它再跑。默认 5；
     /// <see cref="int.MaxValue"/> 表示从不停放（对应 TS 的 <c>Infinity</c>）。
@@ -881,8 +889,27 @@ public sealed record Settings
     /// <summary>空闲对话缓存上下文读取的毫秒数。对应 TS <c>Settings.contextRetentionMs</c>。</summary>
     public required double ContextRetentionMs { get; init; }
 
+    /// <summary>失败的运行对其后排队输入的策略。对应 TS <c>Settings.afterFailedRun</c>。</summary>
+    public required AfterFailedRun AfterFailedRun { get; init; }
+
     /// <summary>已解析的重启上限（≥ 1）。对应 TS <c>Settings.restartLimit</c>。</summary>
     public required int RestartLimit { get; init; }
+}
+
+/// <summary>
+/// 失败的运行对它后面排队的输入做什么（<see cref="HarnessSettings.AfterFailedRun"/>）。
+/// 对应 TS <c>AfterFailedRun</c>。
+/// </summary>
+public enum AfterFailedRun
+{
+    /// <summary>留在队列里，直到下一个输入或排队的写入。缺省。</summary>
+    Keep,
+
+    /// <summary>用它启动下一个运行，如同一次回答。</summary>
+    Continue,
+
+    /// <summary>以 reason <c>run_failed</c> 结算为 unanswered。</summary>
+    Withdraw,
 }
 
 /// <summary><see cref="HarnessOptions.EnvFactory"/> 为其构建环境。对应 TS <c>EnvTarget</c>。</summary>

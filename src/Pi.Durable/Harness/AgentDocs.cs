@@ -81,6 +81,7 @@ public static class AgentDocs
         SteeringMode = settings?.SteeringMode ?? QueueMode.OneAtATime,
         FollowUpMode = settings?.FollowUpMode ?? QueueMode.OneAtATime,
         ContextRetentionMs = settings?.ContextRetentionMs ?? DefaultContextRetentionMs,
+        AfterFailedRun = settings?.AfterFailedRun ?? AfterFailedRun.Keep,
         RestartLimit = ResolveRestartLimit(settings?.RestartLimit),
     };
 
