@@ -106,6 +106,32 @@ public static class JsonParse
     }
 
     /// <summary>
+    /// 解析已完成的工具调用参数文本。与 <see cref="ParseStreamingJson"/> 不同，这里**绝不保留**
+    /// 部分解析出的前缀：调用已结束而文本不是合法 JSON 对象，说明模型发来的参数是畸形的，
+    /// 此时参数回退为空对象、由 <c>ArgumentsError</c> 带上失败原因与模型原文，
+    /// 交给工具参数校验向模型报错（上游 #10897）。
+    /// </summary>
+    public static (JsonObject Arguments, string? ArgumentsError) ParseToolCallArguments(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return (new JsonObject(), null);
+
+        try
+        {
+            var parsed = ParseJsonWithRepair(json);
+            if (parsed is not JsonObject obj)
+            {
+                throw new InvalidOperationException("Tool arguments must be a JSON object");
+            }
+
+            return (obj, null);
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException)
+        {
+            return (new JsonObject(), $"{error.Message}\n\nReceived arguments:\n{json}");
+        }
+    }
+
+    /// <summary>
     /// 补全未闭合的结构符号（字符串外）后尝试解析——TS 用 partial-json 库的
     /// C# 等价简化实现：补齐引号/中括号/大括号。
     /// </summary>

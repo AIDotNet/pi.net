@@ -34,6 +34,14 @@ public static class Validation
     /// </summary>
     public static JsonNode? ValidateToolArguments(ToolDefinition tool, ToolCallContent toolCall)
     {
+        // 参数文本本身不是合法 JSON 时，直接把原因与模型原文回给模型，而不是让工具带着
+        // 残缺字段执行（上游 #10897）。
+        if (!string.IsNullOrEmpty(toolCall.ArgumentsError))
+        {
+            throw new InvalidOperationException(
+                $"Invalid arguments for tool \"{toolCall.Name}\": {toolCall.ArgumentsError}");
+        }
+
         var schema = ToSchemaObject(tool.Parameters);
         var args = Clone(ToNode(toolCall.Arguments));
 

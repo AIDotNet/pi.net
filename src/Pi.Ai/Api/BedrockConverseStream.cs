@@ -1177,10 +1177,13 @@ public static class BedrockConverseStream
                 break;
             case ToolCallContent toolCall:
             {
+                // 已完成的调用严格解析：非法 JSON 不再保留解析前缀（上游 #10897）。
+                var finalArguments = JsonParse.ParseToolCallArguments(
+                    drafts.PartialJson(position.Value).ToString());
                 var finalized = toolCall with
                 {
-                    Arguments = JsonParse.ParseStreamingJson(drafts.PartialJson(position.Value).ToString())
-                        ?? new JsonObject(),
+                    Arguments = finalArguments.Arguments,
+                    ArgumentsError = finalArguments.ArgumentsError,
                 };
                 drafts.Replace(position.Value, finalized);
                 stream.Push(new AssistantMessageEvent.ToolCallEnd(position.Value, finalized, output.Snapshot()));

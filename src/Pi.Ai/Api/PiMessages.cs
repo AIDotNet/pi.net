@@ -405,6 +405,8 @@ public static class PiMessages
                             Name = finalCall.Str("name") ?? endCall.Name,
                             Arguments = finalCall["arguments"]?.DeepClone() ?? endCall.Arguments,
                             Namespace = finalCall.Str("namespace") ?? endCall.Namespace,
+                            // TS 是整块 Object.assign，服务端若带了 argumentsError 也要透传。
+                            ArgumentsError = finalCall.Str("argumentsError") ?? endCall.ArgumentsError,
                         };
                         _partial.Content[index] = endCall;
                         return new AssistantMessageEvent.ToolCallEnd(index, endCall, _partial.Snapshot());

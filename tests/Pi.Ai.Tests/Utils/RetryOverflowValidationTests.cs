@@ -265,4 +265,33 @@ public class ValidationTests
             [ReadTool()], new ToolCallContent("call-1", "write", new JsonObject())));
         Assert.Contains("Tool \"write\" not found", error.Message);
     }
+
+    [Fact]
+    public void ArgumentsErrorIsReportedToTheModel()
+    {
+        // 上游 #10897：参数文本畸形时校验必须先报 argumentsError，而不是带着 {} 去执行。
+        var error = Assert.Throws<InvalidOperationException>(() => Validation.ValidateToolArguments(
+            ReadTool(),
+            new ToolCallContent("call-1", "read", new JsonObject())
+            {
+                ArgumentsError = "Unexpected end of JSON input\n\nReceived arguments:\n{\"path\":",
+            }));
+
+        Assert.Contains("Invalid arguments for tool \"read\"", error.Message);
+        Assert.Contains("Received arguments:", error.Message);
+    }
+
+    [Fact]
+    public void ArgumentsErrorTakesPrecedenceOverSchemaErrors()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => Validation.ValidateToolArguments(
+            ReadTool(),
+            new ToolCallContent("call-1", "read", new JsonObject { ["path"] = 1 })
+            {
+                ArgumentsError = "Tool arguments must be a JSON object",
+            }));
+
+        Assert.Contains("Tool arguments must be a JSON object", error.Message);
+        Assert.DoesNotContain("Validation failed for tool", error.Message);
+    }
 }

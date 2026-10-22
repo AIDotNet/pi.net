@@ -158,8 +158,129 @@ public class AgentLoopTests
     }
 
     [Fact]
-    public async Task ErrorStopReasonIsHardExit()
+    public async Task MalformedToolArgumentsAreReportedWithoutExecuting()
     {
+        // 上游 #10897：模型给的参数文本不是合法 JSON 时，参数回退为空对象并带 argumentsError，
+        // 预检据此直接产出 isError 结果，工具绝不带着残缺字段执行。
+        var executions = 0;
+        var tool = CreateEchoTool() with
+        {
+            Execute = (_, _, _, _) =>
+            {
+                executions++;
+                return Task.FromResult(new AgentToolResult([new TextContent("executed")]));
+            },
+        };
+        var malformedCall = Faux.ToolCall("echo", new System.Text.Json.Nodes.JsonObject(), id: "call-1") with
+        {
+            ArgumentsError = "Unexpected end of JSON input\n\nReceived arguments:\n{\"path\":",
+        };
+        var streamFn = Faux.CreateStreamFn([
+            Faux.Response.ToolUse(malformedCall),
+            Faux.Response.Text("ok"),
+        ]);
+        var context = new AgentContext { Messages = [], Tools = [tool] };
+        var config = CreateConfig(Faux.DefaultModel) with { ToolExecution = ToolExecutionMode.Sequential };
+
+        var stream = AgentLoop.Run(
+            [Messages.UserText("go")], context, config, CancellationToken.None, streamFn);
+        var events = await Subscribe(stream);
+        var result = await stream.WaitForResultAsync();
+
+        Assert.Equal(0, executions);
+        var toolResult = Assert.IsType<ToolResultMessage>(result[3]);
+        Assert.True(toolResult.IsError);
+        var text = ((TextContent)toolResult.Content[0]).Text;
+        Assert.Contains("Invalid arguments for tool", text);
+        Assert.Contains("Received arguments:", text);
+        Assert.Contains("{\"path\":", text);
+        var endEvent = events.OfType<AgentEvent.ToolExecutionEnd>().Single();
+        Assert.True(endEvent.IsError);
+        Assert.Null(endEvent.DurationMs);
+    }
+
+    [Fact]
+    public async Task SchemaViolationIsReportedWithoutExecuting()
+    {
+        // 上游 agent-loop 在 beforeToolCall 之前跑 validateToolArguments：不满足 schema 的
+        // 调用同样以 isError 结果回给模型，工具不执行。
+        var executions = 0;
+        var tool = CreateEchoTool() with
+        {
+            Parameters = new ToolSchema(new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["path"] = new Dictionary<string, object?> { ["type"] = "string" },
+                },
+                ["required"] = new[] { "path" },
+            }),
+            Execute = (_, _, _, _) =>
+            {
+                executions++;
+                return Task.FromResult(new AgentToolResult([new TextContent("executed")]));
+            },
+        };
+        var streamFn = Faux.CreateStreamFn([
+            Faux.Response.ToolUse(Faux.ToolCall("echo", new System.Text.Json.Nodes.JsonObject(), id: "call-1")),
+            Faux.Response.Text("ok"),
+        ]);
+        var context = new AgentContext { Messages = [], Tools = [tool] };
+        var config = CreateConfig(Faux.DefaultModel) with { ToolExecution = ToolExecutionMode.Sequential };
+
+        var stream = AgentLoop.Run(
+            [Messages.UserText("go")], context, config, CancellationToken.None, streamFn);
+        var result = await stream.WaitForResultAsync();
+
+        Assert.Equal(0, executions);
+        var toolResult = Assert.IsType<ToolResultMessage>(result[3]);
+        Assert.True(toolResult.IsError);
+        var text = ((TextContent)toolResult.Content[0]).Text;
+        Assert.Contains("Validation failed for tool \"echo\"", text);
+        Assert.Contains("Received arguments:", text);
+    }
+
+    [Fact]
+    public async Task ToolReceivesCoercedArguments()
+    {
+        // 与 TS 的 validatedArgs 一致：工具拿到的是强制类型转换后的参数，不是模型原样文本。
+        object? received = null;
+        var tool = CreateEchoTool() with
+        {
+            Parameters = new ToolSchema(new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["count"] = new Dictionary<string, object?> { ["type"] = "number" },
+                },
+            }),
+            Execute = (_, args, _, _) =>
+            {
+                received = args;
+                return Task.FromResult(new AgentToolResult([new TextContent("ok")]));
+            },
+        };
+        var streamFn = Faux.CreateStreamFn([
+            Faux.Response.ToolUse(Faux.ToolCall(
+                "echo", new Dictionary<string, object?> { ["count"] = "5" }, id: "call-1")),
+            Faux.Response.Text("done"),
+        ]);
+        var context = new AgentContext { Messages = [], Tools = [tool] };
+        var config = CreateConfig(Faux.DefaultModel) with { ToolExecution = ToolExecutionMode.Sequential };
+
+        var stream = AgentLoop.Run(
+            [Messages.UserText("go")], context, config, CancellationToken.None, streamFn);
+        await stream.WaitForResultAsync();
+
+        var args = Assert.IsType<System.Text.Json.Nodes.JsonObject>(received);
+        // JSON number 在 C# 侧统一落成 double，与 TS 的 JS number 一致。
+        Assert.Equal(5d, args["count"]!.GetValue<double>());
+    }
+
+    [Fact]
+    public async Task ErrorStopReasonIsHardExit()    {
         var streamFn = Faux.CreateStreamFn([
             new Faux.Response([], StopReason.Error, ErrorMessage: "boom"),
             Faux.Response.Text("unreachable"),

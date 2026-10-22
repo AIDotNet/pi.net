@@ -51,7 +51,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 重试判定的状态码需独立出现 | 1.4.0 #11057 | 请求 id/字节数误触发重试 | 本次移植 |
 | 新增瞬时故障文案（`unable to forward upstream`、`upstream_stream_read_error`、`stream disconnected before completion` 等） | 1.3.0–1.4.0 | 网关故障不再中断回合 | 本次移植 |
 | ChatGPT Business 工作区限额不可重试 | 1.4.0 | 避免无意义重试 | 本次移植 |
-| 畸形最终参数上报 `argumentsError`（不再保留解析前缀） | 1.3.0 #10897 | 5 个 API 实现 + 校验层 | 待办 |
+| 畸形最终参数上报 `argumentsError`（不再保留解析前缀） | 1.3.0 #10897 | 5 个 API 实现 + 校验层 + agent 预检 | 本次移植（第二批） |
 | `personalizeOpenRouterCatalog()`、`RefreshModelsContext.baseUrl`、按 key 的模型列表 | 1.2.0 #10353 | 新增 `openrouter-api.ts`，重写远端目录 provider | 待办 |
 | 客户端身份 `identity` / `User-Agent` 格式重构 | 1.4.0 | 破坏性：`telemetryContext`→`telemetry`、`getPiUserAgent` 移除 | 待办（与 telemetry 一起做） |
 | `resolveTranscriptTools` 由布尔改为 `TranscriptToolSupport` | 1.4.0 | 破坏性 API | 待办 |
@@ -66,6 +66,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- | --- | --- |
 | `AgentOptions.identity` / `Agent.identity` | 1.4.0 | 需 pi-ai `ClientIdentity` 先落地 | 待办（依赖 3.1 identity） |
 | `durationMs` 全链路 | 1.1.0 | — | 已移植 |
+| `prepareToolCall` 内接入 `validateToolArguments`（顺带把 `argumentsError` 短路接上） | 1.3.0 #10897 | 工具拿到 coerce 后参数；畸形/不合 schema 的调用以 isError 结果回模型 | 本次移植（第二批） |
 
 ### 3.3 `packages/coding-agent`
 
@@ -126,6 +127,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `4b994d5e5` | 非法 `\u` 转义 | `Pi.Ai/Utils/JsonParse.cs` | `JsonParseTests`（2） |
 | `6e491cfa9` + 1.3.0/1.4.0 文案 | 重试判定 | `Pi.Ai/Utils/Retry.cs` | `RetryableClassificationMatchesUpstream1_4_0` |
 | `2ed3118b0` | 显示公式 vs 表格 | `Pi.Tui/Marked/MarkedExtensions.cs` | `MarkdownLatexTableTests`（3） |
+| `#10897`（1.3.0） | 畸形最终参数上报 `argumentsError` | `Pi.Ai/Utils/JsonParse.cs`（`ParseToolCallArguments`）、`Types/Messages.cs`（`ToolCallContent.ArgumentsError`）、5 个 API 实现、`Utils/Validation.cs`、`Pi.Agent/ToolExecution.cs` | `JsonParseTests`（5）、`OpenAiResponsesTests`（2）、`ValidationTests`（2）、`AgentLoopTests`（3） |
 
 **语料同步说明**（上游行为变更导致的期望更新，非放宽断言）：
 
@@ -162,7 +164,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 ## 7. 建议的后续顺序
 
 1. durable + chord 破坏性 API 对齐（有明确契约与一致性测试兜底）。
-2. ai：`argumentsError` → identity/telemetry → per-key OpenRouter 目录。
+2. ai：identity/telemetry → per-key OpenRouter 目录（`argumentsError` 已在第二批完成）。
 3. coding-agent：`sessionShareDestination` → resume 活动工具 → codemode worker 排队。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。

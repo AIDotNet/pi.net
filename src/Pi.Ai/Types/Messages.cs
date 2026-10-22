@@ -38,6 +38,14 @@ public sealed record ToolCallContent(string Id, string Name, object? Arguments) 
     [JsonPropertyName("namespace")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Namespace { get; set; }
+
+    /// <summary>
+    /// 模型给出的完整参数文本不是合法 JSON 对象时置位，此时 <see cref="Arguments"/> 为空对象。
+    /// 内容含失败原因与模型实际发送的原文，工具参数校验会用它向模型报错。对应 TS <c>argumentsError</c>（上游 #10897）。
+    /// </summary>
+    [JsonPropertyName("argumentsError")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ArgumentsError { get; set; }
 }
 
 /// <summary>

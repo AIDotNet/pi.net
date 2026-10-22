@@ -414,4 +414,69 @@ public class OpenAiResponsesTests
             ResponsesModel(reasoning: false), [new TextContent("  ok\n")]);
         Assert.Equal("  ok\n", output.GetValue<string>());
     }
+
+    [Fact]
+    public async Task MalformedFinalToolArgumentsCarryArgumentsError()
+    {
+        // 上游 #10897：已完成的调用参数文本不是合法 JSON 时，参数回退为空对象并带上
+        // argumentsError，而不是保留截断前解析出的字段去执行工具。
+        const string malformed = """{"path":"/tmp/a.txt","count":""";
+        var events = Sse(
+            """{"type":"response.created","response":{"id":"resp_7"}}""",
+            """{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","id":"fc_1","name":"read","arguments":""}}""",
+            """{"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\"path\":\"/tmp/a.txt\",\"count\":"}""",
+            new JsonObject
+            {
+                ["type"] = "response.function_call_arguments.done",
+                ["output_index"] = 0,
+                ["arguments"] = malformed,
+            }.ToJsonString(),
+            new JsonObject
+            {
+                ["type"] = "response.output_item.done",
+                ["output_index"] = 0,
+                ["item"] = new JsonObject
+                {
+                    ["type"] = "function_call",
+                    ["call_id"] = "call_1",
+                    ["id"] = "fc_1",
+                    ["name"] = "read",
+                    ["arguments"] = malformed,
+                },
+            }.ToJsonString(),
+            ResponseCompleted().ToJsonString());
+
+        var stream = new AssistantMessageEventStream();
+        var output = new OpenAiResponsesShared.MutableAssistantMessage("gpt-5.1", "openai-responses", "openai");
+        await OpenAiResponsesShared.ProcessResponsesStream(events, output, stream, ResponsesModel());
+        stream.End(output.Snapshot());
+
+        var final = output.Snapshot();
+        var toolCall = final.Content.OfType<ToolCallContent>().Single();
+        // 参数为空对象，绝不携带截断前解析出的 path。
+        Assert.Empty(toolCall.Arguments as JsonObject ?? new JsonObject());
+        Assert.NotNull(toolCall.ArgumentsError);
+        Assert.Contains("Received arguments:", toolCall.ArgumentsError);
+        Assert.Contains(malformed, toolCall.ArgumentsError);
+    }
+
+    [Fact]
+    public async Task ValidFinalToolArgumentsHaveNoArgumentsError()
+    {
+        var events = Sse(
+            """{"type":"response.created","response":{"id":"resp_8"}}""",
+            """{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","call_id":"call_1","id":"fc_1","name":"read","arguments":""}}""",
+            """{"type":"response.function_call_arguments.done","output_index":0,"arguments":"{\"path\":\"/tmp/a.txt\"}"}""",
+            """{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","call_id":"call_1","id":"fc_1","name":"read","arguments":"{\"path\":\"/tmp/a.txt\"}"}}""",
+            ResponseCompleted().ToJsonString());
+
+        var stream = new AssistantMessageEventStream();
+        var output = new OpenAiResponsesShared.MutableAssistantMessage("gpt-5.1", "openai-responses", "openai");
+        await OpenAiResponsesShared.ProcessResponsesStream(events, output, stream, ResponsesModel());
+        stream.End(output.Snapshot());
+
+        var toolCall = output.Snapshot().Content.OfType<ToolCallContent>().Single();
+        Assert.Null(toolCall.ArgumentsError);
+        Assert.Equal("/tmp/a.txt", ((JsonObject)toolCall.Arguments!).Str("path"));
+    }
 }

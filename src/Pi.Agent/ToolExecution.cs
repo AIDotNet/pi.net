@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Text.Json.Nodes;
 using Pi.Ai.Types;
+using Pi.Ai.Utils;
 using Pi.Agent.Types;
 
 namespace Pi.Agent;
@@ -246,8 +248,8 @@ public static partial class ToolExecution
     }
 
     /// <summary>
-    /// 预检：查找工具 → prepareArguments 垫片 → beforeToolCall（可阻断）。
-    /// 找不到工具 / 参数处理失败 / 阻断决策都会产出错误结果（跳过执行）。
+    /// 预检：查找工具 → prepareArguments 垫片 → Schema 校验 → beforeToolCall（可阻断）。
+    /// 找不到工具 / 参数处理失败 / 校验失败 / 阻断决策都会产出错误结果（跳过执行）。
     /// </summary>
     private static async Task<PreparedCall> PrepareToolCall(
         AgentContext context,
@@ -260,12 +262,12 @@ public static partial class ToolExecution
         if (tool is null)
             return new PreparedCall.Blocked(toolCall, AgentToolResult.FromError($"Tool not found: {toolCall.Name}"), false);
 
-        // 参数兼容垫片；基础 JSON Schema 结构校验随 ai 包 provider 移植补全。
-        var args = toolCall.Arguments;
+        // 参数兼容垫片。
+        object? preparedArgs = toolCall.Arguments;
         try
         {
             if (tool.PrepareArguments is not null)
-                args = tool.PrepareArguments(args);
+                preparedArgs = tool.PrepareArguments(preparedArgs);
         }
         catch (Exception error)
         {
@@ -273,6 +275,23 @@ public static partial class ToolExecution
                 toolCall,
                 AgentToolResult.FromError($"Invalid arguments for tool {toolCall.Name}: {error.Message}"),
                 false);
+        }
+
+        // Schema 校验（上游 validateToolArguments）。校验在 beforeToolCall 之前，
+        // 失败即以 isError 结果回给模型；「模型给的参数文本不是合法 JSON」由
+        // argumentsError 短路，绝不让工具带着残缺字段执行（上游 #10897）。
+        // 工具拿到的是强制类型转换后的参数，与 TS 的 validatedArgs 一致。
+        // TS 的 ToolCall.arguments 恒为对象（解析失败也是 {}），C# 侧手工构造/Faux 可能给
+        // null，先归一再校验，避免「对象 schema + null」被误判成校验失败。
+        preparedArgs ??= new JsonObject();
+        object? args;
+        try
+        {
+            args = Validation.ValidateToolArguments(tool.Definition, toolCall with { Arguments = preparedArgs });
+        }
+        catch (InvalidOperationException error)
+        {
+            return new PreparedCall.Blocked(toolCall, AgentToolResult.FromError(error.Message), false);
         }
 
         if (config.BeforeToolCall is not null)

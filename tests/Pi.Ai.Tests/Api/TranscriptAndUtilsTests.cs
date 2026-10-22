@@ -180,4 +180,58 @@ public class JsonParseTests
         var result = JsonParse.ParseStreamingJson("""{"path":"a\u4e2db"}""");
         Assert.Equal("a中b", result.Str("path"));
     }
+
+    [Fact]
+    public void ParseToolCallArgumentsReturnsObjectAndNoError()
+    {
+        var (arguments, error) = JsonParse.ParseToolCallArguments("""{"path":"/x","n":2}""");
+        Assert.Null(error);
+        Assert.Equal("/x", arguments["path"]!.GetValue<string>());
+        Assert.Equal(2, arguments["n"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void ParseToolCallArgumentsTreatsEmptyInputAsEmptyObject()
+    {
+        foreach (var input in new[] { null, "", "   " })
+        {
+            var (arguments, error) = JsonParse.ParseToolCallArguments(input);
+            Assert.Empty(arguments);
+            Assert.Null(error);
+        }
+    }
+
+    [Fact]
+    public void ParseToolCallArgumentsRepairsRecoverableText()
+    {
+        // 能靠 repair 救回来的（控制字符）仍算成功，不进入 argumentsError。
+        var (arguments, error) = JsonParse.ParseToolCallArguments("{\"text\":\"line1\nline2\"}");
+        Assert.Null(error);
+        Assert.NotNull(arguments["text"]);
+    }
+
+    [Fact]
+    public void ParseToolCallArgumentsNeverKeepsAParsedPrefix()
+    {
+        // 上游 #10944/#10897：截断的文本以前会带着已解析的 path 去执行工具。
+        var raw = """{"path":"/tmp/a.txt","count":""";
+        var (arguments, error) = JsonParse.ParseToolCallArguments(raw);
+
+        Assert.Empty(arguments);
+        Assert.NotNull(error);
+        Assert.Contains("Received arguments:", error);
+        Assert.Contains(raw, error);
+    }
+
+    [Fact]
+    public void ParseToolCallArgumentsRejectsNonObjectJson()
+    {
+        foreach (var raw in new[] { "[1,2]", "null", "\"text\"", "42" })
+        {
+            var (arguments, error) = JsonParse.ParseToolCallArguments(raw);
+            Assert.Empty(arguments);
+            Assert.NotNull(error);
+            Assert.Contains("Tool arguments must be a JSON object", error);
+        }
+    }
 }

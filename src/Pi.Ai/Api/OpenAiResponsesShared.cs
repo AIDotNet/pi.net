@@ -566,6 +566,11 @@ public static class OpenAiResponsesShared
         public string? CustomInputProperty;                  // custom tool call 的输入属性
         public GrammarToolInputJsonBuffer? CustomInputBuffer; // custom tool call 的流式 JSON 缓冲
         public bool ArgsFinalized;
+
+        /// <summary>已终结调用的严格解析结果（非法 JSON 时为 null，错误写 <see cref="ArgumentsError"/>）。</summary>
+        public JsonObject? FinalArguments;
+
+        public string? ArgumentsError;
     }
 
     private sealed class StreamState
@@ -602,6 +607,11 @@ public static class OpenAiResponsesShared
                         {
                             arguments = new JsonObject { [slot.CustomInputProperty] = raw };
                         }
+                        else if (slot.ArgsFinalized)
+                        {
+                            // 已终结：用严格解析结果，非法 JSON 时为空对象 + argumentsError（上游 #10897）。
+                            arguments = (object?)slot.FinalArguments ?? new JsonObject();
+                        }
                         else
                         {
                             try { arguments = JsonNode.Parse(raw.Length > 0 ? raw : "{}"); }
@@ -614,6 +624,7 @@ public static class OpenAiResponsesShared
                             arguments)
                         {
                             Namespace = slot.Namespace,
+                            ArgumentsError = slot.ArgumentsError,
                         });
                         break;
                     }
@@ -977,11 +988,19 @@ public static class OpenAiResponsesShared
                     }
                     else if (itemType == "function_call" && slot.Kind == "toolCall" && !slot.ArgsFinalized)
                     {
-                        var finalArguments = item.Str("arguments")
-                            ?? (slot.Arguments.Length > 0 ? slot.Arguments.ToString() : "{}");
+                        // TS 是 `item.arguments || slot.block.partialJson`：**空字符串也算缺失**，
+                        // 要回退到流式缓冲，否则服务端只在 delta 里给参数时会被静默清空。
+                        var itemArguments = item.Str("arguments");
+                        var finalArguments = !string.IsNullOrEmpty(itemArguments)
+                            ? itemArguments
+                            : slot.Arguments.Length > 0 ? slot.Arguments.ToString() : "{}";
                         slot.Arguments.Clear();
                         slot.Arguments.Append(finalArguments);
                         if (item.Str("namespace") is { } ns) slot.Namespace = ns;
+                        // 已完成调用的参数严格解析：非法 JSON 不再保留解析前缀（上游 #10897）。
+                        var parsedArguments = JsonParse.ParseToolCallArguments(finalArguments);
+                        slot.FinalArguments = parsedArguments.Arguments;
+                        slot.ArgumentsError = parsedArguments.ArgumentsError;
                         // 就地终结并剥离草稿缓冲，重放只携带解析后的参数。
                         slot.ArgsFinalized = true;
                         state.Rebuild();
@@ -1054,8 +1073,15 @@ public static class OpenAiResponsesShared
     {
         object? arguments;
         var raw = slot.Arguments.ToString();
-        try { arguments = JsonNode.Parse(raw.Length > 0 ? raw : "{}"); }
-        catch { arguments = raw; }
+        if (slot.ArgsFinalized && slot.CustomInputProperty is null)
+        {
+            arguments = (object?)slot.FinalArguments ?? new JsonObject();
+        }
+        else
+        {
+            try { arguments = JsonNode.Parse(raw.Length > 0 ? raw : "{}"); }
+            catch { arguments = raw; }
+        }
         var itemId = slot.ItemId;
         return new ToolCallContent(
             itemId is null ? slot.CallId ?? "" : $"{slot.CallId}|{itemId}",
@@ -1063,6 +1089,7 @@ public static class OpenAiResponsesShared
             arguments)
         {
             Namespace = slot.Namespace,
+            ArgumentsError = slot.ArgumentsError,
         };
     }
 }

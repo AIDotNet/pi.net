@@ -922,9 +922,12 @@ public static class MistralConversations
             if (index >= output.Content.Count || output.Content[index] is not ToolCallContent toolBlock) continue;
             var key = toolBlock.Id + "|" + index;
             var partialArgs = PartialArgs.GetOrCreate(key);
+            // 已完成的调用严格解析：非法 JSON 不再保留解析前缀（上游 #10897）。
+            var finalArguments = JsonParse.ParseToolCallArguments(partialArgs);
             var finalized = toolBlock with
             {
-                Arguments = JsonParse.ParseStreamingJson(partialArgs) ?? new JsonObject(),
+                Arguments = finalArguments.Arguments,
+                ArgumentsError = finalArguments.ArgumentsError,
             };
             // 就地终结并剥离草稿缓冲，重放只携带解析后的参数。
             output.Content[index] = finalized;

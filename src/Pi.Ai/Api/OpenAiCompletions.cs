@@ -1377,6 +1377,8 @@ public static class OpenAiCompletions
 
         public JsonObject Arguments { get; set; } = [];
 
+        public string? ArgumentsError { get; set; }
+
         public string? CustomInputProperty { get; set; }
 
         public GrammarToolInputJsonBuffer? CustomInputBuffer { get; set; }
@@ -1402,7 +1404,10 @@ public static class OpenAiCompletions
                     break;
                 case "toolCall":
                     content.Add(new ToolCallContent(
-                        block.ToolId ?? "", block.ToolName ?? "", block.Arguments));
+                        block.ToolId ?? "", block.ToolName ?? "", block.Arguments)
+                    {
+                        ArgumentsError = block.ArgumentsError,
+                    });
                     break;
             }
         }
@@ -1705,7 +1710,10 @@ public static class OpenAiCompletions
                         }
                         else
                         {
-                            block.Arguments = JsonParse.ParseStreamingJson(block.PartialArgs.ToString());
+                            // 已完成的调用严格解析：非法 JSON 不再保留解析前缀（上游 #10897）。
+                            var finalArguments = JsonParse.ParseToolCallArguments(block.PartialArgs.ToString());
+                            block.Arguments = finalArguments.Arguments;
+                            block.ArgumentsError = finalArguments.ArgumentsError;
                         }
                         block.PartialArgs.Clear();
                         block.CustomInputBuffer = null;
