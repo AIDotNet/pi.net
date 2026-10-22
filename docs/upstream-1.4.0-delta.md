@@ -117,10 +117,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   尚无 `telemetry` 成员与 `TelemetrySpan`，`traceIn` 本身不存在；与 telemetry 一起落地。
 - **telemetry（1.4.0）**：`telemetryContext`→`telemetry?: TelemetrySpan` —— **暂不适用**：端口 ai 层
   没有 `observeModelRequest` 观察器（`LazyStream` 无 observer 参数），无从改名的选项；identity 已独立落地。
-- **mcp（1.2.0–1.4.0，4 提交）**：`structuredContent` 可为任意 JSON 值（#10416）与
+- **mcp（1.2.0–1.4.0，5 提交）**：`structuredContent` 可为任意 JSON 值（#10416）与
   「无元数据时拒绝 `iss`」（c5f5b3282）、「取消的请求不再在授权刷新后重发」（da0eadf04）
-  已移植（第四批）；**本次移植（第九批）**：连接时不再列资源（#10526）；**待办**：
-  MCP OAuth 登录的取消与关闭语义（f10993bc7，需 coding-agent 侧按会话持有 signal）。
+  已移植（第四批）；**本次移植（第九批）**：连接时不再列资源（#10526）；**本次移植（第十五批）**：
+  OAuth 登录的取消与关闭语义（f10993bc7 / #10565）。
 - **env / codemode**：`codemode` 的输出分隔、`@options` 首行校验、输入约束声明等属 codemode 子系统。
   其中 worker 排队（#11184）**不适用**：端口没有 QuickJS worker 池，脚本直接在托管的 Jint VM 里跑，
   每个脚本各有一个 VM，没有「两个 worker 的进程级容量」可以排队；`PI_CODEMODE_MAX_WORKERS` 也就
@@ -162,10 +162,11 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 480 / 480 通过（第十三批新增 10 例；第十三批前为 470） |
-| `Pi.CodingAgent.Tests` | 5009 / 5009 通过（第十四批新增 19 例；第十三批为 4990） |
+| `Pi.CodingAgent.Tests` | 5013 / 5013 通过（第十五批新增 4 例；第十四批为 5009） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 457 / 457 通过（第十四批同步了 shell 探测，数量不变） |
-| `Pi.Mcp.Tests` | 52 / 52 通过 |
+| `Pi.Durable.Tests` | 457 / 457 通过（第十四批同步了 shell 探测，数量不变）。
+  并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
+| `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
 | `Pi.Tui.Tests` | 23878 / 23878 通过 |
 
@@ -207,7 +208,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）。
+3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）→ ~~孤儿工具结果修复~~（第十批）→ ~~`agent_settled.aborted`~~（第十一批）→ ~~`serializeConversation` 省略 thinking~~（第十二批）→ ~~Anthropic strict 工具降级、Mistral 超时范围~~（第十三批）→ ~~Windows shell 探测~~（第十四批）→ ~~MCP OAuth 取消与关闭语义~~（第十五批）。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -479,3 +480,69 @@ Windows 上会额外 stat，让可正常执行的 Store 应用别名（`WindowsA
 （nodejs/node#36790）。这条在 .NET 没有对应物：`File.Exists` 走 `GetFileAttributesEx`，不额外 stat，
 对符号链接/重解析点只报存在性，不会因权限位把可执行别名判死。端口维持 `File.Exists`，无需改动 ——
 硬造一个「访问检查」反而会引入上游要规避的那个误判。
+
+### 6.p 第十五批（MCP OAuth 取消与关闭语义）落地明细
+
+上游 `f10993bc7`（#10565）：`pi-mcp` 的 OAuth 流程给每个请求带上取消信号；被取消的刷新不再退化成
+一次新授权；流式 HTTP 传输关闭会话时复用「最近一次请求的令牌」而不是去问认证提供者；coding-agent
+的 MCP 扩展按会话持有**一个**取消源，Esc 与会话关闭都会中止登录，关闭时等被中止的登录清理完；
+发往授权服务器的请求一律 15s 上限，`pi mcp login --timeout` 限制整次登录。
+
+端口侧把上游的 `AbortSignal` 落成 `CancellationToken`（本来就贯穿这一层），分四处改：
+
+**一、关闭会话不再触发刷新**（`Pi.Mcp/Transports/StreamableHttpTransport.cs`）
+
+- 新增 `_lastToken`，`ApplyAuthHeaderAsync` 每次取令牌时记下；`ApplyHeaders` 多一个 `token` 参数。
+- `CloseAsync` 的 DELETE 改用 `_lastToken`，且超时只用 `new CancellationTokenSource(1s)`，
+  **不再链接调用方的令牌**。理由与上游一致：`AuthProvider.Token()` 可能先做一次网络刷新，
+  关闭流程不能等它。
+- `AuthProvider.Token` 的文档同步说明「只在会等应答的请求前调用，关闭时不问」。
+
+**二、取消的刷新不得变成新授权**（`Pi.Mcp/OAuth/OAuthFlow.cs`）
+
+`RunFlowAsync` 的刷新分支在原有 `catch (OAuthInsecureEndpointError)` 之前加
+`catch (Exception) when (cancellationToken.IsCancellationRequested) { throw; }`：
+请求可能已到服务器并轮转了 refresh token，再走一次授权会把新凭据丢掉。.NET 的取消异常本就不是
+`OAuthError`，这层是上游同款防御（自定义 fetch 可能把中止包成别的异常）。
+
+**三、登录整体可取消 + 15s 请求上限**（`Pi.CodingAgent/Extensions/Mcp/OAuth.cs`）
+
+- `RefreshRequestTimeoutMs` → `OAuthRequestTimeoutMs`，语义从「刷新请求」扩到「所有发往授权服务器的请求」。
+- 新增 `TimedFetch(McpFetch? = null)`（对应 TS `timedFetch`）：给每次请求叠加 15s 上限，调用方令牌继续生效；
+  刷新路径与 `SignInServerAsync` 都用它。
+- `SignInServerAsync`：进入即 `if (cancellationToken.IsCancellationRequested) throw McpSignInCancelledError`；
+  外层再加 `catch (Exception) when (cancellationToken.IsCancellationRequested) → McpSignInCancelledError`，
+  让「底层中止异常」统一报成「登录已取消」（CLI 的错误文案依赖这个类型）。
+- `WaitForAuthorizationResponseAsync` 无需改：端口本来就把 `controller` 与调用方令牌链接，取消会中止粘贴提示。
+
+**四、扩展按会话持有一个取消源**（`Pi.CodingAgent/Extensions/Mcp/McpExtension.cs`）
+
+- 删掉 `sessionActive` 与 `generation` 计数器，换成一个初始即取消的 `CancellationTokenSource`：
+  「会话是否活跃」变成 `!token.IsCancellationRequested`，迟到的运行时加载/连接结果按它丢弃。
+- 新增 `Track(Task)`（对应上游 `track`）登记后台工作：管理动作与登录。`SessionShutdown` 先
+  `CancelAsync()`，关连接，再**等**登记的这些工作清理完（回调端口不会在会话消失后才释放）。
+- `SignInAsync(server, prompt, cancel)`：会话令牌与 Esc 令牌链接后传给 `SignInServerAsync`；
+  `RunActionAsync` / `LoginCommandAsync` 在动作结束后检查会话是否已结束，结束就丢弃结果、不再碰 `ctx`。
+- `SignInWithUiAsync`：建一个 Esc 用的 CTS，状态页带取消键（`Status(title, message, onCancel)`），
+  「Connecting…」仍可取消 —— 与上游一致。
+- `IMcpUi.Status` 增加可选 `onCancel`；`McpManagerView` 有回调时在页脚显示 cancel 提示并响应
+  `tui.select.cancel`，无回调时按键不做任何事。
+
+**五、`pi mcp login --timeout` 覆盖整次登录**（`Cli.cs`）
+
+超时从「等粘贴重定向 URL」提到 `SignInServerAsync` 的令牌上：`WaitForRedirectUrlAsync` 去掉自己的
+`timeoutMs`，只跟随传入令牌。于是发现、授权、换令牌任何一步卡住都会在时限内报
+「was cancelled or not completed within Xs」。
+
+**测试**
+
+- `tests/Pi.Mcp.Tests/TransportCloseTests.cs`（新）：关闭复用最后一个令牌、不再调提供者（计数不变）、
+  DELETE 带 `Mcp-Session-Id`。
+- `tests/Pi.Mcp.Tests/OAuthFlowCancelTests.cs`（新）：发现阶段取消 → 直接失败且 `RedirectedTo` 为空；
+  刷新阶段取消 → 停在 `/token`，不落到新授权。
+- `tests/Pi.CodingAgent.Tests/McpOAuthTests.cs`：已取消令牌 → 立即 `McpSignInCancelledError`；
+  卡住的发现请求被取消 → 报 `McpSignInCancelledError`（去掉新加的 catch 这例会抛底层中止异常，用例即失败）。
+- `tests/Pi.CodingAgent.Tests/ExtensionManagerViewTests.cs`：状态页有取消键时 Esc 触发回调；
+  无回调时既不显示 cancel 提示也不响应按键。
+- 坑：`HttpListener` 的前缀必须挂在**根**（`http://127.0.0.1:port/`）上，发现请求打在
+  `/.well-known/...`，用 `/mcp/` 前缀会让 `GetContextAsync` 抛 404 并结束服务循环（该用例超时 10s）。

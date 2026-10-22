@@ -703,6 +703,13 @@ public static class McpCli
 
         var openUrl = options.OpenUrl ?? OpenBrowser.Open;
         var interactive = options.Interactive ?? (options.OpenUrl is null && IsInputTerminal());
+        // --timeout 限制整次登录（发现、授权、换令牌），不只是等粘贴重定向 URL 那一步。
+        using var signInTimeout = new CancellationTokenSource();
+        if (timeoutMs > 0)
+        {
+            signInTimeout.CancelAfter(timeoutMs > int.MaxValue ? int.MaxValue : (int)timeoutMs);
+        }
+
         try
         {
             await McpOAuth.SignInServerAsync(new McpSignInOptions
@@ -717,9 +724,8 @@ public static class McpCli
                         log($"Sign in to MCP server \"{name}\" in your browser:\n{authorizationUrl.AbsoluteUri}");
                         openUrl(authorizationUrl.AbsoluteUri);
                     },
-                    cancellationToken => WaitForRedirectUrlAsync(
-                        cancellationToken, timeoutMs, interactive, options.ReadLine)),
-            }).ConfigureAwait(false);
+                    cancellationToken => WaitForRedirectUrlAsync(cancellationToken, interactive, options.ReadLine)),
+            }, signInTimeout.Token).ConfigureAwait(false);
         }
         catch (Exception signInError)
         {
@@ -747,32 +753,23 @@ public static class McpCli
 
     /// <summary>
     /// The pasted redirect URL in a terminal; otherwise only the browser callback can finish the
-    /// sign-in. Resolves to null (cancelling the sign-in) after <paramref name="timeoutMs"/>, or when
-    /// the callback arrived.
+    /// sign-in. Resolves to null when <paramref name="cancellationToken"/> is cancelled: the callback
+    /// arrived, or the sign-in timed out.
     /// </summary>
     private static async Task<string?> WaitForRedirectUrlAsync(
         CancellationToken cancellationToken,
-        long timeoutMs,
         bool interactive,
         Func<CancellationToken, Task<string?>>? readLine)
     {
-        using var timeout = new CancellationTokenSource();
-        if (timeoutMs > 0)
-        {
-            timeout.CancelAfter(timeoutMs > int.MaxValue ? int.MaxValue : (int)timeoutMs);
-        }
-
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        var token = linked.Token;
         if (!interactive)
         {
-            await WaitForCancellationAsync(token).ConfigureAwait(false);
+            await WaitForCancellationAsync(cancellationToken).ConfigureAwait(false);
             return null;
         }
 
         try
         {
-            return await (readLine ?? ReadRedirectLineAsync)(token).ConfigureAwait(false);
+            return await (readLine ?? ReadRedirectLineAsync)(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

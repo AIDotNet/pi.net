@@ -119,8 +119,23 @@ public sealed class McpManagerView : IComponent, IFocusable, IMcpUi
         return completion.Task;
     }
 
-    public void Status(string title, string message) =>
-        SetContent(Frame(_theme, title, [new Spacer(1), new Text(_theme.Fg("muted", message), 1, 0)]));
+    public void Status(string title, string message, Action? onCancel = null)
+    {
+        var body = new IComponent[] { new Spacer(1), new Text(_theme.Fg("muted", message), 1, 0) };
+        if (onCancel is null)
+        {
+            SetContent(Frame(_theme, title, body));
+            return;
+        }
+
+        SetContent(Frame(_theme, title, body, KeybindingHints.KeyHint("tui.select.cancel", "cancel")), data =>
+        {
+            if (_keybindings.Matches(data, "tui.select.cancel"))
+            {
+                onCancel();
+            }
+        });
+    }
 
     public Task<string?> RedirectUrlAsync(string title, string authorizationUrl, CancellationToken signal)
     {

@@ -470,9 +470,6 @@ public static partial class McpExtension
             /** Registered servers that `mcp.json` overrides, shown in `/mcp`. */
             var overridden = new List<string>();
 
-            /** Between session_start and session_shutdown. Registrations before that are read on session_start. */
-            var sessionActive = false;
-
             var autoEnableCodemode = true;
 
             /** Whether the "codemode tools unreachable" warning was shown since the session started. */
@@ -485,8 +482,43 @@ public static partial class McpExtension
 
             var startupWaitMs = options.StartupWaitMs ?? DefaultStartupWaitMs;
 
-            /** Bumped on every session start and shutdown so a runtime load that resolves late is dropped. */
-            var generation = 0;
+            /**
+             * The lifetime of the current session: cancelled on session_shutdown, and before the first
+             * session_start (registrations before that are read on session_start). Work captures the token
+             * when it starts and drops late results once it is cancelled, for example a runtime load that
+             * resolves after shutdown. Work that outlives the command that started it also stops on the
+             * signal and is registered with <see cref="Track(Task)"/>, so shutdown can wait for its cleanup.
+             */
+            var session = new CancellationTokenSource();
+            session.Cancel();
+            CancellationToken SessionSignal() => session.Token;
+
+            /** Work registered here: manager actions opening or closing connections, and sign-ins. */
+            var backgroundActions = new HashSet<Task>();
+
+            Task Track(Task work)
+            {
+                var observed = work.ContinueWith(
+                    static completed => _ = completed.Exception,
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+                lock (backgroundActions)
+                {
+                    backgroundActions.Add(observed);
+                }
+
+                _ = observed.ContinueWith(
+                    _ =>
+                    {
+                        lock (backgroundActions)
+                        {
+                            backgroundActions.Remove(observed);
+                        }
+                    },
+                    TaskScheduler.Default);
+                return work;
+            }
 
             /** Working directory of the session, for stdio servers. */
             var sessionCwd = Directory.GetCurrentDirectory();
@@ -977,7 +1009,11 @@ public static partial class McpExtension
                 return null;
             }
 
-            async Task<string?> SignInAsync(McpServer server, IMcpSignInPrompt prompt)
+            /// <summary>
+            /// Sign in, then reconnect. Returns an error message on failure. <paramref name="cancel"/> or the
+            /// session's end stops the sign-in.
+            /// </summary>
+            async Task<string?> SignInAsync(McpServer server, IMcpSignInPrompt prompt, CancellationToken cancel = default)
             {
                 var connection = server.Connection;
                 var url = connection?.OAuthUrl;
@@ -986,16 +1022,17 @@ public static partial class McpExtension
                     return $"MCP server \"{server.Entry.Name}\" does not use OAuth.";
                 }
 
+                using var signIn = CancellationTokenSource.CreateLinkedTokenSource(SessionSignal(), cancel);
                 try
                 {
-                    await McpOAuth.SignInServerAsync(new McpSignInOptions
+                    await Track(McpOAuth.SignInServerAsync(new McpSignInOptions
                     {
                         ServerUrl = url,
                         Store = GetCredentials().ForServer(server.Entry.Name, url),
                         Settings = connection.OAuthSettings(),
                         Challenge = connection.Challenge,
                         Prompt = prompt,
-                    }).ConfigureAwait(false);
+                    }, signIn.Token)).ConfigureAwait(false);
                 }
                 catch (McpSignInCancelledError)
                 {
@@ -1323,16 +1360,25 @@ public static partial class McpExtension
                 return SetExposure(server, choice);
             }
 
-            /** Sign in with the manager view's sign-in screen, which shows the URL with a copy key. */
+            /// <summary>
+            /// Sign in with the manager view's sign-in screen, which shows the URL with a copy key and
+            /// cancels with Esc.
+            /// </summary>
             Task<string?> SignInWithUiAsync(IMcpUi ui, McpServer server)
             {
                 var title = $"Sign in to {server.Entry.Name}";
-                ui.Status(title, "Contacting the authorization server…");
-                return SignInAsync(server, new UiSignInPrompt(ui, title, openUrl));
+                var cancel = new CancellationTokenSource();
+                void Status(string message) => ui.Status(title, message, cancel.Cancel);
+                Status("Contacting the authorization server…");
+                return SignInAsync(
+                    server,
+                    new UiSignInPrompt(ui, title, openUrl, () => Status("Connecting…")),
+                    cancel.Token);
             }
 
             async Task RunActionAsync(IMcpUi ui, IExtensionContext ctx, McpServer server, string action)
             {
+                var signal = SessionSignal();
                 var name = server.Entry.Name;
                 string? message = null;
                 switch (action)
@@ -1365,6 +1411,12 @@ public static partial class McpExtension
                             .ConfigureAwait(false);
                         break;
                     }
+                }
+
+                // The session ended meanwhile (for example during a sign-in), which made ctx stale.
+                if (signal.IsCancellationRequested)
+                {
+                    return;
                 }
 
                 server.Message = message;
@@ -1461,6 +1513,7 @@ public static partial class McpExtension
                     return;
                 }
 
+                var signal = SessionSignal();
                 string? failure;
                 if (ctx.Mode == ExtensionMode.Tui)
                 {
@@ -1473,6 +1526,12 @@ public static partial class McpExtension
                 else
                 {
                     failure = await SignInAsync(server, new NonTuiSignInPrompt(name, ctx, openUrl)).ConfigureAwait(false);
+                }
+
+                // The session ended meanwhile, which cancelled the sign-in and made ctx stale.
+                if (signal.IsCancellationRequested)
+                {
+                    return;
                 }
 
                 if (failure is not null)
@@ -1501,8 +1560,8 @@ public static partial class McpExtension
                 waitedForStartup = false;
                 sessionCwd = ctx.Cwd;
                 modelRegistry = ctx.ModelRegistry;
-                var current = ++generation;
-                sessionActive = true;
+                session = new CancellationTokenSource();
+                var signal = SessionSignal();
                 configuredEntries = [.. loaded.Servers];
                 var registered = RegisteredServers();
                 overridden = registered.Overridden;
@@ -1522,7 +1581,7 @@ public static partial class McpExtension
                 // The MCP client is already loaded in the port (difference C189). Waiting one event loop
                 // turn still lets the first render happen before connecting.
                 var runtimeReady = DeferOneTurnAsync();
-                bool IsCurrent() => current == generation;
+                bool IsCurrent() => !signal.IsCancellationRequested;
                 pending = RunStartupAsync();
 
                 async Task RunStartupAsync()
@@ -1662,12 +1721,12 @@ public static partial class McpExtension
             // Servers registered or unregistered during the session connect or disconnect right away.
             pi.On<ExtensionEvent.McpServersChange>(ExtensionEventNames.McpServersChange, async (_, ctx) =>
             {
-                if (!sessionActive)
+                var signal = SessionSignal();
+                if (signal.IsCancellationRequested)
                 {
                     return;
                 }
 
-                var current = generation;
                 var registered = RegisteredServers();
                 overridden = registered.Overridden;
                 var next = registered.Servers.ToDictionary(
@@ -1692,7 +1751,7 @@ public static partial class McpExtension
                     .WhenAll(removed.Select(server => server.Connection?.CloseAsync() ?? Task.CompletedTask))
                     .ConfigureAwait(false);
                 var connecting = added.Where(IsEnabled).ToList();
-                if (current != generation || connecting.Count == 0)
+                if (signal.IsCancellationRequested || connecting.Count == 0)
                 {
                     return;
                 }
@@ -1700,9 +1759,9 @@ public static partial class McpExtension
                 try
                 {
                     await Task
-                        .WhenAll(connecting.Select(server => StartConnectionAsync(server, () => current == generation)))
+                        .WhenAll(connecting.Select(server => StartConnectionAsync(server, () => !signal.IsCancellationRequested)))
                         .ConfigureAwait(false);
-                    if (current != generation)
+                    if (signal.IsCancellationRequested)
                     {
                         await Task
                             .WhenAll(connecting.Select(server => server.Connection?.CloseAsync() ?? Task.CompletedTask))
@@ -1716,7 +1775,7 @@ public static partial class McpExtension
                     return;
                 }
 
-                if (current != generation)
+                if (signal.IsCancellationRequested)
                 {
                     return;
                 }
@@ -1726,12 +1785,20 @@ public static partial class McpExtension
 
             pi.On<ExtensionEvent.SessionShutdown>(ExtensionEventNames.SessionShutdown, async (_, _) =>
             {
-                sessionActive = false;
-                generation++;
+                // Aborting the session stops sign-ins in flight and drops their late results.
+                await session.CancelAsync().ConfigureAwait(false);
                 var closing = Connections();
                 servers = [];
                 EmitChange();
                 await Task.WhenAll(closing.Select(connection => connection.CloseAsync())).ConfigureAwait(false);
+                // Aborted sign-ins clean up their callback server before the session is gone.
+                Task[] tracked;
+                lock (backgroundActions)
+                {
+                    tracked = [.. backgroundActions];
+                }
+
+                await Task.WhenAll(tracked).ConfigureAwait(false);
             });
 
             // -------------------------------------------------------------------------------
@@ -1896,7 +1963,15 @@ public static partial class McpExtension
     private static partial Regex WhitespaceRegex();
 
     /// <summary>The sign-in prompt of the manager view, which shows the URL with a copy key.</summary>
-    private sealed class UiSignInPrompt(IMcpUi ui, string title, Action<string> openUrl) : IMcpSignInPrompt
+    /// <param name="showConnecting">
+    /// Re-shows the status without the cancel key once the redirect URL is in: cancelling then would only
+    /// race the token exchange.
+    /// </param>
+    private sealed class UiSignInPrompt(
+        IMcpUi ui,
+        string title,
+        Action<string> openUrl,
+        Action? showConnecting = null) : IMcpSignInPrompt
     {
         private string authorizationUrl = "";
 
@@ -1909,7 +1984,15 @@ public static partial class McpExtension
         public async Task<string?> PromptForRedirectUrlAsync(CancellationToken cancellationToken)
         {
             var value = await ui.RedirectUrlAsync(title, authorizationUrl, cancellationToken).ConfigureAwait(false);
-            ui.Status(title, "Connecting…");
+            if (showConnecting is not null)
+            {
+                showConnecting();
+            }
+            else
+            {
+                ui.Status(title, "Connecting…");
+            }
+
             return value;
         }
     }

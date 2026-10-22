@@ -641,6 +641,109 @@ public class McpOAuthTests : IDisposable
         Assert.Equal("The redirect URL does not match this sign-in's redirect URI", mismatch.Message);
     }
 
+    // ─── signInMcpServer cancellation (#10565 / f10993bc7) ───────────────────
+
+    [Fact]
+    public async Task SignInServer_AlreadyCancelled_ReportsCancellationWithoutOpeningACallback()
+    {
+        var (store, _) = NewStore();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await Assert.ThrowsAsync<McpSignInCancelledError>(async () => await McpOAuth.SignInServerAsync(
+            new McpSignInOptions
+            {
+                ServerUrl = ServerUrl,
+                Store = store.ForServer("issues", ServerUrl),
+                Settings = new McpOAuthSettings(),
+                Prompt = new FakePrompt(),
+            }, cancelled.Token).WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task SignInServer_CancellingAStalledRequestReportsCancellation()
+    {
+        using var server = new StallingServer();
+        var (store, _) = NewStore();
+        using var cancel = new CancellationTokenSource();
+        var prompt = new FakePrompt();
+
+        var signIn = McpOAuth.SignInServerAsync(new McpSignInOptions
+        {
+            ServerUrl = server.Url,
+            Store = store.ForServer("issues", server.Url),
+            Settings = new McpOAuthSettings(),
+            Prompt = prompt,
+        }, cancel.Token);
+
+        await server.WaitForFirstRequestAsync(TimeSpan.FromSeconds(10));
+        await cancel.CancelAsync();
+
+        // 取消以「登录已取消」的形式报出来，而不是底层的中止异常。
+        await Assert.ThrowsAsync<McpSignInCancelledError>(
+            async () => await signIn.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Null(prompt.Shown);
+    }
+
+    /// <summary>接受请求却永不应答的 HTTP 端点，用来让登录卡在发现/换令牌那一步。</summary>
+    private sealed class StallingServer : IDisposable
+    {
+        private readonly HttpListener listener = new();
+        private readonly CancellationTokenSource cts = new();
+        private readonly TaskCompletionSource first =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public StallingServer()
+        {
+            var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+            Url = $"http://127.0.0.1:{port}/mcp";
+            // 根前缀：发现请求打在 /.well-known/... 上，不是 /mcp 之下。
+            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            listener.Start();
+            _ = ServeAsync();
+        }
+
+        public string Url { get; }
+
+        public Task WaitForFirstRequestAsync(TimeSpan timeout) => first.Task.WaitAsync(timeout);
+
+        private async Task ServeAsync()
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                HttpListenerContext context;
+                try { context = await listener.GetContextAsync(); }
+                catch (Exception) { return; }
+                _ = HandleAsync(context);
+            }
+        }
+
+        private async Task HandleAsync(HttpListenerContext context)
+        {
+            first.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.Infinite, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // 关闭时释放挂起的请求。
+            }
+
+            try { context.Response.Abort(); } catch { /* 已断开 */ }
+        }
+
+        public void Dispose()
+        {
+            cts.Cancel();
+            listener.Close();
+            cts.Dispose();
+        }
+    }
+
     // ─── Test doubles ────────────────────────────────────────────────────────
 
     /// <summary>A store whose loads are scripted and whose refresh lock can be gated.</summary>

@@ -399,6 +399,9 @@ public static class OAuthFlow
                     .ConfigureAwait(false);
                 return FlowResult.Authorized;
             }
+            // 被取取消的刷新不能退化成「重新走授权」：请求可能已到服务器并轮转了 refresh token，
+            // 再走一次授权会丢掉新凭据（上游 f10993bc7）。
+            catch (Exception) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (OAuthInsecureEndpointError) { throw; }
             catch (OAuthError error)
             {

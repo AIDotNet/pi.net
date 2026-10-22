@@ -155,8 +155,11 @@ public static class McpOAuth
     /// <summary>Access tokens this close to expiry are refreshed before they are sent.</summary>
     public const long RefreshSkewMs = 30_000;
 
-    /// <summary>Bounds each request of a refresh, so it cannot hold the refresh lock or delay shutdown for long.</summary>
-    public const long RefreshRequestTimeoutMs = 15_000;
+    /// <summary>
+    /// 每一次发往授权服务器的请求的上限：服务器不响应时既不能长期占着刷新锁、拖住关闭，
+    /// 也不能让一次登录无限等待（上游 f10993bc7 把原 <c>RefreshRequestTimeoutMs</c> 拓宽到全部请求）。
+    /// </summary>
+    public const long OAuthRequestTimeoutMs = 15_000;
 
     /// <summary>A refresh lock that its holder stopped renewing (the process was killed) is taken over after this.</summary>
     public const long RefreshLockStaleMs = 20_000;
@@ -641,28 +644,35 @@ public static class McpOAuth
                 var provider = CreateProvider(
                     options.ServerUrl, options.Store, settings, redirectUrl, (_, _) => Task.CompletedTask);
                 var effectiveFetch = fetch ?? DefaultFetch;
-                // Refreshes the tokens, or reports that a new sign-in is needed.
+                // Refreshes the tokens, or reports that a new sign-in is needed. 不可取消：服务器已经作答的刷新
+                // 可能轮转了 refresh token，那个结果必须被保存下来。
                 var result = await OAuthFlow.AuthorizeMcp(provider, new OAuthFlow.FlowOptions
                 {
                     ServerUrl = options.ServerUrl,
                     ResourceMetadataUrl = challenge?.ResourceMetadataUrl,
                     AuthorizationServerMetadataUrl = settings.AuthServerMetadataUrl?.ToString(),
                     Scope = challenge?.Scope,
-                    Fetch = (request, token) => WithRefreshTimeoutAsync(effectiveFetch, request, token),
+                    Fetch = TimedFetch(effectiveFetch),
                 }, cancellationToken).ConfigureAwait(false);
                 if (result == OAuthFlow.FlowResult.Redirect) throw new McpOAuthAuthorizationRequiredError();
                 return true;
             }
         }
+    }
 
-        /// <summary>TS: <c>fetch(input, { ...init, signal: AbortSignal.timeout(REFRESH_REQUEST_TIMEOUT_MS) })</c>.</summary>
-        private static async Task<HttpResponseMessage> WithRefreshTimeoutAsync(
-            McpFetch fetch, HttpRequestMessage request, CancellationToken cancellationToken)
+    /// <summary>
+    /// 给每次请求加 <see cref="OAuthRequestTimeoutMs"/> 上限（调用方自己的令牌继续生效）。
+    /// 对应 TS <c>timedFetch</c>；刷新与登录共用同一份实现。
+    /// </summary>
+    internal static McpFetch TimedFetch(McpFetch? fetch = null)
+    {
+        var effective = fetch ?? DefaultFetch;
+        return async (request, cancellationToken) =>
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromMilliseconds(RefreshRequestTimeoutMs));
-            return await fetch(request, timeout.Token).ConfigureAwait(false);
-        }
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(OAuthRequestTimeoutMs));
+            return await effective(request, timeout.Token).ConfigureAwait(false);
+        };
     }
 
     // ─── Sign-in ──────────────────────────────────────────────────────────────
@@ -678,6 +688,8 @@ public static class McpOAuth
         var serverUrl = options.ServerUrl;
         var store = options.Store;
         var settings = options.Settings;
+        // 已经取消的登录立即失败，不必先开回调端口（上游 f10993bc7）。
+        if (cancellationToken.IsCancellationRequested) throw new McpSignInCancelledError();
         var stored = await store.LoadAsync(cancellationToken).ConfigureAwait(false);
         var stepUp = options.Challenge?.Error == "insufficient_scope";
         var callbackOptions = CallbackSettingsFrom(settings);
@@ -717,7 +729,7 @@ public static class McpOAuth
                     stepUp
                         ? OAuthFlow.StepUpScope(stored?.Tokens?.Scope, options.Challenge?.Scope)
                         : options.Challenge?.Scope),
-                Fetch = DefaultFetch,
+                Fetch = TimedFetch(),
             };
             // A refresh keeps the granted scope; a server asking for more needs the browser flow.
             var skipRefresh = stepUp;
@@ -745,6 +757,11 @@ public static class McpOAuth
             await OAuthFlow.AuthorizeMcp(
                 provider, flow with { AuthorizationCode = response.Code, Iss = response.Iss }, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            // 被取消的请求以取消原因为失败原因；统一报成「登录已取消」（上游 f10993bc7）。
+            throw new McpSignInCancelledError();
         }
         finally
         {

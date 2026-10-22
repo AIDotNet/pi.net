@@ -147,6 +147,8 @@ public sealed partial class StreamableHttpTransport : TransportEvents
     private bool _closed;
     private string? _sessionId;
     private string? _protocolVersion;
+    /// <summary>最近一次请求携带的 access token，供 <see cref="CloseAsync"/> 复用而不去问认证提供者。</summary>
+    private string? _lastToken;
 
     /// <param name="options">端点 URL 与可选头。</param>
     /// <param name="httpClient">外部 HttpClient（缺省内部创建）。</param>
@@ -234,17 +236,18 @@ public sealed partial class StreamableHttpTransport : TransportEvents
         // DELETE 会话（服务器端过期清理）；失败不影响本地关闭。
         if (_started && _sessionId is not null)
         {
+            // 尽力而为：会话本来也会在服务器侧过期。认证提供者可能顺带做网络刷新，所以这里不问它，
+            // 关闭流程永远不会等一次刷新（上游 f10993bc7）。
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Delete, _options.Url);
-                ApplyHeaders(request, includeSession: true);
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(1));
-                await _http.SendAsync(request, timeoutCts.Token).ConfigureAwait(false);
+                ApplyHeaders(request, includeSession: true, token: _lastToken);
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+                using var response = await _http.SendAsync(request, timeoutCts.Token).ConfigureAwait(false);
             }
             catch
             {
-                // 认证头解析失败也会落到这里；会话会在服务器侧自然过期。
+                // 会话会在服务器侧自然过期。
             }
         }
         EmitClose();
@@ -298,7 +301,7 @@ public sealed partial class StreamableHttpTransport : TransportEvents
         });
     }
 
-    private void ApplyHeaders(HttpRequestMessage request, bool includeSession)
+    private void ApplyHeaders(HttpRequestMessage request, bool includeSession, string? token = null)
     {
         if (_options.Headers is not null)
             foreach (var (name, value) in _options.Headers)
@@ -307,6 +310,8 @@ public sealed partial class StreamableHttpTransport : TransportEvents
             request.Headers.TryAddWithoutValidation("Mcp-Session-Id", _sessionId);
         if (_protocolVersion is not null)
             request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", _protocolVersion);
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
     }
 
     /// <summary>
@@ -362,6 +367,8 @@ public sealed partial class StreamableHttpTransport : TransportEvents
     {
         if (_options.AuthProvider is null) return null;
         var token = await _options.AuthProvider.Token(cancellationToken).ConfigureAwait(false);
+        // 记下最近一次请求的令牌：关闭会话时直接复用它，不再触发一次可能的网络刷新。
+        _lastToken = token;
         if (!string.IsNullOrEmpty(token))
             request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
         return token;

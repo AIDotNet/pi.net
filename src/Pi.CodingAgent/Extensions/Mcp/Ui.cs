@@ -57,8 +57,10 @@ public interface IMcpUi
     /// </summary>
     Task<string?> MenuAsync(Func<McpMenu> build, Func<Action, Action>? subscribe = null);
 
-    /// <summary>Show a message while an operation runs.</summary>
-    void Status(string title, string message);
+    /// <summary>
+    /// Show a message while an operation runs. With <paramref name="onCancel"/>, the cancel key calls it.
+    /// </summary>
+    void Status(string title, string message, Action? onCancel = null);
 
     /// <summary>
     /// Show the authorization URL and wait for a pasted redirect URL. Resolves to null when

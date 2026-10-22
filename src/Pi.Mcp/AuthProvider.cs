@@ -38,7 +38,10 @@ public sealed record UnauthorizedContext
 /// </summary>
 public interface AuthProvider
 {
-    /// <summary>当前 access token（无则 null）。</summary>
+    /// <summary>
+    /// 下一次请求要用的 access token（无则 null）。实现里可能先做一次网络刷新，所以传输只在
+    /// 「会等应答」的请求前调用它；关闭会话时复用上一次请求的令牌，不再走这里（上游 f10993bc7）。
+    /// </summary>
     Task<string?> Token(CancellationToken cancellationToken = default);
 
     /// <summary>

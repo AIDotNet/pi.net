@@ -975,7 +975,7 @@ public class McpExtensionTests
             return Task.FromResult<string?>(null);
         }
 
-        public void Status(string title, string message)
+        public void Status(string title, string message, Action? onCancel = null)
         {
         }
 

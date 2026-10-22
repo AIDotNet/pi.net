@@ -114,6 +114,32 @@ public sealed class ExtensionManagerViewTests : IDisposable
     }
 
     [Fact]
+    public void McpStatus_CancelsTheRunningOperationWithTheCancelKey()
+    {
+        var view = new McpManagerView(_tui, ThemeRuntime.Current, _keybindings);
+        var cancelled = 0;
+
+        view.Status("Sign in to issues", "Contacting the authorization server…", () => cancelled++);
+
+        Assert.Contains("cancel", Render(view), StringComparison.Ordinal);
+        view.HandleInput("\x1b");
+        Assert.Equal(1, cancelled);
+    }
+
+    [Fact]
+    public void McpStatus_WithoutACancelHandlerIgnoresTheCancelKey()
+    {
+        var view = new McpManagerView(_tui, ThemeRuntime.Current, _keybindings);
+
+        view.Status("MCP server issues", "Connecting…");
+        view.HandleInput("\x1b");
+
+        // 没有取消回调就不显示 cancel 提示，按键也不会做任何事。
+        Assert.DoesNotContain("cancel", Render(view), StringComparison.Ordinal);
+        Assert.Contains("Connecting…", Render(view), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task McpRedirectUrl_SubmitsTrimmedInputAndHonorsCancellation()
     {
         var view = new McpManagerView(_tui, ThemeRuntime.Current, _keybindings);
