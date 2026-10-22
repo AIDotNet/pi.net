@@ -682,7 +682,7 @@ public class McpExtensionTests
         Assert.Equal(["reconnect oauth", "reconnect stdio"], reconnects.Select(item => item.Value));
         // The description is `describeState`, i.e. the state without the server name.
         Assert.Equal(
-            ["connected · 1 tool", "connected · 1 tool"],
+            ["connected · 1 tool · resources", "connected · 1 tool · resources"],
             reconnects.Select(item => item.Description));
 
         var logins = await WaitForAsync(

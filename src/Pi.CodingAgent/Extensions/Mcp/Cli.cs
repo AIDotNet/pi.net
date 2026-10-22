@@ -80,11 +80,11 @@ public sealed class McpServerReport
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyDictionary<string, string>? ToolExposure { get; set; }
 
+    /// <summary>
+    /// Whether the server offers resources. They are not listed: listing every one can take long.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? Resources { get; set; }
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? ResourceTemplates { get; set; }
+    public bool? Resources { get; set; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; set; }
@@ -587,9 +587,9 @@ public static class McpCli
                 log($"  tools: {string.Join(", ", tools)}");
             }
 
-            if (report.Resources is not null)
+            if (report.Resources == true)
             {
-                log($"  resources: {report.Resources}, URI templates: {report.ResourceTemplates ?? 0}");
+                log("  offers resources");
             }
 
             if (report.Error is not null)
@@ -660,8 +660,7 @@ public static class McpCli
 
         if (connection.HasResources)
         {
-            report.Resources = connection.Resources.Count;
-            report.ResourceTemplates = connection.ResourceTemplates.Count;
+            report.Resources = true;
         }
 
         if (connection.State != McpServerState.Connected && connection.Error is not null)

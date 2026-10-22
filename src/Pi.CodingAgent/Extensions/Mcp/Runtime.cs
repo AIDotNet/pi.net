@@ -146,14 +146,10 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
     public IReadOnlyList<McpTool> Tools { get; private set; } = [];
 
     /// <summary>
-    /// Whether the server offers resources. The lists below are what it listed at the last connect or
-    /// change, without MCP App resources.
+    /// Whether the server offers resources, which the resource tools list and read on demand. They are
+    /// not listed at connect: listing every resource can take long (a large drive, say).
     /// </summary>
     public bool HasResources { get; private set; }
-
-    public IReadOnlyList<McpResource> Resources { get; private set; } = [];
-
-    public IReadOnlyList<McpResourceTemplate> ResourceTemplates { get; private set; } = [];
 
     /// <summary>Server instructions from `initialize`, describing its tools as a group.</summary>
     public string? Instructions { get; private set; }
@@ -486,26 +482,15 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
                     _ = RefreshToolsAsync(client);
                     return Task.CompletedTask;
                 });
-            client.OnNotification(
-                "notifications/resources/list_changed",
-                _notification =>
-                {
-                    _ = RefreshResourcesAsync(client);
-                    return Task.CompletedTask;
-                });
             var stdio = transport as StdioTransport;
             client.OnClose(() => HandleClientClose(client, stdio));
             // TS reads `serverCapabilities?.tools` / `?.resources`: a capability the server
             // declared — `"tools": {}` — is truthy; `"tools": null` is not.
             var capabilities = client.ServerCapabilities?.Raw;
             var hasTools = HasCapability(capabilities, "tools");
-            var hasResources = HasCapability(capabilities, "resources");
             var tools = hasTools
                 ? await client.ListToolsAsync(cancellationToken: _shutdown.Token).ConfigureAwait(false)
                 : [];
-            var fetched = hasResources
-                ? await FetchResourcesAsync(client).ConfigureAwait(false)
-                : FetchedResources.Empty;
             if (Closed)
             {
                 throw new InvalidOperationException("shut down while connecting");
@@ -518,9 +503,7 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
 
             _client = client;
             Tools = tools;
-            HasResources = hasResources;
-            Resources = fetched.Resources;
-            ResourceTemplates = fetched.Templates;
+            HasResources = HasCapability(capabilities, "resources");
             Instructions = string.IsNullOrWhiteSpace(client.Instructions) ? null : client.Instructions.Trim();
             State = McpServerState.Connected;
             Error = null;
@@ -594,20 +577,6 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
         Changed();
     }
 
-    private async Task RefreshResourcesAsync(McpClient client)
-    {
-        var fetched = await FetchResourcesAsync(client).ConfigureAwait(false);
-        if (!ReferenceEquals(_client, client) || Closed)
-        {
-            return;
-        }
-
-        Resources = fetched.Resources;
-        ResourceTemplates = fetched.Templates;
-        _onTools(this);
-        Changed();
-    }
-
     /// <summary>Resolves once no transport of this server is open, including one that was still connecting.</summary>
     public async Task CloseAsync()
     {
@@ -628,50 +597,8 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
 
     // ------------------------------------------------------------------ statics and helpers
 
-    /// <summary>Resources and templates without MCP App resources. TS <c>{ resources, resourceTemplates }</c>.</summary>
-    private sealed record FetchedResources(
-        IReadOnlyList<McpResource> Resources,
-        IReadOnlyList<McpResourceTemplate> Templates)
-    {
-        public static readonly FetchedResources Empty = new([], []);
-    }
-
     private static bool HasCapability(JsonObject? capabilities, string name) =>
         capabilities is not null && capabilities[name] is not null;
-
-    /// <summary>
-    /// Resources and templates at connect time, for the counts in `/mcp` and `pi mcp list`. A server
-    /// whose lists fail still connects: the resource tools list and read its resources on demand.
-    /// </summary>
-    private static async Task<FetchedResources> FetchResourcesAsync(
-        McpClient client, CancellationToken cancellationToken = default)
-    {
-        // TS `Promise.all`: both lists run at once, and either failing still connects.
-        var resourcesTask = SwallowEmptyAsync(client.ListResourcesAsync(cancellationToken: cancellationToken));
-        var templatesTask = SwallowEmptyAsync(ListTemplatesAsync(client, cancellationToken));
-        await Task.WhenAll(resourcesTask, templatesTask).ConfigureAwait(false);
-        var resources = await resourcesTask.ConfigureAwait(false);
-        var templates = await templatesTask.ConfigureAwait(false);
-        return new FetchedResources(
-            resources
-                .Where(resource => !McpResources.IsMcpAppResource(resource.Uri, null, resource.MimeType))
-                .ToList(),
-            templates
-                .Where(template => !McpResources.IsMcpAppResource(null, template.UriTemplate, template.MimeType))
-                .ToList());
-    }
-
-    private static async Task<IReadOnlyList<T>> SwallowEmptyAsync<T>(Task<IReadOnlyList<T>> list)
-    {
-        try
-        {
-            return await list.ConfigureAwait(false);
-        }
-        catch
-        {
-            return [];
-        }
-    }
 
     /// <summary>Servers that do not implement `resources/templates/list` have no templates.</summary>
     private static async Task<T> WithoutTemplatesAsync<T>(Task<T> list, T empty)

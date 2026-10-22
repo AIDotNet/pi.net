@@ -384,8 +384,10 @@ public class McpRuntimeTests
     }
 
     [Fact]
-    public async Task ConnectListsToolsAndResourcesWithoutMcpApps()
+    public async Task ConnectListsToolsButNotResources()
     {
+        // #10526：列出全部资源可能很慢（例如一个大型网盘），所以连接时只问 initialize 和 tools/list；
+        // 资源由资源工具按需列举与读取。
         using var harness = new Harness();
         var connection = await harness.ConnectedAsync(StdioConfig, server =>
         {
@@ -396,8 +398,8 @@ public class McpRuntimeTests
 
         Assert.Equal("read_file", Assert.Single(connection.Tools).Name);
         Assert.True(connection.HasResources);
-        Assert.Equal("docs://readme", Assert.Single(connection.Resources).Uri);
-        Assert.Equal("docs://{id}", Assert.Single(connection.ResourceTemplates).UriTemplate);
+        Assert.Equal(0, harness.Server.Count("resources/list"));
+        Assert.Equal(0, harness.Server.Count("resources/templates/list"));
         Assert.Equal("Plan first", connection.Instructions);
         Assert.Null(connection.Error);
         Assert.Equal("demo", connection.Name);
@@ -446,27 +448,25 @@ public class McpRuntimeTests
             server.On("initialize", _ => Initialize("""{"tools":{}}""")));
 
         Assert.False(connection.HasResources);
-        Assert.Empty(connection.Resources);
-        Assert.Empty(connection.ResourceTemplates);
         var resourceLists = harness.Server.Count("resources/list");
         Assert.Equal(0, resourceLists);
     }
 
     [Fact]
-    public async Task AFailingResourceListStillConnects()
+    public async Task AResourcesListThatFailsDoesNotAffectTheConnect()
     {
+        // 连接只问 initialize 与 tools/list，所以一个会失败的 resources/list 连调用都不会发生；
+        // 等到资源工具按需列举时才真的失败。
         using var harness = new Harness();
         var connection = await harness.ConnectedAsync(StdioConfig, server =>
             server.FailNext("resources/list", new McpError(JsonRpcErrorCodes.InternalError, "listing broke")));
 
-        // The counts are empty, but the server is up and the tools list resources on demand.
         Assert.Equal(McpServerState.Connected, connection.State);
         Assert.True(connection.HasResources);
-        Assert.Empty(connection.Resources);
 
-        var resources = await connection.AllResourcesAsync(new McpCallOptions());
-        Assert.Equal(2, resources.Count);
-        Assert.Contains(resources, resource => resource.Uri == "docs://readme");
+        var error = await ThrowsAsync<McpError>(
+            async () => await connection.AllResourcesAsync(new McpCallOptions()));
+        Assert.Equal("listing broke", error.Message);
     }
 
     [Fact]
@@ -477,7 +477,6 @@ public class McpRuntimeTests
         var connection = await harness.ConnectedAsync(StdioConfig);
 
         Assert.Equal(McpServerState.Connected, connection.State);
-        Assert.Empty(connection.ResourceTemplates);
 
         var page = await connection.ResourceTemplatesPageAsync(null, new McpCallOptions());
         Assert.Empty(page.ResourceTemplates);
@@ -529,9 +528,9 @@ public class McpRuntimeTests
         var resources = await connection.AllResourcesAsync(new McpCallOptions());
 
         Assert.Equal(2, resources.Count);
-        // The connect-time list, the failing call, and the retry.
+        // 连接不再列资源，所以这里是「失败的调用 + 重试」两次。
         var attempts = harness.Server.Count("resources/list");
-        Assert.Equal(3, attempts);
+        Assert.Equal(2, attempts);
         // The retry reuses the client: a transient 503 did not lose the session.
         Assert.Single(harness.Servers);
     }
@@ -564,7 +563,7 @@ public class McpRuntimeTests
 
         Assert.Equal(501, error.Status);
         var attempts = harness.Server.Count("resources/list");
-        Assert.Equal(2, attempts); // the connect-time list plus the failing call, never a retry
+        Assert.Equal(1, attempts); // 连接不列资源，只剩这次失败的调用，没有重试
         Assert.Single(harness.Servers);
     }
 
@@ -835,20 +834,22 @@ public class McpRuntimeTests
     }
 
     [Fact]
-    public async Task AResourcesListChangedNotificationRefreshesTheResources()
+    public async Task AResourcesListChangedNotificationIsIgnored()
     {
+        // #10526：连接不再缓存资源，`notifications/resources/list_changed` 也就没有可刷新的东西；
+        // 资源由资源工具按需列举。
         using var harness = new Harness();
         var connection = await harness.ConnectedAsync(StdioConfig);
-        Assert.Equal("docs://readme", Assert.Single(connection.Resources).Uri);
+        var listsBefore = harness.Server.Count("resources/list");
 
         harness.Server.On("resources/list", _ => JsonNode.Parse(
             """{"resources":[{"uri":"ui://app/home"},{"uri":"docs://readme"},{"uri":"docs://other"}]}"""));
         harness.Server.SendNotification("notifications/resources/list_changed");
+        await Task.Delay(100);
 
-        await WaitUntilAsync(() => connection.Resources.Count == 2, "the refreshed resources");
-
-        Assert.Contains(connection.Resources, resource => resource.Uri == "docs://other");
-        Assert.DoesNotContain(connection.Resources, resource => resource.Uri.StartsWith("ui://"));
+        Assert.Equal(listsBefore, harness.Server.Count("resources/list"));
+        Assert.Equal(McpServerState.Connected, connection.State);
+        Assert.True(connection.HasResources);
     }
 
     [Fact]

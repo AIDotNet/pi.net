@@ -82,7 +82,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `sessionShareDestination` 设置 | 1.3.0 #10870 | 新增设置项 + `/share` 分支（14 文件） | 本次移植（第七批） |
 | 恢复会话时恢复活动工具集 | 1.3.0 #10785 | 影响 `--tools` 与 resume 交互 | 本次移植（第八批） |
 | `--model` 的 provider 选择策略统一 | 1.3.0 #10160 | 663 行重写，风险较高 | 待办 |
-| codemode worker 排队与 `PI_CODEMODE_MAX_WORKERS` | 1.4.0 #11184 | 并发脚本从失败改为等待 | 待办 |
+| codemode worker 排队与 `PI_CODEMODE_MAX_WORKERS` | 1.4.0 #11184 | 并发脚本从失败改为等待 | 不适用（见 §6） |
 | `reachesTools`、命名空间 `aliases` | 1.2.0 | 工具可达性与 MCP 等待 | 待办 |
 | `before_agent_start` 覆盖自定义触发轮次（破坏性） | 1.2.0 #10267 | 事件语义变更 | 待办 |
 | `serializeConversation` 省略 thinking | 1.2.0 | 摘要请求体积 | 待办 |
@@ -119,10 +119,12 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   没有 `observeModelRequest` 观察器（`LazyStream` 无 observer 参数），无从改名的选项；identity 已独立落地。
 - **mcp（1.2.0–1.4.0，4 提交）**：`structuredContent` 可为任意 JSON 值（#10416）与
   「无元数据时拒绝 `iss`」（c5f5b3282）、「取消的请求不再在授权刷新后重发」（da0eadf04）
-  已移植（第四批）；**待办**：连接时不再列资源（#10526，影响 `/mcp` 列表与工具注册时机）、
+  已移植（第四批）；**本次移植（第九批）**：连接时不再列资源（#10526）；**待办**：
   MCP OAuth 登录的取消与关闭语义（f10993bc7，需 coding-agent 侧按会话持有 signal）。
-- **env / codemode**：`codemode` 的输出分隔、`@options` 首行校验、输入约束声明等属 codemode 子系统，
-  与 worker 排队一并做。
+- **env / codemode**：`codemode` 的输出分隔、`@options` 首行校验、输入约束声明等属 codemode 子系统。
+  其中 worker 排队（#11184）**不适用**：端口没有 QuickJS worker 池，脚本直接在托管的 Jint VM 里跑，
+  每个脚本各有一个 VM，没有「两个 worker 的进程级容量」可以排队；`PI_CODEMODE_MAX_WORKERS` 也就
+  没有对象可限。随包 `codemode.md` 的 Limits 章节早已不含上游那两条 worker 说明。
 
 ## 4. 本次移植明细
 
@@ -160,7 +162,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 470 / 470 通过 |
-| `Pi.CodingAgent.Tests` | 4986 / 4986 通过 |
+| `Pi.CodingAgent.Tests` | 4986 / 4986 通过（第九批后仍为 4986，改动集中在既有用例） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Durable.Tests` | 457 / 457 通过 |
 | `Pi.Mcp.Tests` | 52 / 52 通过 |
@@ -194,7 +196,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 1. durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）——
    `commit(adopt)` 已在第三批完成，剩余部分须与 `Pi.CodingAgent.Experimental` 一并改。
 2. ~~ai：identity~~（第五批已完成）→ ~~per-key OpenRouter 目录~~（第六批已完成）。
-3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ codemode worker 排队。
+3. coding-agent：~~`sessionShareDestination`~~（第七批）→ ~~resume 活动工具~~（第八批）→ ~~codemode worker 排队~~（不适用）。
 4. tui：先补语料生成脚本，再做 CJK 强调与 Rex 终端。
 5. 模型目录同步（含 1.1.0–1.4.0 新增模型与默认模型变更）。
 
@@ -310,3 +312,27 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   后两例的期望值按端口形态调整：显式 `tools` 同时要传 `AllowedToolNames`（与 SDK 的
   `ResolveTools` 一致），反向断言那例不注册扩展工具，否则「注册即激活」的 `active_tool` 会让
   「空工具集」不可达。
+### 6.v 第九批（MCP 连接时不列资源）落地明细
+
+上游 `f4cca2dc2`（#10526）：注册了资源的服务器，要等 `resources/list` 与
+`resources/templates/list` 都完成才注册工具；一个大网盘之类的慢列举会把工具挡在第一条提示之外。
+那两份列表只喂 `/mcp` 与 `pi mcp list` 的计数，所以改成本地不列举、只标记「该服务器提供资源」。
+
+- `McpServerConnection`：删掉 `Resources` / `ResourceTemplates` 两个缓存属性、连接时的
+  `FetchResourcesAsync`、`notifications/resources/list_changed` 处理器与 `RefreshResourcesAsync`
+  （以及随之无用的 `FetchedResources` / `SwallowEmptyAsync`）。连接只问 `initialize` 与 `tools/list`，
+  `HasResources` 直接取 `resources` 能力位。
+- `/mcp` 的 `connected` 状态：`connected · N tools` 后面只在有资源时加 ` · resources`（不再计数）。
+- `pi mcp list`：报告字段 `resources` 从 `int` 计数改成 `bool?`（`true` 表示提供资源），
+  `resourceTemplates` 字段删除；文本输出改为 `  offers resources`。
+- 资源工具（`list_mcp_resources` / `list_mcp_resource_templates` / `read_mcp_resource`）不变，
+  仍按需列举与读取，因此 `McpResources.IsMcpAppResource` 保留（`Resources.cs` 里的按需过滤还在用）。
+- 与上游差异：上游把 `isMcpAppResource` 降级为模块私有（只剩 `resources.ts` 内部一处用），端口的
+  `McpResources.IsMcpAppResource` 仍是 public —— 端口有单测直接钉这个判定的入参组合，且
+  `Resources.cs` 的按需列举也在用。
+- 测试调整（行为变更导致的期望更新，非放宽断言）：
+  `ConnectListsToolsAndResourcesWithoutMcpApps` → `ConnectListsToolsButNotResources`（并断言
+  `resources/*` 一次都没问）、`AResourcesListChangedNotificationRefreshesTheResources` →
+  `AResourcesListChangedNotificationIsIgnored`、`AFailingResourceListStillConnects` →
+  `AResourcesListThatFailsDoesNotAffectTheConnect`（失败落到按需列举上）、两条重试计数各减一、
+  `/mcp` 补全文案改成 `connected · 1 tool · resources`。

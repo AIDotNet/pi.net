@@ -354,10 +354,11 @@ public static partial class McpExtension
 
     private static string ConnectedState(McpServerConnection connection)
     {
-        var resources = connection.Resources.Count;
-        var resourceCount = resources > 0 ? $" · {resources} resource{(resources == 1 ? "" : "s")}" : "";
+        // Resources are not listed at connect (that can take long), so the state only says that the
+        // server offers some; the resource tools list and read them on demand.
         var tools = connection.Tools.Count;
-        return $"connected · {tools} tool{(tools == 1 ? "" : "s")}{resourceCount}";
+        var resourceFlag = connection.HasResources ? " · resources" : "";
+        return $"connected · {tools} tool{(tools == 1 ? "" : "s")}{resourceFlag}";
     }
 
     /// <summary>Servers that need the user first.</summary>
