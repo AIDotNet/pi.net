@@ -88,6 +88,16 @@ dotnet run --project samples/Pi.Samples.McpClient
 
 更多细节见 [samples/README.md](../samples/README.md)。
 
+## 专题参考
+
+按端口实际实现写的深度参考（不是上游文档的翻译；每一条都对过源码）：
+
+- **[cli.md](cli.md)** —— `pi` 命令行：子命令、全部选项、端口实际读取的环境变量。
+- **[sdk.md](sdk.md)** —— 嵌入 SDK：`CreateAgentSessionOptions` 全字段、`AgentSession` 公开面、不落盘会话。
+- **[configuration.md](configuration.md)** —— 全局与项目配置：目录一览、settings.json 字段分组、models.json / mcp.json、信任机制。
+- **[sessions.md](sessions.md)** —— 会话存档：文件与目录布局、CLI 入口对照、恢复行为、压缩策略。
+- **[codemode.md](codemode.md)** —— codemode：开关与呈现、脚本可用面、`@options`、失败语义、嵌入用法。
+
 ## 凭据与配置
 
 三种来源，优先级从高到低：
