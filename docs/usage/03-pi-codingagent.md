@@ -112,7 +112,7 @@ using var subscription = session.Subscribe(evt =>
 
 ```
 ~/.pi/agent/                # 全局 agent 目录（Config.GetAgentDir()，可用 PI_CODING_AGENT_DIR 覆盖）
-├── auth.json               # 凭据（pi login 写入）
+├── auth.json               # 凭据（会话内 /login 写入，pi auth 读取）
 ├── settings.json           # 全局设置
 ├── models.json             # 自定义模型 / provider
 ├── mcp.json                # 全局 MCP 服务端

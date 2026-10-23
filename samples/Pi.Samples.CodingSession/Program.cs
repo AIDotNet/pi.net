@@ -8,8 +8,8 @@
 // 技能与扩展、注册内置工具（read / bash / edit / write …），并把会话存档写进
 // ~/.pi/sessions 或项目目录。
 //
-// 第一次运行前需要有可用凭据：用本仓库的 CLI 登录一次即可
-//   dotnet run --project src/Pi.Cli -- login
+// 第一次运行前需要有可用凭据：跑一次本仓库的 CLI，在会话里敲 /login 选 provider
+//   dotnet run --project src/Pi.Cli
 // 或者直接设 ANTHROPIC_API_KEY / OPENAI_API_KEY 等环境变量（Pi.Ai 会做环境发现）。
 // ---------------------------------------------------------------------------
 
@@ -49,7 +49,7 @@ if (result.ModelFallbackMessage is { } warning)
 
 if (session.Model is null)
 {
-    Console.Error.WriteLine("# 没有可用模型：先配置凭据（pi login 或 ANTHROPIC_API_KEY / OPENAI_API_KEY）。");
+    Console.Error.WriteLine("# 没有可用模型：先配置凭据（在 pi 里 /login，或设 ANTHROPIC_API_KEY / OPENAI_API_KEY）。");
     return 1;
 }
 

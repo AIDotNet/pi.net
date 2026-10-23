@@ -11,7 +11,7 @@
 | `~/.pi/agent/settings.json` | 全局设置 | `SettingsManager` |
 | `<cwd>/.pi/settings.json` | 项目设置，覆盖全局同名字段 | 同上（`SettingsManager.cs:47`） |
 | `~/.pi/agent/models.json` | 自定义 provider / model / 覆盖 | `ModelConfig` |
-| `~/.pi/agent/auth.json` | `pi login` 写入的凭据 | 模型运行时 |
+| `~/.pi/agent/auth.json` | 凭据（会话内 `/login` 写入，`pi auth` 读取） | 模型运行时 |
 | `~/.pi/agent/mcp.json` | 全局 MCP 服务器 | MCP 扩展 |
 | `<cwd>/.pi/mcp.json` | 项目 MCP 服务器，同名条目替换全局 | 同上 |
 | `~/.pi/agent/sessions/` | 会话存档（按项目分子目录） | `SessionManager` |
@@ -47,7 +47,7 @@
 
 ## models.json 与 auth.json
 
-- `auth.json` 只存凭据（`pi login` / `pi auth` 维护），不要手编。
+- `auth.json` 只存凭据（会话内 `/login` 写入，`pi auth` 读取），不要手编。
 - `models.json` 存自定义端点与模型；给编辑器加 `"$schema"` 引用可获得补全。
   字段级参考见 [models-configuration.md](models-configuration.md)。
 

@@ -106,7 +106,7 @@ dotnet run --project samples/Pi.Samples.McpClient
    环境变量（`Pi.CodingAgent` 层）。
 2. **环境变量**：`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` / `GEMINI_API_KEY` …
    完整的 provider → 变量名映射在 `Pi.Ai.EnvApiKeys.ProviderEnvMap`，可用 `EnvApiKeys.GetEnvApiKey(provider)` 取值。
-3. **凭据文件**：`~/.pi/agent/auth.json`（`pi login` 写入），由 `Pi.CodingAgent` 的模型运行时读取。
+3. **凭据文件**：`~/.pi/agent/auth.json`（会话里 `/login` 写入，`pi auth` 读取），由 `Pi.CodingAgent` 的模型运行时读取。
 
 `Pi.Agent` 与 `Pi.CodingAgent` 分界很干净：`Pi.Agent` 不认识凭据，它只拿到一个 `StreamFn`
 委托；谁去读密钥是 `StreamFn` 自己的事。所以嵌入式场景里你可以把密钥锁在自己的配置系统里，

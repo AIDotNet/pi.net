@@ -54,7 +54,7 @@ ANTHROPIC_API_KEY=... dotnet run --project samples/Pi.Samples.RealModel -- catal
 ## 3. CodingSession：嵌入式 coding agent
 
 ```bash
-# 先准备凭据：pi login，或设 ANTHROPIC_API_KEY / OPENAI_API_KEY
+# 先准备凭据：在 pi 里敲 /login，或设 ANTHROPIC_API_KEY / OPENAI_API_KEY
 dotnet run --project samples/Pi.Samples.CodingSession                       # 当前目录
 dotnet run --project samples/Pi.Samples.CodingSession -- ../some-repo "看看最近的改动"
 ```
