@@ -239,8 +239,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Chord.Tests` | 106 / 106 通过（第四十二批新增 2 例：末尾追加的快路径、中间 splice 的尾部保留与 `remove` 夹取） |
-| `Pi.Durable.Tests` | 503 / 503 通过（第四十三批新增 2 例等待环：自等、经自有工作成环；第四十二批修掉
-  `ArmSleepTimer` 的并发布设竞态：全量跑必现「一次睡眠两个 500ms 定时器」，单类跑不复现）。
+| `Pi.Durable.Tests` | 507 / 507 通过（第四十六批新增 4 例文档缓存回收：解析规则、到期驱逐与冷加载、
+  被观察不驱逐直到 watch 停止、无限保留与用完即弃；第四十三批新增 2 例等待环：自等、经自有工作成环；
+  第四十二批修掉 `ArmSleepTimer` 的并发布设竞态：全量跑必现「一次睡眠两个 500ms 定时器」，
+  单类跑不复现）。
   第三十四批新增 4 例 `afterFailedRun`；第三十三批新增 7 例上报分类；第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 57 / 57 通过（第四十五批新增 5 例声明约束：约束进注释、可选字段读非 null 分支、
@@ -374,9 +376,11 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `@options`、Termux 剪贴板~~（第四十一批）→ ~~chord 范围收口 + 数组追加快路径、睡眠定时器布设竞态~~
    （第四十二批）。
    **当前口径**：`v1.0.4..v1.4.0` 的 278 个提交里 104 个在本文档留有哈希引用；其余 174 个
-   （其中 103 个改了 `packages/*/src`）按功能名/子系统记录。第四十三至四十五批逐轮抽查后，
-   **仍未完成的是两项**：`f44707e7f` 的 `documentRetentionMs`（真实缺口，见 §6.ao 第③条）、
-   以及三条性能/并行提交未做逐条核对。durable 的 code mode 一族已判不采纳（§6 第 7 条）。
+   （其中 103 个改了 `packages/*/src`）按功能名/子系统记录。第四十三至四十六批逐轮抽查后：
+   **功能面已对齐**（含 `f44707e7f` 的 `documentRetentionMs`，第四十六批）；
+   **性能面还剩一条**：`ea448f454` + `cb4375493` 的调度器所有权索引（语义不变，只在超大任务链上
+   体现为每遍 O(存活数 × 链深)）；`68ccef176` 已核对，端口已同构。durable 的 code mode 一族
+   已判不采纳（§6 第 7 条）。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1306,6 +1310,46 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
 
+### 6.ap 第四十六批（documentRetentionMs：文档缓存按使用量回收）落地明细
+
+上游 `f44707e7f`：Session 把每个加载过的文档留在内存里直到进程结束；触及的对话越多，内存只增不减。
+端口 `Session._documents` 正是这个形状（只在关闭与 `UnloadDocumentsAsync` 时清空），本批按上游补齐。
+
+**1. 记账结构**
+
+- `_idleDocuments`：没有观察者的已缓存文档，**按最后使用时间从旧到新**。上游用 `Map` 的插入序，
+  C# `Dictionary` 不保序，故用 `LinkedList<IdleDocument>` + `Dictionary<string, 节点>`。
+- `_attachedDocuments`：化身（记录 ID）→ 观察者计数。被观察的化身**永不驱逐**。
+- `_clock` / `_documentRetentionMs`：都是每次使用时读取的委托；两者抛出都不得改变操作结局，
+  因此各自包一层 try/catch 回落到「现在」与缺省值。
+
+**2. 使用与驱逐**
+
+- `TouchDocument`：缓存命中、`Install`、`LoadDocument` 命中与新建后各记一次。热文档有「颗粒」节流
+  ——`min(1 秒, 保留时长 / 10)` 之内不重复后移，避免提交密集的负载每次重排（代价是可能提前一个
+  颗粒被驱逐，一次重载）。
+- `SweepDocuments`：在**提交线上**把 `since <= now - retention` 的空闲文档从旧到新丢掉，然后排下一次。
+  调用点是 `RunCommitAsync` 的四个出口：结算失败、结算抛错、无写入、发布之后。
+- `ScheduleDocumentSweep`：为最旧空闲文档的到期时刻排一个后台定时器（`System.Threading.Timer`，
+  不拖住进程退出，等价上游的 `unref`）；保留时长为 0 时立刻排到线上；为
+  `PositiveInfinity` 时不排——没有东西会过期。上游「定时器不可用就只靠提交驱逐」那条退路在 .NET
+  不需要，故没有对应分支。
+- 观察者：`AttachDocument` 在创建 watch 前钉住化身（失败则解钉），`detach` 与「化身退休」
+  （`change.Value is null`）各解钉一次；解钉后若仍是同一个化身，重新成为空闲。
+
+**3. 设置与接线**
+
+`HarnessSettings.DocumentRetentionMs` → `Settings.DocumentRetentionMs` →
+`HarnessImpl` 构造时把 `() => options.Settings?.DocumentRetentionMs` 传给 `DurableSession`。
+解析规则 `DurableSession.DocumentRetention(ms)`：非负毫秒（含 `0` 与 `PositiveInfinity`）照用，
+其余（含 null）回落十分钟。`SetDefaultDocumentRetention` 与 `DocumentCacheSizes`（cached / idle /
+attached / sweeps）供测试使用，对应上游同名入口。
+
+**测试**（`DocumentRetentionTests`，+4）：解析规则；到期驱逐后冷加载拿回同一个值（缓存数 1 → 0 → 1）；
+被观察的文档跨 10 秒仍不驱逐、`Stop()` 后重新空闲并被驱逐；`PositiveInfinity` 永不驱逐、
+`0` 用完即弃。`Pi.Durable.Tests` 507 / 507（原有 503 例无回归——默认十分钟，测试里的假时钟推进
+不会误驱逐）。
+
 ### 6.ao 第四十五批（codemode 声明约束；以及「到底还剩什么」的确切清单）落地明细
 
 **① 工具声明补上 schema 约束**（`8a9c051f8` / #10707，本次移植）
@@ -1339,18 +1383,20 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 
 这一轮把「只按功能名记录」的条目又过了一遍，除①外只确认了**一处**真缺口：
 
-- `f44707e7f` **`documentRetentionMs`（document 缓存按使用量回收）—— 缺**。端口
-  `Session._documents` 把每个加载过的 document 一直留在内存里，只在关闭/重置时清空
-  （`Session.cs:30`，清空点 331 / 406）。长生命周期进程里触及的对话越多，内存只增不减。
-  上游加的是「无人观察且超过保留时长就驱逐，下次访问重新从 Storage 载入」，配套观察者钉住
-  正在用的 incarnation、在变更线上驱逐、单独一个不可引用定时器。规模约 225 行（`session.ts`）
-  加设置项与 Harness 接线，属**独立一批**，不是顺手能改的。
-- 性能/并行三条（`ea448f454` 约束调度器所有权索引、`cb4375493` 调度器不再每遍遍历全部存活任务、
-  `68ccef176` 复用扫描区间）仍**未逐条核对**：它们不改变功能，只影响大文档、长会话下的表现。
+- ~~`f44707e7f` `documentRetentionMs`~~ —— **第四十六批已移植**：`_idleDocuments`（链表 + 索引，保证
+  最旧在前）+ `_attachedDocuments`（化身 → 观察者计数）+ 提交线上的驱逐 + 后台定时器；
+  端口 `Session._documents` 此前只增不清的问题到此关闭。见 §6.ap。
+- **性能三条**：`68ccef176`（复用扫描区间）**已在端口里**（`ConversationContext.cs` 的
+  `previous` 分支与上游同构）；`ea448f454`（按存活工作约束所有权索引）与 `cb4375493`
+  （调度器不再每遍遍历全部存活任务）**仍未移植**，见下。
 
-**当前口径（写在这里，避免再改口）**：功能面已对齐；未完成的是 `f44707e7f` 一项（有真实影响，
-建议做）与三条性能项（未核，风险低但未验证）。「全部完成」这句话在 `f44707e7f` 落地、性能三项
-核完之前，不成立。
+**当前口径（写在这里，避免再改口）**：**功能面已对齐**——`v1.0.4..v1.4.0` 里所有影响行为的提交
+都已落地或判为不适用/不采纳（§6 第 7 条）。**性能面还有一项**：调度器所有权索引。它不是功能缺口
+（语义不变、结果相同），只在超大任务链上体现为每遍 O(存活数 × 链深)：端口 `OwnedLive()` 每次都从
+每条存活记录往上走到根，而 `cb4375493` 把这一层换成向下索引（`#below` / `#intent` / `#unloaded` /
+`#finalizeChecks` / `#runnable` / `#waiters`），`ea448f454` 再把索引按存活工作收缩。
+上游给出的是「500 个持有的任务链 12.3 s → 50 ms、20,000 个 1.5 s」，量级差异真实存在，但改写
+涉及调度器核心，必须自带基准与回归，属独立一批。
 
 ### 6.an 第四十四批（durable code mode 的取舍：不移植，附重启条件）落地明细
 
