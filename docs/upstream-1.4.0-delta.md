@@ -206,10 +206,13 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 509 / 509 通过（第三十九批新增 6 例：跨模型丢弃思维块 / 同模型保留签名块 / 模型交替、
+| `Pi.Ai.Tests` | 512 / 512 通过（第四十一批新增 3 例：同一 delta 里思维块先于正文、Codex 头可被调用方覆盖、
+  OAuth 首选回调端口被占时退到随机端口；第三十九批新增 6 例：跨模型丢弃思维块 / 同模型保留签名块 / 模型交替、
   错误工具结果图片在 Anthropic 与 Bedrock 上移到工具结果之后；第三十五批新增 3 例：413 请求体超限、
   ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5068 / 5068 通过（第四十批新增 3 例：握手未完成时打开 MCP 管理器、
+| `Pi.CodingAgent.Tests` | 5073 例（5070 通过 / 3 跳过，第四十一批新增 5 例：`RenderUtils` 状态袋取状态、
+  codemode 行耗时、shell 行的时钟仍在组件状态袋、Android 上的 Termux 剪贴板读与提示；
+  第四十批新增 3 例：握手未完成时打开 MCP 管理器、
   重连在途时菜单仍可用、禁用再启用后工具定义走到新连接；第三十九批新增 3 例：锁等待窗口、
   PowerShell 安装目录形状、解析结果存在性；第三十八批新增 1 例 HTML 导出 CJK 强调接线；
   第三十七批新增 5 例跨 chunk 拆分的 ANSI 序列；
@@ -222,7 +225,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `Pi.Durable.Tests` | 501 / 501 通过（第三十四批新增 4 例 `afterFailedRun`；第三十三批新增 7 例上报分类；第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
   并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
-| `Pi.Codemode.Tests` | 51 / 51 通过（第十八批替换 2 例） |
+| `Pi.Codemode.Tests` | 52 / 52 通过（第四十一批新增 1 例 `@options` 必须位于首行；第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
 | `Pi.Tui.Tests` | 23931 / 23931 通过（第二十八批 +2：1 例移位符号键位、1 例畸形键位 id；第二十七批
   +28：23 例 stdin 回复串、3 例退出复原、1 例滚轮路由、1 例 fd 转义；第二十六批 +6 假光标、
@@ -290,7 +293,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    增量工具提示的移除登记、413 请求体超限）~~（第三十五批）→ ~~收尾复核：工作树上下文 + env / 托管安装的
    不适用判定~~（第三十六批）→ ~~跨 chunk 拆分的 ANSI 序列~~（第三十七批）→ ~~HTML 导出的 CJK 强调~~
    （第三十八批）→ ~~剩余提交复核：跨模型思维、错误结果图片、Windows 锁与 shell 探测~~（第三十九批）
-   → ~~MCP 管理器响应性（启动连接未完成即可开、动作走后台、重连串行化）~~（第四十批）。
+   → ~~MCP 管理器响应性（启动连接未完成即可开、动作走后台、重连串行化）~~（第四十批）→
+   ~~剩余提交复核：completions 思维顺序、Codex 头覆盖、OAuth 回调兜底端口、codemode 输出/计时/
+   `@options`、Termux 剪贴板~~（第四十一批）。
    至此 §3.5.1 表中除已判
    不适用的两项外无待办项，`v1.0.4..v1.4.0` 全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
@@ -1221,6 +1226,86 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.ak 第四十一批（剩余提交复核：completions 思维顺序、Codex 头、OAuth 回调端口、codemode、Termux 剪贴板）落地明细
+
+第四十批之后继续对「文档里没有被哈希显式引用」的提交做差集。几项按功能名记录、代码已落地的条目
+（`outputPad` 全量转录块 `18336987a`、`Estimate.cs` 的 3.5 字符/token、重试模式表、
+`await searchTools` 文案 `269121616`、worker 上限走排队 `3daa20280`）逐条用代码位置确认无需改动；
+以下 7 处是真实缺口：
+
+**① 一个 delta 里同时带推理与正文时的顺序**（`63035734f`，#10926）
+
+`src/Pi.Ai/Api/OpenAiCompletions.cs`：原来先处理 `content`、后处理推理字段，于是「思维块在前、
+正文在后」这条不变量要靠流式事件的到达顺序碰运气。改为 **推理字段 → `reasoning_details` →
+`content` → `tool_calls`**：LiteLLM 这类代理会把推理与答案塞进同一个 delta，先落思维块才能保证
+`output.Content` 的顺序。同时把上游关于「三个候选字段取第一个非空」的注释一并补上
+（llama.cpp 用 `reasoning_content`，另一些端点用 `reasoning`，chutes.ai 两个字段都给且内容相同）。
+
+**② Codex 请求头可被调用方覆盖**（`0cf65d2bf`，#10429）
+
+`src/Pi.Ai/Api/OpenAiCodexResponses.cs`：`BuildBaseCodexHeaders` 由 `private` 放开为 `internal`
+（便于语料/测试直接断言头序），并加 `/// <remarks>Difference C195…` 标注与上游的差异；头顺序固定为
+「身份头 → `originator: pi` → `initHeaders` → `additionalHeaders` → `Authorization` →
+`chatgpt-account-id`」。原先 `originator` 在最后写，调用方通过 `initHeaders` 传进来的
+`originator` 会被顶掉；现在调用方的值覆盖默认值，而 `Authorization` / 账号头仍是最后写入。
+
+**③ OAuth 回调端口被占用时退到随机端口**（`8d8ae2fc2`，#10571）
+
+`src/Pi.Ai/Auth/OAuth/AnthropicOAuth.cs`：抽出局部函数 `StartCallbackServer(int port)`，
+`callback = StartCallbackServer(CallbackPort) ?? StartCallbackServer(0)`——首选端口监听失败就换 0
+让系统分配。`redirectUri` 随之取 `callback?.RedirectUri ?? RedirectUri`，并且 authorize URL、
+手动粘贴提示（`ManualPrompt`）、token 交换三处统一用这个 `redirectUri`。原来端口被占时会直接失败，
+且三处各自算 `RedirectUri` 容易写进不一致的值。
+
+**④ codemode：拼接、计时起点与 `@options` 位置**（三条）
+
+- `JoinAdjacentText`（`f11e50f72`，#10678）：改为「parts 列表 + lastPart」的单次拼接。原实现对每个
+  part 都做一次 `string.Concat`，N 段相邻文本是 O(N²)；现在是 O(N)，且只对最后一个 part 做原地追加。
+- `ExecuteCodemodeAsync`（`014873d7d`）：在 `AddGeneratedImages` 之后补 `await PublishAsync()`，
+  让计时器在第一个嵌套工具调用之前就开始走，而不是等到第一段输出才起表。
+- `src/Pi.Codemode/Source.cs`（`b6d505cd1`，#10631）：`// @options:` 必须位于首行，否则它的
+  `timeout` / `max_output_tokens` 会被无声忽略。原来第二行及以后的 options 行是「当作普通脚本行丢给
+  运行时」；现在 for 循环找到第一个错位行（`Array.FindIndex` 的 `Predicate<T>` 没有 index 参数，
+  只能写循环）并抛 `The // @options: line must be the first line of the input; found one on line N`。
+  既有用例 `OptionsLineMustBeOnTheFirstLine` 随之从「忽略」改为断言抛错。
+
+**⑤ 工具行计时器抽到 `RenderUtils`，codemode 接上**（`f11e50f72` 同批的渲染面）
+
+`src/Pi.CodingAgent/Core/Tools/RenderUtils.cs` 新增 `StateOf<T>`、`NowOverride` / `Now()`、
+`FormatToolDuration`、`ToolTimerState`、`StartToolTimer`、`ToolTimerText`；`BashRenderers` 里的同名
+成员改为转发（`NowOverride` 的测试缝保持原入口）。`CodemodeRenderers.RenderCall` 开头
+`StartToolTimer(context)`，`RenderResult` 开头取 `ToolTimerText`，末尾在有值时补一个空行 + 灰色
+耗时行（运行中 `elapsed`，结束后 `took`）。
+
+这里的 `StateOf<T>` 同时修掉一个**被静默兜底的真缺陷**：`ToolExecutionComponent` 传下来的
+`context.State` 是 `Dictionary<string, object?>` 状态袋，而 `BashRenderers` / `EditRenderers` 直接
+`context.State as ShellRenderState` 强转，恒为 `null`（引用类型强转失败不抛，但后续 `??=`/取值用空
+状态），`ToolExecution.run` 的 `catch` 再把它降级成纯文本行。`StateOf<T>` 该从状态袋里取、该用测试
+直接传入的键入状态、都没有就 `new()`，两条路径都成立。
+
+**⑥ `mcp --timeout` 的说明文案**（`148622bc6`，#10636）
+
+`src/Pi.CodingAgent/Extensions/Mcp/Cli.cs`：`--timeout <seconds>  Time limit for the whole sign-in
+(default: 300)`。原文案写成「等待浏览器多久」，实际这个超时覆盖整个登录流程（含设备码轮询与
+浏览器回跳），照原文案调小容易误判。
+
+**⑦ Termux 剪贴板在 Android 上也要走**（`592fb57b7`，#10391）
+
+`src/Pi.CodingAgent/Utils/Clipboard.cs`：`ReadCommands` 把 `TERMUX_VERSION` 判断提到
+`platform != "linux"` 之前——Termux 报的平台是 `android` 而不是 `linux`，原来的顺序让它永远走不到
+`termux-clipboard-get`。`CopyFailureMessage` 同样把 Termux 分支提到最前（否则 Android 上没有任何
+可用命令，却拿到一个 `null` 提示，界面只说「复制失败」不说怎么装 Termux:API）。
+
+**测试**：`Pi.Ai.Tests` 512 / 512（+3：`KeepsAThinkingBlockAheadOfTextWhenOneDeltaCarriesBoth`、
+`CodexHeadersLetCallerValuesOverrideTheDefaults`、
+`FallsBackToAFreeCallbackPortWhenThePreferredOneIsTaken`）；
+`Pi.CodingAgent.Tests` 5073（5070 通过 / 3 跳过，+5：`CodemodeRenderersTimerTests` 的
+`StateOf_KeepsOneInstancePerRowAndPassesATypedStateThrough`、
+`CodemodeRow_ShowsElapsedWhileRunningAndTookWhenDone`、
+`ShellRow_KeepsItsClockInTheComponentStateBag`，以及 `ClipboardCommandTests` 的
+`ReadsTheTermuxClipboardOnAndroidToo`、`ReportsTheTermuxCopyHintOnAndroidToo`）；
+`Pi.Codemode.Tests` 52 / 52（+1 `RejectsAnOptionsLineThatIsNotTheFirstLine`）；`Pi.Mcp.Tests` 55 / 55。
 
 ### 6.aj 第四十批（MCP 管理器响应性）落地明细
 

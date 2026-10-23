@@ -153,6 +153,53 @@ public class AnthropicOAuthTests
     }
 
     [Fact]
+    public async Task FallsBackToAFreeCallbackPortWhenThePreferredOneIsTaken()
+    {
+        // 先占住 53692。拿不到说明本来就被别的进程占着——两种情况都会让端口绑不上，兜底逻辑同样生效。
+        using var blocker = TryOccupy(53692);
+        var handler = TokenHandler();
+        var oauth = new AnthropicOAuth(new HttpClient(handler)) { Now = () => 1_000_000 };
+        var interaction = new FakeInteraction();
+        string? authUrl = null;
+        var captured = new CapturingInteraction(interaction, e =>
+        {
+            if (e is AuthEvent.AuthUrl authUrlEvent) authUrl = authUrlEvent.Url;
+        });
+        interaction.PromptHandler = async (prompt, _) => prompt switch
+        {
+            AuthPrompt.Select => "browser",
+            AuthPrompt.ManualCode when authUrl is not null =>
+                $"{AssertX.Query(authUrl!, "redirect_uri")}?code=manual-code&state={AssertX.Query(authUrl!, "state")}",
+            _ => throw new InvalidOperationException("unexpected prompt"),
+        };
+
+        var credentials = await oauth.LoginAsync(captured.ToInteraction());
+
+        Assert.Equal("access-token", credentials.Access);
+        // 授权地址、手动提示与换取令牌三处都用实际绑定的 redirect URI，Anthropic 接受任意回环端口。
+        var redirectUri = AssertX.Query(authUrl!, "redirect_uri");
+        Assert.StartsWith("http://localhost:", redirectUri, StringComparison.Ordinal);
+        Assert.EndsWith("/callback", redirectUri, StringComparison.Ordinal);
+        Assert.NotEqual("http://localhost:53692/callback", redirectUri);
+        Assert.Equal(redirectUri, TokenBody(handler).Str("redirect_uri"));
+    }
+
+    /// <summary>占住一个回环端口；已被占用时返回 null（此时兜底同样会被触发）。</summary>
+    private static IDisposable? TryOccupy(int port)
+    {
+        try
+        {
+            var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+            listener.Start();
+            return listener;
+        }
+        catch (System.Net.Sockets.SocketException)
+        {
+            return null;
+        }
+    }
+
+    [Fact]
     public async Task ToAuthUsesAccessTokenAsApiKey()
     {
         var oauth = new AnthropicOAuth();

@@ -113,15 +113,16 @@ public static class Clipboard
     /// <summary>The commands tried when reading the clipboard on Linux, in order.</summary>
     internal static IReadOnlyList<ClipboardCommandSpec> ReadCommands(string platform, Func<string, string?> env)
     {
-        if (platform != "linux")
-        {
-            return [];
-        }
-
         var commands = new List<ClipboardCommandSpec>();
+        // Termux 报告的平台是 "android" 而不是 "linux"，所以这条不能放在 linux 分支里（上游 #10391）。
         if (!string.IsNullOrEmpty(env("TERMUX_VERSION")))
         {
             commands.Add(new ClipboardCommandSpec("termux-clipboard-get", []));
+        }
+
+        if (platform != "linux")
+        {
+            return commands;
         }
 
         if (!string.IsNullOrEmpty(env("WAYLAND_DISPLAY")))
@@ -174,14 +175,15 @@ public static class Clipboard
     /// <summary>The error reported when no clipboard route worked on Linux, or <see langword="null"/>.</summary>
     internal static string? CopyFailureMessage(string platform, Func<string, string?> env)
     {
-        if (platform != "linux")
-        {
-            return null;
-        }
-
+        // Termux 的平台是 "android"，提示不能只挂在 linux 分支下（上游 #10391）。
         if (!string.IsNullOrEmpty(env("TERMUX_VERSION")))
         {
             return "Clipboard unavailable: install the Termux:API app and `termux-api` package";
+        }
+
+        if (platform != "linux")
+        {
+            return null;
         }
 
         if (!string.IsNullOrEmpty(env("WAYLAND_DISPLAY")))

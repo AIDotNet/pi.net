@@ -48,6 +48,20 @@ public class SourceTests
     }
 
     [Fact]
+    public void RejectsAnOptionsLineThatIsNotTheFirstLine()
+    {
+        // 放错位置的 options 行原本会被无声忽略，timeout 之类的设置因此失效（上游 #10631）。
+        var error = Assert.Throws<CodemodeSourceError>(() =>
+            CodemodeSource.Parse("const x = 1;\n  // @options: {\"timeout_ms\": 30000}\nreturn x;"));
+        Assert.Contains("must be the first line of the input", error.Message);
+        Assert.Contains("line 2", error.Message);
+
+        // 首行带缩进仍然是首行。
+        var parsed = CodemodeSource.Parse("   // @options: {\"timeout_ms\": 30000}\ncode");
+        Assert.Equal(30000, parsed.Options.TimeoutMs);
+    }
+
+    [Fact]
     public void RejectsUnsupportedFieldsAndInvalidValues()
     {
         Assert.Contains("only supports", Assert.Throws<CodemodeSourceError>(() =>
@@ -67,9 +81,9 @@ public class SourceTests
     [Fact]
     public void OptionsLineMustBeOnTheFirstLine()
     {
-        var parsed = CodemodeSource.Parse("const x = 1;\n// @options: {}\n");
-        Assert.Contains("@options", parsed.Code);
-        Assert.Null(parsed.Options.TimeoutMs);
+        // 上游 #10631：错位的 options 行会被无声忽略（timeout 等设置失效），现在直接报错。
+        var error = Assert.Throws<CodemodeSourceError>(() => CodemodeSource.Parse("const x = 1;\n// @options: {}\n"));
+        Assert.Contains("must be the first line", error.Message);
     }
 }
 

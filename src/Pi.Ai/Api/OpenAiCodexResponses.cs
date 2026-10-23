@@ -561,7 +561,13 @@ public static partial class OpenAiCodexResponses
         return Encoding.UTF8.GetString(Convert.FromBase64String(padded));
     }
 
-    private static Dictionary<string, string?> BuildBaseCodexHeaders(
+    /// <remarks>
+    /// Difference C195: TS keeps <c>buildBaseCodexHeaders</c> module-private. The port exposes it to the
+    /// test project, because the header order — defaults, then caller headers, then the fixed
+    /// <c>Authorization</c> and <c>chatgpt-account-id</c> — is the whole point of the fix and has no
+    /// public seam.
+    /// </remarks>
+    internal static Dictionary<string, string?> BuildBaseCodexHeaders(
         IReadOnlyDictionary<string, string?>? initHeaders,
         IReadOnlyDictionary<string, string?>? additionalHeaders,
         string accountId,
@@ -569,9 +575,12 @@ public static partial class OpenAiCodexResponses
         ClientIdentityTarget target,
         Utils.ClientIdentity? identity)
     {
-        // 身份头（UA + provider 归属）在最底层，随后的 init / additional 头覆盖它。
+        // 身份头（UA + provider 归属）与 originator 在最底层，随后的 init / additional 头覆盖它们
+        // （`StreamOptions.headers` 的约定是调用方优先，其他 provider 也都把默认值放在前面）。
+        // Authorization 与 chatgpt-account-id 固定在最后，调用方不能覆盖。
         var headers = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (var (key, value) in Identity.GetIdentityHeaders(target, identity)) headers[key] = value;
+        headers["originator"] = "pi";
         if (initHeaders is not null)
         {
             foreach (var (key, value) in initHeaders) headers[key] = value;
@@ -582,7 +591,6 @@ public static partial class OpenAiCodexResponses
         }
         headers["Authorization"] = $"Bearer {token}";
         headers["chatgpt-account-id"] = accountId;
-        headers["originator"] = "pi";
         return headers;
     }
 

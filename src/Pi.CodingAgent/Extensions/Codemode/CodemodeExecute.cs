@@ -515,25 +515,52 @@ public static class CodemodeExecute
         return items;
     }
 
-    /// <summary>Join adjacent text items into one, each part starting on its own line. TS <c>joinAdjacentText</c>.</summary>
+    /// <summary>
+    /// Join adjacent text items into one, each part starting on its own line. TS <c>joinAdjacentText</c>.
+    /// </summary>
+    /// <remarks>
+    /// The separator looks at the last non-empty part instead of the joined text: reading the end of a
+    /// growing concatenation copies it on every item, which is quadratic (upstream #10678).
+    /// </remarks>
     private static List<ContentBlock> JoinAdjacentText(IReadOnlyList<ContentBlock> items)
     {
         var joined = new List<ContentBlock>();
+        var parts = new List<string>();
+        var lastPart = "";
+        void Flush()
+        {
+            if (parts.Count > 0)
+            {
+                joined.Add(new TextContent(string.Concat(parts)));
+            }
+
+            parts.Clear();
+            lastPart = "";
+        }
+
         foreach (var item in items)
         {
-            if (item is TextContent text && joined.Count > 0 && joined[^1] is TextContent last)
+            if (item is not TextContent text)
             {
-                var separator = last.Text.Length == 0 || last.Text.EndsWith("\n", StringComparison.Ordinal)
-                    ? ""
-                    : "\n";
-                joined[^1] = new TextContent($"{last.Text}{separator}{text.Text}");
-            }
-            else
-            {
+                Flush();
                 joined.Add(item);
+                continue;
+            }
+
+            if (lastPart.Length > 0 && !lastPart.EndsWith('\n'))
+            {
+                parts.Add("\n");
+                lastPart = "\n";
+            }
+
+            parts.Add(text.Text);
+            if (text.Text.Length > 0)
+            {
+                lastPart = text.Text;
             }
         }
 
+        Flush();
         return joined;
     }
 
@@ -736,6 +763,9 @@ public static class CodemodeExecute
             modelUsage = modelUsage is not null ? UsageTotalsApi.CombineUsage(modelUsage, usage) : usage;
 
         void AddGeneratedImages(int count) => generatedImages += count;
+
+        // Show the script as running before its first nested call, so the row's timer starts.
+        await PublishAsync().ConfigureAwait(false);
 
         IReadOnlyList<AgentTool> callable =
             ctx is not null ? CodemodeToolApi.GetCodemodeCallableTools(ctx.Tools) : [];

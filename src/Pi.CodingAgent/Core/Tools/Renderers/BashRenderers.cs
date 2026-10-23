@@ -58,34 +58,19 @@ public static class BashRenderers
     /// <summary>
     /// Test seam for the clock. TS calls <c>Date.now()</c> directly; the clock is not injectable in
     /// .NET, so tests and the differential corpus override it to make elapsed-time rendering
-    /// deterministic.
+    /// deterministic. The clock lives in <see cref="RenderUtils"/> since the codemode row shares it.
     /// </summary>
-    internal static Func<long>? NowOverride { get; set; }
+    internal static Func<long>? NowOverride
+    {
+        get => RenderUtils.NowOverride;
+        set => RenderUtils.NowOverride = value;
+    }
 
     /// <summary>TS <c>Date.now()</c>.</summary>
-    internal static long Now() => NowOverride?.Invoke() ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    internal static long Now() => RenderUtils.Now();
 
     /// <summary>Human-readable duration. TS <c>formatDuration</c>.</summary>
-    internal static string FormatDuration(double milliseconds)
-    {
-        var seconds = milliseconds / 1000;
-        if (seconds < 60)
-        {
-            // toFixed rounds half away from zero on the exact value; .NET's "F1" rounds half to even.
-            return $"{Js.ToFixed(seconds, 1)}s";
-        }
-
-        var totalSeconds = Math.Floor(seconds);
-        var minutes = Math.Floor(totalSeconds / 60);
-        var remainder = totalSeconds % 60;
-        if (minutes < 60)
-        {
-            return $"{Js.NumberToString(minutes)}m {Js.NumberToString(remainder)}s";
-        }
-
-        return $"{Js.NumberToString(Math.Floor(minutes / 60))}h " +
-            $"{Js.NumberToString(minutes % 60)}m {Js.NumberToString(remainder)}s";
-    }
+    internal static string FormatDuration(double milliseconds) => RenderUtils.FormatToolDuration(milliseconds);
 
     /// <summary>The tool call header, shared by bash and powershell. TS <c>formatShellCall</c>.</summary>
     internal static string FormatShellCall(object? args, string prompt)
@@ -264,12 +249,10 @@ public static class BashRenderers
     };
 
     /// <summary>
-    /// The row state, which <c>ToolExecutionComponent</c> supplies. The TS would fail with a property
-    /// access on <c>undefined</c> here; the port says so explicitly.
+    /// The row state, which <c>ToolExecutionComponent</c> supplies. Read through
+    /// <see cref="RenderUtils.StateOf{T}"/> so the component's state bag and a typed state passed by a
+    /// test both work.
     /// </summary>
     private static ShellRenderState StateOf(ToolRenderContext context) =>
-        context.State as ShellRenderState
-        ?? throw new InvalidOperationException(
-            "The shell renderers require a ShellRenderState in ToolRenderContext.State; " +
-            "ToolExecutionComponent supplies it.");
+        RenderUtils.StateOf<ShellRenderState>(context);
 }

@@ -388,9 +388,11 @@ public static class EditRenderers
     /// The row state, which <c>ToolExecutionComponent</c> supplies. The TS would fail with a property
     /// access on <c>undefined</c> here; the port says so explicitly.
     /// </summary>
+    /// <summary>
+    /// The row state, which <c>ToolExecutionComponent</c> supplies. Read through
+    /// <see cref="RenderUtils.StateOf{T}"/> so the component's state bag and a typed state passed by a
+    /// test both work.
+    /// </summary>
     private static EditRenderState StateOf(ToolRenderContext context) =>
-        context.State as EditRenderState
-        ?? throw new InvalidOperationException(
-            "The edit renderers require an EditRenderState in ToolRenderContext.State; " +
-            "ToolExecutionComponent supplies it.");
+        RenderUtils.StateOf<EditRenderState>(context);
 }

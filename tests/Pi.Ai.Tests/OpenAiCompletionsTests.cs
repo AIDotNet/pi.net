@@ -188,6 +188,41 @@ public class OpenAiCompletionsTests : IDisposable
     }
 
     [Fact]
+    public async Task KeepsAThinkingBlockAheadOfTextWhenOneDeltaCarriesBoth()
+    {
+        // 代理（LiteLLM 之类）会把推理和答案塞进同一个 delta；思维块必须排在文本之前。
+        AddScript(
+            new JsonObject
+            {
+                ["id"] = "chatcmpl-1",
+                ["choices"] = new JsonArray(new JsonObject
+                {
+                    ["index"] = 0,
+                    ["delta"] = new JsonObject { ["reasoning_content"] = "想一想", ["content"] = "答案" },
+                    ["finish_reason"] = null,
+                }),
+            }.ToJsonString(),
+            Chunk(1, finish: "stop"));
+
+        var model = new Model("gpt-test", "GPT Test", "openai-completions", "openai");
+        var stream = await OpenAiCompletions.StreamSimple(model,
+            new TranscriptContext([Messages.UserText("hi")]),
+            new SimpleStreamOptions(ApiKey: "sk-test", BaseUrl: _baseUrl));
+
+        AssistantMessage? final = null;
+        await foreach (var @event in stream)
+        {
+            if (@event is AssistantMessageEvent.Done done) final = done.Message;
+        }
+
+        Assert.NotNull(final);
+        Assert.Collection(
+            final!.Content,
+            first => Assert.Equal("想一想", Assert.IsType<ThinkingContent>(first).Thinking),
+            second => Assert.Equal("答案", Assert.IsType<TextContent>(second).Text));
+    }
+
+    [Fact]
     public async Task StreamsReasoningDetailsAndReplaysThemInTheNextRequest()
     {
         const string detail = """{"type":"reasoning.encrypted","id":"call_1","data":"encrypted-signature"}""";

@@ -52,8 +52,9 @@ public static class CodemodeSource
         "SOURCE: /[\\s\\S]+/\n";
 
     /// <summary>
-    /// 拆分可选的首页 <c>// @options: {...}</c> 与脚本。空输入或非法选项抛
-    /// <see cref="CodemodeSourceError"/>。对应 TS <c>parseCodemodeSource</c>。
+    /// 拆分可选的首页 <c>// @options: {...}</c> 与脚本。空输入、非法选项，或 options 行不在首行
+    /// （否则它的 timeout 之类的设置会被无声忽略）抛 <see cref="CodemodeSourceError"/>。
+    /// 对应 TS <c>parseCodemodeSource</c>。
     /// </summary>
     public static ParsedCodemodeSource Parse(string input)
     {
@@ -64,8 +65,25 @@ public static class CodemodeSource
                 "`// @options: {\"max_output_tokens\": 1000}`.");
         }
 
+        var lines = input.Split('\n');
+        var misplaced = -1;
+        for (var index = 1; index < lines.Length; index++)
+        {
+            if (lines[index].TrimStart().StartsWith(OptionsPrefix, StringComparison.Ordinal))
+            {
+                misplaced = index;
+                break;
+            }
+        }
+
+        if (misplaced != -1)
+        {
+            throw new CodemodeSourceError(
+                $"The {OptionsPrefix} line must be the first line of the input; found one on line {misplaced + 1}");
+        }
+
         var newline = input.IndexOf('\n');
-        var firstLine = (newline == -1 ? input : input[..newline]).TrimEnd('\r');
+        var firstLine = lines[0].TrimEnd('\r');
         var trimmed = firstLine.TrimStart();
         if (!trimmed.StartsWith(OptionsPrefix, StringComparison.Ordinal)) return new ParsedCodemodeSource(input, new());
 

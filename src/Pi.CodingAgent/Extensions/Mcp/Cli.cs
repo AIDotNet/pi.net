@@ -139,7 +139,7 @@ public static class McpCli
 
         Other options:
           --json                  Print the list as JSON
-          --timeout <seconds>     How long login waits for the browser (default: 300)
+          --timeout <seconds>     Time limit for the whole sign-in (default: 300)
         """;
 
     private static readonly string HelpHint = Chalk.Dim($"Use \"{Config.AppName} mcp --help\" for usage.");

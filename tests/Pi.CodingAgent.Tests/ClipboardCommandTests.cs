@@ -41,4 +41,42 @@ public class ClipboardCommandTests
     }
 
     private static string Read(byte[] output) => System.Text.Encoding.UTF8.GetString(output).Trim();
+
+    private static Func<string, string?> Env(params (string Key, string Value)[] pairs)
+    {
+        var values = pairs.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        return name => values.GetValueOrDefault(name);
+    }
+
+    /// <summary>
+    /// Termux 报告的平台是 <c>android</c>，只认 <c>linux</c> 会把 <c>termux-clipboard-get</c> 漏掉，
+    /// Ctrl+V 什么都粘不出来（上游 592fb57b7 / #10391）。
+    /// </summary>
+    [Fact]
+    public void ReadsTheTermuxClipboardOnAndroidToo()
+    {
+        Assert.Equal(
+            ["termux-clipboard-get"],
+            Clipboard.ReadCommands("android", Env(("TERMUX_VERSION", "0.118"))).Select(spec => spec.Command));
+        Assert.Empty(Clipboard.ReadCommands("android", Env()));
+
+        // 在 Linux 上顺序不变：Termux 优先，随后才是 Wayland 与 X11。
+        Assert.Equal(
+            ["termux-clipboard-get", "wl-paste", "xclip", "xsel"],
+            Clipboard.ReadCommands(
+                    "linux",
+                    Env(("TERMUX_VERSION", "1"), ("WAYLAND_DISPLAY", ":0"), ("DISPLAY", ":0")))
+                .Select(spec => spec.Command));
+    }
+
+    /// <summary>Termux 上复制失败时的提示同样不能只挂在 linux 分支下（上游 592fb57b7）。</summary>
+    [Fact]
+    public void ReportsTheTermuxCopyHintOnAndroidToo()
+    {
+        Assert.StartsWith(
+            "Clipboard unavailable: install the Termux:API app",
+            Clipboard.CopyFailureMessage("android", Env(("TERMUX_VERSION", "1"))),
+            StringComparison.Ordinal);
+        Assert.Null(Clipboard.CopyFailureMessage("android", Env()));
+    }
 }

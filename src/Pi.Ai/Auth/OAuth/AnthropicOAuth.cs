@@ -15,6 +15,11 @@ public sealed class AnthropicOAuth(HttpClient? httpClient = null) : IOAuthAuth
     private const string TokenUrl = "https://platform.claude.com/v1/oauth/token";
     private const int CallbackPort = 53692;
     private const string CallbackPath = "/callback";
+
+    /// <summary>
+    /// 首选端口（53692）绑不上时的兜底 redirect URI：Anthropic 接受任意回环端口，实际地址由回调
+    /// 服务器分配（见 <c>LoginByBrowserAsync</c>）。对应 TS 的 <c>REDIRECT_URI</c>。
+    /// </summary>
     private const string RedirectUri = "http://localhost:53692/callback";
     private const string CopyCodeRedirectUri = "https://platform.claude.com/oauth/code/callback";
     private const string BrowserLoginMethod = "browser";
@@ -58,25 +63,13 @@ public sealed class AnthropicOAuth(HttpClient? httpClient = null) : IOAuthAuth
         OAuthCallbackServer<string>? callback = null;
         try
         {
-            try
-            {
-                callback = OAuthCallbackServer<string>.Start(new OAuthCallbackServerOptions<string>
-                {
-                    ProviderName = "Anthropic",
-                    Host = CallbackHost,
-                    Port = CallbackPort,
-                    Path = CallbackPath,
-                    State = pkce.Verifier,
-                    Complete = code => Task.FromResult(code),
-                    Signal = interaction.Signal,
-                });
-            }
-            catch
-            {
-                // 端口不可用（对齐 TS .catch(() => undefined)）：退化为纯手动输入。
-            }
+            // 53692 优先，转发进容器或走 SSH 的配置照旧可用；绑不上时（Windows 上 Hyper-V / WSL 的
+            // 端口排除等）让系统挑一个空闲回环端口，Anthropic 接受任意回环端口（#10571）。
+            // 两者都失败时退化为纯手动输入。
+            callback = StartCallbackServer(CallbackPort) ?? StartCallbackServer(0);
+            var redirectUri = callback?.RedirectUri ?? RedirectUri;
 
-            var authorizeUrl = await BuildAuthorizeUrlAsync(RedirectUri, pkce.Challenge, pkce.Verifier, cancellationToken).ConfigureAwait(false);
+            var authorizeUrl = await BuildAuthorizeUrlAsync(redirectUri, pkce.Challenge, pkce.Verifier, cancellationToken).ConfigureAwait(false);
             interaction.Notify(new AuthEvent.AuthUrl(authorizeUrl,
                 "Complete login in your browser. If the browser is on another machine, paste the final redirect URL here."));
 
@@ -84,7 +77,7 @@ public sealed class AnthropicOAuth(HttpClient? httpClient = null) : IOAuthAuth
                 interaction, callback,
                 new ManualPrompt(
                     "Complete login in your browser, or paste the authorization code / redirect URL here:",
-                    RedirectUri)).ConfigureAwait(false);
+                    redirectUri)).ConfigureAwait(false);
 
             string? code;
             var state = pkce.Verifier;
@@ -105,11 +98,34 @@ public sealed class AnthropicOAuth(HttpClient? httpClient = null) : IOAuthAuth
             if (string.IsNullOrEmpty(code)) throw new InvalidOperationException("Missing authorization code");
             interaction.Notify(new AuthEvent.Progress("Exchanging authorization code for tokens..."));
             return await ExchangeAuthorizationCodeAsync(
-                code, state, pkce.Verifier, RedirectUri, cancellationToken).ConfigureAwait(false);
+                code, state, pkce.Verifier, redirectUri, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             callback?.Dispose();
+        }
+
+        OAuthCallbackServer<string>? StartCallbackServer(int port)
+        {
+            try
+            {
+                return OAuthCallbackServer<string>.Start(new OAuthCallbackServerOptions<string>
+                {
+                    ProviderName = "Anthropic",
+                    Host = CallbackHost,
+                    Port = port,
+                    Path = CallbackPath,
+                    RedirectHost = "localhost",
+                    State = pkce.Verifier,
+                    Complete = code => Task.FromResult(code),
+                    Signal = interaction.Signal,
+                });
+            }
+            catch
+            {
+                // 对齐 TS 的 .catch(() => …)：交给下一个候选端口，最后退化为纯手动输入。
+                return null;
+            }
         }
     }
 

@@ -1870,15 +1870,11 @@ public static class OpenAiCompletions
 
                     if (choice.Obj("delta") is not { } delta) continue;
 
-                    if (delta.Str("content") is { Length: > 0 } contentDelta)
-                    {
-                        var block = EnsureTextBlock();
-                        block.Text.Append(contentDelta);
-                        Rebuild(output, blocks);
-                        stream.Push(new AssistantMessageEvent.TextDelta(
-                            ContentIndex(block), contentDelta, 0, output.Snapshot()));
-                    }
-
+                    // Handle reasoning before content: some proxies (e.g. LiteLLM) aggregate reasoning and
+                    // answer into one delta, and the thinking block must precede the text block.
+                    // Some endpoints return reasoning in reasoning_content (llama.cpp), or reasoning (other
+                    // openai compatible endpoints). Use the first non-empty reasoning field to avoid
+                    // duplication (e.g. chutes.ai returns both with the same content).
                     string? foundReasoningField = null;
                     string? foundReasoningDelta = null;
                     foreach (var field in StreamReasoningFields)
@@ -1902,6 +1898,30 @@ public static class OpenAiCompletions
                         stream.Push(new AssistantMessageEvent.ThinkingDelta(
                             ContentIndex(block), foundReasoningDelta, 0, block.Signature,
                             output.Snapshot()));
+                    }
+
+                    if (delta["reasoning_details"] is JsonArray reasoningDetails)
+                    {
+                        foreach (var detail in reasoningDetails)
+                        {
+                            if (detail is not JsonObject reasoningDetail
+                                || !IsReasoningDetail(reasoningDetail))
+                            {
+                                continue;
+                            }
+                            EnsureThinkingBlock("");
+                            streamedReasoningDetails ??= [];
+                            AppendReasoningDetail(streamedReasoningDetails, reasoningDetail);
+                        }
+                    }
+
+                    if (delta.Str("content") is { Length: > 0 } contentDelta)
+                    {
+                        var block = EnsureTextBlock();
+                        block.Text.Append(contentDelta);
+                        Rebuild(output, blocks);
+                        stream.Push(new AssistantMessageEvent.TextDelta(
+                            ContentIndex(block), contentDelta, 0, output.Snapshot()));
                     }
 
                     if (delta["tool_calls"] is JsonArray toolCalls)
@@ -1941,21 +1961,6 @@ public static class OpenAiCompletions
                             stream.Push(new AssistantMessageEvent.ToolCallDelta(
                                 ContentIndex(block), ContentIndex(block), toolDelta,
                                 output.Snapshot()));
-                        }
-                    }
-
-                    if (delta["reasoning_details"] is JsonArray reasoningDetails)
-                    {
-                        foreach (var detail in reasoningDetails)
-                        {
-                            if (detail is not JsonObject reasoningDetail
-                                || !IsReasoningDetail(reasoningDetail))
-                            {
-                                continue;
-                            }
-                            EnsureThinkingBlock("");
-                            streamedReasoningDetails ??= [];
-                            AppendReasoningDetail(streamedReasoningDetails, reasoningDetail);
                         }
                     }
                 }

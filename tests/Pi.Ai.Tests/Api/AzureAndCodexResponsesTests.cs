@@ -135,6 +135,26 @@ public class AzureAndCodexResponsesTests
     }
 
     [Fact]
+    public void CodexHeadersLetCallerValuesOverrideTheDefaults()
+    {
+        var target = Identity.TargetOf(Model("openai-codex-responses", "openai-codex"));
+        var headers = OpenAiCodexResponses.BuildBaseCodexHeaders(
+            new Dictionary<string, string?> { ["originator"] = "my-app", ["User-Agent"] = "my-client/1.0" },
+            new Dictionary<string, string?> { ["x-extra"] = "1", ["Authorization"] = "Bearer caller" },
+            "acct-42",
+            "sk-real",
+            target,
+            null);
+
+        // 调用方头覆盖默认值（originator / UA），固定头仍然是最后写入的。
+        Assert.Equal("my-app", headers["originator"]);
+        Assert.Equal("my-client/1.0", headers["User-Agent"]);
+        Assert.Equal("1", headers["x-extra"]);
+        Assert.Equal("Bearer sk-real", headers["Authorization"]);
+        Assert.Equal("acct-42", headers["chatgpt-account-id"]);
+    }
+
+    [Fact]
     public void ResolvesCodexUrls()
     {
         Assert.Equal("https://chatgpt.com/backend-api/codex/responses",

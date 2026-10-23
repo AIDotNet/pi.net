@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Pi.Agent.Types;
 using Pi.Ai.Types;
+using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Modes.Interactive;
 using Pi.CodingAgent.Utils;
 using Pi.Tui;
@@ -394,6 +395,143 @@ public static class RenderUtils
             default:
                 return [("args", args)];
         }
+    }
+
+    // ------------------------------------------------------------------ timing
+
+    /// <summary>
+    /// The typed renderer state for one tool row. TS <c>context.state</c> is a plain object the row
+    /// creates once and every renderer of that row reads and writes.
+    /// </summary>
+    /// <remarks>
+    /// The port's <see cref="ToolExecutionComponent"/> supplies a <see cref="Dictionary{TKey,TValue}"/>
+    /// as the row's state bag (one entry per state type), while tests and the renderer corpus pass the
+    /// typed object directly. Both shapes are accepted: a dictionary entry is created on first use, and
+    /// a <typeparamref name="T"/> passed as is (as the corpus does) is returned unchanged. Casting
+    /// <c>State</c> straight to a concrete type instead — which is what the renderers did — made every
+    /// rich row throw against the dictionary and quietly fall back to plain text.
+    /// </remarks>
+    public static T StateOf<T>(ToolRenderContext context)
+        where T : class, new()
+    {
+        if (context.State is T direct)
+        {
+            return direct;
+        }
+
+        if (context.State is not Dictionary<string, object?> bag)
+        {
+            return new T();
+        }
+
+        var key = typeof(T).FullName ?? typeof(T).Name;
+        if (bag.TryGetValue(key, out var existing) && existing is T typed)
+        {
+            return typed;
+        }
+
+        var created = new T();
+        bag[key] = created;
+        return created;
+    }
+
+    /// <summary>
+    /// Test seam for the clock. TS calls <c>Date.now()</c> directly; the clock is not injectable in
+    /// .NET, so tests and the differential corpus override it to make elapsed-time rendering
+    /// deterministic. <c>BashRenderers.NowOverride</c> forwards here so both rows share one clock.
+    /// </summary>
+    internal static Func<long>? NowOverride { get; set; }
+
+    /// <summary>TS <c>Date.now()</c>.</summary>
+    internal static long Now() => NowOverride?.Invoke() ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    /// <summary>Duration as <c>4.2s</c> below a minute, then <c>1m 30s</c> and <c>2h 3m 4s</c>.</summary>
+    /// <remarks>
+    /// TS <c>formatToolDuration</c>. <c>toFixed</c> rounds half away from zero on the exact value;
+    /// .NET's <c>"F1"</c> rounds half to even, so the port goes through <see cref="Js.ToFixed"/>.
+    /// </remarks>
+    public static string FormatToolDuration(double milliseconds)
+    {
+        var seconds = milliseconds / 1000;
+        if (seconds < 60)
+        {
+            return $"{Js.ToFixed(seconds, 1)}s";
+        }
+
+        var totalSeconds = Math.Floor(seconds);
+        var minutes = Math.Floor(totalSeconds / 60);
+        var remainder = totalSeconds % 60;
+        if (minutes < 60)
+        {
+            return $"{Js.NumberToString(minutes)}m {Js.NumberToString(remainder)}s";
+        }
+
+        return $"{Js.NumberToString(Math.Floor(minutes / 60))}h " +
+            $"{Js.NumberToString(minutes % 60)}m {Js.NumberToString(remainder)}s";
+    }
+
+    /// <summary>
+    /// Renderer state of <see cref="StartToolTimer"/> and <see cref="ToolTimerText"/>, kept in
+    /// <see cref="ToolRenderContext.State"/>. TS <c>ToolTimerState</c>.
+    /// </summary>
+    public sealed class ToolTimerState
+    {
+        public long? StartedAt { get; set; }
+
+        public long? EndedAt { get; set; }
+
+        /// <summary>The one-second redraw while the row is running.</summary>
+        public Timer? Interval { get; set; }
+    }
+
+    /// <summary>Start the row's clock once execution starts. Call from <c>renderCall</c>.</summary>
+    public static void StartToolTimer(ToolRenderContext context)
+    {
+        var state = StateOf<ToolTimerState>(context);
+        if (context.ExecutionStarted && state.StartedAt is null)
+        {
+            state.StartedAt = Now();
+            state.EndedAt = null;
+        }
+    }
+
+    /// <summary>
+    /// The row's timing line, from <c>renderResult</c>: <c>Elapsed 4.2s</c> while the result is
+    /// partial, redrawn every second, and <c>Took 4.2s</c> once it is final. Null when the row has no
+    /// start time and no recorded duration.
+    /// </summary>
+    public static string? ToolTimerText(ToolRenderContext context, bool isPartial)
+    {
+        var state = StateOf<ToolTimerState>(context);
+        if (state.StartedAt is not null && isPartial && state.Interval is null)
+        {
+            state.Interval = new Timer(_ => context.Invalidate(), null, 1000, 1000);
+        }
+
+        if (!isPartial || context.IsError)
+        {
+            state.EndedAt ??= Now();
+            if (state.Interval is not null)
+            {
+                state.Interval.Dispose();
+                state.Interval = null;
+            }
+        }
+
+        // A final result's recorded duration wins: it is monotonic and survives reloads. The renderer's
+        // own clock is the fallback for live progress and for results stored without one.
+        if (!isPartial && context.DurationMs is { } durationMs)
+        {
+            return $"Took {FormatToolDuration(durationMs)}";
+        }
+
+        if (state.StartedAt is not { } startedAt)
+        {
+            return null;
+        }
+
+        var endTime = state.EndedAt ?? Now();
+        return $"{(isPartial ? "Elapsed" : "Took")} {FormatToolDuration(endTime - startedAt)}";
     }
 
     /// <summary>

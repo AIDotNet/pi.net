@@ -52,6 +52,7 @@ public static partial class CodemodeRenderers
     /// <summary>TS <c>codemodeRenderers.renderCall</c>.</summary>
     public static IComponent RenderCall(object? args, Theme theme, ToolRenderContext context)
     {
+        RenderUtils.StartToolTimer(context);
         // The code includes the `// @options:` line, so options show as part of the script.
         var code = RenderUtils.Str(RenderUtils.Arg(args, "code").Value);
         var title = theme.Fg(ThemeColors.ToolTitle, theme.Bold("codemode"));
@@ -87,6 +88,7 @@ public static partial class CodemodeRenderers
     public static IComponent RenderResult(
         AgentToolResult result, ToolRenderResultOptions options, Theme theme, ToolRenderContext context)
     {
+        var timerText = RenderUtils.ToolTimerText(context, options.IsPartial);
         var component = context.LastComponent as Container ?? new Container();
         component.Clear();
         var details = result.Details as CodemodeToolApi.CodemodeToolDetails;
@@ -156,6 +158,12 @@ public static partial class CodemodeRenderers
                     component.AddChild(new Text(theme.Fg(ThemeColors.Muted, $"Full output: {fullOutputPath}"), 0, 0));
                 }
             }
+        }
+
+        if (timerText is not null)
+        {
+            component.AddChild(new Spacer(1));
+            component.AddChild(new Text(theme.Fg(ThemeColors.Muted, timerText), 0, 0));
         }
 
         return component;
