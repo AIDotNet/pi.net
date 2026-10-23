@@ -4,12 +4,24 @@ name: CI
 # 发布本身由 nuget-publish.yml 负责，两者互不阻塞。
 #
 # 需要跑全量测试时：Actions -> CI -> Run workflow，勾选 run_tests。
+#
+# 纯文档提交不触发：仓库里 docs:/memory 类提交约占三成，跑一遍完整编译没有信息量。
+# 注意 paths-ignore 只按「本次提交涉及的文件」判断——文档提交里一旦混进 .cs/.csproj，
+# 整条流水线照常跑，所以不必担心改 README 时顺手改的代码漏检。
 
 on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.workbuddy/**'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.workbuddy/**'
   workflow_dispatch:
     inputs:
       run_tests:
