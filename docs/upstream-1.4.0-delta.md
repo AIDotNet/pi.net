@@ -362,6 +362,28 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    Model overrides 23 / Input limits 9 行**零差异**（字段、类型、默认值、说明全部一致）；
    Compatibility 42 个字段一致，差异只有两点：上游按 API 分成 6 个小节（端口发布的是合并后的
    一个 schema），以及 9 条说明措辞更概括（端口 schema 自带文本）。`--check` 可在 CI 里校验是否过期。
+### 6.as 本地验证（第五十二批）：崩溃恢复 / fan-out / 内存曲线的实跑结论
+
+生产前的三道坎之一（缺 soak）用本地工具补了一轮。工具在 `tools/soak/`（目录被 gitignore，仅本地），
+跑法：`dotnet run --project tools/soak`。三个阶段，全部 PASS：
+
+1. **崩溃恢复（JSONL，真杀进程）**：25 个任务（20 个三阶段链 + 5 个睡眠任务），4 轮
+   `Environment.Exit(137)`（不 close、不结算，等效断电），80 条副作用写盘。每次重开后
+   `OpenAsync` 重放日志、任务从 checkpoint 继续，最终全部 `Completed`；副作用审计确认
+   阶段顺序无异常、单阶段重复 ≤ 崩溃轮数 + 1（只有未落提交的阶段会重跑）。
+2. **并发 fan-out（JSONL）**：1 父任务等 50 个子任务（各睡 150ms）全部落定后完成，415 ms。
+3. **内存曲线（SQLite + retention=100ms）**：1500 个会话各触碰一次 agent 文档，
+   缓存在每个检查点都是 0，堆增长 0.1 MB——`documentRetentionMs` 的回收在线上真实工作。
+
+**过程中确认的一个使用边界**：崩溃后**密集地开关存储**会让 JSONL 重放的目录列举与上一实例的
+回收删除竞态（列举到的 sidecar 在 lstat 前被删，`OpenAsync` 抛 ENOENT）。上游 TS 的重放对这种
+竞态同样抛错——两边语义一致，生产里重开是低频一次性操作，不构成实际问题；演练工具用重试吸收。
+这不是「端口与上游的偏差」，记录于此以免误判。
+
+**对生产结论的更新**：durable 的「缺 soak」这道坎，本地压缩时钟下已经过了一遍
+（崩溃恢复、并发等待、内存有界均有实跑证据）。剩余的两道坎不变：CI 只有 Windows、
+测试未进 CI（需拆非交互子集）。
+
 
 ## 7. 建议的后续顺序
 
