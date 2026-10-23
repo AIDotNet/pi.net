@@ -235,6 +235,21 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
     private ScrollView GetPrimaryScrollView() => _currentLayout?.PrimaryScrollView ?? _implicitScrollView;
 
     /// <summary>
+    /// Exit-path restore for the modes the alternate screen owns: mouse reporting, autowrap, and the
+    /// synchronized-output wrapper. Without the mouse reset a Ctrl+C exit leaves the terminal reporting
+    /// motion events forever, and the parent shell echoes them as garbage.
+    /// </summary>
+    protected override string GetExitRestorePrefix()
+    {
+        var prefix = base.GetExitRestorePrefix();
+        if (!_altScreenActive)
+        {
+            return prefix;
+        }
+        return $"{EndSynchronizedOutput}{(_mouseEnabled ? DisableMouse : "")}{EnableAutowrap}{prefix}";
+    }
+
+    /// <summary>
     /// Kitty keyboard flags are per screen, so the terminal pops them before the alternate screen is
     /// left.
     /// </summary>

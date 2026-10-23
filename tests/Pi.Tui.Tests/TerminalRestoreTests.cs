@@ -39,8 +39,29 @@ public class TerminalRestoreTests
 
         tui.HandleProcessExit();
 
-        // Kitty keyboard flags are per screen, so the alternate screen is left after them.
-        Assert.Equal(["\x1b[?25h\x1b[?2004l\x1b[?1049l\x1b[?25h"], terminal.ExitRestores);
+        // The alternate screen owns mouse reporting, autowrap and the synchronized-output wrapper, so
+        // the prefix releases them; kitty keyboard flags are per screen, so the alternate screen is
+        // left after them. Without the mouse reset a Ctrl+C exit leaves the terminal reporting motion
+        // events and the parent shell echoes them as garbage.
+        Assert.Equal(
+            [
+                "\x1b[?2026l\x1b[?1006l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?7h\x1b[?25h"
+                    + "\x1b[?2004l\x1b[?1049l\x1b[?25h",
+            ],
+            terminal.ExitRestores);
+        tui.Stop();
+    }
+
+    [Fact]
+    public void AltScreenExitRestoreLeavesMouseAloneWhenItWasNeverEnabled()
+    {
+        var terminal = new StringTerminal(20, 5);
+        var tui = new TuiAltScreen(terminal, options: new TuiAltScreenOptions { Mouse = false });
+        tui.Start();
+
+        tui.HandleProcessExit();
+
+        Assert.Equal(["\x1b[?2026l\x1b[?7h\x1b[?25h\x1b[?2004l\x1b[?1049l\x1b[?25h"], terminal.ExitRestores);
         tui.Stop();
     }
 

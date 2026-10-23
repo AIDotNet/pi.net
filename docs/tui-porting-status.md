@@ -376,7 +376,7 @@ node --experimental-strip-types --no-warnings --test test/tui-alt-screen.test.ts
 
 ## 测试覆盖
 
-`tests/Pi.Tui.Tests`（23,936 项，已禁用并行化——多个用例共享进程级全局状态：能力缓存、Kitty 元数据注册表、环境变量探测、全局键位注册表、native helper）：
+`tests/Pi.Tui.Tests`（23,937 项，已禁用并行化——多个用例共享进程级全局状态：能力缓存、Kitty 元数据注册表、环境变量探测、全局键位注册表、native helper）：
 
 | 测试文件 | 项数 | 覆盖 |
 |---|---|---|
@@ -399,6 +399,6 @@ node --experimental-strip-types --no-warnings --test test/tui-alt-screen.test.ts
 | `AltScreenSearchCorpusTests.cs` | 520 | 备用屏搜索语料逐条对照 TS 参考实现（索引构建、匹配定位、`getAltScreenSearchMatchKey`、大小写不敏感路径） |
 | `AltScreenCorpusTests.cs` | 39 | 37 条备用屏渲染场景逐条对照 TS 参考实现（每步比对屏幕行、`viewportTop`、跟随输出、选择态、overlay 栈与输入、`start`/`stop` 写入、剪贴板、打开 URL），另 2 项守卫：语料规模（37 条、id 唯一）与覆盖分布（1×1 与 80×24、鼠标开/关的启动序列、`viewportTop` 0 与非 0、选择态开/关、非空剪贴板与两种复制结果、overlay 显示后隐藏且 `overlayInputs` 非空、打开 URL、`scrollToEndIndicator`、搜索样式、自定义键位） |
 | `FakeCursorTests.cs` | 6 | 假光标（上游 `tui-render.test.ts` 的 `TUI fake cursor` 套件）：聚焦 Input 在反显里画出光标格、`SetShowHardwareCursor(true)` 后丢掉这一格且不泄漏 `\x1b_pi:`、未聚焦 Input 在硬件光标模式下仍画、裁剪切掉 `FAKE_CURSOR_END` 时同样丢掉（硬件光标列仍为 3）、overlay 正好结束在光标左侧时两种模式都保留光标（列固定为 4，钉住 `ExtractSegments` 保留零宽 APC 的那条例外）、备用屏在搜索/选择高亮与合成之前解析标记 |
-| `TerminalRestoreTests.cs` | 3 | 退出复原（上游 `#11170`）：主屏 `Stop()` 与进程退出兜底都只写一次 `\x1b[?25h\x1b[?2004l`、已在 `Stop()` 复原后 `ProcessExit` 不再重复写、备用屏额外补 `\x1b[?1049l\x1b[?25h`、`ProcessTerminal.RestoreOnExit` 的前后缀拼接顺序 |
+| `TerminalRestoreTests.cs` | 4 | 退出复原（上游 `#11170`）：主屏 `Stop()` 与进程退出兜底都只写一次 `\x1b[?25h\x1b[?2004l`、已在 `Stop()` 复原后 `ProcessExit` 不再重复写、备用屏额外补鼠标/自动换行/同步输出复位与 `\x1b[?1049l\x1b[?25h`（C384）、鼠标未启用时不下发 `DisableMouse`、`ProcessTerminal.RestoreOnExit` 的前后缀拼接顺序 |
 | `ProcessTerminalInputTests.cs` | 5 | 终端输入管线（C383）：Windows 逐键送达的 OSC 10/11 配色应答被重组成整条序列而不漏进编辑器（`\x1b\\` 与 BEL 两种终结符）、OSC 7501 状态应答被吞掉、普通按键仍逐条送达、括号粘贴按 `\x1b[200~…\x1b[201~` 重包、`ResolveEscapeTimeoutMs` 的环境覆盖/SSH 加宽/非法值回落 |
 | `AltScreenTests.cs` | 1 | 备用屏未处理输入的落点：聚焦 overlay 时向上滚轮仍滚转写（`\x1b[<64;3;2M` 后 `ViewportTop` 变小、`IsFollowingOutput` 转 false），且该序列不再下发给 overlay 的 `handleInput` |
