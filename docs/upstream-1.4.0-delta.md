@@ -400,7 +400,21 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 回归测试 `ProviderComposerCustomApiTests`（断言错误落在连接层而非「未注册」）；
 CodingAgent 5071/5074、Ai 512/512 无回归。
 
-**环境受限未测**：api.openai.com 直连不可达（网络），官方密钥路径未验证；本机无 WSL 发行版。
+**第二轮（第五十四批，同一端点）**：
+
+- `--mode json`：print 的事件流逐行 JSON（session v3 头、agent_start、message_*）。✅
+- `--continue`：接续上一会话，在既有文件上追加内容成功。✅
+- `--fork`：从会话文件分叉出新会话并继承上下文。✅
+- `--export`：导出带主题的会话 HTML。✅
+- **RPC 模式**：stdio 行式 JSON（`{"type":"prompt","message":...}`），agent_start →
+  turn → agent_end 全事件流正常，bash 工具输出经模型回传。✅
+- **MCP 实连**：自建最小 MCP stdio 服务器（initialize / tools/list / tools/call），
+  `pi mcp list` 显示 connected + 1 tool，真实模型经 `--print` 调用
+  `mcp__e2e__echo` 并把 `ECHO:...` 结果带回回答。✅
+- 过程记录：MCP 工具默认 `exposure: "codemode"`（只进脚本不声明给模型），
+  直连给模型用需要 `"exposure": "direct"`。
+
+**仍未覆盖**：交互式 TUI、OAuth 登录流、compaction 的实触发、api.openai.com 官方密钥路径（网络不可达）。
 
 
 ## 7. 建议的后续顺序
