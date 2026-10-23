@@ -716,10 +716,12 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
 
         foreach (var (key, value) in args)
         {
+            // 必须 DeepClone：调用方（Pi.Agent 的 ValidateToolArguments）给出的是已挂在
+            // 参数对象下的子节点，直接塞进新的 JsonObject 会抛 "The node already has a parent."。
             json[key] = value switch
             {
                 null => null,
-                JsonNode node => node,
+                JsonNode node => node.DeepClone(),
                 string text => JsonValue.Create(text),
                 _ => JsonSerializer.SerializeToNode(value),
             };

@@ -115,6 +115,41 @@ public class McpRuntimeTests
         public override Task CloseAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
+    /// <summary>
+    /// 回归：参数值若是「已经挂在别的 JsonObject 下」的 JsonNode，不能被直接复用。
+    /// </summary>
+    /// <remarks>
+    /// `Pi.Agent` 的 `ValidateToolArguments` 返回的 JsonObject 已经持有这些子节点，
+    /// MCP 侧构造 `tools/call` 的 arguments 时必须 DeepClone；否则抛
+    /// `The node already has a parent.`（带参数的 MCP 工具全部失效）。
+    /// </remarks>
+    [Fact]
+    public async Task CallToolAcceptsArgumentValuesThatAlreadyHaveAParent()
+    {
+        using var harness = new Harness();
+        var connection = await harness.ConnectedAsync(StdioConfig);
+        harness.Server.On("tools/call", _ => new JsonObject { ["content"] = new JsonArray() });
+
+        var validated = JsonNode.Parse("""{"path":"a.txt","depth":2}""")!.AsObject();
+        var args = new Dictionary<string, object?>
+        {
+            ["path"] = validated["path"],
+            ["depth"] = validated["depth"],
+        };
+
+        var result = await connection.CallToolAsync("read_file", args, new McpCallOptions());
+
+        Assert.NotNull(result);
+
+        var sent = harness.Server.ParamsOf("tools/call")!;
+        var arguments = sent["arguments"]!.AsObject();
+        Assert.Equal("a.txt", arguments["path"]!.GetValue<string>());
+        Assert.Equal(2, arguments["depth"]!.GetValue<int>());
+
+        // 原对象不能被子节点“搬家”影响，仍然保留自己的父节点。
+        Assert.Same(validated, validated["path"]!.Parent);
+    }
+
     /// <summary>In-memory auth file, so tests never touch the user's <c>mcp-auth.json</c>.</summary>
     private sealed class FakeAuthStorageBackend : IAuthStorageBackend
     {
