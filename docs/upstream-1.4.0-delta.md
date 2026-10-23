@@ -200,7 +200,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 502 / 502 通过（第三十五批新增 2 例：ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
+| `Pi.Ai.Tests` | 503 / 503 通过（第三十五批新增 3 例：413 请求体超限、ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
 | `Pi.CodingAgent.Tests` | 5050 / 5050 通过（第三十五批新增 8 例：恢复 loadout 的扩展工具激活 / 切树 / 压缩前删除 4 例、
   拆分回合的前缀摘要 focus 2 例、剪贴板进程组 2 例；第二十九批新增 5 例对话框栈 / overlay 归属；第二十八批
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
@@ -273,8 +273,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    （第二十九批）→ ~~durable：按模型压缩阈值~~（第三十批）→ ~~durable：持久睡眠 + 宿主时钟/唤醒~~
    （第三十一批）→ ~~durable：crash-loop guard + task graph `blocked` 原因~~（第三十二批）→ ~~durable：
    `onReport` info（`ReportInfo`）~~（第三十三批）→ ~~durable：`settings.afterFailedRun`~~（第三十四批）→
-   ~~收尾审计：四项遗漏修复（`/compact` 前缀摘要、扩展工具 loadout 激活、剪贴板进程组、ChatGPT 限额文案、
-   增量工具提示的移除登记）~~（第三十五批）。至此 §3.5.1 表中除已判不适用的两项外无待办项，
+   ~~收尾审计：五项遗漏修复（`/compact` 前缀摘要、扩展工具 loadout 激活、剪贴板进程组、ChatGPT 限额文案、
+   增量工具提示的移除登记、413 请求体超限）~~（第三十五批）。至此 §3.5.1 表中除已判不适用的两项外无待办项，
    `v1.0.4..v1.4.0` 全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
@@ -1205,9 +1205,9 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
 
-### 6.ae 第三十五批（1.4.0 收尾审计：四项遗漏修复）落地明细
+### 6.ae 第三十五批（1.4.0 收尾审计：五项遗漏修复）落地明细
 
-§3.5.1 的表清空后，按 `v1.0.4..v1.4.0` 的 278 个提交逐条复核，发现四项**适用但漏移植**的行为修复（另有一处判定
+§3.5.1 的表清空后，按 `v1.0.4..v1.4.0` 的 278 个提交逐条复核，发现五项**适用但漏移植**的行为修复（另有一处判定
 为纯重构、无行为差异）。本批补齐它们，1.4.0 对齐到此收尾。
 
 **1. `/compact` 的自定义指令漏作用于拆分回合的前缀摘要（`adfc14461`，#11058）**
@@ -1250,12 +1250,19 @@ Business 计划的 `subscription_sharing_workplace_individual_usage_limit_exceed
 `unavailableTools`，于是排在它后面的移除通报被提前复述。改为在渲染完本条移除通报之后再登记，
 增量提示因此只复述更早消息宣布过的移除。新增 `DoesNotListAToolAsStillUnavailableBeforeItsRemovalIsAnnounced`。
 
+**6. 任何 HTTP 413 都算请求体超限（`73f8de80b`）**
+
+Copilot 对超过字节上限的请求体回 413 + 通用正文（`failed to parse request`），原有按 token 文案匹配的启发式
+一条都命中不了，于是溢出被当成普通 API 错误抛出、不触发压缩重试。`Overflow` 补一条模式：**开头的 413** 或
+`<provider> API error (413):` 前缀一律判为请求体超限（正文里提到的 413 不算）。新增一条用例覆盖三种开头写法
+与一条反例。
+
 **判为无需移植（1 条）**
 
-`transcript.ts` 的 `hasNonAdditiveToolChanges` / `resolveTranscriptTools` 合并成一次扫描（同一提交）：
+`transcript.ts` 的 `hasNonAdditiveToolChanges` / `resolveTranscriptTools` 合并成一次扫描（`530015d93`）：
 端口两处逻辑本就等价，只是没有共享循环，属重构而非行为变更，不动。
 
-**验证**：`dotnet build` 0 警告 0 错误；`Pi.Ai.Tests` 502 / 502（+2）、`Pi.CodingAgent.Tests` 5050 / 5050（+8，
+**验证**：`dotnet build` 0 警告 0 错误；`Pi.Ai.Tests` 503 / 503（+3）、`Pi.CodingAgent.Tests` 5050 / 5050（+8，
 `ClipboardCommandTests` 2、`CompactionSummaryPromptTests` 2、`AgentSessionResumeToolsTests` +4）。
 
 ### 6.ad 第三十四批（durable：`settings.afterFailedRun`）落地明细

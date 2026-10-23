@@ -163,6 +163,22 @@ public class OverflowTests
         Assert.False(Overflow.IsContextOverflow(Message(StopReason.Error, "some unrelated failure")));
     }
 
+    /// <summary>
+    /// Copilot 用 HTTP 413 + 通用正文（"failed to parse request"）拒绝过大的请求体，token 启发式都匹配不到；
+    /// 413 一律按请求体超限处理（上游 73f8de80b）。
+    /// </summary>
+    [Fact]
+    public void Http413CountsAsRequestSizeOverflow()
+    {
+        Assert.True(Overflow.IsContextOverflow(Message(StopReason.Error,
+            "github-copilot API error (413): {\"message\":\"failed to parse request\",\"code\":\"\"}")));
+        Assert.True(Overflow.IsContextOverflow(Message(StopReason.Error, "413")));
+        Assert.True(Overflow.IsContextOverflow(Message(StopReason.Error, "413: request too large")));
+        // 正文里提到的状态码不算：只有开头的 413 或 provider 前缀算。
+        Assert.False(Overflow.IsContextOverflow(Message(StopReason.Error,
+            "some unrelated failure: upstream returned 413 after retry")));
+    }
+
     [Fact]
     public void NonOverflowPatternsWinOverOverflowPatterns()
     {

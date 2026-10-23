@@ -42,6 +42,10 @@ public static class Overflow
         new(@"context[_ ]length[_ ]exceeded", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // 通用兜底
         new(@"too many tokens", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // 通用兜底
         new(@"token limit exceeded", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // 通用兜底
+        // HTTP 413 表示请求体超过 provider 的字节上限（如 Copilot），与 provider 和响应正文无关。
+        // 只匹配原始 SDK 错误与 formatProviderError 的前缀，不匹配正文里提到的状态码。
+        new(@"^(?:[A-Za-z0-9_ -]+ API error \(413\):|413(?:\s|:|$))",
+            RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)),
     ];
 
     /// <summary>Cerebras 无 body 的 400/413 超窗。对应 TS <c>CEREBRAS_BODYLESS_OVERFLOW_PATTERN</c>。</summary>
