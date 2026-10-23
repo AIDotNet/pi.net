@@ -1,4 +1,4 @@
-using Pi.Ai.Models;
+﻿using Pi.Ai.Models;
 using Pi.Chord.Context;
 using Pi.Chord.Delta;
 using Pi.Durable.Env;
@@ -146,6 +146,9 @@ public sealed class TaskScheduler
 
     /// <summary>行走经过的终态任务的所有权字段。</summary>
     private readonly Dictionary<TaskId<object?>, TaskNode> _settled = [];
+
+    /// <summary>属主链已验证到根的节点：让 <c>LoadScopes</c> 每遍的检查摊还到 O(1)。</summary>
+    private readonly HashSet<Up> _knownChains = [];
 
     /// <summary>
     /// 下一次 reconcile 检查的 <c>failFast</c> 等待者：开启时、开始等待时、以及其中一个任务失败时。
@@ -344,7 +347,7 @@ public sealed class TaskScheduler
             // 停放的任务不需要进程：它要等 retry() 或上调的上限。
             if (Parked(record)) continue;
             // abort 调用等待其下的存活工作，那份工作会自己计入。
-            if (record.AbortRequested && WaitingOn(record, OwnedLive()).Count > 0) continue;
+            if (record.AbortRequested && OwnedLiveBelow(record.Id).Count > 0) continue;
             // 没有定义能接手的任务在等注册表变化，带 abort 标记的除外（它会被 orphaned）。
             if (!record.AbortRequested)
             {
@@ -446,7 +449,7 @@ public sealed class TaskScheduler
             if (invocation is null && current.State.Status != TaskStatus.Completing)
             {
                 await LoadScopesAsync(false).ConfigureAwait(false);
-                if (!OwnedLive().ContainsKey(id))
+                if (!HasOwnedLive(id))
                 {
                     var resolution = Resolve(current, _registry.Snapshot());
                     if (resolution is Resolution.Blocked blocked)
@@ -570,6 +573,8 @@ public sealed class TaskScheduler
                 _live.Remove(record.Id);
                 _failedMigrations.Remove(record.Id);
                 _failFastChecks.Remove(record.Id);
+                // 它不再是已知节点（除对话属主外），链的「已知」断言随之失效：下一条子任务会重新加载。
+                _knownChains.Remove(new Up.OfTask(record.Id));
                 if (_conversationOwners.Contains(record.Id)) _settled[record.Id] = NodeOf(record);
                 _taskWaiters.Resolve(record.Id, new SettledTask(record));
                 // 其属主现在可能可以终结。
@@ -882,9 +887,10 @@ public sealed class TaskScheduler
         for (;;)
         {
             var overlay = OverlayOf(tx);
-            var owned = OwnedLive(overlay);
+            var children = BuildChildren(overlay);
             var done = LiveRecords(overlay)
-                .Where(record => record.State.Status == TaskStatus.Completing && !owned.ContainsKey(record.Id))
+                .Where(record => record.State.Status == TaskStatus.Completing
+                    && !HasOwnedLive(record.Id, overlay, children))
                 .ToList();
             if (done.Count == 0) return;
             foreach (var record in done)
@@ -1010,7 +1016,41 @@ public sealed class TaskScheduler
     }
 
     /// <summary><paramref name="start"/> 之上的属主是否全部已加载。</summary>
+    /// <remarks>
+    /// 正结果按节点缓存：属主边只会被加载、不会被忘记，所以「已知」不会变假。<c>LoadScopes</c> 每遍对
+    /// 每条存活记录上溯，缓存后整遍变成 O(存活数) 而不是 O(存活数 × 链深)；带 overlay 时不缓存
+    /// （overlay 的边是暂存的）。
+    /// </remarks>
     private bool ChainKnown(Up start, Overlay? overlay = null)
+    {
+        if (overlay is not null) return ChainKnownWalk(start, overlay);
+
+        var verified = new List<Up>();
+        var at = start;
+        while (at is not null)
+        {
+            if (_knownChains.Contains(at)) break;
+            verified.Add(at);
+            if (at is Up.OfTask ofTask)
+            {
+                var node = Node(ofTask.TaskId, null);
+                if (node is null) return false;
+                at = ParentOf(node);
+            }
+            else
+            {
+                var (found, owner) = Edge(((Up.OfConversation)at).ConversationId, null);
+                if (!found) return false;
+                at = owner is { } ownerTask ? new Up.OfTask(ownerTask) : null;
+            }
+        }
+
+        // 整条链（到根或到一个已验证节点）都成立，这些节点从此都算已知。
+        foreach (var node in verified) _knownChains.Add(node);
+        return true;
+    }
+
+    private bool ChainKnownWalk(Up start, Overlay? overlay)
     {
         foreach (var step in Above(start, overlay))
         {
@@ -1043,27 +1083,118 @@ public sealed class TaskScheduler
     /// 每个有存活普通自有工作的任务（spec §5.5），映射到该工作：每个存活的非后台任务为其上方、
     /// 直至并含首个后台属主的每个属主任务计数。属主链必须已加载。
     /// </summary>
-    private Dictionary<TaskId<object?>, List<TaskId<object?>>> OwnedLive(Overlay? overlay = null)
+    /// <remarks>
+    /// 这层已改成「向下查询」：<see cref="OwnedLiveBelow"/> 只走某个任务的子树，<see cref="HasOwnedLive"/>
+    /// 命中即返回。原来的实现从**每条**存活记录上溯到根，一条长度为 n 的持有链每次遍历要 O(n²) 步
+    /// （上游 `cb4375493` 修的就是这个形状）。<see cref="BuildChildren"/> 是这次查询的向下索引，
+    /// 与上游 `#below` 等价，但按需构建、不做增量维护。
+    /// </remarks>
+    private Dictionary<Up, List<Up>> BuildChildren(Overlay? overlay = null)
     {
-        var owned = new Dictionary<TaskId<object?>, List<TaskId<object?>>>();
-        foreach (var record in LiveRecords(overlay))
+        var children = new Dictionary<Up, List<Up>>();
+        void Link(Up parent, Up child)
         {
-            if (record.Background) continue;
-            foreach (var step in Above(ParentOf(record), overlay))
+            if (!children.TryGetValue(parent, out var list)) children[parent] = list = [];
+            list.Add(child);
+        }
+
+        foreach (var (id, node) in Nodes(overlay))
+        {
+            if (ParentOf(node) is { } parent) Link(parent, new Up.OfTask(id));
+        }
+
+        // 属主任务经由对话牵着对话里的任务：这条边让向下行走能穿过对话。
+        foreach (var (conversationId, owner) in Edges(overlay))
+        {
+            if (owner is { } ownerTask) Link(new Up.OfTask(ownerTask), new Up.OfConversation(conversationId));
+        }
+
+        return children;
+    }
+
+    /// <summary>已知道所有权字段的节点：行走经过的终态任务、存活任务、以及本次提交的候选。</summary>
+    private IEnumerable<(TaskId<object?> Id, TaskNode Node)> Nodes(Overlay? overlay)
+    {
+        var ids = new HashSet<TaskId<object?>>(_settled.Keys);
+        ids.UnionWith(_live.Keys);
+        if (overlay is not null) ids.UnionWith(overlay.Tasks.Keys);
+        foreach (var id in ids)
+        {
+            // 提交里变成终态的候选在行走中不再作为节点。
+            if (overlay is not null && overlay.Tasks.TryGetValue(id, out var candidate) && candidate is null) continue;
+            if (Node(id, overlay) is { } node) yield return (id, node);
+        }
+    }
+
+    private IEnumerable<(ConversationId Id, TaskId<object?>? Owner)> Edges(Overlay? overlay)
+    {
+        var ids = new HashSet<ConversationId>(_edges.Keys);
+        if (overlay is not null) ids.UnionWith(overlay.Edges.Keys);
+        foreach (var id in ids)
+        {
+            var (found, owner) = Edge(id, overlay);
+            if (found) yield return (id, owner);
+        }
+    }
+
+    private TaskRecord? LiveRecord(TaskId<object?> id, Overlay? overlay)
+    {
+        var record = overlay?.Tasks.GetValueOrDefault(id) ?? _live.GetValueOrDefault(id);
+        return record is null || record.State.Status == TaskStatus.Terminal ? null : record;
+    }
+
+    /// <summary><paramref name="task"/> 名下存活的普通自有工作。向下走：穿过对话与终态属主，
+    /// 后台任务只算它自己、不再往下（其下工作归它，不归更上面的属主）。</summary>
+    private List<TaskId<object?>> OwnedLiveBelow(
+        TaskId<object?> task, Overlay? overlay = null, Dictionary<Up, List<Up>>? children = null)
+    {
+        var owned = new List<TaskId<object?>>();
+        WalkOwnedLive(task, overlay ?? null, children ?? BuildChildren(overlay), owned);
+        return owned;
+    }
+
+    /// <summary><paramref name="task"/> 名下是否有存活的普通自有工作；命中即返回。</summary>
+    private bool HasOwnedLive(
+        TaskId<object?> task, Overlay? overlay = null, Dictionary<Up, List<Up>>? children = null)
+        => WalkOwnedLive(task, overlay, children ?? BuildChildren(overlay), null);
+
+    private bool WalkOwnedLive(
+        TaskId<object?> task,
+        Overlay? overlay,
+        Dictionary<Up, List<Up>> children,
+        List<TaskId<object?>>? collect)
+    {
+        var pending = new Stack<Up>();
+        var seen = new HashSet<Up>();
+        pending.Push(new Up.OfTask(task));
+        while (pending.Count > 0)
+        {
+            var node = pending.Pop();
+            if (!seen.Add(node) || !children.TryGetValue(node, out var kids)) continue;
+            foreach (var kid in kids)
             {
-                if (step is Step.Unknown) break;
-                if (step is not Step.Owner ownerStep) continue;
-                if (!owned.TryGetValue(ownerStep.TaskId, out var below))
+                if (kid is Up.OfConversation)
                 {
-                    owned[ownerStep.TaskId] = below = [];
+                    pending.Push(kid);
+                    continue;
                 }
 
-                below.Add(record.Id);
-                if (ownerStep.Node.Background) break;
+                var id = ((Up.OfTask)kid).TaskId;
+                var record = LiveRecord(id, overlay);
+                if (record is null)
+                {
+                    // 终态属主：它自己不算自有工作，但下面存活的工作仍要穿过它往上算。
+                    pending.Push(kid);
+                    continue;
+                }
+
+                collect?.Add(id);
+                if (collect is null) return true;
+                if (!record.Background) pending.Push(kid);
             }
         }
 
-        return owned;
+        return collect?.Count > 0;
     }
 
     /// <summary>
@@ -1369,12 +1500,19 @@ public sealed class TaskScheduler
                 await LoadScopesAsync(false).ConfigureAwait(false);
                 // 任一遍都可能在上调上限后第一次运行停放的任务：每一遍先取消不再成立的停放。
                 UnparkRaised();
-                var owned = OwnedLive();
+                // 向下索引每遍建一次：单条记录的「名下自有工作」只走它自己的子树。
+                var children = BuildChildren();
                 // 每遍取一次，且仅当有任务是候选时。
                 IRegistrySnapshot? snapshot = null;
                 foreach (var record in _live.Values.ToList())
                 {
-                    if (_invocations.ContainsKey(record.Id) || WaitingOn(record, owned).Count > 0) continue;
+                    if (_invocations.ContainsKey(record.Id)) continue;
+                    if (WaitingOn(
+                            record,
+                            record.AbortRequested ? OwnedLiveBelow(record.Id, null, children) : []).Count > 0)
+                    {
+                        continue;
+                    }
                     if (record.State.Status == TaskStatus.Completing) continue;
                     // 到点才回到候选：由睡眠定时器或 Resume() 的 WakeDue() 重新发起一遍。
                     if (NotDue(record)) continue;
@@ -1462,9 +1600,9 @@ public sealed class TaskScheduler
     /// 否则是等待 <c>on</c> 的存活部分。
     /// </summary>
     private IReadOnlyList<TaskId<object?>> WaitingOn(
-        TaskRecord record, IReadOnlyDictionary<TaskId<object?>, List<TaskId<object?>>> owned)
+        TaskRecord record, IReadOnlyList<TaskId<object?>> ownedBelow)
     {
-        if (record.AbortRequested) return owned.TryGetValue(record.Id, out var below) ? below : [];
+        if (record.AbortRequested) return ownedBelow;
         if (record.State.Status != TaskStatus.Waiting) return [];
         return (record.State.On ?? []).Where(id => _live.ContainsKey(id)).ToList();
     }
@@ -1520,11 +1658,11 @@ public sealed class TaskScheduler
     public async Task<SchedulerInspection> InspectAsync(IRegistrySnapshot snapshot)
     {
         await LoadScopesAsync(false).ConfigureAwait(false);
-        var owned = OwnedLive();
+        var children = BuildChildren();
         var tasks = new List<TaskInspection>();
         foreach (var record in _live.Values)
         {
-            tasks.Add(InspectTask(record, snapshot, owned));
+            tasks.Add(InspectTask(record, snapshot, children));
         }
 
         var scheduling = _closing ? "closing" : _enabled ? "running" : "paused";
@@ -1534,7 +1672,7 @@ public sealed class TaskScheduler
     private TaskInspection InspectTask(
         TaskRecord record,
         IRegistrySnapshot snapshot,
-        IReadOnlyDictionary<TaskId<object?>, List<TaskId<object?>>> owned)
+        Dictionary<Up, List<Up>> children)
     {
         if (_invocations.ContainsKey(record.Id)) return new TaskInspection.Running { Record = record };
         if (record.State.Status == TaskStatus.Completing)
@@ -1542,7 +1680,7 @@ public sealed class TaskScheduler
             return new TaskInspection.Completing { Record = record };
         }
 
-        var on = WaitingOn(record, owned);
+        var on = WaitingOn(record, record.AbortRequested ? OwnedLiveBelow(record.Id, null, children) : []);
         if (on.Count > 0) return new TaskInspection.Waiting(on) { Record = record };
         if (NotDue(record)) return new TaskInspection.Sleeping(record.State.Until ?? 0) { Record = record };
         if (Parked(record)) return new TaskInspection.Blocked("restart_limit") { Record = record };
@@ -1781,7 +1919,7 @@ public sealed class TaskScheduler
     private async Task TerminateAsync(Transaction tx, TaskRecord record, SchedulerOutcome outcome)
     {
         await LoadScopesAsync(false).ConfigureAwait(false);
-        if (OwnedLive(OverlayOf(tx)).ContainsKey(record.Id))
+        if (HasOwnedLive(record.Id, OverlayOf(tx)))
         {
             tx.SetTask(WithState(record, new TaskState
             {
@@ -1817,7 +1955,7 @@ public sealed class TaskScheduler
                 await LoadChainAsync(ParentOf(record), overlay).ConfigureAwait(false);
             }
 
-            if (OwnedLive(overlay).ContainsKey(current.Id))
+            if (HasOwnedLive(current.Id, overlay))
             {
                 tx.SetTask(WithState(current, new TaskState
                 {
@@ -1889,7 +2027,7 @@ public sealed class TaskScheduler
     {
         // 自有工作靠向下找，需要每个存活任务的属主链都已加载。
         await LoadScopesAsync(false).ConfigureAwait(false);
-        var owned = OwnedLive(overlay);
+        var owned = BuildChildren(overlay);
         var from = new Dictionary<TaskId<object?>, TaskId<object?>?>();
         var walked = new HashSet<TaskId<object?>>();
         var pending = new Stack<TaskId<object?>>();
@@ -1922,9 +2060,10 @@ public sealed class TaskScheduler
 
             if (!walked.Add(id)) continue;
             // 走过的任务下面不再走一遍：它自己那次已经覆盖了下面。
-            foreach (var below in owned.GetValueOrDefault(id) ?? []) Reach(below, id);
+            var below = OwnedLiveBelow(id, overlay, owned);
+            foreach (var ownedId in below) Reach(ownedId, id);
             // 下面这些已经由这次遍历覆盖。
-            foreach (var below in owned.GetValueOrDefault(id) ?? []) walked.Add(below);
+            foreach (var ownedId in below) walked.Add(ownedId);
         }
 
         return null;
