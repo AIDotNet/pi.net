@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-23
+
+Version alignment with upstream Pi `1.4.0`: the port now tracks the newer stable
+release line, with the user-visible fixes from upstream `1.1.0`–`1.4.0` backported
+in this batch. The full inventory and the remaining backlog live in
+[`docs/upstream-1.4.0-delta.md`](docs/upstream-1.4.0-delta.md).
+
 ### Added
 
 - **Usage docs** (`docs/usage/`): per-package guides for consuming the 13 NuGet packages from C# —
