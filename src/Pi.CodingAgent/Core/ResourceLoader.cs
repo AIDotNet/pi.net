@@ -208,7 +208,7 @@ public sealed class DefaultResourceLoader
             var context = LoadContextFileFromDir(current);
             var isShadowed = shadowed is not null
                 && context is not null
-                && string.Equals(Paths.CanonicalizePath(context.Path), shadowed, StringComparison.Ordinal);
+                && IsShadowedContextFile(current, context.Path, shadowed);
             if (context is not null && !isShadowed && seen.Add(context.Path))
             {
                 ancestors.Insert(0, context);
@@ -582,6 +582,17 @@ public sealed class DefaultResourceLoader
 
         return null;
     }
+
+    /// <summary>
+    /// 走过的目录里找到的上下文文件是否就是主仓库那份（嵌套工作树的去重）。比较的是「目录的 realpath +
+    /// 文件名」，不是文件自己的 realpath：工作树里的 AGENTS.md 若符号链接到主仓库那份，文件 realpath 解析
+    /// 出来正是被遮蔽的路径本身，会把工作树那份一起跳过（上游 #10681）。
+    /// </summary>
+    internal static bool IsShadowedContextFile(string walkedDirectory, string contextPath, string shadowedFile)
+        => string.Equals(
+            Path.Combine(Paths.CanonicalizePath(walkedDirectory), Path.GetFileName(contextPath)),
+            shadowedFile,
+            StringComparison.Ordinal);
 
     private static string? FindShadowedContextFile(string cwd)
     {

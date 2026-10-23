@@ -89,6 +89,7 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 续传/截断工具调用导致的孤儿结果修复 | 1.4.0 #11227 | 会话后续请求被 provider 拒绝 | 本次移植（第十批） |
 | `agent_settled` 增加 `aborted` | 1.1.0 #10607 | 事件字段 | 本次移植（第十一批） |
 | 程序状态上报（OSC 7501） | 1.1.0 #10607 | 终端集成 | 本次移植（第二十五批，见 §6.f） |
+| 嵌套工作树里符号链接的 `AGENTS.md` 一份都不加载（#10681） | 1.1.0 `f1b2e77f5` | 项目上下文丢失 | 本次移植（第三十六批，见 §6.af） |
 | Windows shell 探测补充（Store 别名、非 `C:\Windows`） | 1.1.0–1.4.0 #9501/#9504 | 端口已有同类逻辑，需逐条比对 | 本次移植（第十四批，Store 别名部分不适用） |
 | 移除 `@earendil-works/chord` 依赖、移除实验性 server/client/plugin 栈 | 1.2.0 | 上游删除，端口保留自有实现 | 不适用 |
 
@@ -115,6 +116,11 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   回调、`mintId()` 契约收窄 —— **已移植（第三批）**：存储负责在批次持久后、下一次提交开始前
   同步采纳一次，Session 不再自己 `tx.adopt(seq)`，改为发现「已提交却没采纳」即毒化。
   其余改动的现状见下面 §3.5.1 的分项清单。
+- **env（1.2.0）**：`listFiles`、伪终端与前台作业、`nodePlatform` —— **不适用**：端口的 `Pi.Env` 是 SSH
+  远程环境，实现 `IExecutionEnv`（`IFileSystem` + `IShell`），没有上游的 node 侧守护进程与交互式终端
+  会话；树形列举以 `ListDirAsync` 递归表达（见 §6.af 第 2 条）。
+- **托管安装（1.0.x–1.4.0）**：`releases/<version>` 目录清理、托管标记的 BOM、独立二进制的 `.env` 自动
+  加载、npm 打包产物 —— **不适用**：端口的自更新只走包管理器命令，没有托管安装布局（见 §6.af 第 3 条）。
 - **durable 1.4.0 剩余项（§3.5.1）**：按「是否影响日常使用」排序，逐批推进；**已全部落地**（第三十批
   `compaction.modelOverrides` → 第三十一批持久睡眠 → 第三十二批 crash-loop guard → 第三十三批
   `onReport` info → 第三十四批 `settings.afterFailedRun`），表内只剩两项判不适用。
@@ -201,8 +207,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 503 / 503 通过（第三十五批新增 3 例：413 请求体超限、ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5050 / 5050 通过（第三十五批新增 8 例：恢复 loadout 的扩展工具激活 / 切树 / 压缩前删除 4 例、
-  拆分回合的前缀摘要 focus 2 例、剪贴板进程组 2 例；第二十九批新增 5 例对话框栈 / overlay 归属；第二十八批
+| `Pi.CodingAgent.Tests` | 5056 / 5056 通过（第三十六批新增 6 例工作树上下文，其中 2 例需要符号链接权限、无权限时跳过；
+  第三十五批新增 8 例：恢复 loadout 的扩展工具激活 / 切树 / 压缩前删除 4 例、拆分回合的前缀摘要 focus 2 例、
+  剪贴板进程组 2 例；第二十九批新增 5 例对话框栈 / overlay 归属；第二十八批
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
@@ -274,8 +281,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    （第三十一批）→ ~~durable：crash-loop guard + task graph `blocked` 原因~~（第三十二批）→ ~~durable：
    `onReport` info（`ReportInfo`）~~（第三十三批）→ ~~durable：`settings.afterFailedRun`~~（第三十四批）→
    ~~收尾审计：五项遗漏修复（`/compact` 前缀摘要、扩展工具 loadout 激活、剪贴板进程组、ChatGPT 限额文案、
-   增量工具提示的移除登记、413 请求体超限）~~（第三十五批）。至此 §3.5.1 表中除已判不适用的两项外无待办项，
-   `v1.0.4..v1.4.0` 全部提交均已逐条判定。
+   增量工具提示的移除登记、413 请求体超限）~~（第三十五批）→ ~~收尾复核：工作树上下文 + env / 托管安装的
+   不适用判定~~（第三十六批）。至此 §3.5.1 表中除已判不适用的两项外无待办项，`v1.0.4..v1.4.0`
+   全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1204,6 +1212,40 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.af 第三十六批（收尾复核第二批：工作树上下文 + 两组不适用判定）落地明细
+
+第三十五批之后继续按提交逐条复核，补上一项遗漏修复，并把两组此前从未被显式判定的上游改动做成书面判断。
+
+**1. 嵌套工作树里符号链接的 `AGENTS.md` 一份都不加载（`f1b2e77f5`，#10681）**
+
+去重原本比较「上下文文件自己的 realpath」与主仓库那份：工作树里的 `AGENTS.md` 若符号链接到主仓库的同名文件，
+realpath 正好等于被遮蔽的路径，于是工作树这份和主仓库那份一起被跳过——结果一份项目上下文都不加载。改为比较
+**走过的目录的 realpath + 文件名**（抽成 `DefaultResourceLoader.IsShadowedContextFile`）。
+
+新增 `ResourceLoaderWorktreeTests`（6 例）：自建链接工作树骨架（不需要 git 二进制），覆盖工作树自有上下文、
+工作树符号链接到主仓库文件、两边都链接到同一文件、工作树根无上下文时继承主仓库，以及两条直接锁定判定的用例
+（`worktree/../..` 造出「文件规范路径落在主仓库」的形状，等价于真实符号链接场景）。
+
+**2. `packages/env` 的 1.2.0 特性：不适用**
+
+`listFiles`（守护进程 op + `ExecutionEnv.listFiles` 可选方法，`aa499c242` / `abfe62928` / `b6fda579f`）、
+伪终端里跑程序与前台作业（`367b2bcf5` / `74613de65`）、`nodePlatform` 探测：端口的 `Pi.Env` 是**SSH 远程
+环境**（`Ssh` / `Connection` / `RemoteEnv` / `RemoteWatcher`），实现 `Pi.Durable.Env.IExecutionEnv`
+（`IFileSystem` + `IShell`），没有上游那个 node 侧守护进程，也没有「交互式终端会话」这一概念（`IShell` 只有
+一次性 `ExecAsync` + 中止）。树形列举在端口以 `ListDirAsync` / `OpenDirReaderAsync` 递归表达，且 `Pi.Durable`
+内没有需要可选 `listFiles` 的消费者（只有 `JsonlStorage` 用它枚举目录）。相关的守护进程测试/CI 稳定性提交
+（`14ff455a0`、`d6370b72d`、`de022efd6`）同属测试层。
+
+**3. 托管安装（managed install）：不适用**
+
+`pi update` 后清理旧 release 目录（`9f013cf59`）、托管安装标记接受 UTF-8 BOM（`ea25697e9`）、独立二进制禁用
+`.env` 自动加载（`1ffb6bd62`）、npm 12 pack JSON（`6fb2e7815`）：端口的 `InstallMethod` 只有
+`BunBinary` / `Npm` / `Pnpm` / `Yarn` / `Bun` / `Unknown`，没有 `releases/<version>` 那套托管安装目录布局，
+自更新只走包管理器命令；`build-binaries.sh`、npm 打包脚本在 .NET 侧无对应物。
+
+**验证**：`dotnet build` 0 警告 0 错误；`Pi.CodingAgent.Tests` 5056 / 5056（4 例新用例通过；3 例跳过——
+`ClipboardCommandTests` 的 POSIX 进程组用例，以及两条需要符号链接权限的工作树用例）。
 
 ### 6.ae 第三十五批（1.4.0 收尾审计：五项遗漏修复）落地明细
 
