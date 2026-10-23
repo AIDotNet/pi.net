@@ -14,14 +14,18 @@
 | `v1.3.0` | 2026-10-15 20:57 | 稳定 |
 | `v1.4.0` | 2026-10-22 00:29 | **最新稳定版** |
 
-`main` 在 `v1.4.0` 之后还有 **11 个未发布提交**（HEAD `476a303c1`）：`58c0b02ce` 开 `[Unreleased]` 段、
-`7c22a93d0` / `cae8d69e5`（用量成本的 `totalFromProvider`、OpenRouter 上报总价）、
-`5884ee681`（`/ir` 从 URL 导入会话）、`2685de7a1` / `db774055e`（依赖安全更新、预览包）、
+`main` 在 `v1.4.0` 之后还有 **22 个未发布提交**（HEAD `936e5f40a`，2026-10-23 复核确认）。较早的一批是
+`58c0b02ce` 开 `[Unreleased]` 段、`7c22a93d0` / `cae8d69e5`（用量成本的 `totalFromProvider`、OpenRouter
+上报总价）、`5884ee681`（`/ir` 从 URL 导入会话）、`2685de7a1` / `db774055e`（依赖安全更新、预览包）、
 `3bc6eebac`（Anthropic 系统消息跨被丢弃的助手消息保留）、`92ab53602`（durable `commit` 内采纳回调、
-watch 类型入 chord、显式退休）、`b9fb2b854` 文档、`ac80dd88f` 贡献者名单、
-`476a303c1`（托管 npm ci 去掉 `min-release-age`）。这些属于下一轮未定稿内容，**本次不作为移植目标**。
-其中 `92ab53602` 与 durable 的日常行为强相关，已在第三批 / 第二十批一并落地——端口的这一处
-**领先** `v1.4.0`；其余列为观察项，等上游发版后再评估。
+watch 类型入 chord、显式退休）、`b9fb2b854` 文档、`ac80dd88f` 贡献者名单、`476a303c1`（托管 npm ci
+去掉 `min-release-age`）。此后又合入 11 个：`be14d9732`（Harness 只读打开）、`8c03fef4d`（连续模糊匹配
+排序、会话字段分别搜索）、`7151099d0` / `90d5cf784`（设备码登录的浏览器/剪贴板确认）、`c60de42e9`
+（保留 `pi.exec` 的 spawn 错误）、`1c720d285` / `9359adf0c`（深会话与系统消息的 HTML 导出）、
+`64627838b`（markdown transformer 上下文加 messageId/时间戳）、`27cc6bfc0`（macOS 先停 shell 进程组）、
+`936e5f40a`（evals 去掉 autoevals 依赖）、`74f468640`（PR 门禁信任 robopipi[bot]）。这些属于下一轮
+未定稿内容，**本次不作为移植目标**。其中 `92ab53602` 与 durable 的日常行为强相关，已在第三批 / 第二十批
+一并落地——端口的这一处**领先** `v1.4.0`；其余列为观察项，等上游发版后再评估。
 
 区间规模（`v1.0.4..v1.4.0`）：**278 提交 / 76 个 feat / 156 个 fix / 1005 个文件 / +80,853 −44,109 行**。
 按包分布：coding-agent 294 文件、durable 171、ai 142、chord 118、tui 35、codemode 32、

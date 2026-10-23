@@ -4,38 +4,68 @@
 [migration-plan.md](./migration-plan.md) 与 [porting-status.md](./porting-status.md)
 保留历史阶段说明；其汇总快照早于当前代码，不应用来推断当前完成度。
 
+## 当前口径（2026-10-23）
+
+- **上游目标版本：`v1.4.0`**（tag `4a080252f`，2026-10-22）。端口已不再以 `v1.0.4` 为基线：
+  `v1.0.4..v1.4.0` 的 278 个提交按批逐项评估（批次编号至第五十五批），适用项全部落地。
+- **端口发布版本：`1.4.1`**（`Directory.Build.props`、随包 `Assets/package.json` 与 CLI `--version` 三者一致；
+  tag `v1.4.1` → `a3b9c32`，`v1.4.0` → `ad0f240`）。1.4.1 修掉 1.4.0 已发布的三处缺陷
+  （C383 终端输入管线、C384 备用屏退出复原、C170 OpenAI Responses 鉴权）；按 CHANGELOG 的建议，
+  1.4.0 的 NuGet 包应在 nuget.org unlist。
+- 1.4.0 的逐批证据（上游提交哈希、语料重算、不适用判定、每批测试数）在
+  [upstream-1.4.0-delta.md](./upstream-1.4.0-delta.md)。**本文件只记录阶段结论、验收基线、已登记差异与发布事实**；
+  批次细节以 delta 文档为准，完成度以本文“逐包迁移矩阵”和“剩余事项”为准。
+- 上游 `main` 在 `v1.4.0` 之后有 22 个未发布提交（HEAD `936e5f40a`），其中 `be14d9732`（Harness 只读打开）、
+  `8c03fef4d`（连续模糊匹配排序与会话字段搜索）等属下一轮内容，**本轮不作为目标**；
+  `92ab53602` 已提前落地，端口在该处领先 `v1.4.0`。
+- 下方“分阶段计划”里的 0–23 阶段是 1.0.4 基线的原始记录，保留为历史证据链；其中测试数字以
+  “验证基线”一节的 2026-10-23 复验为准。
+
 ## 基线与范围
 
-- TypeScript 源仓库：`D:\AI\参考项目\pi`，`main`，复核基线 `eb326d265ae0b88489a6d10319307780df827cdf`（与 `origin/main` 一致）。
-- .NET 目标仓库：`D:\AI\参考项目\pi.net`，`main`，本轮复核起点 `47cdc4af7be384099b8102a0676e65add23c4a85`（与 `origin/main` 一致）。
+- TypeScript 源仓库：`D:\AI\参考项目\pi`，本轮对齐上游 `v1.4.0`（`4a080252f06caf63a525d7873c5d94d3c23887e0`）；
+  1.0.4 基线的复核点为 `eb326d265ae0b88489a6d10319307780df827cdf`。
+- .NET 目标仓库：`D:\AI\参考项目\pi.net`，`main`，本轮复核起点 `a88fcac`（`1.4.1` 之后的文档提交）；
+  1.0.4 收口时为 `47cdc4af7be384099b8102a0676e65add23c4a85`，此后共 119 个提交。
 - 目标仓库复核前工作区干净。源仓库未跟踪的 `.workbuddy/` 属于既有内容，本轮保持不动。
 - 源含 14 个 package，目标映射到 17 个 .NET 项目：12 个常规包各一个项目，`coding-agent` 拆为 `Pi.CodingAgent`、`Pi.Cli`、`Pi.Vacation`、`Pi.DurableHost`，`evals` 对应独立 CLI 项目 `Pi.Evals`。目标另有 13 个测试项目和一个 `Pi.Env.FakeDaemon` 测试支持项目。
-- 最近的代码记录已包括远程执行环境 `Pi.Env`、Durable 实验宿主、`createCodingAgentHarness`/session-worker 接线及 codemode 工具渲染器。以下区分已迁移实现、刻意不做逐文件映射的运行时专属文件，以及仍未完成的外部验收；不把旧台账中的早期百分比或启发式文件名未匹配数当作完成度。
+- 1.4.0 交付在不改包映射的前提下新增：`samples/`（4 个进 solution 的可编译示例）、`docs/usage/`（逐包 C# 使用指南）、`docs/publishing.md`（发版流程）与 `src/Pi.CodingAgent/Assets/schemas/`（settings / models / theme / keybindings 四份 JSON Schema 静态产物）。
+- 最近的代码记录已包括远程执行环境 `Pi.Env`、Durable 实验宿主、`createCodingAgentHarness`/session-worker 接线、codemode 工具渲染器，以及 1.4.0 增量（durable 持久睡眠与崩溃守卫、客户端 identity、System One 图像输入、配置 schema、TUI 输入管线）。以下区分已迁移实现、刻意不做逐文件映射的运行时专属文件，以及仍未完成的外部验收；不把旧台账中的早期百分比或启发式文件名未匹配数当作完成度。
 
 ## 逐包迁移矩阵
 
-| TypeScript package | .NET 目标 | 当前判断 | 未完成项 / 明确取舍 |
+| TypeScript package | .NET 目标 | 当前判断（对齐上游 v1.4.0） | 1.4.0 增量与明确取舍 |
 |---|---|---|---|
-| `telemetry` | `Pi.Telemetry` | 已迁移 | 契约、参考适配器和 conformance 覆盖已在仓库记录。 |
-| `protocol` | `Pi.Protocol` | 已迁移 | CBOR/framing/codec 已移植并有线上兼容测试。 |
-| `agent` | `Pi.Agent` | 已迁移 | Agent 状态机、循环、工具执行和 proxy 已移植。 |
-| `mcp` | `Pi.Mcp` | 已迁移 | JSON-RPC、传输与 OAuth 已实现；部分网络测试受本机 loopback/监听限制。 |
-| `server` | `Pi.Server` | 已迁移，Windows/POSIX 验收通过 | RPC 与本地发现已移植；Unix socket 端到端已在 Linux 主机验收（Stage 23，`ServerClientEndToEndTests` 9/9）。 |
-| `client` | `Pi.Client` | 已迁移 | 客户端协议与传输已实现。 |
-| `ai` | `Pi.Ai` | 已迁移 | Provider 与模型层已广泛移植；公开导出面与 wire 形状已完成审计（[public-api-audit.md](./public-api-audit.md)）。Anthropic OIDC federation 已由 `Auth/AnthropicFederation.cs` 按 SDK 语义实现（Stage 22）；依赖本地浏览器回调的 OAuth 测试不适合无头环境。 |
-| `chord` | `Pi.Chord` | 已迁移 | 核心协议/服务/Facet 已实现；`index.ts` 是导出桶，不要求在 C# 复制。 |
-| `codemode` | `Pi.Codemode` | 已迁移 | 默认由 Jint 承载 prelude、工具桥与 promise 排空；`ICodemodeJsEngine` 可替换引擎，`UnsupportedCodemodeJsEngine` 可显式禁用。QuickJS WASM 载荷与 Jint 内存计量属于已记录的引擎差异。 |
-| `env` | `Pi.Env` | 客户端实现已迁移；Windows/POSIX 验收通过 | 协议连接、SSH 引导、远程环境与 watcher 已移植；守护进程按原生产物注入（差异 E-C1）。Linux 上 `Pi.Env.Tests` 48/48，含真实 `sshd` 扫描/信任/部署/远程执行链（Stage 23）；Windows 44 通过 + 3 平台跳过。 |
-| `durable` | `Pi.Durable` | 核心实现及 harness 行为对齐已完成 | Memory/SQLite storage、Session、context retention/cache、compaction、任务/会话恢复及 harness/runtime 均有实现；本轮 `Pi.Durable.Tests` 398/398 通过。最终公开契约与 POSIX 验收仍在剩余项中。 |
-| `tui` | `Pi.Tui` | 功能实现完成 | 44/45 个 TS 源文件已有实现；剩余 `index.ts` 是纯导出桶，不需要单独 C# 文件。本轮新增 fullscreen client TUI/滚动集成测试和容器并发渲染回归测试。 |
-| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` + `Pi.DurableHost` | 主体功能与实验插件 JS bundle 默认执行能力已迁移；平台/契约验收未闭环 | 交互/RPC、CLI、MCP/Llama UI、package manager、资源链、Vacation、Durable session-worker 与独立宿主均已实现。C362 已由 `adf2303` 的 harness 复用接线并在 `11e2b58` 关闭；codemode renderer 已由 `c989567` 移植。实验插件 CommonJS bundle 由默认 Jint host 执行，并有 keyed 生命周期/Context 集成测试；Bun/Node 专属运行时垫片、动态加载钩子及被合并/替代的文件不逐字移植，Jint import 支持范围见“特殊范围决策”。 |
-| `evals` | `Pi.Evals` | 实现完成，容器级验收通过 | 已移植 CLI、host/documentation eval、任务发现/计划/报告和 Docker 隔离执行；容器内 root-only/降权读取探针已移植并有 Linux-only 测试。Stage 23 在 Ubuntu + Docker 29.7.1 上构建双镜像、验证布局与权限探针，并以 10 个任务运行验证发现/选择/报告/失败传播。 |
+| `telemetry` | `Pi.Telemetry` | 已迁移 | 1.4.0 把 `telemetryContext` 收成 `telemetry?: TelemetrySpan`；端口不接 span 链路（ai 层无 `observeModelRequest` 观察器），判不适用。12 项测试。 |
+| `protocol` | `Pi.Protocol` | 已迁移 | 区间内无协议变更；CBOR/framing/codec 线上兼容测试保持，14 项。 |
+| `agent` | `Pi.Agent` | 已迁移（含 1.4.0 增量） | `identity` / `DEFAULT_AGENT_IDENTITY` 与 `prepareToolCall` 内 `validateToolArguments`（畸形或不符 schema 的调用以 `argumentsError` 结果回模型）已落地；36 项。 |
+| `mcp` | `Pi.Mcp` | 已迁移（含 1.4.0 增量） | `structuredContent` 任意 JSON、无元数据时拒绝 `iss`、已取消请求不重发、连接时不列资源、OAuth 取消/关闭语义已落地；55 项。 |
+| `server` | `Pi.Server` | 已迁移，Windows/POSIX 验收通过 | 区间内无增量；Unix socket 端到端 9/9（Stage 23）保持。 |
+| `client` | `Pi.Client` | 已迁移 | 区间内无增量；客户端协议与传输已实现。 |
+| `ai` | `Pi.Ai` | 已迁移（含 1.4.0 增量） | 空白工具输出、非法 `\u` 转义、重试判定与瞬时故障文案、`argumentsError`、identity/User-Agent、`TranscriptToolSupport` 与前缀缓存、System One 图像与 provider `compat`、per-key OpenRouter 目录、跨模型思维块与错误工具结果图片均已落地；515 项。模型目录数据不更新（上游数据不在仓库，见 delta §6 第 4 条）。 |
+| `chord` | `Pi.Chord` | 已迁移（按端口需要收窄） | 1.4.0 区间的 118 个文件大多落在端口没有的对象运行时与跨进程链路上，判不适用；端口内落地的是数组追加快路径、watch 类型与显式退休。106 项。 |
+| `codemode` | `Pi.Codemode` | 已迁移（含 1.4.0 增量） | Jint 默认引擎与声明约束（约束进注释、`@options` 首行、预算回退）；QuickJS worker 排队不适用（端口每个脚本一个 VM，没有 worker 池）。57 项。 |
+| `env` | `Pi.Env` | 客户端实现已迁移；Windows/POSIX 验收通过 | 1.2.0 的 node 侧 `listFiles`/PTY/`nodePlatform` 不适用（端口是 SSH 远程环境）；守护进程按原生产物注入（差异 E-C1），本机需先 `cargo build`，随后 44/47（3 项平台跳过）。 |
+| `durable` | `Pi.Durable` | 已迁移（含 1.4.0 增量） | `Storage.commit(adopt)`、观察面 watch/显式退休、持久睡眠与宿主时钟、crash-loop guard 与 parked/`retryTask`、`ReportInfo`、`afterFailedRun`、按模型压缩阈值、`documentRetentionMs`、调度器所有权索引、SQLite v2 均已落地；507 项。`./codemode` 与 `./tool-search` 判不采纳（上游无仓内消费方，重启条件见 delta §6 第 7 条）。 |
+| `tui` | `Pi.Tui` | 功能实现完成（含 1.3/1.4 修复） | CJK 强调、Rex/Herdr 探测、OSC 7501 状态上报、假光标、stdin 回复串、退出复原、滚轮路由、fd 转义、移位符号键位、并发对话框栈、跨 chunk ANSI 已落地；23,937 项。`index.ts` 是导出桶，不需要单独 C# 文件。 |
+| `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` + `Pi.DurableHost` | 主体与 1.4.0 增量已迁移；1.4.1 修三处发版缺陷 | MCP 管理器响应性、配置 schema 产物、`--model` 策略统一、`before_agent_start` 覆盖轮次、工作树上下文、HTML 导出 CJK 强调、Termux 剪贴板等已落地；1.4.1 修 C383 终端输入管线、C384 备用屏退出复原、C170 OpenAI Responses 鉴权。5,074 项（3 项平台跳过）。Bun/Node 专属运行时垫片仍不逐字移植，见“特殊范围决策”。 |
+| `evals` | `Pi.Evals` | 实现完成，容器级验收通过 | 区间内无功能增量（上游 `936e5f40a` 去掉 autoevals 依赖属下一轮）；56 项（2 项 Linux-only 跳过）；Stage 23 已在 Ubuntu + Docker 29.7.1 上完成双镜像与 10 任务编排验收。 |
+
+> 上表计数取自本文件“验证基线”的 2026-10-23 全量复验；1.4.0 逐批归属、上游提交哈希与语料重算见
+> [upstream-1.4.0-delta.md](./upstream-1.4.0-delta.md) 的 §3、§4 与各批明细。
 
 ## 剩余事项与优先级
 
-**P0：2026-10-20 静态复核发现的 G1–G3 已在 2026-10-21 完成实现与运行验证（G1 JSONL、G2 CodeMode 默认 Jint 引擎、G3 Overlay 句柄）；G4 容器验收与 G6 POSIX/SSH 验收已于 2026-10-21 在外部 Ubuntu 主机完成（Stage 23）。当前没有已知的功能缺口或未完成的验收项。** 仍存在的边界是已记录的运行时差异：Node/Bun 内置模块、全局对象和动态加载不提供兼容层，QuickJS WASM 载荷与 Jint 的内存计量不同；这些属于明确范围决策，不是未移植功能。
+**对上游 v1.4.0 的结论（2026-10-23）：没有已知的功能缺口。** `v1.0.4..v1.4.0` 的适用变更已全部落地，并通过本地全量套件（见“验证基线”）。仍存在的边界分四类，均已在 delta 文档逐条登记，不属于“没来得及做”：
 
-**2026-10-21 收口结论**：迁移、公开契约审计、G4 容器验收、G6 POSIX/SSH 验收与 G7 Anthropic OIDC federation 均已完成。本机 13 个测试项目共 30,103 项，30,098 通过、0 失败、5 项平台跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd），solution 0 警告构建；外部 Ubuntu 主机上 G4 两镜像与权限探针通过，POSIX `Pi.Server.Tests` 33/33、`Pi.Env.Tests` 48/48。当前没有已知的功能缺口或未完成的外部验收。
+| 类别 | 项 | 结论与依据 |
+|---|---|---|
+| 不适用（端口形态不同） | chord 的对象运行时与跨进程链路、env 的 node 侧 `listFiles`/PTY/`nodePlatform`、托管安装布局、Bun/Node 运行时垫片、IndexedDB 存储 | 端口没有对应宿主、消费方或分发形态；见 delta §3.5 与 §6 第 6 条。 |
+| 不采纳（产品决策） | durable 的 `./codemode` 与 `./tool-search` 入口 | 上游仓内无消费方，端口已有等价能力；重启条件与照搬清单见 delta §6 第 7 条。 |
+| 暂不移植（成本/收益） | telemetry span（`observeModelRequest`）与 chord 的 `telemetry`/`traceIn`；上游模型目录数据 | span 需重建整条流式观察链；模型数据不在上游仓库，硬编等于编造。见 delta §6 第 2、3、4 条。 |
+| 验证缺口（非代码缺口） | 交互式 TUI、OAuth 浏览器登录流、steering 的运行中打断时序、官方 `api.openai.com` 密钥路径；CI 仅 Windows、测试未进 CI | 需要人工交互、密钥或非 Windows runner；本地已用真实端点覆盖 print/json/continue/fork/export/RPC/MCP/AGENTS.md/skills/compaction/follow_up（delta §6.at）。 |
+
+**2026-10-21 的 1.0.4 收口结论（历史）**：迁移、公开契约审计、G4 容器验收、G6 POSIX/SSH 验收与 G7 Anthropic OIDC federation 均已完成。本机 13 个测试项目共 30,103 项，30,098 通过、0 失败、5 项平台跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd），solution 0 警告构建；外部 Ubuntu 主机上 G4 两镜像与权限探针通过，POSIX `Pi.Server.Tests` 33/33、`Pi.Env.Tests` 48/48。下表保留当时的收口项。
 
 | 优先级 | 工作项 | 主要源范围 | 依赖 / 理由 |
 |---|---|---|---|
@@ -43,7 +73,7 @@
 | **P1** | CodeMode 默认 JS 引擎（G2） | `packages/coding-agent/src/extensions/codemode/{execute.ts,worker.ts}`、`packages/codemode/src/runtime/worker.ts` | **已完成（2026-10-21）**：默认引擎改为 `JintCodemodeEngine`，`codemode/execute` 无需宿主注入即可执行；新增真实 Jint 集成测试，并修复同步工具调用在 host 绑定 VM 前完成回复的竞态。提交 `af67fa0`。详见 G2。 |
 | **P2** | 扩展 Overlay 句柄接线（G3） | `packages/coding-agent/src/core/extensions/types.ts`、`packages/tui/src/tui.ts` | **已完成（2026-10-21）**：`OverlayHandle` 包装真实 `IOverlayHandle`，`InteractiveMode` 转交 `ShowOverlay` 返回值；新增转发与移除后调用测试。实现提交 `8535249`，行为测试提交 `e6ae911`。 |
 | **P1** | Evals 容器级验收 | `packages/evals` 与 `src/Pi.Evals/Docker` | **已完成（2026-10-21，Stage 23）**：探针此前已移植；本轮在 Ubuntu 24.04 + Docker 29.7.1 上构建 `without_docs` / `with_docs` 两镜像（ID 不同），两变体布局校验通过，`setpriv --reuid=65532` 读取 `/app/Pi.Evals.dll` 失败而 root 读取成功；host 编排执行 5 用例 × 2 变体共 10 个任务，精确选择、产物落盘与失败传播均验证。验收中修复 3 个实现缺陷，并新增 1 项 root 运行兼容扩展（见 Stage 23 记录）。 |
-| **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | **已完成（2026-10-21，公开契约部分）**：1,426 个 barrel 导出逐项分类（442 runtime / 945 type / 39 unknown 均已判型），新增 OpenAI 与 Anthropic wire 套件并修复两个 `JsonNode` 归属缺陷；审计登记的 G7（OIDC federation）功能缺口已由 Stage 22 补齐。结论见 [public-api-audit.md](./public-api-audit.md)。POSIX 传输验收仍由 Stage 17 跟踪。 |
+| **P2** | 公开 API 与 JSON/wire 契约最终核验 | 14 个源包的公开导出、`src/**` 中对应 API 与序列化边界 | **已完成（2026-10-21，公开契约部分）**：1,426 个 barrel 导出逐项分类（442 runtime / 945 type / 39 unknown 均已判型），新增 OpenAI 与 Anthropic wire 套件并修复两个 `JsonNode` 归属缺陷；审计登记的 G7（OIDC federation）功能缺口已由 Stage 22 补齐。结论见 [public-api-audit.md](./public-api-audit.md)。POSIX 传输验收已由 Stage 23 完成。 |
 | **P2** | POSIX transport 与 SSH 端到端验收 | `packages/client/src/unix.ts`、`packages/env/test/sshd.test.ts`、`Pi.Client` / `Pi.Server` / `Pi.Env` | **已完成（2026-10-21，Stage 23）**：在 Ubuntu 24.04 上运行交叉发布的 linux-x64 测试二进制；`Pi.Server.Tests` 33/33（Unix socket 端到端 9/9），`Pi.Env.Tests` 48/48（真实 `sshd` 扫描/信任/部署/远程读写执行）。验收中修复 2 个仅 Linux 暴露的测试假设（跨流顺序、指纹整行）。 |
 
 文档/示例范围已明确：随包 README 已改为 .NET 10 说明，文档索引和 README 均标明上游 docs/examples 面向 TypeScript/Node/Bun；C# 扩展使用仓库的 .NET 指南。上游示例作为参考保留，不冒充 .NET 示例，也不再作为未决适配项。
@@ -69,6 +99,10 @@
 | **12. Client TUI `/compact` dispatch parity** | `tests/Pi.CodingAgent.Tests/ClientTuiTests.cs` 与 `ClientTuiFixture`；经现有 slash-command/AgentController wire 调用验证，不改生产逻辑。 | 覆盖有/无自定义指令、请求参数形状、pending 时的 `Compacting…` 状态及成功后清理；Client TUI 类测试通过。 | 已完成并推送代码测试（`f9be16f`）。 |
 | **22. Anthropic OIDC federation（G7）** | `src/Pi.Ai/Auth/AnthropicFederation.cs`、`src/Pi.Ai/Api/AnthropicMessages.cs`、`tests/Pi.Ai.Tests/AnthropicFederationTests.cs`。按 Anthropic SDK 0.129 的 exchange/cache 语义以 `HttpClient` 实现，不引入 vendor SDK。 | 1) 无显式认证且 provider 为 `anthropic` 时自动换取令牌并注入 `Authorization: Bearer` 与 `anthropic-beta`；2) exchange 请求体/头形状与 SDK 一致；3) 缓存阈值、顾问式刷新、并发合并、文件轮换与 SDK 一致；4) 非回环明文端点、空/超大身份令牌、畸形响应显式失败且不泄露 assertion；5) 显式 key/token/header 优先；6) `Pi.Ai.Tests` 全绿、solution 0 警告。 | **已完成（2026-10-21）**：`Pi.Ai.Tests` 426/426；实现与台账同批提交推送。 |
 | **23. 外部主机验收（G4 + G6）** | 在 Ubuntu 24.04 验收主机上用 Docker 29.7.1 构建两镜像并执行容器探针/编排 smoke；交叉发布 linux-x64 测试二进制，运行 Unix socket 与真实 sshd 端到端。 | 1) 两镜像 ID 不同、布局校验通过；2) sandbox UID 读评估器程序集失败、root 读取成功；3) 10 个任务精确选择并产出报告，失败正确传播；4) POSIX `ServerClientEndToEndTests` 9/9、`Pi.Env.Tests` 48/48；5) 工作区干净、提交已推送。 | **已完成（2026-10-21）**：两镜像构建与探针通过，10/10 任务执行且失败按预期传播；Linux 传输/SSH 套件全绿。详见下方 Stage 23 记录。 |
+| **24. 上游 v1.4.0 对齐（第一–五十批）** | `v1.0.4..v1.4.0` 的 278 个提交按包与子系统分批；语料（prompt / compaction / model-resolver / markdown / alt-screen / autocomplete）随语义变化重算，第五十批补 `models.json` 字段参考的生成脚本。 | 适用项全部落地；不适用/不采纳项逐条登记并附依据；每批跑定向测试，批次收口时全 solution 0 警告。 | **已完成（2026-10-22～23）**：逐批明细与测试数见 [upstream-1.4.0-delta.md](./upstream-1.4.0-delta.md) §4 与各批记录；全量结果见“验证基线”。 |
+| **25. 1.4.0 发版与版本一致性** | `Directory.Build.props`、`src/Pi.CodingAgent/Assets/package.json`、`Assets/CHANGELOG.md`、`docs/publishing.md`、`samples/`、`docs/usage/`；新增构建期守卫 `ValidatePackagedVersion`。 | `Config.Version`（读随包 `package.json`）与程序集版本一致，启动横幅/`--version` 不再报 `1.0.4`；四份 JSON Schema 与内置主题的 `$schema` 指向发布地址；示例进 solution 参与编译。 | **已完成（2026-10-22～23）**：`ad0f240 chore(release): 1.4.0`；版本守卫与发布治理见 `9f19c39`。 |
+| **26. 1.4.1 缺陷修复** | C383：`StdinBuffer` 接入终端输入管线（`MapKey` → `Process` → `Data`/`Paste`）与 `PI_TUI_ESC_TIMEOUT`；C384：备用屏退出复原补前缀（同步输出复位、关鼠标上报、恢复自动换行）；C170：`ApiKeyHeader` 注入 `Authorization: Bearer`。 | 三处在真实终端/真实端点上可复现修复；回归测试覆盖重定向输入的单个代理项、退出复原前缀与鉴权头合并；全套件无回归。 | **已完成（2026-10-23）**：`fabbbf8`/`e893851`（C383）、`cd906e1`（C384）、`9f19c39`（C170）；`a3b9c32 chore(release): 1.4.1`。 |
+| **27. 真实端点端到端与 soak（第五十二–五十五批）** | 自定义 provider（OpenAI 兼容端点）跑 `--print`/`--mode json`/`--continue`/`--fork`/`--export`/RPC/MCP/AGENTS.md/skills/compaction/follow_up；`tools/soak` 跑崩溃恢复、fan-out 与内存曲线。 | 每项给出实际输出与落盘证据；修复实测抓到的缺陷并补回归；交互式 TUI、OAuth 浏览器流、steering 时序、官方 OpenAI 密钥路径明确列为未覆盖。 | **已完成可自主覆盖项（2026-10-23）**：修复自定义 provider 流式未注册缺陷（`f89d28c`）；soak 三阶段 PASS（`cb96eb0`）；三轮实测记录 `1c357e8`、`fb2a582`。 |
 
 ### 特殊范围决策
 
@@ -84,9 +118,18 @@
 - `index.ts` 纯导出桶、Node/Bun 专属测试启动器等无独立 C# 语义的文件可不产生一一对应文件，但要在最终公开 API/平台矩阵中有可复核的逐项说明。
 - 2026-10-20 复核确认：C362 的 SQLite-backed harness/session-worker 接线已存在；codemode 扩展 renderer 已实现；4g-3h 中 Bun sandbox/启动垫片、Node 动态加载钩子和 re-export barrel 没有可直接照搬的 .NET 运行时语义。`experimental/durable` 与 `experimental/vacation` 共用实现由 `ExperimentalProfile` 表达，不重复移植两份相同 TS 文件。
 - `tools/` 下被 `.gitignore` 排除的覆盖/导出面脚本仅作启发式线索；未匹配文件名或导出 token 不等价于功能缺失，也不代表公开契约已核验完成。
+- **1.4.0 的 telemetry span 不接**：`telemetryContext` → `telemetry?: TelemetrySpan` 在端口没有落点，ai 层没有 `observeModelRequest` 观察器（`LazyStream` 无 observer 参数），要接需重建整条流式观察链。chord 的 `telemetry` 成员与 `traceIn` 依赖同一条 span 链路，随之一起不接（delta §6 第 2、3 条）。
+- **durable 的 `./codemode` 与 `./tool-search` 不采纳**（产品决策，不是遗漏）：上游把它作为 `pi-durable` 的可选入口，但 `packages/**/src` 内零 import；上游 coding-agent 走的是 `@earendil-works/pi-codemode`，这一层端口已完整移植。重启条件与照搬清单见 delta §6 第 7 条。
+- **模型目录数据不更新**：上游 `providers/data/*.json` 被 `.gitignore` 排除，仓库里只有生成脚本与壳，没有快照；端口只保留手写的三份目录。代码侧的档位与映射（`xhigh`/`max`、`clampThinkingLevel`、各 provider effort）已对齐，缺的只是「哪些模型有哪些档位」这份数据（delta §6 第 4 条）。
+- **配置 schema 是静态产物**：端口没有上游 TypeBox 那层定义，四份 `Assets/schemas/*.schema.json` 从 v1.4.0 逐字节复制，运行时仍由各加载器校验；一致性由 `ConfigurationSchemaTests` 钉住，不提供运行期 Compile（delta §6.c）。
+- **chord 是有意收窄的实现**：只保留 durable 实际用到的 `Delta`/`Facets`/`Services`/`Context`/`Node`；对象运行时与跨进程链路没有对应物，上游该区间的 118 个文件大多判不适用（delta §3.5、§6 第 6 条）。
+- **1.4.1 与 1.4.0 的包关系**：NuGet 的 `id + version` 不可覆盖，1.4.0 已发布的包仍带 C383/C384/C170；修复只能以 1.4.1 发出，按 CHANGELOG 建议 unlist 1.4.0。
 
 ## 验证基线、风险与限制
 
+- **2026-10-23 全量复验（对齐 v1.4.0 后，取代下方全部历史计数）**：`dotnet build Pi.slnx -m:1 -v:minimal` 通过，0 警告、0 错误；13 个测试项目共 **30,449 项，30,440 通过、0 失败、9 项平台跳过**。分布：`Pi.Tui` 23,937、`Pi.CodingAgent` 5,074（3 跳过）、`Pi.Ai` 515、`Pi.Durable` 507、`Pi.Chord` 106、`Pi.Codemode` 57、`Pi.Evals` 56（2 项 Linux-only 跳过）、`Pi.Mcp` 55、`Pi.Env` 47（3 跳过）、`Pi.Agent` 36、`Pi.Server` 33、`Pi.Protocol` 14、`Pi.Telemetry` 12。跳过原因：2 项符号链接权限、1 项进程组仅 POSIX、2 项 Linux-only Evals 权限、2 项无 POSIX shell、1 项无 sshd。`pi --version` 输出 `1.4.1`，`--help` 退出码 0。
+- 本轮 `Pi.Env.Tests` 依赖本地参考守护进程：需先在上游 `packages/env/daemon` 执行 `cargo build --target-dir <pi.net>/tools/pi-env-daemon-target`（Rust 1.96.0，依赖就绪后约 35 秒）。未构建时 32 项以 `spawn_error` / `ENOENT` 失败——这是本地产物缺失，不是回归；构建后 44/47（3 项平台跳过）。
+- 首轮全量中 `Pi.Tui.Tests` 的 `StdinBufferTests.KeepsDelayedTerminalRepliesIntactAtEverySplitAfterTheHeader(replyIndex: 5)`（15 秒超时）失败过一次，单套件复跑 23,937/23,937 通过。与 delta §5 记录的 `DeviceCodeFlowTests` 同类，属负载敏感的时序观察项，不是稳定失败。
 - Stage 7 复验：`dotnet build .\Pi.slnx --no-restore -m:1` 通过，0 警告、0 错误；`dotnet run --no-restore --project .\tests\Pi.Durable.Tests\Pi.Durable.Tests.csproj` 共 398 项，396 通过、0 失败、2 项跳过；跳过项仅为 `ToolsTests.Bash_NonZeroExit_Throws` 和 `ToolsTests.Bash_StreamsOutputThroughApiAndReturnsNoContent`，当前 Windows 环境的 Git Bash/MSYS2 初始化失败已有逐项说明；`git diff --check` 通过。
 - Stage 8：`Pi.Evals.Tests` 52/52 通过；`Pi.Evals --help` 退出码 0；完整 solution 构建 0 警告、0 错误；提交 `f4b03aa` 已推送至 `origin/main`。当日本机无 Docker、Podman、nerdctl 且 WSL 无发行版，镜像构建和容器运行未验证；该验收已于 Stage 23 在外部 Ubuntu 主机完成。
 - Stage 9 本机复验：`dotnet build .\Pi.slnx --no-restore -m:1` 通过，0 警告、0 错误；12 个测试项目总计 29,799 项，29,797 通过、0 失败、2 项跳过。跳过项仅为 `ToolsTests.Bash_NonZeroExit_Throws` 与 `ToolsTests.Bash_StreamsOutputThroughApiAndReturnsNoContent`，因 Git Bash/MSYS2 在当前 Windows 环境无法初始化；Pi CLI 与 Evals CLI `--help` 退出码均为 0，包资源测试 1/1 通过，`git diff --check` 通过。全量复验还发现并修正了测试中的已退出子进程、过期 session-worker 断言和打包 changelog 干扰；修正后全量套件无失败。
@@ -103,7 +146,7 @@
 - Stage 19（Evals 权限探针）：`dotnet build tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore -m:1` 通过，0 警告、0 错误；`Pi.Evals.Tests` 54 项，52 通过、0 失败、2 项 Linux-only 权限测试因 Windows 跳过；镜像构建与容器内实证仍未执行。
 - Stage 20（容器/POSIX 验收尝试）：`docker`、`podman`、`nerdctl` 均不存在；`wsl.exe -l -v` 报告未安装发行版；Windows 未安装 sshd 服务，Git Bash 的 `sshd` 按上游 win32 规则不参与测试。`Pi.Env.Tests` 47 项，44 通过、0 失败、3 跳过（2 无 POSIX shell、1 无 sshd）；`ServerClientEndToEndTests` 9/9；`dotnet publish src/Pi.Evals -c Release -r linux-x64 --self-contained false` 成功，产物含 `Pi.Evals.dll` 与 Docker 资源。该次尝试证明本机不可执行；容器镜像构建/运行、POSIX Unix socket 与 SSH 链路随后在 Stage 23 完成。
 - Stage 22（G7 Anthropic OIDC federation，取代上述全量计数）：`dotnet build Pi.slnx --no-restore -m:1 -v:minimal` 通过，0 警告、0 错误；13 个测试项目共 30,101 项，30,096 通过、0 失败、5 跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd）。分布：`Pi.Tui` 23,875、`Pi.CodingAgent` 4,953、`Pi.Durable` 452、`Pi.Ai` 426（较 Stage 21 新增 24 项 federation 测试）、`Pi.Chord` 104、`Pi.Evals` 52+2 跳过、`Pi.Mcp` 47、`Pi.Env` 44+3 跳过、`Pi.Agent` 33、`Pi.Server` 33、`Pi.Protocol` 14、`Pi.Telemetry` 12、`Pi.Codemode` 51；`git diff --check` 通过。
-- Stage 23（G4 + G6 外部主机验收，最终全量计数）：`dotnet build Pi.slnx --no-restore -m:1 -v:minimal` 通过，0 警告、0 错误；本机 13 个测试项目共 30,103 项，30,098 通过、0 失败、5 跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd）。分布：`Pi.Tui` 23,875、`Pi.CodingAgent` 4,953、`Pi.Durable` 452、`Pi.Ai` 426、`Pi.Chord` 104、`Pi.Evals` 54+2 跳过（新增 2 项选择回归）、`Pi.Mcp` 47、`Pi.Env` 44+3 跳过、`Pi.Agent` 33、`Pi.Server` 33、`Pi.Protocol` 14、`Pi.Telemetry` 12、`Pi.Codemode` 51。外部 Ubuntu 24.04.4（Docker 29.7.1、OpenSSH 9.6p1）：`without_docs`/`with_docs` 镜像 ID 不同，布局与权限探针通过，10 个 docs eval 任务产出逐任务 `vitest.json`、`observations.jsonl` 与报告，假模型失败以退出码 1 传播。Linux 交叉发布测试：`Pi.Server.Tests` 33/33（UDS E2E 9/9）、`Pi.Env.Tests` 48/48（真实 sshd 扫描/信任/部署/远程执行）。`git diff --check` 通过。
+- Stage 23（G4 + G6 外部主机验收，当时的全量计数；已被 2026-10-23 复验取代）：`dotnet build Pi.slnx --no-restore -m:1 -v:minimal` 通过，0 警告、0 错误；本机 13 个测试项目共 30,103 项，30,098 通过、0 失败、5 跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd）。分布：`Pi.Tui` 23,875、`Pi.CodingAgent` 4,953、`Pi.Durable` 452、`Pi.Ai` 426、`Pi.Chord` 104、`Pi.Evals` 54+2 跳过（新增 2 项选择回归）、`Pi.Mcp` 47、`Pi.Env` 44+3 跳过、`Pi.Agent` 33、`Pi.Server` 33、`Pi.Protocol` 14、`Pi.Telemetry` 12、`Pi.Codemode` 51。外部 Ubuntu 24.04.4（Docker 29.7.1、OpenSSH 9.6p1）：`without_docs`/`with_docs` 镜像 ID 不同，布局与权限探针通过，10 个 docs eval 任务产出逐任务 `vitest.json`、`observations.jsonl` 与报告，假模型失败以退出码 1 传播。Linux 交叉发布测试：`Pi.Server.Tests` 33/33（UDS E2E 9/9）、`Pi.Env.Tests` 48/48（真实 sshd 扫描/信任/部署/远程执行）。`git diff --check` 通过。
 - Stage 20 补充探测（2026-10-21）：Git for Windows 自带 `sshd.exe`（`/usr/bin/sshd.exe`）实际可用，已在本机启动并验证公钥登录与 `sh -c` 执行；但 MSYS sshd 的登录 shell 是 bash，超出上游 SSH 引导覆盖的 cmd/powershell 场景——探测按 `echo %OS%` 会把 bash 误判为 powershell，启动命令 `& '...'` 在 bash 下无效，且该会话中 `powershell` 无法解析（`powershell.exe` 可以）。TS 侧是同一逻辑，因此这不是移植差异，也不能作为 POSIX/SSH 验收替代；完整验收仍需要 POSIX 主机，或管理员安装 Windows OpenSSH Server 后以 cmd 为默认 shell 运行。本次探测未写入用户 `~/.pi`，临时 sshd 与密钥已清理。
 - AI Radius OAuth 的浏览器 loopback 用例可能在无头环境持续等待；本机 `HttpListener`/Unix socket 测试还受权限和路径长度影响。只有逐项复现并记录后，才能把它们列为环境限制。
 - 旧文档的 package 状态表和总测试数存在过期快照；本文件优先记录当前基线和逐阶段提交，历史记录不覆盖当前实测。
@@ -133,8 +176,15 @@
 | 21. 最终收口与全量复验 | 修复并行测试类共享 `ModelCatalogRefresh.RefreshOverride` 导致 model selector 无结果路径偶发失败的隔离问题（改为 `AsyncLocal`）；将 Durable 进度节流断言改为以写入开始时刻为基准，匹配 TS 语义。全量构建、13 个测试项目、CLI smoke 与台账收口。 | `dotnet build Pi.slnx -m:1 -v:minimal`：0 警告、0 错误；13 个测试项目共 30,077 项，30,072 通过、0 失败、5 跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd）；Pi CLI 与 Evals CLI `--help` 退出 0，DurableHost/Vacation 按 TS 契约以退出码 1 拒绝未知参数；`git diff --check` 通过。 | 代码修正 `abd3c6a` 与本记录提交推送；G4 镜像级、G6 POSIX、G7 OIDC federation 仍未完成。 |
 | 22. Anthropic OIDC federation（G7） | 新增 `AnthropicFederation`：RFC 7523 jwt-bearer exchange、SDK 等价 token 缓存（>120s 直用 / 30–120s 顾问式刷新 / ≤30s 阻塞刷新、并发合并、失败退避）、身份令牌文件每次重读、16 KiB assertion 与 1 MiB 响应上限、非回环 https 强制与 RFC 6749 错误字段脱敏；`AnthropicMessages.Stream`/`StreamSimple` 在 provider 为 `anthropic` 且无显式认证时注入 federation Bearer 与 `oauth-2025-04-20` beta；显式 API key/auth token/header 保持优先。 | `dotnet build Pi.slnx --no-restore -m:1 -v:minimal`：0 警告、0 错误；`Pi.Ai.Tests` 426/426（新增 federation auth 5、wire 18、`Models` 端到端 1）；13 个测试项目全量复验见验证基线；`git diff --check` 通过。 | 随本台账同批提交推送；G4 镜像级与 G6 POSIX 验收当时受环境阻塞，后由 Stage 23 完成。 |
 | 23. 外部主机验收（G4 + G6） | 在 Ubuntu 24.04.4（Docker 29.7.1、OpenSSH 9.6p1）上以 `src/Pi.Evals/Docker/Dockerfile` 构建 `without_docs` / `with_docs` 镜像，运行容器布局/权限探针与 host 编排 smoke；交叉发布 linux-x64 测试二进制，运行 Unix socket 与真实 `sshd` 端到端（守护进程由上游 Rust 源码构建）。验收中修复 3 个实现缺陷：布局扫描把 docs/examples 的 `.ts` 当作评估器源码、任务名过滤使用发现态 ` > ` 形式而非 vitest 空格形式、空文件列表被当作零匹配；另有 1 项 root 运行兼容扩展：上游 `parseId` 仅接受正整数，root 调用者传入 0/0 会失败，.NET 接受非负 ID 以支持 root/CI 运行。另修正 2 个仅 Linux 暴露的测试假设（stdout/stderr 跨流顺序、指纹整行）。 | 镜像 `without_docs` `sha256:9f7f1b21ab381401440973ec7ccd9f0168424bba9e21dd312c8a765032f7267b`、`with_docs` `sha256:e3b05b57b98bae9538e2717b8ccb468245b24d395313a86c740c0a642f4b6f06`。两变体布局校验通过；`/app/Pi.Evals.dll` 为 root 属主 0400；`setpriv --reuid=65532` 读取失败、root 读取成功；两变体发现均输出相同 5 个用例。host 编排 5 用例 × 2 变体 = 10 个任务全部执行：`expected-runs.json` 10 项、`observations.jsonl` 10 行、每个 `vitest.json` 精确命中单个用例、10 个任务各写入 `vitest.json`；`report.txt` 列出 5 个 blocked pair，退出码 1（假模型预期）。Linux：`Pi.Server.Tests` 33/33（UDS E2E 9/9）、`Pi.Env.Tests` 48/48（真实 sshd 扫描/信任/部署与远程写读执行）。 | 代码、测试与台账同批提交推送。 |
+| 24. 上游 v1.4.0 对齐（第一–五十批） | 把 `v1.0.4..v1.4.0` 的 278 个提交按包与子系统拆批：ai 的重试/参数校验/identity/前缀缓存/System One、durable 的睡眠与崩溃守卫、tui 的输入管线与渲染修复、coding-agent 的配置 schema 与模型选择策略、mcp 的 OAuth 与 structuredContent、chord 的数组追加快路径；第五十批补 `docs/usage/models-configuration.md` 生成脚本。语料按新语义重算 `prompt` / `compaction` / `model-resolver` / `markdown` / `alt-screen` / `autocomplete`。 | 每批定向测试通过；批次收口时 `dotnet build Pi.slnx -m:1 -v:minimal` 0 警告、0 错误；最终全量 30,449 项 / 30,440 通过 / 9 跳过（见“验证基线”）。 | 逐批提交与测试数见 [upstream-1.4.0-delta.md](./upstream-1.4.0-delta.md) §4 与各批明细；实现提交从 1.4.0 发版前延续到 `a84582d`。 |
+| 25. 1.4.0 发版与版本一致性 | 新增 `docs/usage/`（逐包指南与 CLI/codemode/sdk/配置/会话/models 参考，共 12 篇）、`samples/` 四个可编译示例、`docs/publishing.md`；把随包 `Assets/package.json` 从上游 v1.4.0 重新同步，新增构建期守卫 `ValidatePackagedVersion`，启动横幅与 `--version` 恢复为真实版本。 | `pi --version` 输出 `1.4.1`（发版当时为 `1.4.0`）；`Directory.Build.props` 与随包 `package.json` 不一致时构建失败；四份 schema 与主题 `$schema` 指向发布地址，`ConfigurationSchemaTests` 8/8。 | `ad0f240 chore(release): 1.4.0`；版本守卫与发布治理 `9f19c39`；tag `v1.4.0`。 |
+| 26. 1.4.1 缺陷修复 | C383 把 `StdinBuffer` 真正接进终端输入管线（`MapKey` → `Process` → `Data`/`Paste`），补 `PI_TUI_ESC_TIMEOUT` 与重定向输入的代理项处理；C384 给备用屏退出复原补前导复位（同步输出复位、关鼠标上报、恢复自动换行）；C170 在 `ApiKeyHeader` 注入 `Authorization: Bearer` 并保留 `"unused"` 哨兵。 | `StdinBufferTests` 23 例、`TerminalRestoreTests` 3 例、OpenAI Responses 鉴权回归通过；全量 30,449 项无回归。 | `fabbbf8`、`e893851`（C383）、`cd906e1`（C384）、`9f19c39`（C170）；`a3b9c32 chore(release): 1.4.1`，tag `v1.4.1`。 |
+| 27. 真实端点端到端与 soak（第五十二–五十五批） | 用真实 OpenAI 兼容端点验证 `--version`/`--help`/`--list-models`/`--print`/`--mode json`/`--continue`/`--fork`/`--export`/RPC/MCP/AGENTS.md/skills/compaction/follow_up；`tools/soak` 验证 JSONL 崩溃恢复（4 轮 `Environment.Exit`）、50 子任务 fan-out 与 SQLite 文档缓存回收。 | 每项有实际输出、落盘文件与回读证据；实测抓到并修复自定义 provider 流式「No API provider registered」缺陷（回归 `ProviderComposerCustomApiTests`）。未覆盖：交互式 TUI、OAuth 浏览器流、steering 时序、官方 `api.openai.com`。 | `f89d28c`（修复）、`cb96eb0`（soak）、`1c357e8`、`fb2a582`（两轮 E2E 记录）。 |
 
 ## 2026-10-20 独立静态复核
+
+> 本节是 1.0.4 基线的静态复核快照，保留原始结论与证据链。其中 G1–G7 均已关闭；
+> 后续 1.4.0 的增量与取舍见 [upstream-1.4.0-delta.md](./upstream-1.4.0-delta.md)。
 
 ### 复核限制（先读）
 
