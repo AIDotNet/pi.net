@@ -66,18 +66,10 @@ dotnet add package Pi.Mcp       # MCP 客户端
 dotnet add package Pi.CodingAgent   # 整套依赖，含 CLI 运行时资源
 ```
 
-### 使用文档与示例
+### 使用文档
 
 - **[docs/usage](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/README.md)** —— 怎么从 C# 里用这些包：按用途选包、最小可运行代码、凭据配置，以及几个值得提前知道的坑。
 - **[docs/usage/models-configuration.md](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/models-configuration.md)** —— `models.json` 的字段级参考：provider / model / modelOverrides / inputLimits / compat 逐字段的类型、默认值与说明，由已发布的 JSON Schema 生成。
-- **[samples](https://github.com/AIDotNet/pi.net/blob/main/samples/README.md)** —— 四个可运行的控制台工程，随 CI 一起编译，不会悄悄失效：
-
-```bash
-dotnet run --project samples/Pi.Samples.FauxAgent      # 完整 agent 循环，不需要 API key
-dotnet run --project samples/Pi.Samples.RealModel -- anthropic   # 直连真实模型看流式
-dotnet run --project samples/Pi.Samples.CodingSession  # 嵌入式 coding agent（SDK）
-dotnet run --project samples/Pi.Samples.McpClient      # 独立 MCP 客户端
-```
 
 包内容、发版流程和回退方式见 [docs/publishing.md](https://github.com/AIDotNet/pi.net/blob/main/docs/publishing.md)。
 
@@ -96,6 +88,164 @@ dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```bash
 dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 ```
+
+## 示例
+
+`pi` 就是那个 coding agent。发布一次，把 `pi` 放进 `PATH`：
+
+```bash
+dotnet publish src/Pi.Cli -c Release -o ./pi-bin
+export PATH="$PWD/pi-bin:$PATH"    # PowerShell：$env:PATH = "$PWD\pi-bin;$env:PATH"
+pi --version
+```
+
+### 在终端里跟它对话
+
+```bash
+cd /path/to/your/repo
+pi
+```
+
+第一次用先在会话里敲 `/login`，选一个 provider（OAuth 或 API key）。之后直接说要做什么：
+
+```text
+把这个仓库的结构讲一遍，然后给参数解析补一个测试。
+```
+
+读了哪个文件、跑了哪条命令、改了哪几行，它都会打出来，但不会每调一次工具就停下来问你——所以要么把活在版本控制里跑，要么用下面的只读跑法。
+
+### 用 `@` 把文件先塞给它
+
+```bash
+pi @src/Pi.Cli/Pi.Cli.csproj @Directory.Build.props "程序集为什么叫 pi？它都引了哪些包？"
+```
+
+`@路径` 会展开进首条消息，模型一上来就拿到文件内容，不用先花一轮去读。图片同理。
+
+### 放进脚本里跑
+
+```bash
+# -p：干完活，把最终回答打到 stdout，退出
+pi -p "列出 src/ 下所有 net10.0 的工程，一行一个。"
+
+# 管道进来的 stdin 会拼到提示词前面，并且自动进入非交互模式
+git diff | pi "看这个 diff 有没有正确性问题。别客气。"
+```
+
+只要不是交互场景都算：stdin 或 stdout 任一端不是终端就会走 print 模式，只有两端都在终端上时才需要显式写 `-p`。
+
+### 要 JSON，不要散文
+
+```bash
+pi --mode json "找出最慢的三个测试工程，说明为什么" \
+  | jq -c 'select(.type == "tool_execution_end") | {tool: .toolName, ms: .durationMs}'
+```
+
+`--mode json` 一行一条 JSON：先是 session 头，然后是 TUI 里渲染的同一套会话事件——消息增量、工具执行、重试、压缩。诊断信息走 stderr，stdout 保持可解析。
+
+### 限制它能动什么
+
+```bash
+# -t 是替换默认工具集，这四个都改不了文件
+pi -t read,grep,find,ls -p "审一遍 src/Pi.Agent，按风险排前三。"
+
+# -xt 是在默认工具集上摘掉几个
+pi -xt write,edit -p "讲讲 tools/ 下面那些文件是怎么产出的。"
+```
+
+### 接着上次、起名、导出
+
+```bash
+pi -c                                # 继续这个目录最近一次会话
+pi --resume                          # 或者从列表里挑一个
+pi --name "重构 auth" "先从会话状态机开始"
+```
+
+会话存在 `~/.pi/agent/sessions/` 下，按工作目录一个子目录。会话里 `/session` 看当前文件和 token 用量，`/export` 导出成 HTML 或 JSONL。
+
+### 把你的规矩告诉它
+
+三条路，都不用写代码：
+
+| 想要 | 写在哪 |
+|---|---|
+| 某个仓库的长期约定 | 根目录 `AGENTS.md`（也认 `CLAUDE.md`、`AGENTS.override.md`） |
+| 让别的进程提供工具 | `mcp.json`，或者 `pi mcp add` |
+| 可复用的多步流程 | `skills/<name>/SKILL.md` |
+
+```bash
+pi mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem .
+pi mcp list
+```
+
+```markdown
+---
+name: release-notes
+description: 把 git log 整理成发布说明。要 changelog、release notes，或者问「上个 tag 之后改了什么」时使用。
+---
+```
+
+文件放好之后，`/skill:release-notes v1.4.2` 可以手动点名；不点名时，任务和 description 对上了它自己会加载。
+
+### 嵌进你自己的 .NET 应用
+
+```csharp
+using Pi.Ai.Types;
+using Pi.CodingAgent.Core;
+
+var result = await Sdk.CreateAgentSessionAsync(new CreateAgentSessionOptions
+{
+    Cwd = Directory.GetCurrentDirectory(),
+    Tools = ["read", "grep", "find", "ls"],   // 不写就是用完整的默认工具集
+});
+
+var session = result.Session;
+if (session.Model is null)
+{
+    Console.Error.WriteLine(result.ModelFallbackMessage);   // 没找到凭据
+    return 1;
+}
+
+using var subscription = session.Subscribe(evt =>
+{
+    switch (evt)
+    {
+        case AgentSessionEvent.MessageUpdateEvent { AssistantMessageEvent: AssistantMessageEvent.TextDelta d }:
+            Console.Write(d.Delta);
+            break;
+        case AgentSessionEvent.ToolExecutionStartEvent t:
+            Console.Error.WriteLine($"\n[tool] {t.ToolName}");
+            break;
+    }
+});
+
+await session.PromptAsync("CLI 的入口在哪，它都装配了些什么？");
+
+var stats = session.GetSessionStats();
+Console.Error.WriteLine($"\n{stats.TotalMessages} 条消息 · {stats.ToolCalls} 次工具调用 · ${stats.Cost:0.0000}");
+```
+
+这不是 mock：会话会去读 `~/.pi/agent` 里的凭据与设置、加载项目的 `.pi/` 与 `AGENTS.md`、注册内置工具、把 transcript 写进会话目录——跟 CLI 跑的是同一套程序集。把 `Tools` 和 `Cwd` 固定死，就是发给团队的受控版。
+
+### 能直接跑的工程
+
+四个控制台工程用的是同一批 API，并且跟着 CI 一起编译，不会悄悄失效：
+
+| 工程 | 演示什么 | 需要密钥 |
+|---|---|---|
+| [Pi.Samples.FauxAgent](samples/Pi.Samples.FauxAgent) | 完整 agent 循环：脚本化模型 + 真执行工具 + 事件流 | 不需要 |
+| [Pi.Samples.RealModel](samples/Pi.Samples.RealModel) | 直连真实模型看流式，以及目录驱动的模型入口 | 需要 |
+| [Pi.Samples.CodingSession](samples/Pi.Samples.CodingSession) | 上面那段 SDK，端到端，含事件与会话统计 | 需要 |
+| [Pi.Samples.McpClient](samples/Pi.Samples.McpClient) | 独立 MCP 客户端：列工具、调一次、读资源 | 不需要（要 Node/npx） |
+
+```bash
+dotnet run --project samples/Pi.Samples.FauxAgent      # 不需要 API key
+dotnet run --project samples/Pi.Samples.RealModel -- anthropic
+dotnet run --project samples/Pi.Samples.CodingSession
+dotnet run --project samples/Pi.Samples.McpClient
+```
+
+每个工程的细节见 [samples/README.md](samples/README.md)。全部选项与子命令在 [docs/usage/cli.md](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/cli.md)，嵌入 API 的完整字段在 [docs/usage/sdk.md](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/sdk.md)。
 
 ## 迁移状态
 

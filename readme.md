@@ -66,18 +66,10 @@ dotnet add package Pi.Mcp       # MCP client
 dotnet add package Pi.CodingAgent   # the whole stack, including the CLI runtime
 ```
 
-### Usage docs and samples
+### Usage docs
 
 - **[docs/usage](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/README.md)** — how to consume each package from C#: which package for which job, minimal working code, credentials, and the traps worth knowing.
 - **[docs/usage/models-configuration.md](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/models-configuration.md)** — every `models.json` field (provider, model, overrides, input limits, compatibility) with its type, default and description, generated from the published JSON Schema.
-- **[samples](https://github.com/AIDotNet/pi.net/blob/main/samples/README.md)** — four runnable console projects, compiled by CI so they cannot silently rot:
-
-```bash
-dotnet run --project samples/Pi.Samples.FauxAgent      # full agent loop, no API key
-dotnet run --project samples/Pi.Samples.RealModel -- anthropic   # streaming from a real model
-dotnet run --project samples/Pi.Samples.CodingSession  # embedded coding agent (SDK)
-dotnet run --project samples/Pi.Samples.McpClient      # standalone MCP client
-```
 
 Package contents, release process and rollback are documented in [docs/publishing.md](https://github.com/AIDotNet/pi.net/blob/main/docs/publishing.md).
 
@@ -96,6 +88,164 @@ Test projects use xUnit v3 with Microsoft.Testing.Platform. Run a test project d
 ```bash
 dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 ```
+
+## Examples
+
+`pi` is the coding agent. Build it once and put it on `PATH`:
+
+```bash
+dotnet publish src/Pi.Cli -c Release -o ./pi-bin
+export PATH="$PWD/pi-bin:$PATH"    # PowerShell: $env:PATH = "$PWD\pi-bin;$env:PATH"
+pi --version
+```
+
+### Talk to it in a terminal
+
+```bash
+cd /path/to/your/repo
+pi
+```
+
+The first time, run `/login` inside the session and pick a provider (OAuth, or an API key). After that you just say what you want:
+
+```text
+Explain how this repository is structured, then add a test for the argument parser.
+```
+
+Pi prints every file it reads, every command it runs and every edit it makes. It does not stop and ask before each tool call — keep the work under version control, or use the restricted setup below.
+
+### Put files in front of it with `@`
+
+```bash
+pi @src/Pi.Cli/Pi.Cli.csproj @Directory.Build.props "Why is the assembly named pi, and which packages does it pull in?"
+```
+
+`@path` expands into the first message, so the model starts with the file contents already in context instead of spending a turn reading them. Images work the same way.
+
+### Run it from a script
+
+```bash
+# -p: do the work, print the final answer to stdout, exit
+pi -p "List every project under src/ that targets net10.0, one per line."
+
+# Piped stdin is prepended to the prompt, and print mode is implied
+git diff | pi "Review this diff for correctness bugs. Be blunt."
+```
+
+Anything non-interactive counts: a piped stdin or a redirected stdout is enough. `-p` is only needed when both ends are a terminal.
+
+### Get JSON instead of prose
+
+```bash
+pi --mode json "Find the three slowest test projects and say why" \
+  | jq -c 'select(.type == "tool_execution_end") | {tool: .toolName, ms: .durationMs}'
+```
+
+`--mode json` writes one JSON record per line: a session header first, then the same session events the TUI renders — message deltas, tool executions, retries, compaction. Diagnostics go to stderr, so stdout stays parseable.
+
+### Limit what it can touch
+
+```bash
+# -t replaces the default toolset; none of these four can modify a file
+pi -t read,grep,find,ls -p "Review src/Pi.Agent and rank the three riskiest spots."
+
+# -xt removes tools from the default set instead of replacing it
+pi -xt write,edit -p "Explain how the files under tools/ are produced."
+```
+
+### Continue, name, export
+
+```bash
+pi -c                                # continue the most recent session for this directory
+pi --resume                          # or pick one from a list
+pi --name "refactor auth" "Start with the session state machine"
+```
+
+Sessions are saved under `~/.pi/agent/sessions/`, one directory per working folder. Inside a session, `/session` shows the current file and token usage, and `/export` writes it out as HTML or JSONL.
+
+### Teach it your conventions
+
+Three ways, none of them require code:
+
+| You want | Write |
+|---|---|
+| Standing instructions for one repo | `AGENTS.md` at the root (also reads `CLAUDE.md`, `AGENTS.override.md`) |
+| Tools hosted by another process | `mcp.json`, or `pi mcp add` |
+| A reusable multi-step procedure | `skills/<name>/SKILL.md` |
+
+```bash
+pi mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem .
+pi mcp list
+```
+
+```markdown
+---
+name: release-notes
+description: Turn git log into release notes. Use when asked for changelogs, release notes, or "what changed since the last tag".
+---
+```
+
+Once the file is in place, `/skill:release-notes v1.4.2` names it explicitly; otherwise the model loads it when the task matches the description.
+
+### Embed it in your own .NET app
+
+```csharp
+using Pi.Ai.Types;
+using Pi.CodingAgent.Core;
+
+var result = await Sdk.CreateAgentSessionAsync(new CreateAgentSessionOptions
+{
+    Cwd = Directory.GetCurrentDirectory(),
+    Tools = ["read", "grep", "find", "ls"],   // omit for the full default toolset
+});
+
+var session = result.Session;
+if (session.Model is null)
+{
+    Console.Error.WriteLine(result.ModelFallbackMessage);   // no credentials configured
+    return 1;
+}
+
+using var subscription = session.Subscribe(evt =>
+{
+    switch (evt)
+    {
+        case AgentSessionEvent.MessageUpdateEvent { AssistantMessageEvent: AssistantMessageEvent.TextDelta d }:
+            Console.Write(d.Delta);
+            break;
+        case AgentSessionEvent.ToolExecutionStartEvent t:
+            Console.Error.WriteLine($"\n[tool] {t.ToolName}");
+            break;
+    }
+});
+
+await session.PromptAsync("Where is the CLI entry point, and what does it wire up?");
+
+var stats = session.GetSessionStats();
+Console.Error.WriteLine($"\n{stats.TotalMessages} messages · {stats.ToolCalls} tool calls · ${stats.Cost:0.0000}");
+```
+
+This is not a mock. The session reads credentials and settings from `~/.pi/agent`, loads `.pi/` and `AGENTS.md` from the project, registers the built-in tools, and writes the transcript to the session directory — the same assembly the CLI runs. Pin `Tools` and `Cwd` and you have a restricted agent to hand to your team.
+
+### Runnable projects
+
+Four console projects use the same APIs and are compiled by CI, so they cannot silently rot:
+
+| Project | What it shows | Needs a key |
+|---|---|---|
+| [Pi.Samples.FauxAgent](samples/Pi.Samples.FauxAgent) | full agent loop, scripted model, real tool execution, event stream | no |
+| [Pi.Samples.RealModel](samples/Pi.Samples.RealModel) | streaming from a live provider, plus the model-catalog path | yes |
+| [Pi.Samples.CodingSession](samples/Pi.Samples.CodingSession) | the SDK above, end to end, with events and session stats | yes |
+| [Pi.Samples.McpClient](samples/Pi.Samples.McpClient) | standalone MCP client: list tools, call one, read a resource | no (needs Node/npx) |
+
+```bash
+dotnet run --project samples/Pi.Samples.FauxAgent      # no API key needed
+dotnet run --project samples/Pi.Samples.RealModel -- anthropic
+dotnet run --project samples/Pi.Samples.CodingSession
+dotnet run --project samples/Pi.Samples.McpClient
+```
+
+More detail per project in [samples/README.md](samples/README.md). Every flag and subcommand is listed in [docs/usage/cli.md](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/cli.md); the full embedding surface is in [docs/usage/sdk.md](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/sdk.md).
 
 ## Migration Status
 
