@@ -1131,6 +1131,11 @@ public static class ProviderComposer
             IReadOnlyDictionary<string, object?>? options, bool simple)
             => LazyStream.Run(model, () =>
             {
+                // 自定义 provider（models.json 的 api 指向内建 API）不经过 _base，直接查 API 注册表。
+                // 上游在 compat.ts 模块加载时就注册内建 API（compat.ts:215），C# 的对应物是
+                // CompatApi 静态构造——但 CLI 流式路径不必然触碰它，这里显式确保（幂等，不覆盖已有条目）。
+                Pi.Ai.CompatApi.RegisterBuiltInApiProviders();
+
                 if (_extension?.StreamSimple is { } extensionStream && model.Api == _extension.Api)
                 {
                     return Task.FromResult(extensionStream(model, new TranscriptContext(context), options));

@@ -384,6 +384,24 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 （崩溃恢复、并发等待、内存有界均有实跑证据）。剩余的两道坎不变：CI 只有 Windows、
 测试未进 CI（需拆非交互子集）。
 
+### 6.at 全量 agent 功能实测（第五十三批）：真实端点端到端 + 修复一个自定义 provider 流式缺陷
+
+用真实 OpenAI 兼容端点（models.json 自定义 provider）对 CLI 做了端到端实测：
+
+- `--version` / `--help` / `--list-models`（自定义 provider 正确并入目录，含 contextWindow/maxTokens）
+- `--print` 全链路：模型决策 → `write` 工具真实落盘（内容逐字节正确）→ `read` 回读校验 →
+  最终回答 → 会话 JSONL 落盘（目录布局与会话文档一致）。
+
+**实测抓到并修复一个真缺陷**：models.json 自定义 provider（api 指向内建 `openai-completions`）
+流式时全部抛 "No API provider registered"。根因：上游在 compat.ts **模块加载时**注册内建 API
+（compat.ts:215），端口的对应物是 `CompatApi` 静态构造——但 CLI 流式路径不必然触碰它，
+自定义 provider 不经过 `_base`、直接查注册表时它还是空的。修复：
+`ProviderComposer.StreamWith` 的注册表回退路径上显式确保注册（幂等，不覆盖已有条目）。
+回归测试 `ProviderComposerCustomApiTests`（断言错误落在连接层而非「未注册」）；
+CodingAgent 5071/5074、Ai 512/512 无回归。
+
+**环境受限未测**：api.openai.com 直连不可达（网络），官方密钥路径未验证；本机无 WSL 发行版。
+
 
 ## 7. 建议的后续顺序
 
