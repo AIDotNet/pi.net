@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Pi.Tui;
@@ -78,10 +78,20 @@ public sealed class ProcessTerminal : ITerminal
     private const string ProgressClear = "\x1b]9;4;0\x07";
     private const int ProgressKeepAliveMs = 1000;
 
+    private const string BracketedPasteStart = "\x1b[200~";
+    private const string BracketedPasteEnd = "\x1b[201~";
+
+    /// <summary>TS <c>DEFAULT_ESCAPE_TIMEOUT_MS</c>: the reassembly window for a lone ESC.</summary>
+    private const int DefaultEscapeTimeoutMs = 10;
+
+    /// <summary>TS <c>DEFAULT_SSH_ESCAPE_TIMEOUT_MS</c>: high-latency transports need a wider window.</summary>
+    private const int SshEscapeTimeoutMs = 100;
+
     private Action<string>? _inputHandler;
     private Action? _resizeHandler;
     private CancellationTokenSource? _readCts;
     private Task? _readTask;
+    private StdinBuffer? _stdinBuffer;
     private Timer? _progressTimer;
     private bool _started;
     private bool _rawModeSet;
@@ -126,6 +136,13 @@ public sealed class ProcessTerminal : ITerminal
         Console.OutputEncoding = Encoding.UTF8;
         EnableRawMode();
 
+        // Split batched input into individual sequences, exactly like TS's `setupStdinBuffer`.
+        // `Console.ReadKey` hands escape sequences over one key at a time, so without this buffer a
+        // terminal reply (OSC 10/11/4 colors, OSC 7501 program status, …) arrives as a stream of
+        // single characters that `Tui.HandleTerminalInput` cannot recognize and that therefore end up
+        // typed into the focused editor.
+        _stdinBuffer = CreateStdinBuffer();
+
         // Bracketed paste mode.
         Write("\x1b[?2004h");
 
@@ -159,7 +176,9 @@ public sealed class ProcessTerminal : ITerminal
                     {
                         break;
                     }
-                    _inputHandler?.Invoke(char.ConvertFromUtf32(read));
+                    // A lone surrogate would throw in `ConvertFromUtf32`; feed the raw UTF-16 code unit
+                    // instead and let the buffer reassemble it.
+                    _stdinBuffer?.Process(((char)read).ToString());
                     continue;
                 }
                 keyInfo = Console.ReadKey(intercept: true);
@@ -173,91 +192,94 @@ public sealed class ProcessTerminal : ITerminal
                 break;
             }
 
-            if (TryConsumeProgramStatusReply(keyInfo))
-            {
-                continue;
-            }
-
-            var sequence = MapKey(keyInfo);
-            if (sequence is not null)
-            {
-                _inputHandler?.Invoke(sequence);
-            }
+            FeedKey(keyInfo);
         }
     }
 
     /// <summary>
-    /// Consumes the reply to <see cref="ProgramStatusProtocol.Query"/>.
+    /// Port of the <c>stdinBuffer.on("data")</c> / <c>on("paste")</c> wiring.
     /// </summary>
-    /// <remarks>
-    /// The console reader hands escape sequences over key by key, so a reply arrives as
-    /// <c>ESC</c> followed by <c>]</c> and the rest. While the query is still pending, an ESC is
-    /// reassembled with the bytes behind it (bounded by a short window and by the BEL/ST terminator);
-    /// the reassembled string is forwarded unchanged when it turns out not to be a reply, so no input is
-    /// lost. A DA1 reply means the terminal answered something else and will not answer the query.
-    /// </remarks>
-    private bool TryConsumeProgramStatusReply(ConsoleKeyInfo key)
+    private StdinBuffer CreateStdinBuffer(int? escapeTimeoutMs = null)
     {
-        if (!_programStatusQueryPending || key.Key != ConsoleKey.Escape || key.KeyChar != '\x1b')
+        var buffer = new StdinBuffer(new StdinBufferOptions
         {
-            return false;
-        }
+            EscapeTimeout = escapeTimeoutMs ?? ResolveEscapeTimeoutMs(),
+        });
+        buffer.Data += ForwardInputSequence;
+        // Re-wrap paste content with bracketed paste markers for the existing editor handling; TS does
+        // the same in `stdinBuffer.on("paste")`.
+        buffer.Paste += content => _inputHandler?.Invoke($"{BracketedPasteStart}{content}{BracketedPasteEnd}");
+        return buffer;
+    }
 
-        var buffer = new StringBuilder("\x1b");
-        var deadline = Environment.TickCount64 + 30;
-        while (buffer.Length < 64 && Environment.TickCount64 < deadline)
+    /// <summary>Decode one console key event and feed it through the sequence buffer.</summary>
+    private void FeedKey(ConsoleKeyInfo keyInfo)
+    {
+        var sequence = MapKey(keyInfo);
+        if (sequence is not null)
         {
-            bool available;
-            try
-            {
-                available = Console.KeyAvailable;
-            }
-            catch (InvalidOperationException)
-            {
-                break;
-            }
-
-            if (!available)
-            {
-                break;
-            }
-
-            var next = Console.ReadKey(intercept: true);
-            buffer.Append(next.KeyChar);
-            if (next.KeyChar == '\x07')
-            {
-                break; // BEL terminates an OSC reply
-            }
-
-            if (buffer.Length >= 2 && next.KeyChar == '\\' && buffer[^2] == '\x1b')
-            {
-                break; // ST terminates an OSC reply
-            }
-
-            if (buffer.Length == 2 && next.KeyChar != ']')
-            {
-                break; // not an OSC reply
-            }
+            _stdinBuffer?.Process(sequence);
         }
+    }
 
-        var sequence = buffer.ToString();
+    /// <summary>
+    /// Port of the <c>stdinBuffer.on("data")</c> handler: swallow terminal replies, forward the rest.
+    /// </summary>
+    private void ForwardInputSequence(string sequence)
+    {
         if (ProgramStatusProtocol.IsReply(sequence))
         {
-            _programStatusQueryPending = false;
-            _programStatusSupported = true;
-            WriteProgramStatus();
-            return true;
+            if (_programStatusQueryPending)
+            {
+                _programStatusQueryPending = false;
+                _programStatusSupported = true;
+                WriteProgramStatus();
+            }
+            return;
         }
 
-        if (sequence.StartsWith("\x1b[?", StringComparison.Ordinal))
+        if (_programStatusQueryPending && sequence.StartsWith("\x1b[?", StringComparison.Ordinal))
         {
             // DA1: the terminal does not implement OSC 7501 (or answers it later than DA1).
             _programStatusQueryPending = false;
+            return;
         }
 
         _inputHandler?.Invoke(sequence);
-        return true;
     }
+
+    /// <summary>Port of <c>resolveEscapeTimeoutMs(env)</c>.</summary>
+    internal static int ResolveEscapeTimeoutMs(Func<string, string?>? getEnv = null)
+    {
+        getEnv ??= Environment.GetEnvironmentVariable;
+
+        var configured = getEnv("PI_TUI_ESC_TIMEOUT");
+        if (int.TryParse(configured, out var value) && value > 0)
+        {
+            return value;
+        }
+
+        var ssh = getEnv("SSH_CONNECTION");
+        if (string.IsNullOrEmpty(ssh))
+        {
+            ssh = getEnv("SSH_TTY");
+        }
+        return string.IsNullOrEmpty(ssh) ? DefaultEscapeTimeoutMs : SshEscapeTimeoutMs;
+    }
+
+    /// <summary>
+    /// Test seam: install the input pipeline without touching the real console. Mirrors what
+    /// <see cref="Start"/> does between <c>EnableRawMode</c> and the program-status query.
+    /// </summary>
+    internal void StartInputPipelineForTests(Action<string> onInput, int? escapeTimeoutMs = null)
+    {
+        _inputHandler = onInput;
+        _stdinBuffer?.Dispose();
+        _stdinBuffer = CreateStdinBuffer(escapeTimeoutMs);
+    }
+
+    /// <summary>Test seam: feed one decoded console key event, exactly as <see cref="ReadLoop"/> does.</summary>
+    internal void FeedKeyForTests(ConsoleKeyInfo keyInfo) => FeedKey(keyInfo);
 
     /// <summary>Map a <see cref="ConsoleKeyInfo"/> to the terminal escape sequence the framework expects.</summary>
     internal static string? MapKey(ConsoleKeyInfo key)
@@ -349,6 +371,10 @@ public sealed class ProcessTerminal : ITerminal
         {
             // ignore
         }
+
+        // Drop the reassembly buffer (and its flush timer) with the read loop that feeds it.
+        _stdinBuffer?.Dispose();
+        _stdinBuffer = null;
 
         RestoreRawMode();
         _inputHandler = null;
