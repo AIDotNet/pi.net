@@ -37,3 +37,6 @@ push.log
 
 test-*.log
 .eval/
+
+# 本地补丁/日志的临时目录（.workbuddy/memory 仍要入库）
+.workbuddy/tmp/
