@@ -124,6 +124,81 @@ public class AnthropicMessagesTests : IDisposable
     }
 
     [Fact]
+    public void ConvertMessagesMovesErrorToolResultImagesAfterTheToolResults()
+    {
+        // 回归 #10794：Anthropic 拒收「错误工具结果里带图片」。图片改放到该回合所有工具结果之后，
+        // 同一个 user 消息里，前面加一行点名工具调用的说明。
+        var messages = new List<ChatMessage>
+        {
+            Messages.UserText("show the screenshots"),
+            new AssistantMessage(
+                [
+                    new ToolCallContent("call-1", "codemode", new { }),
+                    new ToolCallContent("call-2", "read", new { }),
+                ],
+                StopReason.ToolUse),
+            new ToolResultMessage(
+                "call-1",
+                "codemode",
+                [
+                    new TextContent("Script failed"),
+                    new ImageContent("AAAA", "image/png"),
+                    new ImageContent("CCCC", "image/png"),
+                    new TextContent("Script error"),
+                ],
+                IsError: true),
+            new ToolResultMessage(
+                "call-2", "read", [new ImageContent("BBBB", "image/png")], IsError: false),
+        };
+
+        var converted = AnthropicMessages.ConvertMessages(messages);
+        var user = (JsonObject)converted[2]!;
+        var content = (JsonArray)user["content"]!;
+
+        Assert.Equal(5, content.Count);
+
+        var errorResult = (JsonObject)content[0]!;
+        Assert.Equal("tool_result", errorResult["type"]!.GetValue<string>());
+        Assert.Equal("call-1", errorResult["tool_use_id"]!.GetValue<string>());
+        Assert.True(errorResult["is_error"]!.GetValue<bool>());
+        // 连续两张图片只折叠成一个占位文本。
+        Assert.Equal(
+            "Script failed\n(image attached after the tool results)\nScript error",
+            errorResult["content"]!.GetValue<string>());
+
+        var okResult = (JsonObject)content[1]!;
+        var okContent = (JsonArray)okResult["content"]!;
+        Assert.Equal("text", okContent[0]!["type"]!.GetValue<string>());
+        Assert.Equal("(see attached image)", okContent[0]!["text"]!.GetValue<string>());
+        Assert.Equal("BBBB", okContent[1]!["source"]!["data"]!.GetValue<string>());
+
+        Assert.Equal("text", content[2]!["type"]!.GetValue<string>());
+        Assert.Equal(
+            "Images from the error result of tool call call-1 (codemode):",
+            content[2]!["text"]!.GetValue<string>());
+        Assert.Equal("AAAA", content[3]!["source"]!["data"]!.GetValue<string>());
+        Assert.Equal("CCCC", content[4]!["source"]!["data"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void ConvertMessagesKeepsErrorToolResultsWithoutImagesUnchanged()
+    {
+        var messages = new List<ChatMessage>
+        {
+            Messages.UserText("run it"),
+            new AssistantMessage(
+                [new ToolCallContent("call-1", "codemode", new { })], StopReason.ToolUse),
+            Messages.ToolResult("call-1", "codemode", "Script failed", isError: true),
+        };
+
+        var converted = AnthropicMessages.ConvertMessages(messages);
+        var content = (JsonArray)((JsonObject)converted[2]!)["content"]!;
+
+        Assert.Single(content);
+        Assert.Equal("Script failed", content[0]!["content"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void MapsStopReasons()
     {
         Assert.Equal(StopReason.Stop, AnthropicMessages.MapStopReason("end_turn"));

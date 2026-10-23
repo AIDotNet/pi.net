@@ -407,7 +407,8 @@ public static class ToolsManager
     /// </summary>
     private static string GetWindowsTarCommand()
     {
-        var systemRoot = Env("SystemRoot") ?? Env("WINDIR");
+        // 只认 SystemRoot：WINDIR 可能是别的安装位置，拿它拼出的 tar.exe 不一定是 Windows 自带的那份。
+        var systemRoot = Env("SystemRoot");
         if (!string.IsNullOrEmpty(systemRoot))
         {
             var systemTar = NodePath.Join(systemRoot, "System32", "tar.exe");

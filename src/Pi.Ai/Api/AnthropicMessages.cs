@@ -609,13 +609,28 @@ public static class AnthropicMessages
             {
                 // Collect all consecutive toolResult messages (needed for z.ai's Anthropic endpoint).
                 var toolResults = new JsonArray();
+                // Anthropic 拒收「错误工具结果里带图片」，所以这些图片放到该回合所有工具结果之后，
+                // 同一个 user 消息里（图片之前先放一行点名工具调用的说明）——见上游 #10794。
+                var errorImages = new JsonArray();
                 var j = i;
-                while (j < transformedMessages.Count && transformedMessages[j] is ToolResultMessage)
+                while (j < transformedMessages.Count && transformedMessages[j] is ToolResultMessage toolMessage)
                 {
-                    toolResults.Add(ConvertToolResult((ToolResultMessage)transformedMessages[j]));
+                    var split = TransformMessages.SplitErrorToolResultImages(toolMessage);
+                    toolResults.Add(ConvertToolResult(toolMessage, split?.Content));
+                    if (split is not null)
+                    {
+                        errorImages.Add(new JsonObject { ["type"] = "text", ["text"] = split.Caption });
+                        foreach (var image in split.Images)
+                        {
+                            errorImages.Add(ConvertImageBlock(image));
+                        }
+                    }
+
                     j++;
                 }
                 i = j - 1;
+                // 图片排在所有 tool_result 之后，仍在同一个 user 消息里。
+                foreach (var block in errorImages) toolResults.Add(block!.DeepClone());
                 parameters.Add(new JsonObject { ["role"] = "user", ["content"] = toolResults });
             }
         }
@@ -653,11 +668,23 @@ public static class AnthropicMessages
         return new ConvertedMessages(parameters, assistantLevels);
     }
 
-    private static JsonObject ConvertToolResult(ToolResultMessage message) => new()
+    private static JsonObject ConvertImageBlock(ImageContent image) => new()
+    {
+        ["type"] = "image",
+        ["source"] = new JsonObject
+        {
+            ["type"] = "base64",
+            ["media_type"] = image.MimeType ?? "image/png",
+            ["data"] = image.Data,
+        },
+    };
+
+    private static JsonObject ConvertToolResult(
+        ToolResultMessage message, IReadOnlyList<ContentBlock>? content = null) => new()
     {
         ["type"] = "tool_result",
         ["tool_use_id"] = message.ToolCallId,
-        ["content"] = ConvertContentBlocks(message.Content),
+        ["content"] = ConvertContentBlocks(content ?? message.Content),
         ["is_error"] = message.IsError,
     };
 
@@ -685,16 +712,7 @@ public static class AnthropicMessages
                     });
                     break;
                 case ImageContent image:
-                    blocks.Add(new JsonObject
-                    {
-                        ["type"] = "image",
-                        ["source"] = new JsonObject
-                        {
-                            ["type"] = "base64",
-                            ["media_type"] = image.MimeType ?? "image/png",
-                            ["data"] = image.Data,
-                        },
-                    });
+                    blocks.Add(ConvertImageBlock(image));
                     break;
             }
         }

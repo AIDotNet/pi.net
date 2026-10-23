@@ -13,6 +13,34 @@ public static class TransformMessages
 {
     private const string NonVisionUserImagePlaceholder = "(image omitted: model does not support images)";
     private const string NonVisionToolImagePlaceholder = "(tool image omitted: model does not support images)";
+    private const string ErrorToolImagePlaceholder = "(image attached after the tool results)";
+
+    /// <summary>
+    /// 错误工具结果拆成「纯文本结果」与「随后发送的图片」。对应 TS <c>SplitErrorToolResult</c>。
+    /// </summary>
+    public sealed record SplitErrorToolResult(
+        IReadOnlyList<ContentBlock> Content,
+        string Caption,
+        IReadOnlyList<ImageContent> Images);
+
+    /// <summary>
+    /// 把错误工具结果里的图片拆出来，供拒收「错误结果带图片」的 API 使用（Anthropic，以及 Bedrock 上的
+    /// Claude）：返回的 <see cref="SplitErrorToolResult.Content"/> 作为工具结果本身，
+    /// <see cref="SplitErrorToolResult.Caption"/> 与图片放到该回合所有工具结果之后、同一个 user 消息里。
+    /// 无需拆分时返回 null（上游 #10794）。
+    /// </summary>
+    public static SplitErrorToolResult? SplitErrorToolResultImages(ToolResultMessage msg)
+    {
+        if (!msg.IsError) return null;
+
+        var images = msg.Content.OfType<ImageContent>().ToList();
+        if (images.Count == 0) return null;
+
+        return new SplitErrorToolResult(
+            ReplaceImagesWithPlaceholder(msg.Content, ErrorToolImagePlaceholder),
+            $"Images from the error result of tool call {msg.ToolCallId} ({msg.ToolName}):",
+            images);
+    }
 
     /// <summary>把连续图片块折叠成一个占位文本块。</summary>
     private static List<ContentBlock> ReplaceImagesWithPlaceholder(
@@ -112,29 +140,18 @@ public static class TransformMessages
                 {
                     case ThinkingContent thinking:
                     {
-                        // 加密思维块内容不透明，仅同模型有效；跨模型直接丢弃避免 API 报错。
-                        if (thinking.Redacted == true)
-                        {
-                            if (isSameModel) transformedContent.Add(thinking);
-                            break;
-                        }
-                        // 同模型保留带签名的思维块（回放需要），即使思考文本为空
+                        // 其它模型的思维块直接丢弃：签名与加密推理只对产它的模型有效，
+                        // 而把可读思维当纯文本发过去会让新模型把它当成自身回复的一部分（上游 #10995）。
+                        if (!isSameModel) break;
+                        // 同模型保留加密块与带签名的块（回放需要），即使思考文本为空
                         // （OpenAI 加密推理）。
-                        if (isSameModel && thinking.Signature is not null)
+                        if (thinking.Redacted == true || thinking.Signature is not null)
                         {
                             transformedContent.Add(thinking);
                             break;
                         }
-                        // 空思维块跳过，其余转为纯文本。
                         if (string.IsNullOrWhiteSpace(thinking.Thinking)) break;
-                        if (isSameModel)
-                        {
-                            transformedContent.Add(thinking);
-                        }
-                        else
-                        {
-                            transformedContent.Add(new TextContent(thinking.Thinking));
-                        }
+                        transformedContent.Add(thinking);
                         break;
                     }
                     case TextContent text:

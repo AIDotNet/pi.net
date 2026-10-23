@@ -146,6 +146,91 @@ public class BedrockTests
     }
 
     [Fact]
+    public void ConvertMessagesMovesErrorToolResultImagesAfterTheToolResultsForClaude()
+    {
+        // 回归 #10794：Bedrock 上的 Claude 同样拒收「错误工具结果里带图片」。
+        var model = Model() with { Input = [ModelInput.Text, ModelInput.Image] };
+        var context = new TranscriptContext(
+        [
+            new AssistantMessage(
+                [
+                    new ToolCallContent("call-1", "codemode", new JsonObject()),
+                    new ToolCallContent("call-2", "read", new JsonObject()),
+                ],
+                StopReason.ToolUse, Provider: "amazon-bedrock", Model: model.Id),
+            new ToolResultMessage(
+                "call-1",
+                "codemode",
+                [
+                    new TextContent("Script failed"),
+                    new ImageContent("AAAA", "image/png"),
+                    new TextContent("Script error"),
+                ],
+                IsError: true, Timestamp: 3),
+            new ToolResultMessage(
+                "call-2", "read", [new ImageContent("BBBB", "image/png")], Timestamp: 4),
+        ]);
+        var messages = BedrockConverseStream.ConvertMessages(context, model, "none", null);
+
+        // assistant(toolUse) / user(两条 toolResult + 说明 + 图片)。
+        Assert.Equal(2, messages.Count);
+        var content = (JsonArray)((JsonObject)messages[1]!)["content"]!;
+        Assert.Equal(4, content.Count);
+
+        var errorResult = ((JsonObject)content[0]!).Obj("toolResult")!;
+        Assert.Equal("error", errorResult.Str("status"));
+        var errorContent = (JsonArray)errorResult["content"]!;
+        Assert.Equal(3, errorContent.Count);
+        Assert.Equal("Script failed", ((JsonObject)errorContent[0]!).Str("text"));
+        Assert.Equal("(image attached after the tool results)", ((JsonObject)errorContent[1]!).Str("text"));
+        Assert.Equal("Script error", ((JsonObject)errorContent[2]!).Str("text"));
+
+        // 成功的工具结果图片留在原位。
+        var okResult = ((JsonObject)content[1]!).Obj("toolResult")!;
+        Assert.Equal("success", okResult.Str("status"));
+        var okContent = (JsonArray)okResult["content"]!;
+        Assert.Single(okContent);
+        Assert.NotNull(((JsonObject)okContent[0]!).Obj("image"));
+
+        Assert.Equal(
+            "Images from the error result of tool call call-1 (codemode):",
+            ((JsonObject)content[2]!).Str("text"));
+        Assert.NotNull(((JsonObject)content[3]!).Obj("image"));
+    }
+
+    [Fact]
+    public void ConvertMessagesKeepsErrorToolResultImagesInPlaceForNonClaude()
+    {
+        // 非 Claude 模型：Model(id) 会把 Name 固定成 Claude，所以这里直接给出完整 spec。
+        var gpt = new ModelSpec
+        {
+            Id = "openai.gpt-6.1-sol-v1:0", Name = "GPT-6.1 Sol", Api = "bedrock-converse-stream",
+            Provider = "amazon-bedrock", BaseUrl = "https://bedrock-runtime.us-east-1.amazonaws.com",
+            Reasoning = true, ContextWindow = 200_000, MaxTokens = 8192, Cost = new ModelCostRates(3, 15),
+            Input = [ModelInput.Text, ModelInput.Image],
+        };
+        var context = new TranscriptContext(
+        [
+            new AssistantMessage(
+                [new ToolCallContent("call-1", "codemode", new JsonObject())],
+                StopReason.ToolUse, Provider: "amazon-bedrock", Model: gpt.Id),
+            new ToolResultMessage(
+                "call-1",
+                "codemode",
+                [new TextContent("Script failed"), new ImageContent("AAAA", "image/png")],
+                IsError: true, Timestamp: 3),
+        ]);
+        var messages = BedrockConverseStream.ConvertMessages(context, gpt, "none", null);
+
+        var content = (JsonArray)((JsonObject)messages[1]!)["content"]!;
+        Assert.Single(content);
+        var errorContent = (JsonArray)((JsonObject)content[0]!).Obj("toolResult")!["content"]!;
+        Assert.Equal(2, errorContent.Count);
+        Assert.Equal("Script failed", ((JsonObject)errorContent[0]!).Str("text"));
+        Assert.NotNull(((JsonObject)errorContent[1]!).Obj("image"));
+    }
+
+    [Fact]
     public void ConvertMessagesReplaysRedactedReasoning()
     {
         var model = Model();

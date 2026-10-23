@@ -82,9 +82,10 @@ public class GoogleGenerativeAiTests
         var (_, contents) = GoogleShared.ConvertMessages(model, context);
         var modelTurn = (System.Text.Json.Nodes.JsonObject)contents[1]!;
         var parts = (System.Text.Json.Nodes.JsonArray)modelTurn["parts"]!;
-        // 跨模型 thinking 转纯文本（无 thought 标记）。
+        // 跨模型 thinking 整块丢弃（上游 #10995），只剩文本，且不带 thought 标记。
+        Assert.Single(parts);
         Assert.Null(((System.Text.Json.Nodes.JsonObject)parts[0]!)["thought"]);
-        Assert.Equal("别人的思考", ((System.Text.Json.Nodes.JsonObject)parts[0]!)["text"]!.GetValue<string>());
+        Assert.Equal("回答", ((System.Text.Json.Nodes.JsonObject)parts[0]!)["text"]!.GetValue<string>());
     }
 
     [Fact]

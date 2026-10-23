@@ -69,7 +69,7 @@ public class TransformMessagesTests
     }
 
     [Fact]
-    public void CrossModelDowngradesThinkingAndStripsSignatures()
+    public void CrossModelDropsThinkingAndStripsSignatures()
     {
         var assistant = new AssistantMessage(
             [
@@ -85,15 +85,68 @@ public class TransformMessagesTests
         var result = TransformMessages.Transform([assistant], TextOnlyModel());
 
         var transformed = Assert.IsType<AssistantMessage>(result[0]);
-        // 带签名的空思维块被保留？否——跨模型且签名保留仅限同模型。
-        // 期望：空思维跳过；plain thought → text；text 规范化；thoughtSignature 剥离。
-        // 跨模型：所有思维文本（含带签名的）都转为纯文本（签名丢失）。
-        Assert.Equal(
-            ["secret reasoning", "plain thought", "answer"],
-            transformed.Content.OfType<TextContent>().Select(t => t.Text).ToArray());
+        // 跨模型：思维块一律丢弃——签名与加密推理只对产出它的模型有效，可读思维当纯文本发过去
+        // 会让新模型把它当成自身回复的一部分（上游 #10995）。文本与工具调用保留。
+        Assert.Empty(transformed.Content.OfType<ThinkingContent>());
+        Assert.Equal(["answer"], transformed.Content.OfType<TextContent>().Select(t => t.Text).ToArray());
         var toolCall = transformed.Content.OfType<ToolCallContent>().Single();
         Assert.Null(toolCall.ThoughtSignature);
-        Assert.Equal(4, transformed.Content.Count); // text(secret) + text(plain) + text(answer) + toolCall
+        Assert.Equal(2, transformed.Content.Count); // text(answer) + toolCall
+    }
+
+    [Fact]
+    public void SameModelKeepsSignedAndEncryptedThinking()
+    {
+        var assistant = new AssistantMessage(
+            [
+                new ThinkingContent("secret reasoning", Signature: "sig-1"),
+                new ThinkingContent("", Signature: "enc"),
+                new ThinkingContent("plain thought"),
+                new TextContent("answer"),
+            ],
+            StopReason.Stop, Model: "vision-1", Api: "openai-completions", Provider: "openai",
+            Timestamp: Ts);
+
+        var transformed = Assert.IsType<AssistantMessage>(
+            TransformMessages.Transform([assistant], VisionModel())[0]);
+
+        // 同模型：带签名的块原样保留（回放需要，含思考文本为空的那种），
+        // 无签名但有文本的也保留，空且无签名的丢弃。
+        Assert.Equal(
+            ["secret reasoning", "", "plain thought"],
+            transformed.Content.OfType<ThinkingContent>().Select(t => t.Thinking).ToArray());
+        Assert.Equal(
+            new string?[] { "sig-1", "enc", null },
+            transformed.Content.OfType<ThinkingContent>().Select(t => t.Signature).ToArray());
+    }
+
+    [Fact]
+    public void KeepsThinkingOnlyFromTheTargetModelWhenModelsAlternate()
+    {
+        AssistantMessage Turn(string model, string reasoning, string answer) => new(
+            [new ThinkingContent(reasoning, Signature: "reasoning_content"), new TextContent(answer)],
+            StopReason.Stop, Model: model, Api: "openai-completions", Provider: "openai", Timestamp: Ts);
+
+        var result = TransformMessages.Transform(
+            [
+                new UserMessage([new TextContent("1")], Ts),
+                Turn("vision-1", "self 1", "a"),
+                new UserMessage([new TextContent("2")], Ts),
+                Turn("other-1", "other 1", "b"),
+                new UserMessage([new TextContent("3")], Ts),
+                Turn("vision-1", "self 2", "c"),
+            ],
+            VisionModel());
+
+        var contents = result.OfType<AssistantMessage>().Select(m => m.Content).ToList();
+        Assert.Equal(
+            ["self 1", "self 2"],
+            new[] { contents[0], contents[2] }
+                .SelectMany(c => c.OfType<ThinkingContent>())
+                .Select(t => t.Thinking)
+                .ToArray());
+        Assert.Empty(contents[1].OfType<ThinkingContent>());
+        Assert.Equal(["b"], contents[1].OfType<TextContent>().Select(t => t.Text).ToArray());
     }
 
     [Fact]

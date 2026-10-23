@@ -51,4 +51,34 @@ public sealed class ShellProbeTests
     {
         Assert.Equal(expected, Shell.IsLegacyWslBashPath(path, systemRoot));
     }
+
+    // ---- PowerShell 安装目录回退（上游 61060ddf8） -------------------------
+
+    [Fact]
+    public void PowerShellIsAlsoLookedUpInItsInstallationDirectories()
+    {
+        // PATH 里没有 pwsh.exe / powershell.exe 时（安装目录可以在任意盘）回退到这两处。
+        Assert.Equal(
+            Path.Combine(@"D:\Apps", "PowerShell", "7", "pwsh.exe"),
+            Shell.PowerShell7InstallPath(@"D:\Apps"));
+        Assert.Equal(
+            Path.Combine(@"D:\WINNT", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+            Shell.WindowsPowerShellInstallPath(@"D:\WINNT"));
+    }
+
+    [Fact]
+    public void PowerShellConfigResolvesAnExistingExecutable()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Skip("the powershell tool is Windows-only");
+        }
+
+        var config = Shell.GetPowerShellConfig();
+
+        Assert.True(File.Exists(config.Shell), config.Shell);
+        Assert.Contains(
+            Path.GetFileName(config.Shell).ToLowerInvariant(),
+            new[] { "pwsh.exe", "powershell.exe" });
+    }
 }

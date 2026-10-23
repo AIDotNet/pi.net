@@ -199,7 +199,23 @@ public static partial class Shell
             throw new InvalidOperationException("The powershell tool is only available on Windows.");
         }
 
-        var shell = FindExecutableOnPath("pwsh.exe") ?? FindExecutableOnPath("powershell.exe");
+        var shell = FindExecutableOnPath("pwsh.exe");
+        // 安装目录可能在任意盘、也不一定在 PATH 上。
+        var programFiles = Environment.GetEnvironmentVariable("ProgramFiles");
+        if (shell is null && !string.IsNullOrEmpty(programFiles))
+        {
+            var pwsh7 = PowerShell7InstallPath(programFiles);
+            if (ShellPathExists(pwsh7)) shell = pwsh7;
+        }
+
+        shell ??= FindExecutableOnPath("powershell.exe");
+        var systemRoot = Environment.GetEnvironmentVariable("SystemRoot");
+        if (shell is null && !string.IsNullOrEmpty(systemRoot))
+        {
+            var windowsPowerShell = WindowsPowerShellInstallPath(systemRoot);
+            if (ShellPathExists(windowsPowerShell)) shell = windowsPowerShell;
+        }
+
         if (shell is null)
         {
             throw new InvalidOperationException(
@@ -207,6 +223,29 @@ public static partial class Shell
         }
 
         return new ShellConfig(shell, PowerShellArgs);
+    }
+
+    /// <summary>PATH 之外的 PowerShell 7 位置：<c>%ProgramFiles%\PowerShell\7\pwsh.exe</c>。</summary>
+    internal static string PowerShell7InstallPath(string programFiles)
+        => NodePath.Join(programFiles, "PowerShell", "7", "pwsh.exe");
+
+    /// <summary>
+    /// PATH 之外的 Windows PowerShell 位置：
+    /// <c>%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe</c>。
+    /// </summary>
+    internal static string WindowsPowerShellInstallPath(string systemRoot)
+        => NodePath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+
+    private static bool ShellPathExists(string path)
+    {
+        try
+        {
+            return File.Exists(path);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>The process environment with the managed bin directory prepended to <c>PATH</c>.</summary>

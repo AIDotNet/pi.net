@@ -206,8 +206,11 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
-| `Pi.Ai.Tests` | 503 / 503 通过（第三十五批新增 3 例：413 请求体超限、ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5062 / 5062 通过（第三十八批新增 1 例 HTML 导出 CJK 强调接线；
+| `Pi.Ai.Tests` | 509 / 509 通过（第三十九批新增 6 例：跨模型丢弃思维块 / 同模型保留签名块 / 模型交替、
+  错误工具结果图片在 Anthropic 与 Bedrock 上移到工具结果之后；第三十五批新增 3 例：413 请求体超限、
+  ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
+| `Pi.CodingAgent.Tests` | 5065 / 5065 通过（第三十九批新增 3 例：锁等待窗口、PowerShell 安装目录形状、
+  解析结果存在性；第三十八批新增 1 例 HTML 导出 CJK 强调接线；
   第三十七批新增 5 例跨 chunk 拆分的 ANSI 序列；
   第三十六批新增 6 例工作树上下文，其中 2 例需要符号链接权限、无权限时跳过；
   第三十五批新增 8 例：恢复 loadout 的扩展工具激活 / 切树 / 压缩前删除 4 例、拆分回合的前缀摘要 focus 2 例、
@@ -285,7 +288,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    ~~收尾审计：五项遗漏修复（`/compact` 前缀摘要、扩展工具 loadout 激活、剪贴板进程组、ChatGPT 限额文案、
    增量工具提示的移除登记、413 请求体超限）~~（第三十五批）→ ~~收尾复核：工作树上下文 + env / 托管安装的
    不适用判定~~（第三十六批）→ ~~跨 chunk 拆分的 ANSI 序列~~（第三十七批）→ ~~HTML 导出的 CJK 强调~~
-   （第三十八批）。至此 §3.5.1 表中除已判
+   （第三十八批）→ ~~剩余提交复核：跨模型思维、错误结果图片、Windows 锁与 shell 探测~~（第三十九批）。
+   至此 §3.5.1 表中除已判
    不适用的两项外无待办项，`v1.0.4..v1.4.0` 全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
@@ -1215,6 +1219,75 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.ai 第三十九批（剩余提交复核：跨模型思维、错误结果图片、Windows 锁与 shell 探测）落地明细
+
+第三十八批把 278 个提交按「文档里是否出现哈希」做了差集，发现 200 个没被显式引用过。逐条复核后，
+绝大多数属于此前按**功能名 / PR 号**记录、代码早已落地的条目（用代码位置逐一确认）：
+工具参数非法 JSON 报错 `87f9a3641`（`JsonParse.ParseToolCallArguments` + `Validation`）、
+`read` 行范围标签 `910149912`（`ReadRenderers.FormatReadLineRange`）、提示模板空引号参数 `9fe3f3716`
+（`PromptTemplates.ParseCommandArgs` 的 `hasToken`）、打印模式截断告警 `441f5767c`（`PrintMode` 的
+stderr 行）、假光标选择重置 `83c9e2645`（`TuiAltScreen.ResetTextSelection`）、
+display math 不吞表格 `2ed3118b0`（`MarkedExtensions.ContainsTableStart`）、
+`CompactionStatusIndicator` 的 `colorFn` `dbc7ff87c`、摘要请求不设固定输出上限 `6fcb48670`
+（`Compaction` 里 `_ = reserveTokens`）、`\u` 非法转义的修复 `4b994d5e5`、`--tools` 的 `+name/-name`
+`ddaa0a034`，以及整组重试文案（`Retry.cs` 里已带 `#10965` / `#11057` 注释）。
+下面四条是真缺的。
+
+**1. 跨模型的思维块不再当纯文本发出去（`911309429`，#10995）**
+
+- 现象：切模型后，旧模型助手消息里的思维块被改写成纯文本塞进新模型的上下文，新模型于是把上一轮
+  的推理当成「自己回复的一部分」，开始把自己的思考也写进可见答案。
+- `TransformMessages` 的 `ThinkingContent` 分支重写：**非同模型直接丢弃**；同模型才保留
+  （`Redacted` 或带 `Signature` 的空文本块照样保留，回放需要）。原实现里
+  `else transformedContent.Add(new TextContent(thinking.Thinking))` 整段删掉。
+- 测试：`CrossModelDropsThinkingAndStripsSignatures`（原 `CrossModelDowngradesThinking…` 按新语义重写）、
+  `SameModelKeepsSignedAndEncryptedThinking`、`KeepsThinkingOnlyFromTheTargetModelWhenModelsAlternate`
+  （对齐上游新增用例「两个模型交替时只保留目标模型的那几块」）；`GoogleGenerativeAiTests`
+  的 `ConvertMessagesDropsThinkingAcrossModels` 同步改成「只剩文本」。
+
+**2. 错误工具结果的图片移到工具结果之后（`5ab7fe74c`，#10794；前置 `34a8bb38b`）**
+
+- 现象：Anthropic 与 Bedrock 上的 Claude 拒收「错误工具结果里带图片」。原先的做法是把图片换成一句
+  说明，等于把截图丢了。
+- 新增 `TransformMessages.SplitErrorToolResultImages(msg)`：错误结果里的图片被替换成
+  `(image attached after the tool results)` 占位（连续图片只折叠一次），返回
+  `Content` / `Caption` / `Images`；成功的、没有图片的错误结果返回 null。
+- `AnthropicMessages`：连续工具结果循环里用拆出来的 `Content` 转换，`Caption` + 图片收集到
+  `errorImages`，循环结束后追加到同一个 user 消息的 `tool_results` 之后；`ConvertToolResult` 增加
+  可选的 content 覆写参数，图片构造抽成 `ConvertImageBlock`。
+- `BedrockConverseStream`：同样处理，但**只对 `IsAnthropicClaudeModel` 的模型**，其它模型图片留在原位。
+- 测试：`AnthropicMessagesTests` 2 例（含「连续两张图片只折叠成一个占位」与「无图片的保持不变」）、
+  `BedrockTests` 2 例（Claude 移走 / 非 Claude 原位）。
+- **坑**：`BedrockTests.Model(id)` 把 `Name` 固定成 `Claude Sonnet 4`，于是 `IsAnthropicClaudeModel`
+  对任何 id 都返回 true；非 Claude 用例必须自己给完整 spec。另外测试模型不写 `Input` 时
+  `DowngradeUnsupportedImages` 会先把图片换成占位，两个用例都得声明 `Input = [text, image]`。
+
+**3. Windows 上锁产物的瞬时权限失败单独设上限（`e6fb2581d`，#10801）**
+
+- 现象：刚删掉的锁产物可能处于 delete-pending（另一个进程还握着句柄），创建会短时间失败。
+  端口的 `NodeLock.AcquireAsync` 把这种失败和「已被别人持有」一视同仁，于是真正的权限错误要等满
+  30 秒窗口才报 `ELOCKED`。
+- `TryAcquire` 增加 `out Exception? failure`（目录创建失败也接住），`AcquireAsync` 单独计数
+  `permissionRetries`：`UnauthorizedAccessException`（且 `OperatingSystem.IsWindows()`）超过
+  `MaxPermissionRetries = 5` 就立刻抛 `LockHeldException`，`ELOCKED` 的窗口行为不变。
+- 同步路径 `AcquireSync` 本来就是「把创建失败包成 `LockHeldException` 再重试 10 次」，与上游给
+  `EPERM` 扩展可重试集合等价，未改。
+- **偏差**：.NET 没有 errno，`EPERM` 只能映射成 `UnauthorizedAccessException`；`ERROR_SHARING_VIOLATION`
+  这类 `IOException` 不上限，否则会把「文件已存在」的正常等待也误判成瞬时失败。
+- 测试：`NodeLockTests.WaitsTheWholeWindowWhenAnotherHolderOwnsTheLock`（钉住窗口没有被误缩短）。
+
+**4. Windows shell 从安装目录探测（`61060ddf8`）**
+
+- `GetPowerShellConfig` 的查找顺序补齐为：`pwsh.exe`（PATH）→ `%ProgramFiles%\PowerShell\7\pwsh.exe`
+  → `powershell.exe`（PATH）→ `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`。
+  后两个候选抽成 `Shell.PowerShell7InstallPath` / `Shell.WindowsPowerShellInstallPath` 便于钉住形状。
+- `ToolsManager.GetWindowsTarCommand` 去掉 `WINDIR` 回退——只有 `SystemRoot` 下的 `tar.exe` 才是
+  Windows 自带那份。
+- `IsLegacyWslBashPath` 在第十四批已经改成跟 `SystemRoot` 走，本批只是复核。
+- 测试：`ShellProbeTests` +2（安装目录拼装形状、Windows 上解析出的可执行文件确实存在）。
+
+**测试**：`Pi.Ai.Tests` 509 / 509（+6），`Pi.CodingAgent.Tests` 5065 / 5065（3 跳过，+3）。
 
 ### 6.ah 第三十八批（HTML 导出的 CJK 强调）落地明细
 

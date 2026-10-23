@@ -858,33 +858,45 @@ public static class BedrockConverseStream
                     result.Add(new JsonObject { ["role"] = "assistant", ["content"] = contentBlocks });
                     break;
                 }
-                case ToolResultMessage toolResult:
+                case ToolResultMessage:
                 {
                     // 连续 toolResult 合并为单条 user 消息（Bedrock 要求）。
-                    var toolResults = new JsonArray(new JsonObject
-                    {
-                        ["toolResult"] = new JsonObject
-                        {
-                            ["toolUseId"] = toolResult.ToolCallId,
-                            ["content"] = ConvertToolResultContent(toolResult.Content),
-                            ["status"] = toolResult.IsError ? "error" : "success",
-                        },
-                    });
-                    var j = i + 1;
+                    var toolResults = new JsonArray();
+                    // Claude 拒收「错误工具结果里带图片」，所以对这些模型把图片移到该回合所有工具结果之后
+                    // （其它模型保持原位）——见上游 #10794。
+                    var errorImages = new JsonArray();
+                    var j = i;
                     while (j < transformedMessages.Count && transformedMessages[j] is ToolResultMessage next)
                     {
+                        var split = IsAnthropicClaudeModel(model)
+                            ? TransformMessages.SplitErrorToolResultImages(next)
+                            : null;
                         toolResults.Add(new JsonObject
                         {
                             ["toolResult"] = new JsonObject
                             {
                                 ["toolUseId"] = next.ToolCallId,
-                                ["content"] = ConvertToolResultContent(next.Content),
+                                ["content"] = ConvertToolResultContent(split?.Content ?? next.Content),
                                 ["status"] = next.IsError ? "error" : "success",
                             },
                         });
+                        if (split is not null)
+                        {
+                            var captionBlock = CreateNonBlankTextBlock(split.Caption);
+                            if (captionBlock is not null) errorImages.Add(captionBlock);
+                            foreach (var image in split.Images)
+                            {
+                                errorImages.Add(new JsonObject
+                                {
+                                    ["image"] = CreateImageBlock(image.MimeType ?? "", image.Data),
+                                });
+                            }
+                        }
+
                         j++;
                     }
                     i = j - 1;
+                    foreach (var block in errorImages) toolResults.Add(block!.DeepClone());
                     result.Add(new JsonObject { ["role"] = "user", ["content"] = toolResults });
                     break;
                 }

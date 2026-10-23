@@ -30,6 +30,16 @@ public sealed class LockHeldException : NodeIoException
 /// </remarks>
 public static class NodeLock
 {
+    /// <summary>
+    /// Windows 上「刚删除的锁文件仍处于 delete-pending」这类瞬时创建失败的重试上限。
+    /// 单独设上限，让真正的权限错误快速失败，而不是耗完整个等待窗口（上游 #10801）。
+    /// </summary>
+    private const int MaxPermissionRetries = 5;
+
+    /// <summary>Windows 上锁产物被另一个句柄（杀毒、索引器、另一个 pi 探锁）拦住导致的创建失败。</summary>
+    private static bool IsTransientLockFailure(Exception? failure)
+        => OperatingSystem.IsWindows() && failure is UnauthorizedAccessException;
+
     /// <summary>Acquire the lock at <paramref name="path"/> synchronously, retrying like the callers do.</summary>
     public static IDisposable AcquireSync(string path, int maxAttempts = 10, int delayMs = 20)
     {
@@ -76,10 +86,11 @@ public static class NodeLock
         var lockPath = path + ".lock";
         var deadline = Environment.TickCount64 + (maxWaitMs ?? staleMs);
         var retry = 0;
+        var permissionRetries = 0;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var handle = TryAcquire(lockPath, staleMs, onCompromised);
+            var handle = TryAcquire(lockPath, staleMs, onCompromised, out var acquireFailure);
             if (handle is not null)
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -92,7 +103,11 @@ public static class NodeLock
 
             cancellationToken.ThrowIfCancellationRequested();
             var remainingMs = deadline - Environment.TickCount64;
-            if (remainingMs <= 0) throw new LockHeldException(lockPath);
+            if (remainingMs <= 0) throw new LockHeldException(lockPath, acquireFailure);
+            if (IsTransientLockFailure(acquireFailure) && ++permissionRetries > MaxPermissionRetries)
+            {
+                throw new LockHeldException(lockPath, acquireFailure);
+            }
             int delayMs;
             if (fixedRetryMs is int fixedMs)
             {
@@ -109,12 +124,26 @@ public static class NodeLock
         }
     }
 
-    private static AsyncLock? TryAcquire(string lockPath, int staleMs, Action<Exception>? onCompromised)
+    private static AsyncLock? TryAcquire(
+        string lockPath, int staleMs, Action<Exception>? onCompromised, out Exception? failure)
     {
+        failure = null;
         var directory = Path.GetDirectoryName(lockPath);
-        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // 目录创建失败也可能是 delete-pending 的瞬时状态，交给调用方的重试上限处理。
+                failure = error;
+                return null;
+            }
+        }
 
-        if (TryCreateExclusive(lockPath, out var failure))
+        if (TryCreateExclusive(lockPath, out failure))
         {
             return new AsyncLock(lockPath, staleMs, onCompromised);
         }
@@ -133,7 +162,6 @@ public static class NodeLock
         }
         catch (IOException)
         {
-            _ = failure;
             return null;
         }
 
