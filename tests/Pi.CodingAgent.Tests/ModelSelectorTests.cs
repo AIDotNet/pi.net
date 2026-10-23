@@ -90,8 +90,18 @@ public sealed class ModelSelectorTests : SelectorTestFixture
         // "Refreshing model catalogs…" placeholder to disappear rather than for the success text:
         // under parallel-suite load the real ModelRuntime.RefreshAsync can exceed a short timeout,
         // and a provider-level error renders "Could not refresh …" instead of the success line.
+        // The first frame can also come before the placeholder line exists at all (the list is not
+        // laid out yet), so require a rendered outcome as well: a row, the empty-search line, or the
+        // error line. Waiting only for the placeholder's absence asserted against a bare frame.
         await WaitUntilAsync(
-            () => !RenderText(selector, 120).Contains("Refreshing model catalogs…"),
+            () =>
+            {
+                var text = RenderText(selector, 120);
+                if (text.Contains("Refreshing model catalogs…")) return false;
+                return text.Contains("No matching models")
+                    || text.Contains("Could not refresh")
+                    || (currentModel is not null && text.Contains(currentModel.Id));
+            },
             "background refresh never finished",
             timeoutMs: 20_000);
         return selector;

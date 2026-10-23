@@ -1,4 +1,4 @@
-# 上游版本核查与 1.4.0 变更移植评估
+﻿# 上游版本核查与 1.4.0 变更移植评估
 
 > 核查日期：2026-10-22 · 参照仓库：`D:\AI\参考项目\pi` · 端口基线：上游 `v1.0.4`（`eb326d265`）
 
@@ -253,10 +253,13 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   +28：23 例 stdin 回复串、3 例退出复原、1 例滚轮路由、1 例 fd 转义；第二十六批 +6 假光标、
   第二十三批 +3 CJK 强调、第二十四批 +1 Rex/Herdr、第二十五批 +13 程序状态协议） |
 
-说明：两例时序敏感的偶发已确认与改动无交集，隔离运行均通过——
-`ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）与
-`DeviceCodeFlowTests.TimesOutWithPlainMessageWhenNoSlowDown`（6 秒超时，与其他测试套件并行跑时
-受负载影响）。
+说明：两例时序敏感的偶发均已处理——
+`ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`（顺序相关）在第四十九批
+修掉了根因：`CreateWaitedSelectorAsync` 只等「Refreshing model catalogs… 消失」，而首帧可能根本没有
+这行（列表尚未排布），于是断言打在一个只有边框的空帧上；现在同时要求出现任一「已出结果」的痕迹
+（模型行 / `No matching models` / `Could not refresh`）。修后全量连跑两次均 5070 / 5073（3 跳过）。
+`DeviceCodeFlowTests.TimesOutWithPlainMessageWhenNoSlowDown`（6 秒超时，与其他套件并行跑时受负载
+影响）仍按「隔离运行通过」处理。
 
 ## 6. 未移植项与判断依据
 
@@ -1378,6 +1381,10 @@ n² 级），而 `LoadScopes` 里每条记录再走一遍 `ChainKnown` 上溯，
   不需要，故没有对应分支。
 - 观察者：`AttachDocument` 在创建 watch 前钉住化身（失败则解钉），`detach` 与「化身退休」
   （`change.Value is null`）各解钉一次；解钉后若仍是同一个化身，重新成为空闲。
+- **缓存访问统一进锁**：`SnapshotCoreAsync` 在变更线**外**读缓存，而驱逐在线上写同一个
+  `Dictionary`——不锁的并发读写会让它进入未定义状态（这是原代码就有的缝，本轮加了写方之后更容易踩到）。
+  现在所有读写都走 `CachedDocument` / `StoreDocument`（内部 `lock (_documentCacheGate)`），
+  或本就在锁内的记账方法；`Clear()` 的两处（关闭、`UnloadDocumentsAsync`）也在同一把锁里。
 
 **3. 设置与接线**
 

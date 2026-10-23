@@ -1,4 +1,4 @@
-using Pi.Chord;
+﻿using Pi.Chord;
 using Pi.Chord.Context;
 using Pi.Chord.Delta;
 using Pi.Chord.Services;
@@ -114,6 +114,20 @@ public class DurableSession : ISession
                 return (_documents.Count, _idleDocuments.Count, _attachedDocuments.Count, _sweepJobs);
             }
         }
+    }
+
+    /// <summary>
+    /// 读缓存里的文档。<see cref="SnapshotCoreAsync"/> 在变更线外读，驱逐在线上写，所以两边都走这把锁：
+    /// 不锁的并发读写会让 <see cref="Dictionary{TKey,TValue}"/> 处于未定义状态。
+    /// </summary>
+    private LoadedDocument? CachedDocument(string addressId)
+    {
+        lock (_documentCacheGate) return _documents.GetValueOrDefault(addressId);
+    }
+
+    private void StoreDocument(string addressId, LoadedDocument document)
+    {
+        lock (_documentCacheGate) _documents[addressId] = document;
     }
 
     /// <inheritdoc />
@@ -250,7 +264,7 @@ public class DurableSession : ISession
     {
         AssertUsable();
         var resolved = DurableDocuments.ResolveAddress(definition, args);
-        _documents.TryGetValue(resolved.Id, out var cached);
+        var cached = CachedDocument(resolved.Id);
         if (cached?.ValueVersion == definition.Version) TouchDocument(resolved.Id);
         var loaded = cached?.ValueVersion == definition.Version
             ? cached
@@ -629,7 +643,7 @@ public class DurableSession : ISession
             }
 
             // 它可能已被替换成别的化身：只有还是同一个才重新成为空闲。
-            if (_documents.GetValueOrDefault(addressId)?.Record.Id == recordId) TouchDocument(addressId);
+            if (CachedDocument(addressId)?.Record.Id == recordId) TouchDocument(addressId);
         };
     }
 
@@ -862,7 +876,7 @@ public class DurableSession : ISession
     private async Task<LoadedDocument?> LoadDocumentAsync(
         DurableDocuments.AnyDocDefinition definition, string addressId, DocumentAddress address, Context context)
     {
-        _documents.TryGetValue(addressId, out var cached);
+        var cached = CachedDocument(addressId);
         // 跟踪器只服务于其值被物化时的版本的令牌；其他版本从 Storage 重载。
         if (cached?.ValueVersion == definition.Version)
         {
@@ -890,7 +904,7 @@ public class DurableSession : ISession
             DeltasSinceBase = stored.DeltasSinceBase,
             Tracker = new Tracker<IReadOnlyDictionary<string, object?>>(value),
         };
-        _documents[addressId] = loaded;
+        StoreDocument(addressId, loaded);
         TouchDocument(addressId);
         return loaded;
     }
@@ -950,7 +964,7 @@ public class DurableSession : ISession
 
         public LoadedDocument? Cached(string addressId)
         {
-            var cached = session._documents.GetValueOrDefault(addressId);
+            var cached = session.CachedDocument(addressId);
             if (cached is not null) session.TouchDocument(addressId);
             return cached;
         }
@@ -964,13 +978,13 @@ public class DurableSession : ISession
 
         public void Install(LoadedDocument document)
         {
-            session._documents[document.AddressId] = document;
+            session.StoreDocument(document.AddressId, document);
             session.TouchDocument(document.AddressId);
         }
 
         public void Evict(string addressId, DocumentId recordId)
         {
-            if (session._documents.GetValueOrDefault(addressId)?.Record.Id == recordId)
+            if (session.CachedDocument(addressId)?.Record.Id == recordId)
                 session.DropDocument(addressId);
         }
 
