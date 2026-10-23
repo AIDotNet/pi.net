@@ -13,18 +13,61 @@ namespace Pi.CodingAgent.Utils;
 /// </remarks>
 public static class AnsiText
 {
+    /// <summary>Longest unfinished sequence held back while streaming. Longer ones are processed as-is.</summary>
+    public const int MaxPendingAnsiLength = 256;
+
     // Valid string terminator sequences are BEL, ESC\, and 0x9c.
     private const string St = @"(?:\u0007|\u001B\\|\u009C)";
 
-    // OSC sequences only: ESC ] ... ST (non-greedy until the first ST).
-    private const string Osc = @"(?:\u001B\][\s\S]*?" + St + ")";
+    // OSC sequences: ESC ] ... ST
+    private const string OscStart = @"\u001B\]";
 
-    // CSI and related: ESC/C1, optional intermediates, optional params (supports ; and :) then final byte.
+    // CSI and related: ESC/C1, optional intermediates, optional params (supports ; and :), then final byte.
     // JS `\d` is [0-9]; .NET `\d` would also match other Unicode decimal digits.
-    private const string Csi =
-        @"[\u001B\u009B][\[\]()#;?]*(?:[0-9]{1,4}(?:[;:][0-9]{0,4})*)?[0-9A-PR-TZcf-nq-uy=><~]";
+    private const string CsiStart = @"[\u001B\u009B][\[\]()#;?]*(?:[0-9]{1,4}(?:[;:][0-9]{0,4})*)?";
+    private const string CsiFinal = @"[0-9A-PR-TZcf-nq-uy=><~]";
 
-    private static readonly Regex Pattern = new(Osc + "|" + Csi, RegexOptions.Compiled);
+    // Complete sequences. OSC is non-greedy until the first ST.
+    private static readonly Regex Pattern = new(
+        "(?:" + OscStart + @"[\s\S]*?" + St + ")|" + CsiStart + CsiFinal,
+        RegexOptions.Compiled);
+
+    // Unfinished sequence at the end of the text: OSC without its ST (a trailing ESC may start ESC\),
+    // or CSI without its final byte. JS `$` anchors at end-of-input only; .NET `$` would also match
+    // before a trailing newline, so the anchor is `\z`.
+    private static readonly Regex UnfinishedAtEndPattern = new(
+        "(?:" + OscStart + @"(?:[^\u0007\u009C\u001B]|\u001B(?!\\))*|" + CsiStart + @")\z",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Split streamed text into a part that is safe to pass to <see cref="StripAnsi"/> now and a trailing
+    /// unfinished escape sequence that should be prepended to the next chunk.
+    /// </summary>
+    /// <remarks>
+    /// Streaming output arrives in arbitrary chunks, so an escape sequence can straddle a chunk boundary
+    /// (#10504). Stripping each chunk in isolation leaves the tail behind as literal text — e.g. a colour
+    /// reset split as <c>ESC[0</c> + <c>m</c> renders a stray <c>m</c>.
+    /// </remarks>
+    public static (string Complete, string Pending) SplitIncompleteAnsiSuffix(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        // Fast path: ANSI codes require an ESC (7-bit) or CSI (8-bit) introducer.
+        if (!value.Contains('\u001B') && !value.Contains('\u009B'))
+        {
+            return (value, string.Empty);
+        }
+
+        var windowStart = Math.Max(0, value.Length - MaxPendingAnsiLength);
+        var match = UnfinishedAtEndPattern.Match(value[windowStart..]);
+        if (!match.Success)
+        {
+            return (value, string.Empty);
+        }
+
+        var splitAt = windowStart + match.Index;
+        return (value[..splitAt], value[splitAt..]);
+    }
 
     /// <summary>Remove ANSI escape sequences from <paramref name="value"/>.</summary>
     public static string StripAnsi(string value)

@@ -207,7 +207,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 503 / 503 通过（第三十五批新增 3 例：413 请求体超限、ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5056 / 5056 通过（第三十六批新增 6 例工作树上下文，其中 2 例需要符号链接权限、无权限时跳过；
+| `Pi.CodingAgent.Tests` | 5061 / 5061 通过（第三十七批新增 5 例跨 chunk 拆分的 ANSI 序列；
+  第三十六批新增 6 例工作树上下文，其中 2 例需要符号链接权限、无权限时跳过；
   第三十五批新增 8 例：恢复 loadout 的扩展工具激活 / 切树 / 压缩前删除 4 例、拆分回合的前缀摘要 focus 2 例、
   剪贴板进程组 2 例；第二十九批新增 5 例对话框栈 / overlay 归属；第二十八批
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
@@ -282,8 +283,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `onReport` info（`ReportInfo`）~~（第三十三批）→ ~~durable：`settings.afterFailedRun`~~（第三十四批）→
    ~~收尾审计：五项遗漏修复（`/compact` 前缀摘要、扩展工具 loadout 激活、剪贴板进程组、ChatGPT 限额文案、
    增量工具提示的移除登记、413 请求体超限）~~（第三十五批）→ ~~收尾复核：工作树上下文 + env / 托管安装的
-   不适用判定~~（第三十六批）。至此 §3.5.1 表中除已判不适用的两项外无待办项，`v1.0.4..v1.4.0`
-   全部提交均已逐条判定。
+   不适用判定~~（第三十六批）→ ~~跨 chunk 拆分的 ANSI 序列~~（第三十七批）。至此 §3.5.1 表中除已判
+   不适用的两项外无待办项，`v1.0.4..v1.4.0` 全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1212,6 +1213,38 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.ag 第三十七批（跨 chunk 拆分的 ANSI 序列）落地明细
+
+第三十六批的复核里留下一条待确认项：用户 `!bash` 的流式输出按任意边界切块，颜色码一旦跨块，
+每块各自 `stripAnsi` 就把尾巴漏成字面量。本条关闭它。
+
+**1. 拆分跨 chunk 的 ANSI 序列（`27c7b6ff4`，#10504）**
+
+- 现象：`echo -e '\033[31mERROR\033[0m'` 若 `\033[0` 与 `m` 分属两块，第一块的
+  `stripAnsi` 匹配不到（CSI 缺末字节），`sanitizeBinaryOutput` 再把孤立的 `ESC` 当控制字符删掉，
+  于是输出里留下 `[0m` 这样的残渣；`ESC` 后跟 `[32m` 被拆开时同理。
+- `AnsiText` 新增 `SplitIncompleteAnsiSuffix(string)`：把 OSC 前缀（`ESC ]`，无 ST 收尾）与
+  CSI 前缀（`ESC`/C1 + 中间字符 + 参数，缺末字节）用 `\z` 锚定在末尾，命中就切成
+  `Complete` / `Pending` 两段；回看窗口 `MaxPendingAnsiLength = 256`，超长的未终结串视为普通文本
+  直接放行（否则一条没有 ST 的 OSC 会把整条流一直扣住）。
+  **偏差**：JS 的 `$` 只锚定输入末尾，.NET 的 `$` 还会匹配末尾换行之前，因此改用 `\z`。
+- `BashExecutor.OnData` 改为 `pendingAnsi + 解码文本` → 切分 → 存回 `pendingAnsi` →
+  `AppendText(complete)`；原文里 `totalBytes` / 临时文件 / 滚动缓冲 / `OnChunk` 的逻辑原样搬进
+  `AppendText`，并补上上游新加的空串早返回。
+- 新增 `FlushOutput()`：`pendingAnsi` 与 `decoder.GetChars([], 0, 0, buf, 0, flush: true)` 的残余
+  （截断的多字节字符 → `U+FFFD`）一起过 `AppendText`。取消与正常结束**共用**一条出口
+  ——原来的两个 `catch` 复制了同一段收尾，现在只留 `catch (Exception) when (CancellationToken…)`
+  空吞（中止的命令仍返回已产出的输出）与一个 `catch { dispose; throw; }`。
+- 顺带修掉旧取消分支没把 `tempFileStream` 置空的泄漏。
+
+**测试**（`SessionRuntimeLeafTests`，5 例，逐条对上上游 `agent-session-bash-persistence.test.ts`
+新增的 5 例）：参数中间被拆开的颜色重置（`ESC[0` + `m`）、`ESC` 后紧跟颜色码（`ESC` + `[32m`）、
+OSC 在 ST 之前被拆成三段、结尾只剩多字节字符首字节时 flush 成 `U+FFFD`、
+300 字符长的未终结 OSC 不被扣住。跳过的那条「`recorded` 与流式一致」属于会话层断言，
+端口的 `BashExecution` 组件复用同一份 output，等价保障在既有语料里。
+
+**测试**：`Pi.CodingAgent.Tests` 5061 / 5061（3 跳过，+5），其余套件未受影响。
 
 ### 6.af 第三十六批（收尾复核第二批：工作树上下文 + 两组不适用判定）落地明细
 

@@ -74,6 +74,9 @@ public static class BashExecutor
         var totalBytes = 0L;
         var decoder = Encoding.UTF8.GetDecoder();
 
+        // Unfinished escape sequence at the end of the previous chunk, completed by the next chunk.
+        var pendingAnsi = string.Empty;
+
         void EnsureTempFile()
         {
             if (tempFilePath is not null)
@@ -92,12 +95,14 @@ public static class BashExecutor
             }
         }
 
-        void OnData(byte[] data)
+        void AppendText(string rawText)
         {
-            totalBytes += data.Length;
-            var chars = new char[decoder.GetCharCount(data, 0, data.Length, flush: false)];
-            decoder.GetChars(data, 0, data.Length, chars, 0, flush: false);
-            var text = Shell.SanitizeBinaryOutput(AnsiText.StripAnsi(new string(chars))).Replace("\r", "");
+            // Sanitize: strip ANSI, replace binary garbage, normalize newlines.
+            var text = Shell.SanitizeBinaryOutput(AnsiText.StripAnsi(rawText)).Replace("\r", "");
+            if (text.Length == 0)
+            {
+                return;
+            }
 
             if (totalBytes > Truncate.DefaultMaxBytes)
             {
@@ -115,9 +120,32 @@ public static class BashExecutor
                 outputBytes -= removed.Length;
             }
 
-            options.OnChunk?.Invoke(text);
+            options!.OnChunk?.Invoke(text);
         }
 
+        void OnData(byte[] data)
+        {
+            totalBytes += data.Length;
+            var chars = new char[decoder.GetCharCount(data, 0, data.Length, flush: false)];
+            decoder.GetChars(data, 0, data.Length, chars, 0, flush: false);
+
+            // Escape sequences can straddle chunk boundaries; hold an unfinished suffix back and
+            // prepend it to the next chunk instead of letting its tail through as literal text (#10504).
+            var (complete, pending) = AnsiText.SplitIncompleteAnsiSuffix(pendingAnsi + new string(chars));
+            pendingAnsi = pending;
+            AppendText(complete);
+        }
+
+        void FlushOutput()
+        {
+            var flushBuffer = new char[4];
+            var flushCount = decoder.GetChars([], 0, 0, flushBuffer, 0, flush: true);
+            var rest = pendingAnsi + new string(flushBuffer, 0, flushCount);
+            pendingAnsi = string.Empty;
+            AppendText(rest);
+        }
+
+        int? exitCode = null;
         try
         {
             var result = await operations.ExecAsync(
@@ -126,51 +154,38 @@ public static class BashExecutor
                     new ShellExecOptions { OnData = OnData },
                     options.CancellationToken)
                 .ConfigureAwait(false);
-
-            var fullOutput = string.Concat(outputChunks);
-            var truncationResult = Truncate.TruncateTail(fullOutput);
-            if (truncationResult.Truncated)
-            {
-                EnsureTempFile();
-            }
-
-            tempFileWriter?.Dispose();
-            tempFileWriter = null;
-            tempFileStream = null;
-            var cancelled = options.CancellationToken.IsCancellationRequested;
-
-            return new BashResult
-            {
-                Output = truncationResult.Truncated ? truncationResult.Content : fullOutput,
-                ExitCode = cancelled ? null : result.ExitCode,
-                Cancelled = cancelled,
-                Truncated = truncationResult.Truncated,
-                FullOutputPath = tempFilePath,
-            };
+            exitCode = result.ExitCode;
         }
         catch (Exception) when (options.CancellationToken.IsCancellationRequested)
         {
-            var fullOutput = string.Concat(outputChunks);
-            var truncationResult = Truncate.TruncateTail(fullOutput);
-            if (truncationResult.Truncated)
-            {
-                EnsureTempFile();
-            }
-
-            tempFileWriter?.Dispose();
-            return new BashResult
-            {
-                Output = truncationResult.Truncated ? truncationResult.Content : fullOutput,
-                ExitCode = null,
-                Cancelled = true,
-                Truncated = truncationResult.Truncated,
-                FullOutputPath = tempFilePath,
-            };
+            // An aborted command still returns the output it produced so far.
         }
         catch
         {
             tempFileWriter?.Dispose();
             throw;
         }
+
+        FlushOutput();
+        var fullOutput = string.Concat(outputChunks);
+        var truncationResult = Truncate.TruncateTail(fullOutput);
+        if (truncationResult.Truncated)
+        {
+            EnsureTempFile();
+        }
+
+        tempFileWriter?.Dispose();
+        tempFileWriter = null;
+        tempFileStream = null;
+        var cancelled = options.CancellationToken.IsCancellationRequested;
+
+        return new BashResult
+        {
+            Output = truncationResult.Truncated ? truncationResult.Content : fullOutput,
+            ExitCode = cancelled ? null : exitCode,
+            Cancelled = cancelled,
+            Truncated = truncationResult.Truncated,
+            FullOutputPath = tempFilePath,
+        };
     }
 }

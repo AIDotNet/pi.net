@@ -641,6 +641,89 @@ public sealed class SessionRuntimeLeafTests : IDisposable
         Assert.Null(result.ExitCode);
     }
 
+    // ---- bash-executor: escape sequences split across chunks (pi#10504) -----
+
+    [Fact]
+    public async Task BashExecutor_StripsAColorResetSplitInsideItsParameters()
+    {
+        var (output, streamed) = await RunChunkedBashAsync(
+            [Chunk("\u001B[31mERROR: file.py:1\u001B[0"), Chunk("m\n")]);
+        Assert.Equal("ERROR: file.py:1\n", output);
+        Assert.Equal("ERROR: file.py:1\n", streamed);
+    }
+
+    [Fact]
+    public async Task BashExecutor_StripsAColorCodeSplitRightAfterEscape()
+    {
+        var (output, streamed) = await RunChunkedBashAsync([Chunk("before\u001B"), Chunk("[32mafter\n")]);
+        Assert.Equal("beforeafter\n", output);
+        Assert.Equal("beforeafter\n", streamed);
+    }
+
+    [Fact]
+    public async Task BashExecutor_StripsAnOscSequenceSplitBeforeItsTerminator()
+    {
+        var (output, _) = await RunChunkedBashAsync(
+            [Chunk("a\u001B]0;window "), Chunk("title\u001B"), Chunk("\\b\n")]);
+        Assert.Equal("ab\n", output);
+    }
+
+    [Fact]
+    public async Task BashExecutor_FlushesAnIncompleteMultiByteCharacterAtTheEnd()
+    {
+        // First byte of "é" (U+00E9) on its own: the decoder holds it until the flush.
+        var (output, streamed) = await RunChunkedBashAsync([Chunk("ok"), [0xC3]]);
+        Assert.Equal("ok\uFFFD", output);
+        Assert.Equal("ok\uFFFD", streamed);
+    }
+
+    [Fact]
+    public async Task BashExecutor_DoesNotHoldBackOutputBehindALongUnterminatedSequence()
+    {
+        // Longer than AnsiText.MaxPendingAnsiLength (256): the held-back window can no longer reach it.
+        var longSequence = new string('x', 300);
+        string streamedBeforeExit = string.Empty;
+        await RunChunkedBashAsync(
+            [Chunk("\u001B]" + longSequence)],
+            streamed => streamedBeforeExit = streamed);
+        Assert.Equal("]" + longSequence, streamedBeforeExit);
+    }
+
+    private static byte[] Chunk(string text) => Encoding.UTF8.GetBytes(text);
+
+    private static async Task<(string Output, string Streamed)> RunChunkedBashAsync(
+        IReadOnlyList<byte[]> chunks,
+        Action<string>? beforeExit = null)
+    {
+        var deltas = new List<string>();
+        var result = await BashExecutor.ExecuteBashWithOperationsAsync(
+            "custom",
+            Path.GetTempPath(),
+            new ChunkedBashOperations(
+                chunks,
+                beforeExit is null ? null : () => beforeExit(string.Concat(deltas))),
+            new BashExecutorOptions { OnChunk = deltas.Add });
+        return (result.Output, string.Concat(deltas));
+    }
+
+    private sealed class ChunkedBashOperations(IReadOnlyList<byte[]> chunks, Action? beforeExit) : IBashToolOperations
+    {
+        public Task<ShellExecResult> ExecAsync(
+            string command,
+            string cwd,
+            ShellExecOptions options,
+            CancellationToken cancellationToken)
+        {
+            foreach (var chunk in chunks)
+            {
+                options.OnData(chunk);
+            }
+
+            beforeExit?.Invoke();
+            return Task.FromResult(new ShellExecResult(0));
+        }
+    }
+
     // ---- output-guard ------------------------------------------------------
 
     [Fact]
