@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/badlogic/pi-mono) — are documented here.
+All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/earendil-works/pi) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
 ## [Unreleased]
