@@ -10,6 +10,8 @@ Pi.NET is a .NET 10 port of [Pi](https://github.com/earendil-works/pi). Pi is a 
 
 Pi's philosophy is "make Pi fit your workflow, not the other way around": each library does one minimal-but-complete thing, and you compose the layers above it yourself. This project carries that philosophy over — rather than mechanically translating TS into C#, it rebuilds everything in idiomatic C# with semantic equivalence (discriminated unions → abstract records with pattern matching, JS Proxy → explicit verb APIs).
 
+> **This project is entirely AI-driven.** The code, tests and docs under `src/`, `tests/`, `samples/` and `docs/` are written and maintained by AI against the TypeScript implementation as the behavioral reference. That buys a lot of speed and consistency — and it also means there will be rough edges. **Hit a bug? [Open an issue](https://github.com/AIDotNet/pi.net/issues/new) — reports are exactly how it gets fixed.**
+
 <p align="center">
   <a href="https://github.com/AIDotNet/pi.net/blob/main/docs/media/pi-net-promo.mp4">
     <img src="https://raw.githubusercontent.com/AIDotNet/pi.net/main/docs/media/pi-net-promo-poster.png" alt="Pi.NET product promo" width="820">
@@ -41,10 +43,13 @@ Pi's philosophy is "make Pi fit your workflow, not the other way around": each l
 | **Pi.Codemode** | Sandboxed JavaScript execution whose only capability is calling injected tools; @options source parsing, TypeScript declaration rendering and sandbox orchestration, with a default Jint VM engine behind the replaceable `ICodemodeJsEngine` seam |
 | **Pi.Tui** | Terminal UI framework: differential rendering + synchronized output, grapheme-level width measurement and wrapping, ANSI/OSC parsing with SGR tracking, Kitty keyboard protocol and key decoding, overlay stack, focus management, mouse event dispatch, colors (OKLCH/OKHSL) and keybinding registry, stdin escape-sequence buffering, inline terminal images (Kitty / iTerm2 protocols), stack/scroll layout engine, LaTeX math rendering, slash-command and file-path autocomplete (with `fd` fuzzy search), single-line input component (Emacs-style kill/yank, undo, bracketed paste), select-list component (filtering / scroll window / mouse / wheel), multi-line editor, markdown rendering, settings list, image component, and the alternate-screen renderer (full-screen mode: search / select-and-copy / scrollbar / Kitty image cache / overlay routing) |
 | **Pi.Durable** | Durable sessions, memory / SQLite / JSONL-file storage backends, task graph, recovery, and coding-agent harness |
+| **Pi.Env** | Remote execution environments over SSH: the `pi-env` daemon client and the framed protocol it speaks (the daemon itself is an upstream native artifact) |
 | **Pi.CodingAgent / Pi.Cli** | Interactive coding agent, tools, compiled .NET extensions, CLI, RPC, and experimental server/worker runtime |
 | **Pi.Vacation** | Separate research/planning host built on the coding-agent runtime |
 | **Pi.DurableHost** | Separate durable-session host (`pi-durable`) built on the coding-agent runtime, with the `subagent` tool and per-directory execution environments |
 | **Pi.Evals** | Native .NET host and documentation eval runner; paired documentation evals use Docker |
+
+The table covers the whole repo. **Pi.Telemetry, Pi.Protocol, Pi.Ai, Pi.Agent, Pi.Mcp, Pi.Chord, Pi.Server, Pi.Client, Pi.Codemode, Pi.Tui, Pi.Durable, Pi.Env and Pi.CodingAgent are the 13 libraries published to nuget.org**; `Pi.Cli`, `Pi.Vacation`, `Pi.DurableHost` and `Pi.Evals` are executables built from source and are deliberately not packed.
 
 The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](https://github.com/AIDotNet/pi.net/blob/main/src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and documented TypeScript/.NET differences are in [migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md).
 
@@ -81,6 +86,7 @@ Package contents, release process and rollback are documented in [docs/publishin
 Requires the .NET 10 SDK.
 
 ```bash
+dotnet restore Pi.slnx
 dotnet build Pi.slnx --no-restore
 dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```
@@ -94,3 +100,17 @@ dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 ## Migration Status
 
 Implementation progress, phase-by-phase evidence, and known TypeScript/.NET differences are tracked in [docs/migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md).
+
+## Issues
+
+Because the project is generated and maintained by AI, the most valuable thing you can give it is a precise failure report. [Open an issue](https://github.com/AIDotNet/pi.net/issues/new) when something misbehaves — a crash, a wrong result, a behavior that differs from upstream Pi, or a doc sentence that no longer matches the code.
+
+A report that gets triaged fastest includes:
+
+- the package and version (`dotnet list package`, or `pi --version` for the CLI) and your `dotnet --info` summary;
+- a minimal repro — ideally a few lines against `samples/Pi.Samples.FauxAgent`, which runs without an API key;
+- what you expected versus what happened, and if relevant the upstream TypeScript behavior you were comparing against.
+
+## License
+
+MIT — see [LICENSE](https://github.com/AIDotNet/pi.net/blob/main/LICENSE). Pi.NET is a port of [Pi](https://github.com/earendil-works/pi) by Mario Zechner; the upstream copyright is retained alongside the port's.

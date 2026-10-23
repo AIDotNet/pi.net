@@ -10,6 +10,8 @@ Pi.NET 是 [Pi](https://github.com/earendil-works/pi) 的 .NET 10 移植版。Pi
 
 Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只做最小而完整的事，上层由你自己组合。本项目沿用这一理念——不是把 TS 代码翻成 C# 就完事，而是在语义等价的前提下用 C# 的方式重建（判别联合 → abstract record 模式匹配、JS Proxy → 显式动词 API）。
 
+> **本项目完全由 AI 驱动。** `src/`、`tests/`、`samples/`、`docs/` 下的代码、测试与文档都由 AI 以 TS 实现为行为参考生成并维护。这换来了推进速度和一致性，也意味着必然存在粗糙的地方。**遇到 bug 欢迎直接[提 issue](https://github.com/AIDotNet/pi.net/issues/new)——报告本身就是它被修好的方式。**
+
 <p align="center">
   <a href="https://github.com/AIDotNet/pi.net/blob/main/docs/media/pi-net-promo.mp4">
     <img src="https://raw.githubusercontent.com/AIDotNet/pi.net/main/docs/media/pi-net-promo-poster.png" alt="Pi.NET 产品宣传片" width="820">
@@ -41,10 +43,13 @@ Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只�
 | **Pi.Codemode** | 沙箱化 JavaScript 执行：唯一能力是调用注入的工具；@options 源码解析、TypeScript 声明渲染与沙箱编排，默认由 Jint 承载 VM，可通过 `ICodemodeJsEngine` 替换 |
 | **Pi.Tui** | 终端 UI 框架：差分渲染 + 同步输出、字素级宽度测量与换行、ANSI/OSC 解析与 SGR 跟踪、Kitty 键盘协议与按键解码、overlay 栈、焦点管理、鼠标事件派发、颜色（OKLCH/OKHSL）与键位注册表、stdin 转义序列缓冲、终端内联图像（Kitty / iTerm2 协议）、栈/滚动布局引擎、LaTeX 数学渲染、斜杠命令与文件路径自动补全（含 `fd` 模糊搜索）、单行输入组件（Emacs 风格 kill/yank、撤销、括号粘贴）、选择列表组件（过滤/滚动窗口/鼠标/滚轮）、多行编辑器、markdown 渲染、设置列表、图像组件、备用屏渲染器（全屏模式：搜索 / 选择与复制 / 滚动条 / Kitty 图像缓存 / overlay 路由） |
 | **Pi.Durable** | Durable 会话、内存 / SQLite / JSONL 文件存储后端、任务图、恢复机制与 coding-agent harness |
+| **Pi.Env** | SSH 远程执行环境：`pi-env` daemon 客户端及它所讲的帧协议（daemon 本身是上游的原生构件） |
 | **Pi.CodingAgent / Pi.Cli** | 交互式编码 Agent、工具、已编译 .NET 扩展、CLI、RPC 与实验性服务/worker runtime |
 | **Pi.Vacation** | 基于 coding-agent runtime 的独立研究与规划宿主 |
 | **Pi.DurableHost** | 基于 coding-agent runtime 的独立 durable 会话宿主（`pi-durable`），带 `subagent` 工具与按目录缓存的执行环境 |
 | **Pi.Evals** | 原生 .NET host/documentation 评测工具；配对文档评测使用 Docker |
+
+上表覆盖整个仓库。**其中 Pi.Telemetry、Pi.Protocol、Pi.Ai、Pi.Agent、Pi.Mcp、Pi.Chord、Pi.Server、Pi.Client、Pi.Codemode、Pi.Tui、Pi.Durable、Pi.Env、Pi.CodingAgent 是发布到 nuget.org 的 13 个库**；`Pi.Cli`、`Pi.Vacation`、`Pi.DurableHost`、`Pi.Evals` 是可执行项目，从源码构建，刻意不打成包。
 
 TypeScript monorepo 仍是行为参考；随包提供的上游 docs/examples 保留为 TypeScript 参考资料，C# 扩展 API 请看 [.NET 扩展指南](https://github.com/AIDotNet/pi.net/blob/main/src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)。权威迁移阶段、验收证据与已记录的 TypeScript/.NET 差异见 [migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md)。
 
@@ -81,6 +86,7 @@ dotnet run --project samples/Pi.Samples.McpClient      # 独立 MCP 客户端
 需要 .NET 10 SDK。
 
 ```bash
+dotnet restore Pi.slnx
 dotnet build Pi.slnx --no-restore
 dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```
@@ -94,3 +100,17 @@ dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 ## 迁移状态
 
 实施进度、逐阶段验收证据与已记录的 TypeScript/.NET 差异统一维护在 [docs/migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md)。
+
+## 问题反馈
+
+既然项目由 AI 生成和维护，你能给它最有价值的东西就是一份精确的失败报告。出现崩溃、结果不对、与上游 Pi 行为不一致，或者文档某句话已经和代码对不上时，请[提 issue](https://github.com/AIDotNet/pi.net/issues/new)。
+
+最快被定位的报告通常包含：
+
+- 包名与版本（`dotnet list package`，CLI 用 `pi --version`），以及 `dotnet --info` 的摘要；
+- 最小复现——最好基于 `samples/Pi.Samples.FauxAgent` 改几行，它不需要 API key 就能跑完整循环；
+- 你期望的结果 vs 实际结果；如果是在和上游对比，附上对应的 TypeScript 行为。
+
+## 许可
+
+MIT，见 [LICENSE](https://github.com/AIDotNet/pi.net/blob/main/LICENSE)。Pi.NET 是 Mario Zechner 的 [Pi](https://github.com/earendil-works/pi) 的移植版，上游版权与本项目的版权一并保留。
