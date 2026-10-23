@@ -5,8 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-23
+
+修掉 1.4.0 已经发出去的三处缺陷。它们在 `v1.4.0` 打 tag 之后才修好，而 nuget.org 的
+`id + version` 不可覆盖，所以只能发新版本——1.4.0 的那批包仍带这些 bug，建议 unlist。
+
 ### Fixed
 
+- **终端输入管线根本没接线（C383）**: `StdinBuffer` 此前只在单测里被实例化，生产路径只有
+  一个「状态查询期间才生效」的临时聚合在兜着。于是终端对 OSC 10/11/4 配色查询的应答
+  （`rgb:cccc/cccc/cccc` 之类 + 16 色调色板）被 `Console.ReadKey` 逐键送达后逐字符漏进编辑器，
+  同时 `QueryTerminalColorsAsync` 超时——Windows 上的主题明暗探测实际失效。现在管线是
+  `MapKey` → `StdinBuffer.Process` → `Data`/`Paste`，并新增 `ResolveEscapeTimeoutMs`
+  （`PI_TUI_ESC_TIMEOUT`，SSH 下自动加宽到 100 ms）。附带两处：重定向输入分支对单个代理项调
+  `char.ConvertFromUtf32` 会抛 `ArgumentOutOfRangeException`，改为按 UTF-16 码元喂缓冲；
+  `Stop()` 现在会释放缓冲与其冲刷计时器。
+- **备用屏退出复原漏了前导复位（C384）**: 退出复原的前缀只走基类版本，缺了同步输出复位、
+  关闭鼠标上报、恢复自动换行三项。跳过 `stop()` 的退出路径（Ctrl+C 打断登录对话框、
+  `Environment.Exit`）走 `AppDomain.ProcessExit` 兜底时，`\x1b[?1003h` 一直开着，
+  Windows Terminal 持续把 `\x1b[<35;x;yM` 运动事件写进控制台输入，父 shell 当键入回显——
+  表现为「Ctrl+C 退出后终端一直刷乱码」。已按上游覆写前缀（仅在备用屏激活时下发）。
+- **OpenAI Responses 鉴权缺失（C170）**: `apiKey` 没有被注入请求头，`Authorization: Bearer`
+  只在调用方自己传头时才存在，直接用 API key 调用会 401。现在 `ApiKeyHeader` 显式把它并入
+  头合并，保留 `"unused"` 哨兵语义避免重复写入。
 - **启动横幅与 `--version` 仍报 `v1.0.4`**: `Config.Version` 沿用 TS 语义，优先读随包分发的
   `src/Pi.CodingAgent/Assets/package.json` 的 `version`，而 1.4.0 发版只改了
   `Directory.Build.props` 的 `<Version>`（只影响程序集版本，是回落路径）。该资产已重新从上游

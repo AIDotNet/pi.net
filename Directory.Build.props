@@ -20,7 +20,7 @@
     with -p:Version=<tag version>, and local `dotnet pack` uses it as-is.
   -->
   <PropertyGroup>
-    <Version>1.4.0</Version>
+    <Version>1.4.1</Version>
     <Authors>xuzeyu91</Authors>
     <Product>Pi.NET</Product>
     <Description>Pi.NET - a .NET 10 port of Pi, a minimal and extensible agent harness. See https://github.com/xuzeyu91/pi.net for the full package list.</Description>
