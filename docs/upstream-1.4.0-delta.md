@@ -209,8 +209,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | `Pi.Ai.Tests` | 509 / 509 通过（第三十九批新增 6 例：跨模型丢弃思维块 / 同模型保留签名块 / 模型交替、
   错误工具结果图片在 Anthropic 与 Bedrock 上移到工具结果之后；第三十五批新增 3 例：413 请求体超限、
   ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5065 / 5065 通过（第三十九批新增 3 例：锁等待窗口、PowerShell 安装目录形状、
-  解析结果存在性；第三十八批新增 1 例 HTML 导出 CJK 强调接线；
+| `Pi.CodingAgent.Tests` | 5068 / 5068 通过（第四十批新增 3 例：握手未完成时打开 MCP 管理器、
+  重连在途时菜单仍可用、禁用再启用后工具定义走到新连接；第三十九批新增 3 例：锁等待窗口、
+  PowerShell 安装目录形状、解析结果存在性；第三十八批新增 1 例 HTML 导出 CJK 强调接线；
   第三十七批新增 5 例跨 chunk 拆分的 ANSI 序列；
   第三十六批新增 6 例工作树上下文，其中 2 例需要符号链接权限、无权限时跳过；
   第三十五批新增 8 例：恢复 loadout 的扩展工具激活 / 切树 / 压缩前删除 4 例、拆分回合的前缀摘要 focus 2 例、
@@ -288,7 +289,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    ~~收尾审计：五项遗漏修复（`/compact` 前缀摘要、扩展工具 loadout 激活、剪贴板进程组、ChatGPT 限额文案、
    增量工具提示的移除登记、413 请求体超限）~~（第三十五批）→ ~~收尾复核：工作树上下文 + env / 托管安装的
    不适用判定~~（第三十六批）→ ~~跨 chunk 拆分的 ANSI 序列~~（第三十七批）→ ~~HTML 导出的 CJK 强调~~
-   （第三十八批）→ ~~剩余提交复核：跨模型思维、错误结果图片、Windows 锁与 shell 探测~~（第三十九批）。
+   （第三十八批）→ ~~剩余提交复核：跨模型思维、错误结果图片、Windows 锁与 shell 探测~~（第三十九批）
+   → ~~MCP 管理器响应性（启动连接未完成即可开、动作走后台、重连串行化）~~（第四十批）。
    至此 §3.5.1 表中除已判
    不适用的两项外无待办项，`v1.0.4..v1.4.0` 全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
@@ -1219,6 +1221,68 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.aj 第四十批（MCP 管理器响应性）落地明细
+
+上游 `2db5e359b`（#10562）：启动连接没跑完就打开 `/mcp` 会卡住，改配置的动作也把菜单锁着。
+端口 `src/Pi.CodingAgent/Extensions/Mcp/McpExtension.cs` 按同一语义重排：
+
+**1. 连接尝试的身份令牌（`attempt` / `closing`）**
+
+- `McpServer` 新增 `Attempt`（TS `attempt?: symbol`；C# 无 symbol，用 `new object()` 作身份令牌，
+  比较一律 `ReferenceEquals`）与 `Closing`（脱钩连接的清理任务）。
+- `StartConnectionAsync(server, after)` 不再接收调用方给的 `Func<bool> isCurrent`，改为内部自建
+  `attempt` 并合成判定：`session` 仍是同一个 CTS、未取消、`server.Attempt == attempt`、
+  `IsEnabled(server)`、`servers.Contains(server)`。这样禁用、替换、会话结束都会让旧尝试作废，
+  调用点（session_start / McpServersChange / 重新启用）不必各自写一遍条件。
+- `CreateConnectionAsync(server, isCurrent)` 返回 `McpServerConnection?`（作废时 null），并把
+  `OnTools` / `OnChange` 包一层：脱钩连接的 `onChange` 只把 `tokensAtSignIn` 删掉，不再往会话里灌
+  工具和状态。TS 在 `loadMcpRuntime()` 之后再查一次，端口没有运行时加载（差异 C189），
+  所以在构造前查一次即可。
+
+**2. 工具定义在执行时解析当前连接**
+
+`RegisterTools` 里 `GetClient` 原来捕获注册那一刻的 `connection`。一次「准备好的调用」可能跨过
+禁用/重新启用，于是 `GetClient` 改为在**执行时**按名字重新找 server：禁用 → `is disabled.`、
+尚未连上 → `is still starting.`、曝光为 `hidden` 或该 server 已不再提供这个工具 →
+`is no longer available.`。`ReadableResources` 同样按名字比较而不是按连接实例。
+
+**3. 等待语义**
+
+- `WaitForServersAsync` 改成循环：等完一批后，如果某个 server 的 `Ready` 已经被换成新的尝试
+  （重连、禁用后重新启用），就再等一轮，而不是在旧连接上返回。同时过滤掉已禁用或已移除的 server；
+  因此它不再是 `static`（要读闭包里的 `servers`）。
+- `ReconnectAsync` 先串到 `server.Ready` 之后，再把本次重连的 `Ready` 装回去，
+  于是「关旧传输再开新的」不会和启动连接交错，`tool_call` 也能等到它。
+- `SetEnabledAsync(false)` 把 `connection.CloseAsync()` 与 `server.Ready` 合成 `server.Closing` 再
+  等它（重连可能已经把旧 client 摘掉、正在等传输关闭，单关连接等不到那一步）；
+  `(true)` 则把 `server.Closing` 作为 `after` 传给 `StartConnectionAsync`，替换连接前先等清理完。
+
+**4. 管理器不再被动作阻塞**
+
+新增 `RunInBackground(ctx, server, operation)`：先启动 `operation()`、**再**读 `server.Attempt`
+（禁用会同步把 attempt 置空，启用会同步写入新 attempt，顺序反过来就认错尝试），
+完成时只有会话、尝试、server 列表都还对得上才写 `server.Message` 并 `EmitChange`。
+管理器里的 `reconnect` 与 `enable*/disable*` 改走它，`status("Reconnecting…")` 之类的临时状态行去掉
+——连接状态和错误本身已经报出来了。`shutdown` 把 `backgroundActions` 和待关闭的连接一起等。
+
+**5. `/mcp` 与 `tool_call`**
+
+- 命令处理器：无参数时 TUI 直接开管理器（不再 `await pending`），仅 Print 模式的状态行与其余子命令
+  才等启动连接跑完。
+- `tool_call` 钩子：候选集合从「未连上的 server」放宽为「已启用且有 `Ready` 的 server」
+  （重连时显示状态还是 connected，但 `Ready` 已在途），并且**直接 MCP 工具只等它自己的 server**
+  （`toolOwners` 里 `server\0tool` 的前半段），codemode 脚本按脚本需要等，`tool_search` 与资源工具等全部。
+
+**测试**（`McpExtensionTests`，+3）：`McpCommand_OpensTheManagerBeforeTheStartupConnectionsFinish`
+（握手卡住时管理器仍立刻打开）、`Manage_KeepsTheMenuUsableWhileAReconnectIsStillRunning`
+（重连卡住时菜单照常走完四步）、
+`McpTool_ResolvesTheCurrentConnectionAfterTheServerIsDisabledAndEnabledAgain`
+（禁用再启用后，先前拿到的工具定义走**新**连接）。第三条在旧实现下报
+`MCP server "docs" is shut down`，确认用例有效。测试脚手架为此加了 `InitializeGate` / `Handshakes` /
+`AnsweredHandshakes` 与按脚本作答的 `QueueUi`。
+
+**测试**：`Pi.CodingAgent.Tests` 5068 / 5068（3 跳过，+3）、`Pi.Mcp.Tests` 55 / 55。
 
 ### 6.ai 第三十九批（剩余提交复核：跨模型思维、错误结果图片、Windows 锁与 shell 探测）落地明细
 

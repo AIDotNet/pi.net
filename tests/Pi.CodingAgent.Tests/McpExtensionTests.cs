@@ -18,6 +18,7 @@ using Pi.Tui;
 using Xunit;
 // Both namespaces bind these two names; the extension contract is the one the production code uses.
 using KeybindingsManager = Pi.CodingAgent.Core.KeybindingsManager;
+using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
 using NewSessionOptions = Pi.CodingAgent.Core.Extensions.NewSessionOptions;
 using Pi.Durable.Env;
 
@@ -83,6 +84,18 @@ public class McpExtensionTests
         /// <summary>Never answers <c>initialize</c>, as a server that is slow to start does.</summary>
         public bool HoldInitialize { get; init; }
 
+        /// <summary>
+        /// Holds the next <c>initialize</c> until the task completes, so a test can keep a connection
+        /// attempt in flight and release it later.
+        /// </summary>
+        public Task? InitializeGate { get; set; }
+
+        /// <summary>How many <c>initialize</c> requests reached the server.</summary>
+        public int Handshakes { get; private set; }
+
+        /// <summary>How many <c>initialize</c> requests were answered.</summary>
+        public int AnsweredHandshakes { get; private set; }
+
         /// <summary>Set once the handshake was answered.</summary>
         public bool Connected { get; private set; }
 
@@ -105,16 +118,25 @@ public class McpExtensionTests
 
         public override Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-        public override Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
+        public override async Task SendAsync(JsonRpcMessage message, CancellationToken cancellationToken = default)
         {
             if (message is not JsonRpcMessage.Request request)
             {
-                return Task.CompletedTask;
+                return;
+            }
+
+            if (request.Method == "initialize")
+            {
+                Handshakes++;
+                if (InitializeGate is { } gate)
+                {
+                    await gate;
+                }
             }
 
             if (HoldInitialize && request.Method == "initialize")
             {
-                return Task.CompletedTask;
+                return;
             }
 
             if (_failures.TryGetValue(request.Method, out var queue) && queue.Count > 0)
@@ -127,6 +149,7 @@ public class McpExtensionTests
                 if (request.Method == "initialize")
                 {
                     Connected = true;
+                    AnsweredHandshakes++;
                 }
 
                 EmitMessage(new JsonRpcMessage.SuccessResponse(request.Id, handler(request)));
@@ -136,8 +159,6 @@ public class McpExtensionTests
                 EmitMessage(new JsonRpcMessage.ErrorResponse(request.Id,
                     new JsonRpcErrorObject(JsonRpcErrorCodes.MethodNotFound, "Method not found")));
             }
-
-            return Task.CompletedTask;
         }
 
         public override Task CloseAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -763,6 +784,126 @@ public class McpExtensionTests
         Assert.StartsWith("No MCP servers configured. Add them to ", menu.Empty, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task McpCommand_OpensTheManagerBeforeTheStartupConnectionsFinish()
+    {
+        var gate = new TaskCompletionSource();
+        var slow = Answered();
+        slow.InitializeGate = gate.Task;
+        var shown = false;
+        var harness = await Harness.CreateAsync(Harness.TestOptions(new LoadedMcpConfig(
+            [RawEntry("slow", StdioConfig)],
+            [])) with
+        {
+            CreateTransport = (_, _, _) => slow,
+            ShowManager = (_, _) =>
+            {
+                shown = true;
+                return Task.CompletedTask;
+            },
+        });
+        harness.Runner.SetUIContext(new RecordingUi(), ExtensionMode.Tui);
+
+        await harness.StartAsync();
+
+        // The startup connection is still waiting for its handshake; the manager must not wait for it.
+        var handling = Command(harness).Handler("", harness.Runner.CreateCommandContext());
+        var completed = await Task.WhenAny(handling, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(handling, completed);
+        Assert.True(shown);
+
+        // Release the handshake so the startup attempt finishes instead of outliving the test.
+        gate.TrySetResult();
+        await WaitUntilAsync(() => slow.AnsweredHandshakes == 1, "the startup handshake to finish");
+    }
+
+    [Fact]
+    public async Task Manage_KeepsTheMenuUsableWhileAReconnectIsStillRunning()
+    {
+        var fake = Answered();
+        var scripted = new QueueUi(["docs", "reconnect", null, null]);
+        var harness = await Harness.CreateAsync(Harness.TestOptions(new LoadedMcpConfig(
+            [RawEntry("docs", StdioConfig)],
+            [])) with
+        {
+            CreateTransport = (_, _, _) => fake,
+            ShowManager = async (_, manage) => await manage(scripted),
+        });
+        await harness.StartAsync();
+        await WaitUntilAsync(() => fake.AnsweredHandshakes == 1, "the server to connect");
+
+        // The reconnect hangs until the gate is released, so the menus after it are reached only when
+        // the action ran in the background instead of holding up the manager.
+        var gate = new TaskCompletionSource();
+        fake.InitializeGate = gate.Task;
+        harness.Runner.SetUIContext(new RecordingUi(), ExtensionMode.Tui);
+
+        var handling = Command(harness).Handler("", harness.Runner.CreateCommandContext());
+
+        await WaitUntilAsync(() => fake.Handshakes == 2, "the reconnect to reach the server");
+        var completed = await Task.WhenAny(handling, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(handling, completed);
+        // Servers menu, the server's menu twice (the action came back at once), then close.
+        Assert.Equal(4, scripted.Menus);
+
+        gate.TrySetResult();
+        await WaitUntilAsync(() => fake.AnsweredHandshakes == 2, "the reconnect to finish");
+    }
+
+    [Fact]
+    public async Task McpTool_ResolvesTheCurrentConnectionAfterTheServerIsDisabledAndEnabledAgain()
+    {
+        var fake = Answered();
+        fake.On("tools/call", _ => JsonNode.Parse("""{"content":[{"type":"text","text":"ok from the server"}]}"""));
+        var scripted = new QueueUi(["docs", "disable", null, "docs", "enable", null, null]);
+        var harness = await Harness.CreateAsync(Harness.TestOptions(new LoadedMcpConfig(
+            [RawEntry("docs", StdioConfig)],
+            [])) with
+        {
+            CreateTransport = (_, _, _) => fake,
+            // The enable and disable actions save the config; keep that in memory instead of on disk.
+            UpdateConfig = (_, _) => { },
+            ShowManager = async (_, manage) => await manage(scripted),
+        });
+        await harness.StartAsync();
+
+        ToolDefinition? PreparedTool()
+        {
+            try
+            {
+                return harness.Extension.Tools.Values
+                    .FirstOrDefault(tool => tool.Definition.Name.Contains("read_file", StringComparison.Ordinal))
+                    ?.Definition;
+            }
+            catch (InvalidOperationException)
+            {
+                // The server is still registering its tools.
+                return null;
+            }
+        }
+
+        await WaitUntilAsync(() => PreparedTool() is not null, "the tool to be registered");
+        // A prepared call holds on to the definition, whose connection is replaced by disable and enable.
+        var prepared = PreparedTool()!;
+
+        harness.Runner.SetUIContext(new RecordingUi(), ExtensionMode.Tui);
+        await Command(harness).Handler("", harness.Runner.CreateCommandContext());
+        await WaitUntilAsync(() => fake.AnsweredHandshakes == 2, "the server to be enabled again");
+
+        var result = await prepared.Execute(
+            "call-1",
+            new Dictionary<string, object?>(),
+            CancellationToken.None,
+            null,
+            null);
+
+        // With the connection captured at registration this call reaches the closed one instead.
+        Assert.Contains(
+            "ok from the server",
+            string.Concat(result.Content.OfType<TextContent>().Select(content => content.Text)),
+            StringComparison.Ordinal);
+    }
+
     // ==================================================================
     // before_agent_start writes the section
     // ==================================================================
@@ -988,6 +1129,29 @@ public class McpExtensionTests
         public void SetToolsExpanded(bool expanded)
         {
         }
+    }
+
+    /// <summary>Answers the manager's menus from a script, in order, and closes when it runs out.</summary>
+    private sealed class QueueUi(IEnumerable<string?> answers) : IMcpUi
+    {
+        private readonly Queue<string?> _answers = new(answers);
+
+        /// <summary>How many menus were built, so a test can tell how far the manager got.</summary>
+        public int Menus { get; private set; }
+
+        public Task<string?> MenuAsync(Func<McpMenu> build, Func<Action, Action>? subscribe = null)
+        {
+            Menus++;
+            _ = build();
+            return Task.FromResult(_answers.Count > 0 ? _answers.Dequeue() : null);
+        }
+
+        public void Status(string title, string message, Action? onCancel = null)
+        {
+        }
+
+        public Task<string?> RedirectUrlAsync(string title, string authorizationUrl, CancellationToken signal) =>
+            Task.FromResult<string?>(null);
     }
 
     /// <summary>

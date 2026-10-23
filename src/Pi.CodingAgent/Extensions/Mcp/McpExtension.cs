@@ -116,8 +116,20 @@ internal sealed class McpServer
     /// <summary>Result of the last <c>/mcp</c> action that failed, shown in the manager.</summary>
     public string? Message { get; set; }
 
+    /// <summary>
+    /// Identifies the current connection attempt; disabling or replacing it invalidates earlier work.
+    /// TS <c>attempt?: symbol</c>; C# has no symbol type, so a fresh <see cref="object"/> serves as the
+    /// identity token and comparisons use <see cref="ReferenceEquals(object?, object?)"/>.
+    /// </summary>
+    public object? Attempt { get; set; }
+
     /// <summary>Settles when the connection started for the server connected or failed.</summary>
     public Task? Ready { get; set; }
+
+    /// <summary>
+    /// Cleanup of a detached connection; a replacement waits for it before opening a transport.
+    /// </summary>
+    public Task? Closing { get; set; }
 }
 
 /// <summary>
@@ -659,8 +671,37 @@ public static partial class McpExtension
                         Exposure = McpServers.GetMcpToolExposure(entry.Config, tool.Name),
                         Namespace = ns,
                         TimeoutMs = connection.TimeoutMs,
-                        GetClient = () => Task.FromResult<IMcpToolCaller>(connection),
-                        ReadableResources = () => ResourceServers().Contains(connection),
+                        // A prepared call can outlive this definition's connection while the readiness
+                        // hook waits for a disable/re-enable. Resolve the replacement at execution time.
+                        GetClient = () =>
+                        {
+                            var current = FindServer(server);
+                            if (current is null || !IsEnabled(current))
+                            {
+                                return Task.FromException<IMcpToolCaller>(
+                                    new InvalidOperationException($"MCP server \"{server}\" is disabled."));
+                            }
+
+                            var client = current.Connection;
+                            if (client is null)
+                            {
+                                return Task.FromException<IMcpToolCaller>(
+                                    new InvalidOperationException($"MCP server \"{server}\" is still starting."));
+                            }
+
+                            if (McpServers.GetMcpToolExposure(current.Entry.Config, tool.Name)
+                                    == McpServers.Exposures.Hidden
+                                || (client.State == McpServerState.Connected
+                                    && !client.Tools.Any(offered => offered.Name == tool.Name)))
+                            {
+                                return Task.FromException<IMcpToolCaller>(
+                                    new InvalidOperationException(
+                                        $"MCP tool \"{server}/{tool.Name}\" is no longer available."));
+                            }
+
+                            return Task.FromResult<IMcpToolCaller>(client);
+                        },
+                        ReadableResources = () => ResourceServers().Any(current => current.Name == server),
                     });
                     definitions[definition.Name] = definition;
                     pi.RegisterTool(definition);
@@ -886,9 +927,18 @@ public static partial class McpExtension
                 EnsureDiscoveryActive(ctx);
             }
 
-            /** Create the server's connection. */
-            async Task<McpServerConnection> CreateConnectionAsync(McpServer server)
+            /**
+             * Create the server's connection, unless the attempt was invalidated meanwhile. TS also
+             * re-checks after `loadMcpRuntime`; the port has nothing to load (difference C189), so the
+             * check happens before the connection is built and the callbacks below cover the rest.
+             */
+            McpServerConnection? CreateConnectionAsync(McpServer server, Func<bool> isCurrent)
             {
+                if (!isCurrent())
+                {
+                    return null;
+                }
+
                 var connection = new McpServerConnection(new McpServerConnectionOptions
                 {
                     Entry = server.Entry,
@@ -899,8 +949,26 @@ public static partial class McpExtension
                         ? Task.FromResult<string?>(null)
                         : modelRegistry.GetApiKeyForProviderAsync(provider),
                     Log = GetServerLog(),
-                    OnTools = RegisterTools,
-                    OnChange = OnConnectionChange,
+                    // A detached connection keeps reporting after a disable or a replacement; its tools
+                    // and state must not reach the session any more.
+                    OnTools = detached =>
+                    {
+                        if (isCurrent())
+                        {
+                            RegisterTools(detached);
+                        }
+                    },
+                    OnChange = detached =>
+                    {
+                        if (isCurrent())
+                        {
+                            OnConnectionChange(detached);
+                        }
+                        else
+                        {
+                            tokensAtSignIn.Remove(detached);
+                        }
+                    },
                 });
                 server.Connection = connection;
                 EmitChange();
@@ -909,11 +977,20 @@ public static partial class McpExtension
 
             /**
              * Connect the server in the background. `server.ready` settles when it connected or failed;
-             * failures show in its state. It starts after `after`; `isCurrent` stops it when the session
-             * ended meanwhile. The returned task rejects when the connection cannot be made.
+             * failures show in its state. It starts after `after`, unless disabled, replaced, or shut down
+             * meanwhile.
              */
-            Task StartConnectionAsync(McpServer server, Func<bool> isCurrent, Task? after = null)
+            Task StartConnectionAsync(McpServer server, Task? after = null)
             {
+                var current = session;
+                var attempt = new object();
+                server.Attempt = attempt;
+                bool IsCurrent() =>
+                    ReferenceEquals(current, session)
+                    && !current.IsCancellationRequested
+                    && ReferenceEquals(server.Attempt, attempt)
+                    && IsEnabled(server)
+                    && servers.Contains(server);
                 var ready = RunAsync();
                 server.Ready = SwallowAsync(ready);
                 return ready;
@@ -925,13 +1002,13 @@ public static partial class McpExtension
                         await after.ConfigureAwait(false);
                     }
 
-                    if (!isCurrent())
+                    if (!IsCurrent())
                     {
                         return;
                     }
 
-                    var connection = await CreateConnectionAsync(server).ConfigureAwait(false);
-                    if (!isCurrent())
+                    var connection = CreateConnectionAsync(server, IsCurrent);
+                    if (connection is null || !IsCurrent())
                     {
                         return;
                     }
@@ -940,21 +1017,38 @@ public static partial class McpExtension
                 }
             }
 
-            /** Wait for servers still connecting, until they settle or <paramref name="signal"/> aborts. */
-            static async Task WaitForServersAsync(IReadOnlyList<McpServer> waiting, CancellationToken? signal)
+            /** Wait for the latest connection attempts, including ones queued while waiting, or an abort. */
+            async Task WaitForServersAsync(IReadOnlyList<McpServer> waiting, CancellationToken? signal)
             {
-                var ready = waiting
-                    .Where(server => server.Ready is not null)
-                    .Select(server => server.Ready!)
-                    .ToList();
-                if (ready.Count == 0 || signal?.IsCancellationRequested == true)
+                while (true)
                 {
-                    return;
-                }
+                    var ready = waiting
+                        .Where(server => IsEnabled(server) && servers.Contains(server) && server.Ready is not null)
+                        .Select(server => (Server: server, Ready: server.Ready))
+                        .ToList();
+                    if (ready.Count == 0 || signal?.IsCancellationRequested == true)
+                    {
+                        return;
+                    }
 
-                var aborted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                using var registration = signal?.Register(() => aborted.TrySetResult());
-                await Task.WhenAny(Task.WhenAll(ready), aborted.Task).ConfigureAwait(false);
+                    var aborted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    using (signal?.Register(() => aborted.TrySetResult()))
+                    {
+                        await Task
+                            .WhenAny(Task.WhenAll(ready.Select(entry => entry.Ready!)), aborted.Task)
+                            .ConfigureAwait(false);
+                    }
+
+                    // A reconnect or a disable/enable while waiting replaced the attempt: wait for the
+                    // new one too instead of returning behind a connection that is not there yet.
+                    if (signal?.IsCancellationRequested == true
+                        || ready.All(entry => !IsEnabled(entry.Server)
+                            || !servers.Contains(entry.Server)
+                            || ReferenceEquals(entry.Ready, entry.Server.Ready)))
+                    {
+                        return;
+                    }
+                }
             }
 
             /**
@@ -1089,14 +1183,29 @@ public static partial class McpExtension
                     return $"MCP server \"{server.Entry.Name}\" is disabled.";
                 }
 
+                // A reconnect closes the old transport before it opens a new one, so it is queued behind
+                // the attempt in flight instead of interleaving with it; callers wait for this one.
+                var previous = server.Ready;
+                var ready = RunReconnectAsync(previous);
+                server.Ready = SwallowAsync(ready);
                 try
                 {
-                    await connection.ReconnectAsync().ConfigureAwait(false);
+                    await ready.ConfigureAwait(false);
                     return null;
                 }
                 catch (Exception error)
                 {
                     return error.Message;
+                }
+
+                async Task RunReconnectAsync(Task? after)
+                {
+                    if (after is not null)
+                    {
+                        await after.ConfigureAwait(false);
+                    }
+
+                    await connection.ReconnectAsync().ConfigureAwait(false);
                 }
             }
 
@@ -1112,18 +1221,37 @@ public static partial class McpExtension
                 if (!enabled)
                 {
                     var connection = server.Connection;
+                    server.Attempt = null;
                     server.Connection = null;
+                    // A reconnect may already have detached its old client while awaiting transport
+                    // shutdown. Closing the connection alone does not wait for that reconnect.
+                    var closing = connection is null
+                        ? null
+                        : Task.WhenAll(connection.CloseAsync(), server.Ready ?? Task.CompletedTask);
+                    server.Closing = closing;
                     HideTools(server.Entry.Name);
                     EmitChange();
-                    if (connection is not null)
+                    try
                     {
-                        await connection.CloseAsync().ConfigureAwait(false);
+                        if (closing is not null)
+                        {
+                            await closing.ConfigureAwait(false);
+                        }
+                    }
+                    finally
+                    {
+                        if (ReferenceEquals(server.Closing, closing))
+                        {
+                            server.Closing = null;
+                        }
                     }
 
                     return null;
                 }
 
-                await StartConnectionAsync(server, () => true).ConfigureAwait(false);
+                // A replacement waits for the detached connection to finish closing before it opens a
+                // transport of its own.
+                await StartConnectionAsync(server, server.Closing).ConfigureAwait(false);
                 return null;
             }
 
@@ -1386,10 +1514,48 @@ public static partial class McpExtension
                     cancel.Token);
             }
 
+            /** Keep the subscribed menu usable while a connection opens or closes. */
+            void RunInBackground(IExtensionContext ctx, McpServer server, Func<Task<string?>> operation)
+            {
+                // Started before the attempt is read: enabling or disabling replaces it synchronously,
+                // and the late result must only land on the attempt this action produced.
+                var ready = operation();
+                var attempt = server.Attempt;
+                var current = session;
+
+                void Finish(string? message)
+                {
+                    if (!ReferenceEquals(current, session)
+                        || current.IsCancellationRequested
+                        || !ReferenceEquals(server.Attempt, attempt)
+                        || !servers.Contains(server))
+                    {
+                        return;
+                    }
+
+                    server.Message = message;
+                    EnsureDiscoveryActive(ctx);
+                    EmitChange();
+                }
+
+                _ = Track(ObserveAsync());
+
+                async Task ObserveAsync()
+                {
+                    try
+                    {
+                        Finish(await ready.ConfigureAwait(false));
+                    }
+                    catch (Exception error)
+                    {
+                        Finish(error.Message);
+                    }
+                }
+            }
+
             async Task RunActionAsync(IMcpUi ui, IExtensionContext ctx, McpServer server, string action)
             {
                 var signal = SessionSignal();
-                var name = server.Entry.Name;
                 string? message = null;
                 switch (action)
                 {
@@ -1397,9 +1563,12 @@ public static partial class McpExtension
                         message = await SignInWithUiAsync(ui, server).ConfigureAwait(false);
                         break;
                     case "reconnect":
-                        // A failure shows as the connection's state and error.
-                        ui.Status($"MCP server {name}", "Reconnecting…");
-                        await ReconnectAsync(server).ConfigureAwait(false);
+                        // Connection state and error already report failures, including required sign-ins.
+                        RunInBackground(ctx, server, async () =>
+                        {
+                            await ReconnectAsync(server).ConfigureAwait(false);
+                            return null;
+                        });
                         break;
                     case "signout":
                         await SignOutAsync(server).ConfigureAwait(false);
@@ -1416,9 +1585,8 @@ public static partial class McpExtension
                     case "disable-project":
                     {
                         var enable = action.StartsWith("enable", StringComparison.Ordinal);
-                        ui.Status($"MCP server {name}", enable ? "Connecting…" : "Disconnecting…");
-                        message = await SetEnabledAsync(server, enable, action.EndsWith("-project", StringComparison.Ordinal))
-                            .ConfigureAwait(false);
+                        RunInBackground(ctx, server, () => SetEnabledAsync(
+                            server, enable, action.EndsWith("-project", StringComparison.Ordinal)));
                         break;
                     }
                 }
@@ -1599,7 +1767,7 @@ public static partial class McpExtension
                     try
                     {
                         await Task
-                            .WhenAll(enabled.Select(server => StartConnectionAsync(server, IsCurrent, runtimeReady)))
+                            .WhenAll(enabled.Select(server => StartConnectionAsync(server, runtimeReady)))
                             .ConfigureAwait(false);
                         if (IsCurrent())
                         {
@@ -1693,12 +1861,12 @@ public static partial class McpExtension
                     return;
                 }
 
-                var pendingServers = servers
-                    .Where(server => IsEnabled(server)
-                        && server.Connection?.State != McpServerState.Connected
-                        && server.Ready is not null)
+                // Readiness can be pending while the display state is still connected: a reconnect first
+                // closes the old transport, then opens a new one. Settled tasks return immediately.
+                var readyServers = servers
+                    .Where(server => IsEnabled(server) && server.Ready is not null)
                     .ToList();
-                if (pendingServers.Count == 0)
+                if (readyServers.Count == 0)
                 {
                     return;
                 }
@@ -1707,15 +1875,24 @@ public static partial class McpExtension
                 var reach = tool.ReachesTools?.Invoke(call.Input);
                 if (reach is not null)
                 {
-                    waiting = [.. pendingServers.Where(server => ReachesServer(reach, server.Entry.Name))];
+                    waiting = [.. readyServers.Where(server => ReachesServer(reach, server.Entry.Name))];
                 }
                 else if (ResourceToolNames.Contains(tool.Name))
                 {
-                    waiting = pendingServers;
+                    waiting = readyServers;
                 }
                 else
                 {
-                    waiting = [];
+                    // A direct MCP call waits only for its own server, including a reconnect still
+                    // closing the old transport.
+                    var owner = toolOwners.GetValueOrDefault(call.ToolName);
+                    var separator = owner?.IndexOf('\0') ?? -1;
+                    if (separator >= 0)
+                    {
+                        owner = owner![..separator];
+                    }
+
+                    waiting = [.. readyServers.Where(server => server.Entry.Name == owner)];
                 }
 
                 await WaitForServersAsync(waiting, ctx.Signal).ConfigureAwait(false);
@@ -1771,7 +1948,7 @@ public static partial class McpExtension
                 try
                 {
                     await Task
-                        .WhenAll(connecting.Select(server => StartConnectionAsync(server, () => !signal.IsCancellationRequested)))
+                        .WhenAll(connecting.Select(server => StartConnectionAsync(server)))
                         .ConfigureAwait(false);
                     if (signal.IsCancellationRequested)
                     {
@@ -1802,15 +1979,16 @@ public static partial class McpExtension
                 var closing = Connections();
                 servers = [];
                 EmitChange();
-                await Task.WhenAll(closing.Select(connection => connection.CloseAsync())).ConfigureAwait(false);
-                // Aborted sign-ins clean up their callback server before the session is gone.
+                // Manager actions still opening or closing connections clean up before the session is gone.
                 Task[] tracked;
                 lock (backgroundActions)
                 {
                     tracked = [.. backgroundActions];
                 }
 
-                await Task.WhenAll(tracked).ConfigureAwait(false);
+                await Task
+                    .WhenAll([.. tracked, .. closing.Select(connection => connection.CloseAsync())])
+                    .ConfigureAwait(false);
             });
 
             // -------------------------------------------------------------------------------
@@ -1823,15 +2001,13 @@ public static partial class McpExtension
                 GetArgumentCompletions = prefix => Task.FromResult(ArgumentCompletions(prefix)),
                 Handler = async (args, ctx) =>
                 {
-                    if (pending is not null)
-                    {
-                        await pending.ConfigureAwait(false);
-                    }
-
                     var parts = WhitespaceRegex().Split(args.Trim()).Where(part => part.Length > 0).ToList();
                     var action = parts.Count > 0 ? parts[0] : null;
                     var name = parts.Count > 1 ? parts[1] : null;
                     var extra = parts.Skip(2).ToList();
+
+                    // The manager opens before the startup connections finish; its actions run in the
+                    // background, so its menus stay usable while a connection opens or closes.
                     if (action is null)
                     {
                         if (ctx.Mode == ExtensionMode.Tui)
@@ -1840,6 +2016,11 @@ public static partial class McpExtension
                         }
                         else
                         {
+                            if (pending is not null)
+                            {
+                                await pending.ConfigureAwait(false);
+                            }
+
                             ctx.Ui.Notify(FormatStatus(servers, configErrors, overridden), NotifyType.Info);
                         }
 
@@ -1850,6 +2031,11 @@ public static partial class McpExtension
                     {
                         ctx.Ui.Notify(McpUsage, NotifyType.Warning);
                         return;
+                    }
+
+                    if (pending is not null)
+                    {
+                        await pending.ConfigureAwait(false);
                     }
 
                     switch (action)
