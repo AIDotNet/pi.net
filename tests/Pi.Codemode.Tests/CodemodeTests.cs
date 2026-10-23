@@ -270,6 +270,114 @@ public class DeclarationTests
     {
         Assert.Equal(16_000, CodemodeDeclarations.DefaultInputSchemaMaxChars);
     }
+
+    // #10707：类型表达不出来的约束，进属性注释。
+    [Fact]
+    public void PutsConstraintsTheTypeCannotExpressOnPropertyCommentLines()
+    {
+        var type = CodemodeDeclarations.SchemaToType(Schema("""
+        {
+          "type": "object",
+          "properties": {
+            "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 30000, "default": 0,
+                           "description": "Wait in milliseconds." },
+            "id": { "type": "string", "pattern": "^[a-z]+$", "maxLength": 8 },
+            "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 5,
+                      "uniqueItems": true, "deprecated": true },
+            "name": { "type": "string" }
+          },
+          "required": ["id"]
+        }
+        """));
+        Assert.Equal(string.Join("\n",
+        [
+            "{",
+            "  // @maxLength 8 @pattern ^[a-z]+$",
+            "  id: string;",
+            "  name?: string;",
+            "  // @maxItems 5 @uniqueItems @deprecated",
+            "  tags?: Array<string>;",
+            "  // Wait in milliseconds.",
+            "  // @integer @minimum 0 @maximum 30000 @default 0",
+            "  timeoutMs?: number;",
+            "}",
+        ]), type);
+    }
+
+    [Fact]
+    public void ReadsConstraintsOfOptionalFieldsFromTheNonNullBranch()
+    {
+        // Pydantic 的 `limit: int | None = Field(None, ge=1, le=100)`。
+        Assert.Equal("{\n  // @integer @minimum 1 @maximum 100\n  limit?: number | null;\n}",
+            CodemodeDeclarations.SchemaToType(Schema("""
+            {"type":"object","properties":{"limit":{
+              "anyOf":[{"type":"integer","minimum":1,"maximum":100},{"type":"null"}],
+              "default":null,"title":"Limit"}}}
+            """)));
+        // 属性自身与分支的约束同时成立：下界取大、上界取小，其余按值去重后各自成标签。
+        Assert.Equal("{\n  // @integer @minimum 10 @maximum 20 @format port @format int32\n  n?: number | null;\n}",
+            CodemodeDeclarations.SchemaToType(Schema("""
+            {"type":"object","properties":{"n":{
+              "anyOf":[{"type":"integer","minimum":10,"maximum":50,"format":"int32"},{"type":"null"}],
+              "minimum":0,"maximum":20,"format":"port"}}}
+            """)));
+    }
+
+    [Fact]
+    public void ReadsDraft04BooleanExclusiveBounds()
+    {
+        var type = CodemodeDeclarations.SchemaToType(Schema("""
+        {
+          "type": "object",
+          "properties": {
+            "n": { "type": "integer", "minimum": 0, "exclusiveMinimum": true,
+                   "maximum": 10, "exclusiveMaximum": false },
+            "m": { "anyOf": [{ "type": "number", "maximum": 5, "exclusiveMaximum": true },
+                             { "type": "null" }], "maximum": 8 }
+          }
+        }
+        """));
+        Assert.Equal(string.Join("\n",
+        [
+            "{",
+            "  // @maximum 8 @exclusiveMaximum 5",
+            "  m?: number | null;",
+            "  // @integer @exclusiveMinimum 0 @maximum 10",
+            "  n?: number;",
+            "}",
+        ]), type);
+    }
+
+    [Fact]
+    public void LeavesOutLongTagsAndEscapesLineTerminators()
+    {
+        // 超长 default 整条略去，于是只剩单行类型。
+        var longDefault = """{"type":"object","properties":{"config":{"type":"object","default":{"text":"PLACEHOLDER"}}}}"""
+            .Replace("PLACEHOLDER", new string('x', 100));
+        Assert.Equal("{ config?: { [key: string]: unknown; }; }",
+            CodemodeDeclarations.SchemaToType(Schema(longDefault)));
+        // 说明里的 U+2028 分段；pattern / default 里的行终止符转成 \uXXXX。
+        var type = CodemodeDeclarations.SchemaToType(Schema(
+            """{"type":"object","properties":{"sep":{"type":"string","pattern":"^[\r\n\u2028\u2029]$","default":"\u2028","description":"a\u2028b"}}}"""));
+        Assert.Equal(string.Join("\n",
+        [
+            "{",
+            "  // a",
+            "  // b",
+            "  // @pattern ^[\\u000d\\u000a\\u2028\\u2029]$ @default \"\\u2028\"",
+            "  sep?: string;",
+            "}",
+        ]), type);
+    }
+
+    [Fact]
+    public void DropsConstraintTagsBeforeRenderingATypeOverTheBudgetAsUnknown()
+    {
+        var schema = Schema("""{"type":"object","properties":{"n":{"type":"integer","minimum":1}}}""");
+        Assert.Equal("{\n  // @integer @minimum 1\n  n?: number;\n}", CodemodeDeclarations.SchemaToType(schema));
+        Assert.Equal("{ n?: number; }", CodemodeDeclarations.SchemaToType(schema, 20));
+        Assert.Equal("unknown", CodemodeDeclarations.SchemaToType(schema, 10));
+    }
 }
 
 /// <summary>runtime/protocol.ts 测试（消息形状判定）。</summary>

@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Globalization;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -28,6 +29,31 @@ public static partial class CodemodeDeclarations
 
     /// <summary>单个 schema 允许的本地 <c>$ref</c> 展开次数，避免共享定义撑爆输出。</summary>
     private const int MaxRefExpansions = 32;
+
+    /// <summary>以 <c>@keyword value</c> 形式进入属性注释的 JSON Schema 关键字（值须为数字或字符串）。</summary>
+    private static readonly string[] TagKeywords =
+    [
+        "minimum", "exclusiveMinimum", "maximum", "exclusiveMaximum", "multipleOf",
+        "minLength", "maxLength", "pattern", "format", "minItems", "maxItems",
+    ];
+
+    /// <summary>同时成立的下界：只保留最大的那个。对应 TS <c>LOWER_BOUNDS</c>。</summary>
+    private static readonly HashSet<string> LowerBounds = new(StringComparer.Ordinal)
+    {
+        "minimum", "exclusiveMinimum", "minLength", "minItems",
+    };
+
+    /// <summary>同时成立的上界：只保留最小的那个。对应 TS <c>UPPER_BOUNDS</c>。</summary>
+    private static readonly HashSet<string> UpperBounds = new(StringComparer.Ordinal)
+    {
+        "maximum", "exclusiveMaximum", "maxLength", "maxItems",
+    };
+
+    /// <summary>最长的属性标签；更长的（大段 default、超长 pattern）整条略去。对应 TS <c>MAX_TAG_CHARS</c>。</summary>
+    private const int MaxTagChars = 80;
+
+    /// <summary>会结束 <c>//</c> 注释的字符。对应 TS <c>LINE_TERMINATORS</c>。</summary>
+    private static readonly Regex LineTerminators = new("[\r\n\u2028\u2029]", RegexOptions.Compiled);
 
     private static readonly JsonSerializerOptions JsonStringifyOptions = new()
     {
@@ -157,8 +183,16 @@ public static partial class CodemodeDeclarations
     /// </summary>
     public static string SchemaToType(JsonNode? schema, int? maxChars = null)
     {
-        var type = ToType(schema, new SchemaContext { Root = schema, Resolving = [], Expansions = 0 });
-        return maxChars is not null && type.Length > maxChars ? "unknown" : type;
+        string Render(bool tags) => ToType(schema, new SchemaContext
+        {
+            Root = schema, Resolving = [], Expansions = 0, Tags = tags,
+        });
+
+        // 约束标签会让类型变长：先带着标签渲染，超出预算就退到不带标签的版本，仍超出才 unknown。
+        var type = Render(true);
+        if (maxChars is null || type.Length <= maxChars) return type;
+        var untagged = Render(false);
+        return untagged.Length <= maxChars ? untagged : "unknown";
     }
 
     private sealed class SchemaContext
@@ -169,6 +203,9 @@ public static partial class CodemodeDeclarations
         public required HashSet<string> Resolving { get; init; }
 
         public int Expansions { get; set; }
+
+        /// <summary>属性注释是否带约束标签。对应 TS <c>SchemaContext.tags</c>。</summary>
+        public bool Tags { get; init; }
     }
 
     private static JsonNode? ResolveRef(string reference, JsonNode? root)
@@ -324,7 +361,19 @@ public static partial class CodemodeDeclarations
         }
 
         if (members.Count == 0) return "{}";
-        if (!names.Any(name => DescriptionOf(properties[name]).Length > 0))
+
+        // 每个属性的注释行：说明在前，约束标签在后（标签只在带 tags 的那次渲染里出现）。
+        var comments = names.Select(name =>
+        {
+            var comment = LineTerminators.Split(DescriptionOf(properties[name]))
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .ToList();
+            var tags = context.Tags ? ConstraintTags(properties[name]) : "";
+            if (tags.Length > 0) comment.Add(tags);
+            return comment;
+        }).ToList();
+        if (!comments.Any(comment => comment.Count > 0))
         {
             return $"{{ {string.Join(" ", members)} }}";
         }
@@ -332,16 +381,107 @@ public static partial class CodemodeDeclarations
         var lines = new List<string> { "{" };
         for (var index = 0; index < names.Count; index++)
         {
-            foreach (var line in DescriptionOf(properties[names[index]]).Split(["\r\n", "\n"], StringSplitOptions.None))
-            {
-                if (line.Trim().Length > 0) lines.Add($"{Indent}// {line.Trim()}");
-            }
+            foreach (var line in comments[index]) lines.Add($"{Indent}// {line}");
             lines.Add($"{Indent}{members[index].Replace("\n", $"\n{Indent}")}");
         }
         for (var index = names.Count; index < members.Count; index++) lines.Add($"{Indent}{members[index]}");
         lines.Add("}");
         return string.Join("\n", lines);
     }
+
+    /// <summary>
+    /// 属性上 TypeScript 类型表达不出来的约束，写成 JSDoc 风格标签：
+    /// <c>@integer @minimum 1 @maximum 100 @default 20</c>。没有则返回空串。
+    /// 对应 TS <c>constraintTags</c>（`8a9c051f8` / #10707）。
+    /// </summary>
+    private static string ConstraintTags(JsonNode? property)
+    {
+        if (property is not JsonObject obj) return "";
+
+        // 可选字段（Pydantic 的 `int | None`）把约束放在非 null 分支里；该分支的约束与属性自身的
+        // 同时成立，两处都读。
+        var variants = obj["anyOf"] as JsonArray ?? obj["oneOf"] as JsonArray;
+        var nonNull = new List<JsonObject>();
+        if (variants is not null)
+        {
+            foreach (var variant in variants)
+            {
+                if (variant is JsonObject branch && StringValue(branch["type"]) != "null") nonNull.Add(branch);
+            }
+        }
+
+        var schemas = new List<JsonObject> { obj };
+        if (nonNull.Count == 1) schemas.Add(nonNull[0]);
+
+        var tags = new List<string>();
+        if (schemas.Any(schema => IsIntegerType(schema["type"]))) tags.Add("@integer");
+        foreach (var keyword in TagKeywords)
+        {
+            var values = schemas.Select(schema => KeywordValue(schema, keyword)).ToList();
+            if (LowerBounds.Contains(keyword) || UpperBounds.Contains(keyword))
+            {
+                var numbers = new List<double>();
+                foreach (var value in values)
+                {
+                    if (TryNumber(value, out var number)) numbers.Add(number);
+                }
+                // 同时成立的下界只有最大的那个有意义，上界反之。
+                if (numbers.Count == 0) continue;
+                tags.Add($"@{keyword} {FormatNumber(LowerBounds.Contains(keyword) ? numbers.Max() : numbers.Min())}");
+                continue;
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var value in values)
+            {
+                var rendered = TryNumber(value, out var number) ? FormatNumber(number) : StringValue(value);
+                if (rendered is null || !seen.Add(rendered)) continue;
+                tags.Add($"@{keyword} {rendered}");
+            }
+        }
+        if (schemas.Any(schema => IsTrue(schema["uniqueItems"]))) tags.Add("@uniqueItems");
+        // 标注（而非约束）只看属性自身。
+        if (obj["default"] is { } fallback) tags.Add($"@default {Stringify(fallback)}");
+        if (IsTrue(obj["deprecated"])) tags.Add("@deprecated");
+
+        return string.Join(" ", tags
+            .Where(tag => tag.Length <= MaxTagChars)
+            // 注释里不能出现换行（含 U+2028 / U+2029），转成 \uXXXX 转义。
+            .Select(tag => LineTerminators.Replace(tag, match => $"\\u{(int)match.Value[0]:x4}")));
+    }
+
+    /// <summary>
+    /// 读一个约束关键字的值，并处理 Draft-04 / OpenAPI 3.0 的布尔形式
+    /// （<c>exclusiveMinimum: true</c> 表示 <c>minimum</c> 本身是排他的）。
+    /// </summary>
+    private static JsonNode? KeywordValue(JsonObject schema, string keyword)
+    {
+        var exclusiveAsBoolean = keyword is "minimum" or "maximum"
+            && IsTrue(schema[keyword == "minimum" ? "exclusiveMinimum" : "exclusiveMaximum"]);
+        if (exclusiveAsBoolean) return null;
+        if (keyword is "exclusiveMinimum" && IsTrue(schema["exclusiveMinimum"])) return schema["minimum"];
+        if (keyword is "exclusiveMaximum" && IsTrue(schema["exclusiveMaximum"])) return schema["maximum"];
+        return schema[keyword];
+    }
+
+    private static bool IsIntegerType(JsonNode? type)
+        => StringValue(type) == "integer"
+            || (type is JsonArray array && array.Any(item => StringValue(item) == "integer"));
+
+    /// <summary>取 JSON 数字值（对齐 TS 的 <c>typeof value === "number"</c>）。</summary>
+    private static bool TryNumber(JsonNode? value, out double number)
+    {
+        number = 0;
+        return value is JsonValue primitive
+            && primitive.GetValueKind() == JsonValueKind.Number
+            && primitive.TryGetValue(out number);
+    }
+
+    /// <summary>JS 的数字字面量：整数不带小数点。</summary>
+    private static string FormatNumber(double value)
+        => value == Math.Floor(value) && Math.Abs(value) < 1e15
+            ? ((long)value).ToString(CultureInfo.InvariantCulture)
+            : value.ToString("R", CultureInfo.InvariantCulture);
 
     /// <summary>取 JSON 字符串值；非字符串（含缺省）返回 null（对齐 TS 的 typeof 检查）。</summary>
     private static string? StringValue(JsonNode? value)

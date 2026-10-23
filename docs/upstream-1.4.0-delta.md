@@ -243,7 +243,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   `ArmSleepTimer` 的并发布设竞态：全量跑必现「一次睡眠两个 500ms 定时器」，单类跑不复现）。
   第三十四批新增 4 例 `afterFailedRun`；第三十三批新增 7 例上报分类；第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
-| `Pi.Codemode.Tests` | 52 / 52 通过（第四十一批新增 1 例 `@options` 必须位于首行；第十八批替换 2 例） |
+| `Pi.Codemode.Tests` | 57 / 57 通过（第四十五批新增 5 例声明约束：约束进注释、可选字段读非 null 分支、
+  Draft-04 布尔排他界、超长标签略去与行终止符转义、预算回退；第四十一批新增 1 例 `@options` 必须位于首行；
+  第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
 | `Pi.Tui.Tests` | 23931 / 23931 通过（第二十八批 +2：1 例移位符号键位、1 例畸形键位 id；第二十七批
   +28：23 例 stdin 回复串、3 例退出复原、1 例滚轮路由、1 例 fd 转义；第二十六批 +6 假光标、
@@ -372,12 +374,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `@options`、Termux 剪贴板~~（第四十一批）→ ~~chord 范围收口 + 数组追加快路径、睡眠定时器布设竞态~~
    （第四十二批）。
    **当前口径**：`v1.0.4..v1.4.0` 的 278 个提交里 104 个在本文档留有哈希引用；其余 174 个
-   （其中 103 个改了 `packages/*/src`）按功能名/子系统记录。第四十三批抽查了其中 20 余个行为点
-   （ai 的重试文案、provider 端点、llama.cpp 分类器；durable 的模型注入、按条目读上下文、
-   `checkpointWhen`、命名空间存储、任务计时、保留上下文、扫描顺序等），除已修的两条外未发现新缺口；
-   并据此把 durable 的 code mode 一族判为**不采纳**（§6 第 7 条，含重启条件与照搬清单）。
-   剩余提交多为模型数据、provider 默认值、并行/性能与测试、文档——不影响「功能面对齐」这个结论，
-   但严格说它们仍属于「按功能名记录」，不宜再写成「全部逐条判定」。
+   （其中 103 个改了 `packages/*/src`）按功能名/子系统记录。第四十三至四十五批逐轮抽查后，
+   **仍未完成的是两项**：`f44707e7f` 的 `documentRetentionMs`（真实缺口，见 §6.ao 第③条）、
+   以及三条性能/并行提交未做逐条核对。durable 的 code mode 一族已判不采纳（§6 第 7 条）。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1306,6 +1305,52 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.ao 第四十五批（codemode 声明约束；以及「到底还剩什么」的确切清单）落地明细
+
+**① 工具声明补上 schema 约束**（`8a9c051f8` / #10707，本次移植）
+
+端口 `CodemodeDeclarations.SchemaToType` 只把 `description` 渲染成属性注释，`minimum` / `pattern` /
+`maxLength` 这类 TypeScript 类型表达不出来的约束全部丢失 —— 脚本作者（和模型）看不到取值限制。
+按上游补齐：
+
+- 新增 `@integer` 与 11 个标签关键字（`minimum` / `exclusiveMinimum` / `maximum` /
+  `exclusiveMaximum` / `multipleOf` / `minLength` / `maxLength` / `pattern` / `format` /
+  `minItems` / `maxItems`）、`@uniqueItems` / `@default` / `@deprecated`。
+- 同时成立的下界只保留最大、上界只保留最小；`format` 这类非界关键字按值去重后各自成标签。
+- 可选字段（Pydantic 的 `int | None`）把约束放在非 null 分支：属性与分支都读，界取交集。
+- Draft-04 / OpenAPI 3.0 的布尔形式：`exclusiveMinimum: true` 表示 `minimum` 本身排他，标签改成
+  `@exclusiveMinimum <原 minimum>`。
+- 超过 80 字符的标签（大段 `default`、超长 `pattern`）整条略去；注释里不能出现的行终止符
+  （`\r` `\n` U+2028 U+2029）转成 `\uXXXX`。
+- 渲染预算：先带标签渲染，超长则退回不带标签的版本，仍超长才 `unknown`。
+
+测试（`DeclarationTests`，+5，逐条对照上游 `declarations.test.ts` 的五个用例）：约束进注释、
+可选字段读非 null 分支、Draft-04 布尔排他界、超长标签略去与行终止符转义、预算回退。
+`Pi.Codemode.Tests` 57 / 57。
+
+**② `sandbox.start`（`0fb1aee74`）：跟随 §6 第 7 条，不采纳**
+
+它的提交信息写得很直白：「For durable code mode」——虚拟时钟、种子随机、按 seq 严格应用结果、
+指纹上报，全部为了让 durable 的脚本能在重启后重放出同样的调用。没有 durable code mode 就没有
+消费方，故与那一族一起不采纳；`execute()` 路径不受影响，端口现有的 codemode 不需要它。
+
+**③ 复核结论：还剩什么**
+
+这一轮把「只按功能名记录」的条目又过了一遍，除①外只确认了**一处**真缺口：
+
+- `f44707e7f` **`documentRetentionMs`（document 缓存按使用量回收）—— 缺**。端口
+  `Session._documents` 把每个加载过的 document 一直留在内存里，只在关闭/重置时清空
+  （`Session.cs:30`，清空点 331 / 406）。长生命周期进程里触及的对话越多，内存只增不减。
+  上游加的是「无人观察且超过保留时长就驱逐，下次访问重新从 Storage 载入」，配套观察者钉住
+  正在用的 incarnation、在变更线上驱逐、单独一个不可引用定时器。规模约 225 行（`session.ts`）
+  加设置项与 Harness 接线，属**独立一批**，不是顺手能改的。
+- 性能/并行三条（`ea448f454` 约束调度器所有权索引、`cb4375493` 调度器不再每遍遍历全部存活任务、
+  `68ccef176` 复用扫描区间）仍**未逐条核对**：它们不改变功能，只影响大文档、长会话下的表现。
+
+**当前口径（写在这里，避免再改口）**：功能面已对齐；未完成的是 `f44707e7f` 一项（有真实影响，
+建议做）与三条性能项（未核，风险低但未验证）。「全部完成」这句话在 `f44707e7f` 落地、性能三项
+核完之前，不成立。
 
 ### 6.an 第四十四批（durable code mode 的取舍：不移植，附重启条件）落地明细
 
