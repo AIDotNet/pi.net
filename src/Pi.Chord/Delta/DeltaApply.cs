@@ -52,11 +52,18 @@ public static class DeltaApply
         var start = (int)index;
         if (start > list.Count)
             throw new InvalidOperationException("p index beyond array length");
+        if (start < 0) throw new InvalidOperationException("p index must be >= 0");
+        if (remove < 0) throw new InvalidOperationException("p remove must be >= 0");
         var removeCount = (int)Math.Min(remove, list.Count - start);
-        var clone = new List<object?>(list);
-        clone.RemoveRange(start, removeCount);
-        clone.InsertRange(start, items.Select(Json.DeepClone));
-        return clone;
+        // 一次分配、一趟搬运：按结果长度建新列表，再依次压入「前段 / 新项 / 尾段」。
+        // 原来的「先复制整表 → RemoveRange 整体左移 → InsertRange 扩容」在**追加**（起点在末尾、
+        // 不删元素）时把整表拷了两遍，这正是上游 091bcc099 的 appendCopy 快路径要解决的问题；
+        // 中间插入也顺带省掉一次移位与一次可能的扩容。ops、值与不可变语义都不变。
+        var result = new List<object?>(list.Count - removeCount + items.Count);
+        for (var offset = 0; offset < start; offset++) result.Add(list[offset]);
+        foreach (var item in items) result.Add(Json.DeepClone(item));
+        for (var offset = start + removeCount; offset < list.Count; offset++) result.Add(list[offset]);
+        return result;
     }
 
     // ---------- 路径递归下降（不可变路径拷贝） ----------

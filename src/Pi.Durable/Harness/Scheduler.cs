@@ -170,6 +170,14 @@ public sealed class TaskScheduler
     /// <summary>最早睡眠的定时器；有 <c>onWake</c> 时不布设。</summary>
     private (long At, Action Disarm)? _sleepTimer;
 
+    /// <summary>
+    /// 保护 <see cref="_sleepTimer"/> 的读取与布设。上游是单线程事件循环，<c>#scheduleWake</c> 的
+    /// 函数体一次跑完、不会被插入；端口把它丢进 <c>Task.Run</c>（见 <see cref="ScheduleWake"/>），
+    /// 于是「读旧定时器 → 拆掉 → 布新的」可能被两个线程交错执行：两边都看到还没有定时器，
+    /// 各布一个，先布的那个再没人拆，一次睡眠于是有两个 500ms 定时器同时活着（重复唤醒）。
+    /// </summary>
+    private readonly object _sleepTimerGate = new();
+
     /// <summary>上一次交给 <c>onWake</c> 的值，未变化时不重复。</summary>
     private Wake? _lastWake;
 
@@ -1113,8 +1121,11 @@ public sealed class TaskScheduler
             CancelContextExpiryLocked();
         }
 
-        _sleepTimer?.Disarm();
-        _sleepTimer = null;
+        lock (_sleepTimerGate)
+        {
+            _sleepTimer?.Disarm();
+            _sleepTimer = null;
+        }
 
         _unsubscribeRegistry.Dispose();
         var error = HarnessUtil.ClosedError();
@@ -1205,18 +1216,21 @@ public sealed class TaskScheduler
     /// </summary>
     private void ArmSleepTimer(long? at)
     {
-        if (_sleepTimer is { } pending && pending.At == at) return;
-        _sleepTimer?.Disarm();
-        _sleepTimer = null;
-        if (at is null || _closing) return;
-        var target = at.Value;
-        var disarm = _timers.Foreground(() =>
+        lock (_sleepTimerGate)
         {
+            if (_sleepTimer is { } pending && pending.At == at) return;
+            _sleepTimer?.Disarm();
             _sleepTimer = null;
-            WakeDue();
-            Kick();
-        }, target - _now());
-        _sleepTimer = (target, disarm);
+            if (at is null || _closing) return;
+            var target = at.Value;
+            var disarm = _timers.Foreground(() =>
+            {
+                lock (_sleepTimerGate) _sleepTimer = null;
+                WakeDue();
+                Kick();
+            }, target - _now());
+            _sleepTimer = (target, disarm);
+        }
     }
 
     /// <summary>

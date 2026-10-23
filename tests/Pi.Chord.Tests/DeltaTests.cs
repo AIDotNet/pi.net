@@ -183,4 +183,54 @@ public class DeltaTextTests
         Assert.Equal("brown fox jumps".Length, n);
         Assert.Equal(a[^n..], b[..n]);
     }
+
+    [Fact]
+    public void AppendingOneItemAtTheEndKeepsTheBaseAndTheOrder()
+    {
+        // 追加是 p 的常见形态（时间线一行一个），快路径必须与通用路径等价：前缀原样、新项在末尾、
+        // 新项是深拷贝、原数组一个元素都不动。
+        var baseItems = new List<object?> { "a", "b", "c" };
+        var value = new Dictionary<string, object?> { ["items"] = baseItems };
+        var path = Path.Root.Append(Seg.Key("items"));
+        var newItem = new Dictionary<string, object?> { ["text"] = "d" };
+
+        var once = (Dictionary<string, object?>)DeltaApply.Apply([new DeltaOp.Splice(path, 3, 0, [newItem])], value)!;
+        var afterOnce = (List<object?>)once["items"]!;
+        Assert.Equal(4, afterOnce.Count);
+        Assert.Equal(new List<object?> { "a", "b", "c" }, afterOnce.Take(3).ToList());
+        Assert.NotSame(newItem, afterOnce[3]);
+        Assert.Equal("d", ((Dictionary<string, object?>)afterOnce[3]!)["text"]);
+        Assert.Equal(3, baseItems.Count);
+
+        // 连续追加（同一数组上多批）沿用上一批的结果，顺序不丢。
+        var twice = (Dictionary<string, object?>)DeltaApply.Apply(
+            [new DeltaOp.Splice(path, 4, 0, ["e"]), new DeltaOp.Splice(path, 5, 0, ["f"])], once)!;
+        Assert.Equal(new List<object?> { "a", "b", "c", "d", "e", "f" },
+            ((List<object?>)twice["items"]!).Select(item => item is Dictionary<string, object?> map ? map["text"] : item).ToList());
+    }
+
+    [Fact]
+    public void SpliceInTheMiddleKeepsTheTailAndClampsTheRemoval()
+    {
+        // 中间插入/删除：前段与尾段都要原样保留，remove 超过剩余长度时按剩余长度截。
+        var path = Path.Root.Append(Seg.Key("items"));
+        var value = new Dictionary<string, object?> { ["items"] = new List<object?> { 1L, 2L, 3L, 4L } };
+
+        var inserted = (Dictionary<string, object?>)DeltaApply.Apply([new DeltaOp.Splice(path, 1, 0, [9L])], value)!;
+        Assert.Equal(new List<object?> { 1L, 9L, 2L, 3L, 4L }, inserted["items"]);
+
+        var replaced = (Dictionary<string, object?>)DeltaApply.Apply([new DeltaOp.Splice(path, 1, 2, [8L])], value)!;
+        Assert.Equal(new List<object?> { 1L, 8L, 4L }, replaced["items"]);
+
+        // remove 越过末尾：夹到「从 start 到末尾」，不抛。
+        var clamped = (Dictionary<string, object?>)DeltaApply.Apply([new DeltaOp.Splice(path, 2, 99, [])], value)!;
+        Assert.Equal(new List<object?> { 1L, 2L }, clamped["items"]);
+
+        // 原值不动（不可变语义）。
+        Assert.Equal(new List<object?> { 1L, 2L, 3L, 4L }, value["items"]);
+
+        // 起点越过末尾仍然报错。
+        Assert.Throws<InvalidOperationException>(() =>
+            DeltaApply.Apply([new DeltaOp.Splice(path, 9, 0, [])], value));
+    }
 }

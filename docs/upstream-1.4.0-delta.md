@@ -14,9 +14,14 @@
 | `v1.3.0` | 2026-10-15 20:57 | 稳定 |
 | `v1.4.0` | 2026-10-22 00:29 | **最新稳定版** |
 
-`main` 在 `v1.4.0` 之后还有 6 个未发布提交（HEAD `476a303c1`，含 `feat(durable)` 破坏性改动、
-`feat(coding-agent)` 的 `/ir` 导入等）。这些属于下一轮未定稿内容，**本次不作为移植目标**，
-只在待办中列为观察项。
+`main` 在 `v1.4.0` 之后还有 **11 个未发布提交**（HEAD `476a303c1`）：`58c0b02ce` 开 `[Unreleased]` 段、
+`7c22a93d0` / `cae8d69e5`（用量成本的 `totalFromProvider`、OpenRouter 上报总价）、
+`5884ee681`（`/ir` 从 URL 导入会话）、`2685de7a1` / `db774055e`（依赖安全更新、预览包）、
+`3bc6eebac`（Anthropic 系统消息跨被丢弃的助手消息保留）、`92ab53602`（durable `commit` 内采纳回调、
+watch 类型入 chord、显式退休）、`b9fb2b854` 文档、`ac80dd88f` 贡献者名单、
+`476a303c1`（托管 npm ci 去掉 `min-release-age`）。这些属于下一轮未定稿内容，**本次不作为移植目标**。
+其中 `92ab53602` 与 durable 的日常行为强相关，已在第三批 / 第二十批一并落地——端口的这一处
+**领先** `v1.4.0`；其余列为观察项，等上游发版后再评估。
 
 区间规模（`v1.0.4..v1.4.0`）：**278 提交 / 76 个 feat / 156 个 fix / 1005 个文件 / +80,853 −44,109 行**。
 按包分布：coding-agent 294 文件、durable 171、ai 142、chord 118、tui 35、codemode 32、
@@ -116,6 +121,16 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   回调、`mintId()` 契约收窄 —— **已移植（第三批）**：存储负责在批次持久后、下一次提交开始前
   同步采纳一次，Session 不再自己 `tx.adopt(seq)`，改为发现「已提交却没采纳」即毒化。
   其余改动的现状见下面 §3.5.1 的分项清单。
+- **chord（1.2.0–1.4.0，118 文件 / 28 个 `src` 提交）**：**范围判定** —— 端口 `Pi.Chord` 是**有意收窄**
+  的实现，只保留 durable 实际用到的部分：`Delta/`（wire 编解码、不可变路径拷贝应用、修订跟踪器）、
+  `Facets/`（宿主、装载器、打包）、`Services/`（句柄 / 提供者 / 消费端 / loopback / 状态编解码 /
+  `Watch`）、`Context/`、`Node/`。上游这一段的 28 个提交几乎全落在端口**没有的两块**上：
+  对象运行时（`object.ts` / `cell.ts` / `declare.ts` / `contract.ts` / `registry.ts` / `publish.ts`，
+  protocol 3 的 `self.state({init})` 与 typed principal、protocol 4 的引用先水合再使用）与
+  跨进程链路（`link.ts` / `remote.ts` / `websocket.ts` / `connection.ts` / `cluster.ts`、
+  chord2 宿主运行时、帧压缩与流控、`sqlite/` 复制与 telemetry 存储）。端口也没有可与 Node 实现
+  互通的对端，故判**不适用**，逐条依据见 §6 第 6 条。真正落到端口形态的只有本批的数组追加快路径
+  （`091bcc099`，见 §6.al）与 durable sleeps 涉及 chord 的部分（第三十一批已完成）。
 - **env（1.2.0）**：`listFiles`、伪终端与前台作业、`nodePlatform` —— **不适用**：端口的 `Pi.Env` 是 SSH
   远程环境，实现 `IExecutionEnv`（`IFileSystem` + `IShell`），没有上游的 node 侧守护进程与交互式终端
   会话；树形列举以 `ListDirAsync` 递归表达（见 §6.af 第 2 条）。
@@ -222,8 +237,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   新增 8 例配置 schema 一致性；第二十五批新增 9 例状态上报器；第二十二批新增 1 例「provider 级
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
-| `Pi.Durable.Tests` | 501 / 501 通过（第三十四批新增 4 例 `afterFailedRun`；第三十三批新增 7 例上报分类；第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457）。
-  并行跑多个测试套件时出现过 1 例偶发（单独复跑连续两次全绿），与改动无交集 |
+| `Pi.Chord.Tests` | 106 / 106 通过（第四十二批新增 2 例：末尾追加的快路径、中间 splice 的尾部保留与 `remove` 夹取） |
+| `Pi.Durable.Tests` | 501 / 501 通过（第四十二批修掉 `ArmSleepTimer` 的并发布设竞态：全量跑必现「一次睡眠两个
+  500ms 定时器」，单类跑不复现；`Sleeping` 状态为第三十一批）。第三十四批新增 4 例 `afterFailedRun`；第三十三批新增 7 例上报分类；第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 52 / 52 通过（第四十一批新增 1 例 `@options` 必须位于首行；第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
@@ -238,7 +254,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 
 ## 6. 未移植项与判断依据
 
-1. **CJK 标点相邻的强调渲染（#10730）**：上游通过第三方包 `marked-cjk-friendly@0.1.2` 替换 marked 的
+1. ~~**CJK 标点相邻的强调渲染（#10730）**~~ —— **第二十三批已移植（见 §6.h）**，含缺失的语料生成器；
+   以下保留当时的判断依据作记录：上游通过第三方包 `marked-cjk-friendly@0.1.2` 替换 marked 的
    `emStrong` 与 `del` 两个分词器。已把该包（204 行的 `dist/index.js`，无构建期依赖）取下来读过，移植要点：
    - 一张 CJK 区间表（含 `\u{20000}-\u{3fffd}` 这类增补平面区间）；CJK 在这里被**当成标点**参与
      flanking，而不是按 CommonMark 的「非标点非空白」。据此生成四张带 6 个捕获组的右定界符正则
@@ -256,10 +273,11 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 2. **telemetry span**：`observeModelRequest` 观察器在 ai 层没有对应端口（`LazyStream` 也没有 observer
    参数），要接就得先重建整条流式观察链，收益与改动量不成比例，暂不移植。per-key OpenRouter 目录
    已在第六批完成，客户端身份已在第五批完成。
-3. **durable 观察面 / chord `traceIn`**：`adopt(seq)` 已在第三批完成；剩下的观察面重构
+3. **chord `traceIn` / telemetry 成员**：durable 的观察面重构已**全部完成（第二十批）**
    （`watchDoc`/`watch`/`watchTaskGraph` 取代 `documentState`/`viewState`/`taskGraph`、
-   WatchEnd 迁 chord 并改 `ended`/`failed`）必须与 Experimental 运行时一起改，`traceIn`
-   则等 telemetry 落地后才有对象可改。
+   `WatchEnd` 迁 chord 并改 `ended`/`failed`、显式 `retire`）。仍缺的只有 chord 的 `telemetry`
+   成员与 `traceIn(options, fn, context)`：它要和第 2 条的 span 链路一起落地，端口 chord 目前
+   没有 `TelemetrySpan` 可供承载。
 4. **模型目录新增条目**：**已判定不适用**。上游的模型数据不在仓库里 ——
    `packages/ai/src/providers/data/*.json` 被 `.gitignore` 排除（`.gitignore` 第 11 行），
    `providers/*.models.ts` 只是 `generate-models.ts` 从这些 JSON 生成的壳；
@@ -271,8 +289,25 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `supportsNativeXhighEffort`、各 provider 的 effort 映射在端口里都已存在
    （`Pi.Ai/Models/Models.cs`、`Api/BedrockConverseStream.cs`、`Api/SimpleOptions.cs` 等），
    所以缺的只是「哪些模型有哪些档位」这份数据。
-5. **`sessionShareDestination` / resume 活动工具 / `--model` 选择策略**：均属 coding-agent 中等规模
-   行为变更（14 / 4 / 7 文件），本轮已完成 11 项低风险修复，继续保持小步验证的节奏更稳。
+5. ~~**`sessionShareDestination` / resume 活动工具 / `--model` 选择策略**~~ —— 均已移植：
+   `sessionShareDestination`（第七批）、恢复会话时恢复活动工具集（第八批）、`--model` 的 provider
+   选择策略统一（第二十一批，连带 5 项 `defaultModelPerProvider` 同步与差异 C78 退休）。
+6. **chord 的对象运行时与跨进程链路** —— **不适用**（端口形态不同，不是未做）。逐条依据：
+   - 端口 `Pi.Chord` 只有 `Delta/`、`Facets/`、`Services/`、`Context/`、`Node/` 五块，
+     **没有** `object.ts` / `cell.ts` / `declare.ts` / `contract.ts` / `registry.ts` / `publish.ts`
+     对应的对象模型（全仓 `grep Principal` 为空，也没有 `self.state` 这类声明入口）。
+   - 也**没有**链路层：`src/Pi.Chord` 与 `src/Pi.Durable` 里没有任何 socket / websocket / IPC
+     （跨进程只有 coding-agent 自己的 `Experimental/CoordinatorSocket.cs`，与 chord 无关）。
+   - 于是上游这批提交的落点都不存在：`0104fef1e`（chord2 宿主运行时替换 facet/services 运行时）、
+     `aa9cf15be`（protocol 3：`self.state({init})`、typed principal、contract placement）、
+     `b45e0ebcc`（protocol 4：引用先水合再使用，723 行 `connection.ts` + 685 行 `remote.ts`）、
+     `db6497c3d` / `018c87ddc`（链路流控、大帧 deflate）、`9a3ca68bd`（远程引用拒绝外来 ctx）、
+     `4759f09fb` / `89e309581`（WAL 页复制，加了又删）、`d9025a5f5`（SQLite telemetry 存储）、
+     `c268154ca` / `4a5d37291`（把 SQLite 驱动与 `OutputBuffer`/`Progress` 搬进 chord——端口本来
+     就分开放）。
+   - 剩余能对上端口的只有 `091bcc099` 的数组追加计划：tracker 侧的 `orderedArrayPlan` 无对应物
+     （端口 `Tracker` 是显式动词 API，没有 overlay/plan 机制，见 `Delta/Tracker.cs` 的差异说明），
+     apply 侧的「追加别拷两遍」已移植（见 §6.al）。
 
 ## 7. 建议的后续顺序
 
@@ -295,7 +330,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    （第三十八批）→ ~~剩余提交复核：跨模型思维、错误结果图片、Windows 锁与 shell 探测~~（第三十九批）
    → ~~MCP 管理器响应性（启动连接未完成即可开、动作走后台、重连串行化）~~（第四十批）→
    ~~剩余提交复核：completions 思维顺序、Codex 头覆盖、OAuth 回调兜底端口、codemode 输出/计时/
-   `@options`、Termux 剪贴板~~（第四十一批）。
+   `@options`、Termux 剪贴板~~（第四十一批）→ ~~chord 范围收口 + 数组追加快路径、睡眠定时器布设竞态~~
+   （第四十二批）。
    至此 §3.5.1 表中除已判
    不适用的两项外无待办项，`v1.0.4..v1.4.0` 全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
@@ -1226,6 +1262,58 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.al 第四十二批（chord 范围收口：数组追加别拷两遍）落地明细
+
+这一批不是新功能，而是把「chord 到底对齐到什么程度」说清并补上唯一能对上的那一处。
+
+**① 范围判定（写进 §3.5 与 §6 第 6 条）**
+
+上游 1.2.0–1.4.0 的 28 个 `packages/chord/src` 提交，绝大多数落在端口**从未拥有**的两块上：
+对象运行时（`object.ts`/`cell.ts`/`declare.ts`/`contract.ts`/`registry.ts`/`publish.ts`，
+protocol 3 的 `self.state({init})`、typed principal，protocol 4 的「引用先水合再使用」）与
+跨进程链路（`link.ts`/`remote.ts`/`websocket.ts`/`connection.ts`/`cluster.ts`、帧压缩与流控、
+`sqlite/` 复制）。端口 `Pi.Chord` 只有 delta / facets / services / context / node 五块，且
+`src/Pi.Chord` 与 `src/Pi.Durable` 内没有任何 socket / websocket / IPC——这类改动的落点不存在，
+判**不适用**而非「待办」。依据逐条列在 §6 第 6 条，便于以后复核。
+
+**② `091bcc099`（append to arrays without walking or copying them twice）**
+
+上游改了 tracker 与 immutable apply 两处。tracker 侧的 `orderedArrayPlan` 依赖 overlay/plan
+机制，端口 `Tracker<T>` 是显式动词 API（`Set`/`Delete`/`Append`/`Truncate`/`Splice`/`Move`），
+没有对应结构，跳过。apply 侧的「追加被拷两遍」在端口成立：
+
+- `src/Pi.Chord/Delta/DeltaApply.cs` 的 `SpliceList` 原来是
+  `new List<object?>(list)` → `RemoveRange` → `InsertRange`。追加（起点在末尾、`remove == 0`）时
+  整表被拷一遍，`InsertRange` 越过容量再分配一次，等于拷两遍；中间插入还多一次整体左移。
+- 改为按结果长度一次分配，再依次压入「前段 / 新项（深拷贝）/ 尾段」：一趟搬运、无移位、无扩容。
+  ops、值、深拷贝语义与不可变语义都不变；`start` 越界仍抛 `p index beyond array length`，
+  另补 `p index must be >= 0` / `p remove must be >= 0` 两道防御（`AssertValidOp` 已拦，这里
+  只是让直接调 `ApplyOne` 时的失败信息与校验层一致）。
+
+**测试**（`DeltaTests`，+2）：`AppendingOneItemAtTheEndKeepsTheBaseAndTheOrder`（前缀原样、新项
+在末尾且是深拷贝、原数组不动、同一数组连续追加顺序不丢）、
+`SpliceInTheMiddleKeepsTheTailAndClampsTheRemoval`（中间插入 / 替换 / `remove` 越过末尾时夹取 /
+原值不动 / 起点越界仍报错）。
+
+**③ 顺带修掉的既有缺陷：睡眠定时器被布两遍**
+
+跑全量 `Pi.Durable.Tests` 时 `HarnessSleepTests` 稳定失败（4 次全量跑 4 次失败、单类跑 12/12 全绿）：
+`Assert.Single(timers.Live, t => t.DelayMs == 500)` 报「有 2 个匹配项」，两个 500ms 定时器都没被拆。
+
+- 根因是**移植带进来的并发**：上游 `#scheduleWake` 用 `queueMicrotask`，函数体在单线程事件循环里
+  一次跑完，`#armTimer` 的「读旧定时器 → 拆 → 布新的」中间不会被插入。端口为了不阻塞调用方把它
+  丢进 `Task.Run`（`Scheduler.ScheduleWake`），而函数体一进来就 `_wakeScheduled = false`，
+  于是第二次 `Kick()` 可以再排一个任务体，两个线程同时走 `ArmSleepTimer`：都看到还没有定时器，
+  各布一个并各自赋值 `_sleepTimer`，先布的那个再没人拆 —— 一次睡眠有两个定时器同时活着，
+  醒来时会重复唤醒（另一例 `DisarmsTheSleepTimerWhen…` 表现为 10 秒超时）。
+- 修法：`_sleepTimer` 的「读 / 拆 / 布」整段进 `lock (_sleepTimerGate)`（`Seal()` 的拆除也在同一把
+  锁里），定时器回调里把清空动作单独加锁、`WakeDue()` 与 `Kick()` 放到锁外。`Timers.Foreground`
+  只是登记定时器、不同步回调，持锁安全。
+- 验证：修前全量 4/4 失败、修后连跑 3 次 501/501 全绿。既有 `HarnessSleepTests` 就是这条竞态的
+  回归守卫（无锁必现），故没有另加用例。
+
+**测试**：`Pi.Chord.Tests` 106 / 106（+2）、`Pi.Durable.Tests` 501 / 501。
 
 ### 6.ak 第四十一批（剩余提交复核：completions 思维顺序、Codex 头、OAuth 回调端口、codemode、Termux 剪贴板）落地明细
 
