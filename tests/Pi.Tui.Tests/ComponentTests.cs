@@ -164,6 +164,85 @@ public class ComponentTests
             return ["blocking"];
         }
     }
+
+    [Fact]
+    public async Task Box_RenderUsesStableChildrenDuringConcurrentMutation()
+    {
+        using var renderEntered = new ManualResetEventSlim();
+        using var continueRender = new ManualResetEventSlim();
+        var box = new Box(0, 0);
+        box.AddChild(new BlockingComponent(renderEntered, continueRender));
+        box.AddChild(new Text("old", 0, 0));
+
+        var renderTask = Task.Run(() => box.Render(20));
+        var entered = renderEntered.Wait(TimeSpan.FromSeconds(5));
+        if (entered)
+        {
+            box.Clear();
+            box.AddChild(new Text("new", 0, 0));
+        }
+        continueRender.Set();
+
+        var rendered = await renderTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(entered, "The child renderer should have started before the collection is mutated.");
+        Assert.Equal(2, rendered.Length);
+        Assert.Contains("old", Ansi.StripTerminalSequences(rendered[1]));
+        Assert.Contains("new", Ansi.StripTerminalSequences(box.Render(20)[0]));
+    }
+
+    [Fact]
+    public async Task Box_RenderInvalidateAndMouseSurviveConcurrentChildMutation()
+    {
+        var box = new Box(0, 0);
+        for (var i = 0; i < 4; i++)
+        {
+            box.AddChild(new Text($"child-{i}", 0, 0));
+        }
+
+        const int iterations = 20_000;
+        var mutator = Task.Run(() =>
+        {
+            for (var i = 0; i < iterations; i++)
+            {
+                var child = new Text($"gen-{i}", 0, 0);
+                box.AddChild(child);
+                if (i % 4 == 0)
+                {
+                    box.Clear();
+                }
+                box.RemoveChild(child);
+                if (i % 8 == 0)
+                {
+                    box.Invalidate();
+                }
+            }
+        });
+        var renderer = Task.Run(() =>
+        {
+            for (var i = 0; i < iterations; i++)
+            {
+                box.Render(30);
+            }
+        });
+        var mouser = Task.Run(() =>
+        {
+            for (var i = 0; i < iterations; i++)
+            {
+                box.HandleMouse(new TuiMouseEvent
+                {
+                    Type = TuiMouseEventType.Click,
+                    Button = TuiMouseButton.Left,
+                    X = 0,
+                    Y = 0,
+                    Width = 30,
+                    Height = 5,
+                });
+            }
+        });
+
+        // 任何线程上的 InvalidOperationException 都会在 await 处重放为测试失败（T35 回归）。
+        await Task.WhenAll(mutator, renderer, mouser).WaitAsync(TimeSpan.FromSeconds(30));
+    }
 }
 
 public class TuiMainScreenTests
