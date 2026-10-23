@@ -355,6 +355,14 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    也不能因为「同族功能已有实现」就跳过，更不能因为「某个包里有这个文件」就认定有用——要看
    **谁引用它**。本轮三条都踩过：先漏了 codemode 一族，又差点把它当成必须移植的功能。
 
+8. **1.4.0 的 `docs/models-configuration.md`** —— **已补齐（第五十批）**：上游由
+   `scripts/generate-references.ts` 从 TypeBox schema 生成；端口对应
+   `scripts/gen-models-configuration.mjs`，从已发布的 `models.schema.json` 生成到
+   `docs/usage/models-configuration.md`。逐行对照结果：Providers 10 / Models 26 /
+   Model overrides 23 / Input limits 9 行**零差异**（字段、类型、默认值、说明全部一致）；
+   Compatibility 42 个字段一致，差异只有两点：上游按 API 分成 6 个小节（端口发布的是合并后的
+   一个 schema），以及 9 条说明措辞更概括（端口 schema 自带文本）。`--check` 可在 CI 里校验是否过期。
+
 ## 7. 建议的后续顺序
 
 1. ~~durable 观察面重构（`watchDoc`/`watch`/`watchTaskGraph` 取代旧读接口）~~（第二十批已完成；

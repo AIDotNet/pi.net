@@ -102,6 +102,11 @@ dotnet run --project samples/Pi.Samples.McpClient
 委托；谁去读密钥是 `StreamFn` 自己的事。所以嵌入式场景里你可以把密钥锁在自己的配置系统里，
 不用碰 `~/.pi`。
 
+`models.json` 的字段级参考（provider / model / modelOverrides / inputLimits / compat 逐字段的
+类型、默认值与说明）见 [models-configuration.md](models-configuration.md)。那一页由
+`src/Pi.CodingAgent/Assets/schemas/models.schema.json` 生成，改 schema 后跑
+`node scripts/gen-models-configuration.mjs` 重新生成（`--check` 可用于 CI 校验是否过期）。
+
 ## 三个常见坑
 
 - **`StreamFn` 是必填的**。`AgentOptions.StreamFn` 没有默认值；不想每次传就调

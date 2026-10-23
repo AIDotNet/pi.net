@@ -64,6 +64,7 @@ dotnet add package Pi.CodingAgent   # the whole stack, including the CLI runtime
 ### Usage docs and samples
 
 - **[docs/usage](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/README.md)** — how to consume each package from C#: which package for which job, minimal working code, credentials, and the traps worth knowing.
+- **[docs/usage/models-configuration.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/models-configuration.md)** — every `models.json` field (provider, model, overrides, input limits, compatibility) with its type, default and description, generated from the published JSON Schema.
 - **[samples](https://github.com/xuzeyu91/pi.net/blob/main/samples/README.md)** — four runnable console projects, compiled by CI so they cannot silently rot:
 
 ```bash

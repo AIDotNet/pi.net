@@ -64,6 +64,7 @@ dotnet add package Pi.CodingAgent   # 整套依赖，含 CLI 运行时资源
 ### 使用文档与示例
 
 - **[docs/usage](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/README.md)** —— 怎么从 C# 里用这些包：按用途选包、最小可运行代码、凭据配置，以及几个值得提前知道的坑。
+- **[docs/usage/models-configuration.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/models-configuration.md)** —— `models.json` 的字段级参考：provider / model / modelOverrides / inputLimits / compat 逐字段的类型、默认值与说明，由已发布的 JSON Schema 生成。
 - **[samples](https://github.com/xuzeyu91/pi.net/blob/main/samples/README.md)** —— 四个可运行的控制台工程，随 CI 一起编译，不会悄悄失效：
 
 ```bash
