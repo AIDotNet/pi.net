@@ -1609,7 +1609,9 @@
               text: match[2],
               tokens: this.lexer.inlineTokens(match[2])
             };
-          }
+          },
+          // bold/italic next to CJK punctuation: `**中文**。` must still be emphasis (#3353, #10154).
+          emStrong: markedCjkFriendly().tokenizer.emStrong
         },
         renderer: {
           // Sanitize link URLs with a scheme allow-list. Browsers strip C0

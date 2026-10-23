@@ -65,6 +65,7 @@ public static partial class ExportHtml
         var css = File.ReadAllText(Path.Combine(templateDir, "template.css"));
         var js = File.ReadAllText(Path.Combine(templateDir, "template.js"));
         var marked = File.ReadAllText(Path.Combine(templateDir, "vendor", "marked.min.js"));
+        var markedCjkFriendly = File.ReadAllText(Path.Combine(templateDir, "vendor", "marked-cjk-friendly.min.js"));
         var highlight = File.ReadAllText(Path.Combine(templateDir, "vendor", "highlight.min.js"));
 
         var exportColors = DeriveExportColors("#343541");
@@ -88,6 +89,7 @@ public static partial class ExportHtml
             .Replace("{{CSS}}", css, StringComparison.Ordinal)
             .Replace("{{JS}}", js, StringComparison.Ordinal)
             .Replace("{{MARKED_JS}}", marked, StringComparison.Ordinal)
+            .Replace("{{MARKED_CJK_FRIENDLY_JS}}", markedCjkFriendly, StringComparison.Ordinal)
             .Replace("{{HIGHLIGHT_JS}}", highlight, StringComparison.Ordinal)
             .Replace("{{SESSION_DATA}}", json, StringComparison.Ordinal);
     }

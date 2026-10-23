@@ -207,7 +207,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
 | `Pi.Ai.Tests` | 503 / 503 通过（第三十五批新增 3 例：413 请求体超限、ChatGPT 限额文案、增量工具提示的移除登记；第二十二批新增 14 例分类器图片；此前 486） |
-| `Pi.CodingAgent.Tests` | 5061 / 5061 通过（第三十七批新增 5 例跨 chunk 拆分的 ANSI 序列；
+| `Pi.CodingAgent.Tests` | 5062 / 5062 通过（第三十八批新增 1 例 HTML 导出 CJK 强调接线；
+  第三十七批新增 5 例跨 chunk 拆分的 ANSI 序列；
   第三十六批新增 6 例工作树上下文，其中 2 例需要符号链接权限、无权限时跳过；
   第三十五批新增 8 例：恢复 loadout 的扩展工具激活 / 切树 / 压缩前删除 4 例、拆分回合的前缀摘要 focus 2 例、
   剪贴板进程组 2 例；第二十九批新增 5 例对话框栈 / overlay 归属；第二十八批
@@ -283,7 +284,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `onReport` info（`ReportInfo`）~~（第三十三批）→ ~~durable：`settings.afterFailedRun`~~（第三十四批）→
    ~~收尾审计：五项遗漏修复（`/compact` 前缀摘要、扩展工具 loadout 激活、剪贴板进程组、ChatGPT 限额文案、
    增量工具提示的移除登记、413 请求体超限）~~（第三十五批）→ ~~收尾复核：工作树上下文 + env / 托管安装的
-   不适用判定~~（第三十六批）→ ~~跨 chunk 拆分的 ANSI 序列~~（第三十七批）。至此 §3.5.1 表中除已判
+   不适用判定~~（第三十六批）→ ~~跨 chunk 拆分的 ANSI 序列~~（第三十七批）→ ~~HTML 导出的 CJK 强调~~
+   （第三十八批）。至此 §3.5.1 表中除已判
    不适用的两项外无待办项，`v1.0.4..v1.4.0` 全部提交均已逐条判定。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
@@ -1213,6 +1215,38 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.ah 第三十八批（HTML 导出的 CJK 强调）落地明细
+
+逐条复核 `v1.0.4..v1.4.0` 剩余提交时，按代码逐项确认了此前按「功能名 / PR 号」记录过的条目
+（工具参数非法 JSON 报错、`read` 行范围标签、提示模板空引号参数、打印模式截断告警、假光标选择重置、
+`fd` 转义、滚轮路由、重试与溢出文案……）均已落地。真正缺的是这一条：它落在 **HTML 导出的浏览器端
+JS**，C# 侧没有对应实现，容易被漏掉。
+
+**1. HTML 导出里 CJK 标点旁的粗体/斜体显示成字面星号（`26293e74f`，#3353 / #10154）**
+
+- 现象：`**这是测试。**后面`、`字**「引用」**字`、`*斜体。*后面` 在导出的 HTML 里原样显示星号。
+  CommonMark 的 flanking 规则把 `。`、`」` 归为标点，收尾分隔符因此被判为「不能闭合」。
+- 上游做法是引入 `marked-cjk-friendly`（v0.1.2，MIT），把 `emStrong` 分词器替换成「把 CJK 标点当
+  文字看」的版本。端口同步三处：
+  1. `Assets/export-html/vendor/marked-cjk-friendly.min.js`（新增）与 `marked.min.js`
+     18.0.5 → **18.0.11**（同一提交里的版本对齐；`PackAssets` 的 `Assets\export-html\**\*`
+     通配会自动打包新文件）。
+  2. `template.html` 在 `{{MARKED_JS}}` 之后插入 `<script>{{MARKED_CJK_FRIENDLY_JS}}</script>`。
+  3. `template.js` 的 `marked.use({ tokenizer: { … } })` 里追加
+     `emStrong: markedCjkFriendly().tokenizer.emStrong`。注意模板用的是**扁平 `tokenizer`**，
+     不是 `extensions` 数组——后者要求显式 `level`，写错会抛 `extension level must be 'block' or 'inline'`。
+- `ExportHtml.GenerateHtml` 读取并替换新占位符；其余 8 个占位符顺序不变。
+- **行为核对**（把两个 vendor 脚本放进 `node:vm` 沙箱，用模板同样的 `marked.use` 形态跑）：
+  上游四条 CJK 用例全部产出 `<strong>` / `<em>`（`**这是测试。**后面` /
+  `**一句话说清：**一台机器` / `字**「引用」**字` / `*斜体。*后面`），
+  而非 CJK 的 `**end.**Then next` **仍然保持字面星号**——CommonMark 语义没有被放宽。
+  去掉 `emStrong` 覆盖后同一批输入会回到字面星号，说明覆盖确实生效。
+- **测试**：`ExportHtmlBugReportTests.TemplateJs_UsesCjkFriendlyEmphasisTokenizer`（静态解析三处接线），
+  `GenerateHtml_ReplacesTemplatePlaceholders` 追加 `{{MARKED_CJK_FRIENDLY_JS}}` 与
+  `markedCjkFriendly` 的断言。
+
+**测试**：`Pi.CodingAgent.Tests` 5062 / 5062（3 跳过，+1）。
 
 ### 6.ag 第三十七批（跨 chunk 拆分的 ANSI 序列）落地明细
 

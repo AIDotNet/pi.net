@@ -129,6 +129,18 @@ public sealed class ExportHtmlBugReportTests
         Assert.DoesNotContain("escapeHtml(callHtml)", js);
     }
 
+    [Fact]
+    public void TemplateJs_UsesCjkFriendlyEmphasisTokenizer()
+    {
+        // Upstream #3353 / #10154: `**中文**。` rendered literal asterisks without the CJK-aware
+        // `emStrong` tokenizer.
+        var js = File.ReadAllText(Path.Combine(TemplateDir(), "template.js"));
+        Assert.Contains("markedCjkFriendly().tokenizer.emStrong", js);
+
+        var html = File.ReadAllText(Path.Combine(TemplateDir(), "template.html"));
+        Assert.Contains("<script>{{MARKED_CJK_FRIENDLY_JS}}</script>", html);
+    }
+
     // ---- generateHtml smoke -----------------------------------------------
 
     [Fact]
@@ -140,6 +152,8 @@ public sealed class ExportHtmlBugReportTests
         Assert.DoesNotContain("{{JS}}", html);
         Assert.DoesNotContain("{{SESSION_DATA}}", html);
         Assert.DoesNotContain("{{MARKED_JS}}", html);
+        Assert.DoesNotContain("{{MARKED_CJK_FRIENDLY_JS}}", html);
+        Assert.Contains("markedCjkFriendly", html, StringComparison.Ordinal);
         Assert.Contains("<html", html, StringComparison.OrdinalIgnoreCase);
     }
 
