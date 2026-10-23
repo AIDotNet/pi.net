@@ -5,12 +5,18 @@ namespace Pi.Tui.Components;
 /// Not sealed: the edit tool's call component is a <c>Box</c> with extra renderer fields, exactly as the
 /// TS models it (<c>type EditCallRenderComponent = Box &amp; {...}</c>). <see cref="Pi.Tui.Components.Text"/>
 /// is unsealed for the same reason — <c>Loader</c> derives from it.
+/// Unlike TS (single-threaded event loop), the render timer enumerates children on a pool thread while
+/// agent events mutate them, so child access mirrors <see cref="Pi.Tui.Container"/>'s gate + snapshot
+/// scheme (T35).
 /// </remarks>
 public class Box : IComponent
 {
     private sealed record RenderCache(string[] ChildLines, int Width, string? BgSample, string[] Lines);
 
     public List<IComponent> Children { get; } = new();
+
+    private readonly object _childrenGate = new();
+    private long _childrenVersion;
 
     private int _paddingX;
     private readonly int _paddingY;
@@ -46,22 +52,53 @@ public class Box : IComponent
 
     public void AddChild(IComponent component)
     {
-        Children.Add(component);
+        lock (_childrenGate)
+        {
+            Children.Add(component);
+            MarkChildrenChanged();
+        }
         InvalidateCache();
     }
 
     public void RemoveChild(IComponent component)
     {
-        if (Children.Remove(component))
+        lock (_childrenGate)
         {
-            InvalidateCache();
+            if (!Children.Remove(component))
+            {
+                return;
+            }
+            MarkChildrenChanged();
         }
+        InvalidateCache();
     }
 
     public void Clear()
     {
-        Children.Clear();
+        lock (_childrenGate)
+        {
+            Children.Clear();
+            MarkChildrenChanged();
+        }
         InvalidateCache();
+    }
+
+    /// <summary>Copy of the child list taken under the gate; enumerating the live list races the
+    /// render timer against agent-event mutations (T35).</summary>
+    private (IComponent[] Children, long Version) TakeChildrenSnapshot()
+    {
+        lock (_childrenGate)
+        {
+            return (Children.ToArray(), _childrenVersion);
+        }
+    }
+
+    /// <summary>Must run inside <c>_childrenGate</c>: <see cref="_mouseLayout"/> is a value tuple,
+    /// so its write would tear without the lock.</summary>
+    private void MarkChildrenChanged()
+    {
+        _childrenVersion++;
+        _mouseLayout = null;
     }
 
     public void SetBgFn(Func<string, string>? bgFn) => _bgFn = bgFn;
@@ -75,11 +112,9 @@ public class Box : IComponent
 
     private void InvalidateCache() => _cache = null;
 
-    private bool MatchCache(int width, string[] childLines, string? bgSample)
+    private static bool MatchCache(RenderCache cache, int width, string[] childLines, string? bgSample)
     {
-        var cache = _cache;
-        return cache is not null
-            && cache.Width == width
+        return cache.Width == width
             && cache.BgSample == bgSample
             && cache.ChildLines.Length == childLines.Length
             && cache.ChildLines.SequenceEqual(childLines);
@@ -93,7 +128,7 @@ public class Box : IComponent
     public virtual void Invalidate()
     {
         InvalidateCache();
-        foreach (var child in Children)
+        foreach (var child in TakeChildrenSnapshot().Children)
         {
             child.Invalidate();
         }
@@ -125,9 +160,19 @@ public class Box : IComponent
             return null;
         }
 
-        var mouseChildren = _mouseLayout is { } cached && cached.Width == contentWidth
-            ? cached.Children
-            : Children.Select(child => (Component: child, Height: child.Render(contentWidth).Length)).ToList();
+        List<(IComponent Component, int Height)>? mouseChildren;
+        lock (_childrenGate)
+        {
+            mouseChildren = _mouseLayout is { } cached && cached.Width == contentWidth
+                ? cached.Children
+                : null;
+        }
+        if (mouseChildren is null)
+        {
+            mouseChildren = TakeChildrenSnapshot().Children
+                .Select(child => (Component: child, Height: child.Render(contentWidth).Length))
+                .ToList();
+        }
 
         var childY = 0;
         foreach (var (child, childHeight) in mouseChildren)
@@ -150,7 +195,8 @@ public class Box : IComponent
 
     public string[] Render(int width)
     {
-        if (Children.Count == 0)
+        var (children, version) = TakeChildrenSnapshot();
+        if (children.Length == 0)
         {
             return Array.Empty<string>();
         }
@@ -160,7 +206,7 @@ public class Box : IComponent
 
         var childLines = new List<string>();
         var mouseChildren = new List<(IComponent Component, int Height)>();
-        foreach (var child in Children)
+        foreach (var child in children)
         {
             var lines = child.Render(contentWidth);
             mouseChildren.Add((child, lines.Length));
@@ -170,7 +216,13 @@ public class Box : IComponent
             }
         }
 
-        _mouseLayout = (contentWidth, mouseChildren);
+        lock (_childrenGate)
+        {
+            if (_childrenVersion == version)
+            {
+                _mouseLayout = (contentWidth, mouseChildren);
+            }
+        }
 
         if (childLines.Count == 0)
         {
@@ -179,9 +231,12 @@ public class Box : IComponent
 
         var bgSample = _bgFn?.Invoke("test");
 
-        if (MatchCache(width, childLines.ToArray(), bgSample))
+        // Single read: a concurrent InvalidateCache() (mutation thread) can null the field between
+        // the match and the use (T35).
+        var cache = _cache;
+        if (cache is not null && MatchCache(cache, width, childLines.ToArray(), bgSample))
         {
-            return _cache!.Lines;
+            return cache.Lines;
         }
 
         var result = new List<string>();
@@ -198,8 +253,9 @@ public class Box : IComponent
             result.Add(ApplyBg("", width));
         }
 
-        _cache = new RenderCache(childLines.ToArray(), width, bgSample, result.ToArray());
-        return _cache.Lines;
+        var newCache = new RenderCache(childLines.ToArray(), width, bgSample, result.ToArray());
+        _cache = newCache;
+        return newCache.Lines;
     }
 
     private string ApplyBg(string line, int width)

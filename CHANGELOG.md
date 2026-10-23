@@ -13,6 +13,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   才会更新（`PackageReadmeFile` 随 nupkg 打包）。NuGet 包 ID 未变，`nuget.org/packages/Pi.*` 链接
   与安装命令无需调整。
 
+### Fixed
+
+- **`Box` 子组件列表与渲染缓存缺少并发防护**（T35）：渲染定时器线程枚举 `Box.Children`
+  （`Render` / `Invalidate` / `HandleMouse`）的同时，agent 事件线程增删工具卡片 / 图片子组件，
+  抛 `Collection was modified; enumeration operation may not execute`，未捕获即整个 `pi`
+  进程退出。缓存命中路径另有 `_cache` 先判后用被并发置 null 的 `NullReferenceException`
+  竞态。`Box` 现在与 `Container` 同策略：锁内快照枚举 + 版本号守卫的命中测试布局 +
+  缓存单次读取。新增确定性门控与三线程锤击两条并发回归（`ComponentTests`）。
+
 ## [1.4.1] - 2026-10-23
 
 修掉 1.4.0 已经发出去的三处缺陷。它们在 `v1.4.0` 打 tag 之后才修好，而 nuget.org 的
