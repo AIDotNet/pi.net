@@ -3,7 +3,7 @@
 > This bundle retains upstream TypeScript documentation and examples as references. Node.js, Bun,
 > TypeScript SDK, npm, and source-extension instructions describe the TypeScript runtime, not Pi.NET.
 > For this .NET 10 port, see the repository
-> [README](https://github.com/xuzeyu91/pi.net/blob/main/readme.md) and the [.NET extension guide](dotnet-extensions.md).
+> [README](https://github.com/AIDotNet/pi.net/blob/main/readme.md) and the [.NET extension guide](dotnet-extensions.md).
 
 Pi is an extensible AI agent that works from your terminal. Give it a goal and a working folder, and it can inspect files, run commands, edit content, and work through multi-step tasks.
 
@@ -33,7 +33,7 @@ Use the [Quickstart customization chooser](quickstart.md#choose-how-to-customize
 - Use [RPC mode](rpc.md) to control a separate Pi process.
 - Use the [TypeScript SDK](sdk.md) only for the upstream TypeScript runtime. For .NET, use the Pi
   assemblies or the CLI/RPC surface documented in the repository
-  [README](https://github.com/xuzeyu91/pi.net/blob/main/readme.md).
+  [README](https://github.com/AIDotNet/pi.net/blob/main/readme.md).
 
 ## Find reference and setup information
 

@@ -1,18 +1,18 @@
 # Pi.NET
 
-[English](https://github.com/xuzeyu91/pi.net/blob/main/readme.md) | [简体中文](https://github.com/xuzeyu91/pi.net/blob/main/readme.zh-CN.md)
+[English](https://github.com/AIDotNet/pi.net/blob/main/readme.md) | [简体中文](https://github.com/AIDotNet/pi.net/blob/main/readme.zh-CN.md)
 
 [![NuGet](https://img.shields.io/nuget/v/Pi.Ai?label=nuget)](https://www.nuget.org/packages/Pi.Ai)
-[![CI](https://github.com/xuzeyu91/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/xuzeyu91/pi.net/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/github/license/xuzeyu91/pi.net)](https://github.com/xuzeyu91/pi.net/blob/main/LICENSE)
+[![CI](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/AIDotNet/pi.net)](https://github.com/AIDotNet/pi.net/blob/main/LICENSE)
 
 Pi.NET is a .NET 10 port of [Pi](https://github.com/earendil-works/pi). Pi is a minimal, extensible Agent harness (TypeScript monorepo, ~171k lines); this project ports its core libraries one by one to `net10.0`, bringing the same capabilities to the .NET ecosystem.
 
 Pi's philosophy is "make Pi fit your workflow, not the other way around": each library does one minimal-but-complete thing, and you compose the layers above it yourself. This project carries that philosophy over — rather than mechanically translating TS into C#, it rebuilds everything in idiomatic C# with semantic equivalence (discriminated unions → abstract records with pattern matching, JS Proxy → explicit verb APIs).
 
 <p align="center">
-  <a href="https://github.com/xuzeyu91/pi.net/blob/main/docs/media/pi-net-promo.mp4">
-    <img src="https://raw.githubusercontent.com/xuzeyu91/pi.net/main/docs/media/pi-net-promo-poster.png" alt="Pi.NET product promo" width="820">
+  <a href="https://github.com/AIDotNet/pi.net/blob/main/docs/media/pi-net-promo.mp4">
+    <img src="https://raw.githubusercontent.com/AIDotNet/pi.net/main/docs/media/pi-net-promo-poster.png" alt="Pi.NET product promo" width="820">
   </a>
   <br>
   <sub>39-second promo (with voice-over) · click the cover to play (1080p / MP4 / 5.4 MB)</sub>
@@ -46,7 +46,7 @@ Pi's philosophy is "make Pi fit your workflow, not the other way around": each l
 | **Pi.DurableHost** | Separate durable-session host (`pi-durable`) built on the coding-agent runtime, with the `subagent` tool and per-directory execution environments |
 | **Pi.Evals** | Native .NET host and documentation eval runner; paired documentation evals use Docker |
 
-The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](https://github.com/xuzeyu91/pi.net/blob/main/src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and documented TypeScript/.NET differences are in [migration-execution-status.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/migration-execution-status.md).
+The TypeScript monorepo remains the behavioral reference. Bundled upstream docs and examples are retained as TypeScript references; use the [.NET extension guide](https://github.com/AIDotNet/pi.net/blob/main/src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md) for C# extension APIs. The authoritative phase ledger, validation evidence, and documented TypeScript/.NET differences are in [migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md).
 
 ## Getting Started
 
@@ -63,9 +63,9 @@ dotnet add package Pi.CodingAgent   # the whole stack, including the CLI runtime
 
 ### Usage docs and samples
 
-- **[docs/usage](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/README.md)** — how to consume each package from C#: which package for which job, minimal working code, credentials, and the traps worth knowing.
-- **[docs/usage/models-configuration.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/models-configuration.md)** — every `models.json` field (provider, model, overrides, input limits, compatibility) with its type, default and description, generated from the published JSON Schema.
-- **[samples](https://github.com/xuzeyu91/pi.net/blob/main/samples/README.md)** — four runnable console projects, compiled by CI so they cannot silently rot:
+- **[docs/usage](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/README.md)** — how to consume each package from C#: which package for which job, minimal working code, credentials, and the traps worth knowing.
+- **[docs/usage/models-configuration.md](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/models-configuration.md)** — every `models.json` field (provider, model, overrides, input limits, compatibility) with its type, default and description, generated from the published JSON Schema.
+- **[samples](https://github.com/AIDotNet/pi.net/blob/main/samples/README.md)** — four runnable console projects, compiled by CI so they cannot silently rot:
 
 ```bash
 dotnet run --project samples/Pi.Samples.FauxAgent      # full agent loop, no API key
@@ -74,7 +74,7 @@ dotnet run --project samples/Pi.Samples.CodingSession  # embedded coding agent (
 dotnet run --project samples/Pi.Samples.McpClient      # standalone MCP client
 ```
 
-Package contents, release process and rollback are documented in [docs/publishing.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/publishing.md).
+Package contents, release process and rollback are documented in [docs/publishing.md](https://github.com/AIDotNet/pi.net/blob/main/docs/publishing.md).
 
 ### Build from source
 
@@ -93,4 +93,4 @@ dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 
 ## Migration Status
 
-Implementation progress, phase-by-phase evidence, and known TypeScript/.NET differences are tracked in [docs/migration-execution-status.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/migration-execution-status.md).
+Implementation progress, phase-by-phase evidence, and known TypeScript/.NET differences are tracked in [docs/migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md).

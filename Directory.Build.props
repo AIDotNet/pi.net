@@ -21,12 +21,12 @@
   -->
   <PropertyGroup>
     <Version>1.4.1</Version>
-    <Authors>xuzeyu91</Authors>
+    <Authors>xuzeyu</Authors>
     <Product>Pi.NET</Product>
-    <Description>Pi.NET - a .NET 10 port of Pi, a minimal and extensible agent harness. See https://github.com/xuzeyu91/pi.net for the full package list.</Description>
-    <Copyright>Copyright (c) 2025 Mario Zechner (upstream Pi); .NET port Copyright (c) 2026 xuzeyu91</Copyright>
-    <PackageProjectUrl>https://github.com/xuzeyu91/pi.net</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/xuzeyu91/pi.net</RepositoryUrl>
+    <Description>Pi.NET - a .NET 10 port of Pi, a minimal and extensible agent harness. See https://github.com/AIDotNet/pi.net for the full package list.</Description>
+    <Copyright>Copyright (c) 2025 Mario Zechner (upstream Pi); .NET port Copyright (c) 2026 xuzeyu</Copyright>
+    <PackageProjectUrl>https://github.com/AIDotNet/pi.net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/AIDotNet/pi.net</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>

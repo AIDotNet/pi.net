@@ -1,18 +1,18 @@
 # Pi.NET
 
-[English](https://github.com/xuzeyu91/pi.net/blob/main/readme.md) | [简体中文](https://github.com/xuzeyu91/pi.net/blob/main/readme.zh-CN.md)
+[English](https://github.com/AIDotNet/pi.net/blob/main/readme.md) | [简体中文](https://github.com/AIDotNet/pi.net/blob/main/readme.zh-CN.md)
 
 [![NuGet](https://img.shields.io/nuget/v/Pi.Ai?label=nuget)](https://www.nuget.org/packages/Pi.Ai)
-[![CI](https://github.com/xuzeyu91/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/xuzeyu91/pi.net/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/github/license/xuzeyu91/pi.net)](https://github.com/xuzeyu91/pi.net/blob/main/LICENSE)
+[![CI](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/AIDotNet/pi.net)](https://github.com/AIDotNet/pi.net/blob/main/LICENSE)
 
 Pi.NET 是 [Pi](https://github.com/earendil-works/pi) 的 .NET 10 移植版。Pi 是一个极简、可扩展的 Agent harness（TypeScript monorepo，约 17.1 万行），本项目把它的核心库逐一移植到 `net10.0`，让 .NET 生态用上同一套能力。
 
 Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只做最小而完整的事，上层由你自己组合。本项目沿用这一理念——不是把 TS 代码翻成 C# 就完事，而是在语义等价的前提下用 C# 的方式重建（判别联合 → abstract record 模式匹配、JS Proxy → 显式动词 API）。
 
 <p align="center">
-  <a href="https://github.com/xuzeyu91/pi.net/blob/main/docs/media/pi-net-promo.mp4">
-    <img src="https://raw.githubusercontent.com/xuzeyu91/pi.net/main/docs/media/pi-net-promo-poster.png" alt="Pi.NET 产品宣传片" width="820">
+  <a href="https://github.com/AIDotNet/pi.net/blob/main/docs/media/pi-net-promo.mp4">
+    <img src="https://raw.githubusercontent.com/AIDotNet/pi.net/main/docs/media/pi-net-promo-poster.png" alt="Pi.NET 产品宣传片" width="820">
   </a>
   <br>
   <sub>39 秒宣传片（带配音） · 点击封面播放（1080p / MP4 / 5.4 MB）</sub>
@@ -46,7 +46,7 @@ Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只�
 | **Pi.DurableHost** | 基于 coding-agent runtime 的独立 durable 会话宿主（`pi-durable`），带 `subagent` 工具与按目录缓存的执行环境 |
 | **Pi.Evals** | 原生 .NET host/documentation 评测工具；配对文档评测使用 Docker |
 
-TypeScript monorepo 仍是行为参考；随包提供的上游 docs/examples 保留为 TypeScript 参考资料，C# 扩展 API 请看 [.NET 扩展指南](https://github.com/xuzeyu91/pi.net/blob/main/src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)。权威迁移阶段、验收证据与已记录的 TypeScript/.NET 差异见 [migration-execution-status.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/migration-execution-status.md)。
+TypeScript monorepo 仍是行为参考；随包提供的上游 docs/examples 保留为 TypeScript 参考资料，C# 扩展 API 请看 [.NET 扩展指南](https://github.com/AIDotNet/pi.net/blob/main/src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)。权威迁移阶段、验收证据与已记录的 TypeScript/.NET 差异见 [migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md)。
 
 ## 快速开始
 
@@ -63,9 +63,9 @@ dotnet add package Pi.CodingAgent   # 整套依赖，含 CLI 运行时资源
 
 ### 使用文档与示例
 
-- **[docs/usage](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/README.md)** —— 怎么从 C# 里用这些包：按用途选包、最小可运行代码、凭据配置，以及几个值得提前知道的坑。
-- **[docs/usage/models-configuration.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/usage/models-configuration.md)** —— `models.json` 的字段级参考：provider / model / modelOverrides / inputLimits / compat 逐字段的类型、默认值与说明，由已发布的 JSON Schema 生成。
-- **[samples](https://github.com/xuzeyu91/pi.net/blob/main/samples/README.md)** —— 四个可运行的控制台工程，随 CI 一起编译，不会悄悄失效：
+- **[docs/usage](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/README.md)** —— 怎么从 C# 里用这些包：按用途选包、最小可运行代码、凭据配置，以及几个值得提前知道的坑。
+- **[docs/usage/models-configuration.md](https://github.com/AIDotNet/pi.net/blob/main/docs/usage/models-configuration.md)** —— `models.json` 的字段级参考：provider / model / modelOverrides / inputLimits / compat 逐字段的类型、默认值与说明，由已发布的 JSON Schema 生成。
+- **[samples](https://github.com/AIDotNet/pi.net/blob/main/samples/README.md)** —— 四个可运行的控制台工程，随 CI 一起编译，不会悄悄失效：
 
 ```bash
 dotnet run --project samples/Pi.Samples.FauxAgent      # 完整 agent 循环，不需要 API key
@@ -74,7 +74,7 @@ dotnet run --project samples/Pi.Samples.CodingSession  # 嵌入式 coding agent�
 dotnet run --project samples/Pi.Samples.McpClient      # 独立 MCP 客户端
 ```
 
-包内容、发版流程和回退方式见 [docs/publishing.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/publishing.md)。
+包内容、发版流程和回退方式见 [docs/publishing.md](https://github.com/AIDotNet/pi.net/blob/main/docs/publishing.md)。
 
 ### 从源码构建
 
@@ -93,4 +93,4 @@ dotnet run --project tests/Pi.Evals.Tests/Pi.Evals.Tests.csproj --no-restore
 
 ## 迁移状态
 
-实施进度、逐阶段验收证据与已记录的 TypeScript/.NET 差异统一维护在 [docs/migration-execution-status.md](https://github.com/xuzeyu91/pi.net/blob/main/docs/migration-execution-status.md)。
+实施进度、逐阶段验收证据与已记录的 TypeScript/.NET 差异统一维护在 [docs/migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md)。

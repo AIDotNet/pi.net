@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+### Changed
+
+- 仓库迁移到 `AIDotNet/pi.net`：readme / README 徽章、文档互链、`Directory.Build.props` 的
+  `PackageProjectUrl` / `RepositoryUrl` / `Description`、CodingAgent 内置 docs 索引与宣传片页脚
+  全部改指新地址。旧地址 `xuzeyu91/pi.net` 由 GitHub 301 重定向兜底，但包内 README 要等下一次发版
+  才会更新（`PackageReadmeFile` 随 nupkg 打包）。NuGet 包 ID 未变，`nuget.org/packages/Pi.*` 链接
+  与安装命令无需调整。
+
 ## [1.4.1] - 2026-10-23
 
 修掉 1.4.0 已经发出去的三处缺陷。它们在 `v1.4.0` 打 tag 之后才修好，而 nuget.org 的
