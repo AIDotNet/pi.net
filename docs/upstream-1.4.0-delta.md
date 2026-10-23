@@ -414,7 +414,20 @@ CodingAgent 5071/5074、Ai 512/512 无回归。
 - 过程记录：MCP 工具默认 `exposure: "codemode"`（只进脚本不声明给模型），
   直连给模型用需要 `"exposure": "direct"`。
 
-**仍未覆盖**：交互式 TUI、OAuth 登录流、compaction 的实触发、api.openai.com 官方密钥路径（网络不可达）。
+**第三轮（第五十五批）：可自主完成的项至此测完**：
+
+- **AGENTS.md 上下文**：项目目录写入暗语后 `--print --no-tools` 提问，模型精确答出。✅
+- **Skills**：SKILL.md（frontmatter + 描述路由）放进 agentDir/skills，带工具运行——
+  skill 以「name/description/path」播报进 system prompt，模型用 read 读 SKILL.md 并精确回复暗语。✅
+  （注意：`--no-tools` 下 skills 段整个省略——没有 read 工具就读不了 SKILL.md，测法必须带工具。）
+- **Compaction 实触发**：models.json 配 contextWindow=2000 的模型 + settings 阈值调小，
+  让 agent 读 37KB 文件——上下文超限自动压缩，会话里出现 `"type":"compaction"` 条目，
+  压缩后 agent 正常收尾（READ-DONE）。✅
+- **RPC followUp 队列**：`{"type":"follow_up","message":...}` 在第一回合结束后排队并触发第二回合
+  （FIRST-TURN 与 SECOND-TURN 均在事件流中）。✅ 类型名是 snake_case 的 `follow_up`（与 TS 一致）。
+
+**仍未覆盖（需要本人交互或网络）**：交互式 TUI、OAuth 浏览器登录流、steering 的运行中打断时序、
+api.openai.com 官方密钥路径。
 
 
 ## 7. 建议的后续顺序
