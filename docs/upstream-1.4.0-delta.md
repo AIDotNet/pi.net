@@ -238,8 +238,9 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
   `compat` 落到分类器」；第二十一批删 1 例、加 1 例，数量不变） |
 | `Pi.Agent.Tests` | 36 / 36 通过 |
 | `Pi.Chord.Tests` | 106 / 106 通过（第四十二批新增 2 例：末尾追加的快路径、中间 splice 的尾部保留与 `remove` 夹取） |
-| `Pi.Durable.Tests` | 501 / 501 通过（第四十二批修掉 `ArmSleepTimer` 的并发布设竞态：全量跑必现「一次睡眠两个
-  500ms 定时器」，单类跑不复现；`Sleeping` 状态为第三十一批）。第三十四批新增 4 例 `afterFailedRun`；第三十三批新增 7 例上报分类；第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457 |
+| `Pi.Durable.Tests` | 503 / 503 通过（第四十三批新增 2 例等待环：自等、经自有工作成环；第四十二批修掉
+  `ArmSleepTimer` 的并发布设竞态：全量跑必现「一次睡眠两个 500ms 定时器」，单类跑不复现）。
+  第三十四批新增 4 例 `afterFailedRun`；第三十三批新增 7 例上报分类；第三十二批新增 10 例 crash-loop guard / 停放 / retryTask / 阻塞原因；第三十一批新增 12 例持久睡眠 + 1 例跨后端 conformance；第三十批新增 5 例按模型压缩策略；第二十批新增 2 例；此前 457 |
 | `Pi.Mcp.Tests` | 55 / 55 通过（第十五批新增 3 例；此前 52） |
 | `Pi.Codemode.Tests` | 52 / 52 通过（第四十一批新增 1 例 `@options` 必须位于首行；第十八批替换 2 例） |
 | `Pi.Env.Tests` | 44 / 44 通过（3 跳过） |
@@ -308,6 +309,35 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    - 剩余能对上端口的只有 `091bcc099` 的数组追加计划：tracker 侧的 `orderedArrayPlan` 无对应物
      （端口 `Tracker` 是显式动词 API，没有 overlay/plan 机制，见 `Delta/Tracker.cs` 的差异说明），
      apply 侧的「追加别拷两遍」已移植（见 §6.al）。
+7. **durable 的 code mode 与 tool search —— 尚未移植（真实缺口，非不适用）**
+
+   第四十三批复核「只用功能名记录」的 103 个提交时发现：`packages/durable/src/codemode/` 与
+   `packages/durable/src/tool-search/` 在端口里**完全没有对应物**（`src/Pi.Durable` 下
+   `grep Codemode` 与 `grep ToolSearch` 都是空，`Tools/` 只有 bash / read / edit / write）。
+   上游这一族 6 个提交、约 1,800 行 TS：
+
+   | 提交 | 内容 |
+   | --- | --- |
+   | `7b597d148` | durable code mode（`@earendil-works/pi-durable/codemode`）落地 |
+   | `8bb180bec` | 脚本内 `tools` 列举、`tool_search`、`output`、`models.*`、`grammar`；工具错误规则 |
+   | `127b77121` | 结果里列出脚本发起的工具调用 |
+   | `04566631c` | 关闭 sandbox 不决定脚本结局 |
+   | `77332f7a3` | 延迟工具与 `tool_search` 扩展 |
+   | `c661bc574` | 从 code mode 段里去掉共享的 MCP 类型 |
+
+   同一批复核还确认了几处配套缺项（与 codemode 无强依赖，但同属未落地）：
+   `eba849739` / `4ac0bd8c7`（嵌套工具调用、`callers`、`TaskRuntime.ownedTasks()`、
+   一次嵌套调用一份 document——端口 `grep OwnedTasks` 为空）、
+   `f44707e7f`（`documentRetentionMs` 按使用量约束 document 缓存——端口无此设置）、
+   `42a3497d0`（`read` 返回图片、可选 Photon 图像处理器——端口只有 `Tools/ImageMime.cs`）。
+
+   **要不要移植**属于产品取舍：端口的 coding-agent 已有自己的 codemode（Jint VM，脚本在
+   coding-agent 侧跑），而 durable 这一套是「脚本在某个持久任务里跑、可再发工具调用」的另一形态。
+   本轮只把事实与规模记清楚，不做决定。
+
+   **方法上的教训**（写给下一次复核）：判断「某个提交是否落地」不能只看文档里有没有它的哈希，
+   也不能因为「同族功能已有实现」就跳过；至少要按上游 `src` 目录逐个子系统确认端口有没有对应物。
+   本轮就是这么发现 codemode 一族缺失的。
 
 ## 7. 建议的后续顺序
 
@@ -332,8 +362,10 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    ~~剩余提交复核：completions 思维顺序、Codex 头覆盖、OAuth 回调兜底端口、codemode 输出/计时/
    `@options`、Termux 剪贴板~~（第四十一批）→ ~~chord 范围收口 + 数组追加快路径、睡眠定时器布设竞态~~
    （第四十二批）。
-   至此 §3.5.1 表中除已判
-   不适用的两项外无待办项，`v1.0.4..v1.4.0` 全部提交均已逐条判定。
+   **尚未完成**：`v1.0.4..v1.4.0` 的 278 个提交里只有 104 个在本文档留有哈希引用，其余 174 个
+   （其中 103 个改动了 `packages/*/src`）是按功能名记录的。第四十三批抽查这 103 个时发现 durable 的
+   code mode 一族整体缺失（见 §6 第 7 条），因此**不能**再声称「全部提交均已逐条判定」。
+   这一批只修掉抽查命中的两条（Gemini 4 的档位、等待环检测），剩余条目按 §6 第 7 条继续核。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1262,6 +1294,42 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.am 第四十三批（覆盖率复核：Gemini 4 档位、等待环检测，以及审计口径的修正）落地明细
+
+**① 为什么会做这一批**
+
+前两批一直用「文档里是否出现哈希」来算差集。这一批先做了个更硬的统计：`v1.0.4..v1.4.0` 共 278 个
+提交，文档里显式出现哈希的只有 **104** 个，其余 174 个是按功能名记录的，其中 **103** 个改动了
+`packages/*/src`。抽查这 103 个，立刻命中两条真缺口，随后又发现一个整族的缺失（§6 第 7 条）。
+因此 §7 里「全部提交均已逐条判定」这句结论已撤回。
+
+**② Gemini 4 及以后要用离散档位而不是 token budget**（`1692bba63` / #10890）
+
+`src/Pi.Ai/Api/GoogleShared.cs` 的 `UsesGoogleThinkingLevel` 只匹配 `gemini-3(?:\.\d+)?-(?:pro|flash)`，
+于是 `gemini-4-argon` 落到 token budget 分支：Vertex 直接拒收 `thinkingBudget`，Gemini API 则忽略
+所选档位。补一条 `gemini-(?:[4-9]|[1-9]\d)`，覆盖 4–9 与两位数版本。
+测试：`GoogleGenerativeAiTests.ThinkingLevelHelpers` 增加 `gemini-4-argon`、`gemini-10-pro` 为真，
+`gemini-2-argon` 为假（防止把 `gemini-2` 误判进来）。
+
+**③ 等待图必须无环，而不是「不许等属主」**（`eb2fce43d` / #10411）
+
+端口 `Scheduler.ValidateWaitAsync` 仍是旧规则：等待不能指向自己或自己的任一属主。上游把它换成
+**等待图上的环检测**——边从每个任务指向它等待的任务，以及它存活的普通自有工作（spec §5.5）：
+
+- 校验只把「非终结、且不是等待者自己拥有的任务」放进候选（活着的子任务已经握着等待者，等它
+  不新增边；终结的任务没有边）；候选为空直接通过。
+- `WaitCycleAsync` 从候选出发做广度遍历，同时沿「等待边」（`state.On`，abort 已标记的任务除外，
+  因为 abort 自下而上跑）与「自有工作边」（`OwnedLive`）走，走回等待者即返回该环。
+- 报错点名环：`Task B cannot wait on A: B -> A -> B is a wait cycle`。
+
+这条修正的实际意义：旧规则会把「后台任务等待它所在对话的属主」这种合法情况一起拒掉，因为端口
+没有区分「后台任务不计入属主的自有工作」。现在只有真成环才拒。
+测试（`SchedulerTests`，+2）：`Scheduler_RejectsAWaitOnItselfAsACycle`（自等 → `A -> A`）、
+`Scheduler_RejectsAWaitThatClosesACycleThroughOwnedWork`（父等子、子回头等父 → `子 -> 父 -> 子`）。
+两条在旧实现下都只会报「cannot wait on itself or its owner」，断言 `is a wait cycle` 即失败。
+
+**测试**：`Pi.Ai.Tests` 512 / 512、`Pi.Durable.Tests` 503 / 503（+2）。
 
 ### 6.al 第四十二批（chord 范围收口：数组追加别拷两遍）落地明细
 

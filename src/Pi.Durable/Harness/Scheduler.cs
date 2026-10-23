@@ -1834,8 +1834,11 @@ public sealed class TaskScheduler
     }
 
     /// <summary>
-    /// 等待命名的必须是等待者与其属主之外的既有任务——它们不可能先完成；<c>failFast</c> 只能等待等待者
-    /// 拥有的任务。abort 处理器不能等待。
+    /// 等待命名的必须是既有任务，<c>failFast</c> 只能等待等待者拥有的任务，且不能闭合等待图上的环
+    /// （边从每个任务指向它等待的任务，以及它存活的普通自有工作；spec §5.5）。等自己、等握着它的属主
+    /// 是最短的两个环。abort 处理器不能等待。
+    /// <para>不变式：等待图无环。只有「等待」会在既有任务之间加边（新任务只有入边），故每次等待校验一次
+    /// 即可维持。对应上游 <c>#validateWait</c>（`eb2fce43d`）。</para>
     /// </summary>
     private async Task ValidateWaitAsync(
         Transaction tx,
@@ -1850,21 +1853,9 @@ public sealed class TaskScheduler
         }
 
         var overlay = OverlayOf(tx);
-        await LoadChainAsync(ParentOf(current)).ConfigureAwait(false);
-        var owners = new HashSet<TaskId<object?>>();
-        foreach (var step in Above(ParentOf(current)))
-        {
-            if (step is Step.Owner ownerStep) owners.Add(ownerStep.TaskId);
-        }
-
+        var targets = new List<TaskId<object?>>();
         foreach (var id in on)
         {
-            if (id == current.Id || owners.Contains(id))
-            {
-                throw new InvalidOperationException(
-                    $"Task {current.Id.Value} cannot wait on itself or its owner {id.Value}");
-            }
-
             var member = overlay.Tasks.GetValueOrDefault(id) ?? _live.GetValueOrDefault(id)
                 ?? await _storage.GetTaskAsync(id).ConfigureAwait(false);
             if (member is null) throw new InvalidOperationException($"Task {id.Value} does not exist");
@@ -1873,7 +1864,70 @@ public sealed class TaskScheduler
                 throw new InvalidOperationException(
                     $"Task {current.Id.Value} can wait failFast only on tasks it owns; {id.Value} is not one");
             }
+
+            // 存活的子任务已经握着等待者（任务拥有的任务从不是后台），等它不再新增边；终结的任务没有边。
+            if (member.State.Status != TaskStatus.Terminal && !Equals(member.Owner, current.Id)) targets.Add(id);
         }
+
+        if (targets.Count == 0) return;
+
+        var cycle = await WaitCycleAsync(current.Id, targets, overlay).ConfigureAwait(false);
+        if (cycle is not null)
+        {
+            throw new InvalidOperationException(
+                $"Task {current.Id.Value} cannot wait on {cycle[0].Value}: " +
+                $"{string.Join(" -> ", new[] { current.Id }.Concat(cycle).Select(id => id.Value))} is a wait cycle");
+        }
+    }
+
+    /// <summary>
+    /// 等 <paramref name="on"/> 是否会在等待图上走回 <paramref name="task"/>；走得回就返回该环（从
+    /// <paramref name="on"/> 里的起点到等待者，不含等待者自身）。对应上游 <c>#waitCycle</c>。
+    /// </summary>
+    private async Task<List<TaskId<object?>>?> WaitCycleAsync(
+        TaskId<object?> task, IReadOnlyList<TaskId<object?>> on, Overlay overlay)
+    {
+        // 自有工作靠向下找，需要每个存活任务的属主链都已加载。
+        await LoadScopesAsync(false).ConfigureAwait(false);
+        var owned = OwnedLive(overlay);
+        var from = new Dictionary<TaskId<object?>, TaskId<object?>?>();
+        var walked = new HashSet<TaskId<object?>>();
+        var pending = new Stack<TaskId<object?>>();
+
+        void Reach(TaskId<object?> id, TaskId<object?>? via)
+        {
+            if (from.ContainsKey(id)) return;
+            from[id] = via;
+            pending.Push(id);
+        }
+
+        foreach (var id in on) Reach(id, null);
+        while (pending.Count > 0)
+        {
+            var id = pending.Pop();
+            if (id == task)
+            {
+                var steps = new List<TaskId<object?>>();
+                for (TaskId<object?>? at = id; at is { } value; at = from[value]) steps.Insert(0, value);
+                return steps;
+            }
+
+            var record = overlay.Tasks.GetValueOrDefault(id) ?? _live.GetValueOrDefault(id);
+            if (record is null || record.State.Status == TaskStatus.Terminal) continue;
+            // 已标 abort 的任务只等自有工作（abort 自下而上跑，见 WaitingOn）。
+            if (record.State.Status == TaskStatus.Waiting && !record.AbortRequested)
+            {
+                foreach (var member in record.State.On ?? []) Reach(member, id);
+            }
+
+            if (!walked.Add(id)) continue;
+            // 走过的任务下面不再走一遍：它自己那次已经覆盖了下面。
+            foreach (var below in owned.GetValueOrDefault(id) ?? []) Reach(below, id);
+            // 下面这些已经由这次遍历覆盖。
+            foreach (var below in owned.GetValueOrDefault(id) ?? []) walked.Add(below);
+        }
+
+        return null;
     }
 
     /// <summary>

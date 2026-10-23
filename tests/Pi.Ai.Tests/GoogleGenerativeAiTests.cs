@@ -207,6 +207,10 @@ public class GoogleGenerativeAiTests
     {
         Assert.True(GoogleShared.UsesGoogleThinkingLevel(Model("gemini-3-flash-preview")));
         Assert.True(GoogleShared.UsesGoogleThinkingLevel(Model("gemini-3.1-pro-preview")));
+        // Gemini 4 及以后（#10890）：Vertex 拒收 thinkingBudget，Gemini API 又忽略档位。
+        Assert.True(GoogleShared.UsesGoogleThinkingLevel(Model("gemini-4-argon")));
+        Assert.True(GoogleShared.UsesGoogleThinkingLevel(Model("gemini-10-pro")));
+        Assert.False(GoogleShared.UsesGoogleThinkingLevel(Model("gemini-2-argon")));
         Assert.True(GoogleShared.UsesGoogleThinkingLevel(Model("gemma-4-27b")));
         Assert.False(GoogleShared.UsesGoogleThinkingLevel(Model("gemini-2.5-pro")));
         Assert.Equal("HIGH", GoogleShared.ToGoogleThinkingLevel("high"));

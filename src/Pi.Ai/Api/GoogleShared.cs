@@ -33,13 +33,15 @@ public static class GoogleShared
     }
 
     /// <summary>
-    /// 模型是否使用 Gemini 3 的离散 <c>thinkingLevel</c> 控制（而非 token budget）。
+    /// 模型是否使用 Gemini 3 及以上的离散 <c>thinkingLevel</c> 控制（而非 token budget）。
     /// 对应 TS <c>usesGoogleThinkingLevel</c>。
     /// </summary>
     public static bool UsesGoogleThinkingLevel(ModelSpec model)
     {
         var id = model.Id.ToLowerInvariant();
         return System.Text.RegularExpressions.Regex.IsMatch(id, @"gemini-3(?:\.\d+)?-(?:pro|flash)")
+            // Gemini 4 及以后（如 gemini-4-argon）：Vertex 拒收 thinkingBudget，Gemini API 又忽略档位（#10890）。
+            || System.Text.RegularExpressions.Regex.IsMatch(id, @"gemini-(?:[4-9]|[1-9]\d)")
             || id is "gemini-flash-latest" or "gemini-flash-lite-latest"
             // 托管 Gemma 4 的两种命名：gemma-4-* 与 gemma4-*。
             || System.Text.RegularExpressions.Regex.IsMatch(id, @"gemma-?4");

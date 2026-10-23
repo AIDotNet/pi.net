@@ -298,6 +298,78 @@ public class SchedulerTests
     }
 
     [Fact]
+    public async Task Scheduler_RejectsAWaitOnItselfAsACycle()
+    {
+        using var fixture = await CreateFixtureAsync();
+        var definition = DefineTask("fake.selfwait",
+            [("s1", (TaskPhaseHandler)((task, runtime, context) => runtime.CommitAsync(
+                (tx, current) => Task.FromResult<TaskState?>(new TaskState
+                {
+                    Status = TaskStatus.Waiting,
+                    On = [task.Id],
+                    Policy = JoinPolicy.AllSettled,
+                    Checkpoint = current.State.Checkpoint,
+                }),
+                context)))]);
+        fixture.Registry.Install(new FakeTaskExtension("ext", [AnyDurableTask.From(definition)]));
+        var id = await CreateTaskAsync(fixture, definition, new TaskOwnership.ConversationOwner(), fixture.Conv);
+        fixture.Scheduler.Resume();
+
+        var record = await WaitUntilAsync(fixture, id, status => status == TaskStatus.Terminal);
+        Assert.Equal(TaskOutcomeStatus.Faulted, record.State.Outcome!.Status);
+        // 环要报出来，并且点名它等到的那个任务（等自己时就是它自己）。
+        Assert.Contains("is a wait cycle", record.State.Outcome!.Error!.Message);
+        Assert.Contains($"{id.Value} -> {id.Value}", record.State.Outcome!.Error!.Message);
+    }
+
+    [Fact]
+    public async Task Scheduler_RejectsAWaitThatClosesACycleThroughOwnedWork()
+    {
+        using var fixture = await CreateFixtureAsync();
+        // 父任务等子任务（它是父的自有工作，不新增边，允许）；子任务回头等父任务 → 父「握着」子，
+        // 于是 父 -> 子、子 -> 父 成环。
+        TaskId<object?> childRef = default;
+        var parentDefinition = DefineTask("fake.cycle.parent",
+            [("s1", (TaskPhaseHandler)((task, runtime, context) => runtime.CommitAsync(
+                (tx, current) => Task.FromResult<TaskState?>(new TaskState
+                {
+                    Status = TaskStatus.Waiting,
+                    On = [childRef],
+                    Policy = JoinPolicy.AllSettled,
+                    Checkpoint = current.State.Checkpoint,
+                }),
+                context)))]);
+        TaskId<object?> parentRef = default;
+        var childDefinition = DefineTask("fake.cycle.child",
+            [("s1", (TaskPhaseHandler)((task, runtime, context) => runtime.CommitAsync(
+                (tx, current) => Task.FromResult<TaskState?>(new TaskState
+                {
+                    Status = TaskStatus.Waiting,
+                    On = [parentRef],
+                    Policy = JoinPolicy.AllSettled,
+                    Checkpoint = current.State.Checkpoint,
+                }),
+                context)))]);
+        fixture.Registry.Install(new FakeTaskExtension("ext",
+        [
+            AnyDurableTask.From(parentDefinition),
+            AnyDurableTask.From(childDefinition),
+        ]));
+        var parentId = await CreateTaskAsync(
+            fixture, parentDefinition, new TaskOwnership.ConversationOwner(), fixture.Conv);
+        parentRef = parentId;
+        var childId = await CreateTaskAsync(fixture, childDefinition, new TaskOwnership.TaskOwner(parentId));
+        childRef = childId;
+        fixture.Scheduler.Resume();
+
+        var child = await WaitUntilAsync(fixture, childId, status => status == TaskStatus.Terminal);
+        Assert.Equal(TaskOutcomeStatus.Faulted, child.State.Outcome!.Status);
+        Assert.Contains("is a wait cycle", child.State.Outcome!.Error!.Message);
+        Assert.Contains($"{childId.Value} -> {parentId.Value} -> {childId.Value}",
+            child.State.Outcome!.Error!.Message);
+    }
+
+    [Fact]
     public async Task Scheduler_OrphansAbortedTaskNoDefinitionCanTake()
     {
         using var fixture = await CreateFixtureAsync();
