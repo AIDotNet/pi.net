@@ -3,24 +3,42 @@
 All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/badlogic/pi-mono) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
-## [Unreleased]
+## [1.4.2] - 2026-10-23
 
-### Changed
-
-- 仓库迁移到 `AIDotNet/pi.net`：readme / README 徽章、文档互链、`Directory.Build.props` 的
-  `PackageProjectUrl` / `RepositoryUrl` / `Description`、CodingAgent 内置 docs 索引与宣传片页脚
-  全部改指新地址。旧地址 `xuzeyu91/pi.net` 由 GitHub 301 重定向兜底，但包内 README 要等下一次发版
-  才会更新（`PackageReadmeFile` 随 nupkg 打包）。NuGet 包 ID 未变，`nuget.org/packages/Pi.*` 链接
-  与安装命令无需调整。
+发 1.4.1 之后又攒到三处真实缺陷：一处让**所有带参数的 MCP 工具**不可用，一处让**自定义
+provider** 的流式请求全部失败，一处会让 `pi` 整个进程崩掉。它们都在 `v1.4.1` 打 tag 之后
+才修好，同样只能发新版本。
 
 ### Fixed
 
+- **带参数的 MCP 工具全部失效（`The node already has a parent.`）**: 构造 `tools/call` 的
+  `arguments` 时，`McpServerConnection` 把调用方给的 `JsonNode` 原样塞进新的 `JsonObject`。
+  而 `Pi.Agent` 的 `ValidateToolArguments` 交出来的，正是**已经挂在参数对象下**的子节点——
+  给已有父节点的 `JsonNode` 重新挂父会抛 `InvalidOperationException`，于是凡是需要参数的
+  MCP 工具（`read_file`、`edit`、任何带 schema 的工具）一律调用失败，无参工具反而正常，
+  很容易被误判成 server 端问题。现在遍历时逐个 `DeepClone()`，原参数对象保持不动。
+  回归用例 `CallToolAcceptsArgumentValuesThatAlreadyHaveAParent` 断言发出的 `arguments`
+  内容正确，且原子节点仍挂在原父节点上。
+- **自定义 provider 流式报 `No API provider registered for api: …`**: 内置 API provider 的注册
+  挂在 `CompatApi` 的静态构造函数里，只有走基类 composer 才会触发；而 `models.json` 里的自定义
+  provider 直接查 API 注册表，从不经过那条路径。于是端到端测试一对真实 OpenAI 兼容端点发请求就
+  抛 `No API provider registered for api: openai-completions`。现在流式回落路径会确保注册
+  （幂等，不覆盖已有条目）。回归用例改为对一个不可达端点流式请求，断言失败落在连接层而不是
+  注册表。
 - **`Box` 子组件列表与渲染缓存缺少并发防护**（T35）：渲染定时器线程枚举 `Box.Children`
   （`Render` / `Invalidate` / `HandleMouse`）的同时，agent 事件线程增删工具卡片 / 图片子组件，
   抛 `Collection was modified; enumeration operation may not execute`，未捕获即整个 `pi`
   进程退出。缓存命中路径另有 `_cache` 先判后用被并发置 null 的 `NullReferenceException`
   竞态。`Box` 现在与 `Container` 同策略：锁内快照枚举 + 版本号守卫的命中测试布局 +
   缓存单次读取。新增确定性门控与三线程锤击两条并发回归（`ComponentTests`）。
+
+### Changed
+
+- 仓库迁移到 `AIDotNet/pi.net`：readme / README 徽章、文档互链、`Directory.Build.props` 的
+  `PackageProjectUrl` / `RepositoryUrl` / `Description`、CodingAgent 内置 docs 索引与宣传片页脚
+  全部改指新地址。旧地址 `xuzeyu91/pi.net` 由 GitHub 301 重定向兜底；本次发版起，随 nupkg
+  打包的包内 README（`PackageReadmeFile`）也指向新地址。NuGet 包 ID 未变，
+  `nuget.org/packages/Pi.*` 链接与安装命令无需调整。
 
 ## [1.4.1] - 2026-10-23
 
