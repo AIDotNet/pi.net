@@ -1,7 +1,10 @@
 name: Publish NuGet packages
 
 # 发布流程：
-#   1. 修改 Directory.Build.props 的 <Version>（以及 CHANGELOG.md）
+#   1. 修改 Directory.Build.props 的 <Version>（以及 CHANGELOG.md），
+#      并把 src/Pi.CodingAgent/Assets/package.json 的 version 改成同一个值
+#      （运行时版本取的是它，漏改会让横幅与 --version 报旧版本；
+#        Directory.Build.targets 的 ValidatePackagedVersion 会在构建期拦下）
 #   2. 提交并推送，然后打 tag：git tag v1.0.5 && git push origin v1.0.5
 #   3. 本工作流构建 13 个库项目、打包、推送到 nuget.org、创建 GitHub Release
 #

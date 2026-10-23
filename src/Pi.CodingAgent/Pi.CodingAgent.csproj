@@ -59,7 +59,9 @@
       <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
     <!-- 上游文档 / 示例 / 元数据只进构建输出，不随包分发：
-         它们占 Assets 的 4.1MB，且 examples 里的 .gitignore 会触发 NU5119。 -->
+         它们占 Assets 的 4.1MB，且 examples 里的 .gitignore 会触发 NU5119。
+         注意 Assets\package.json 是 Config.Version 的运行时来源（TS 语义优先于程序集版本），
+         发版时必须与 Directory.Build.props 的 <Version> 同步，见 ValidatePackagedVersion。 -->
     <Content Include="Assets\CHANGELOG.md" Pack="false">
       <Link>CHANGELOG.md</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

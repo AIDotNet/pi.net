@@ -5,7 +5,9 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>pi</AssemblyName>
     <!-- 版本统一由根目录 Directory.Build.props 的 <Version> 提供（与 13 个 NuGet 包同步）。
-         与上游 packages/coding-agent/package.json 的移植基线 1.0.4 一致。 -->
+         注意：它只决定程序集版本，而 Config.Version 优先读随包分发的
+         Pi.CodingAgent/Assets/package.json（TS 语义）。两处必须同时改，
+         Directory.Build.targets 的 ValidatePackagedVersion 会在不一致时直接报错。 -->
     <RootNamespace>Pi.Cli</RootNamespace>
   </PropertyGroup>
   <ItemGroup>

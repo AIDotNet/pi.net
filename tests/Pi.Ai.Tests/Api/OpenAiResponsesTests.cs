@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using Pi.Ai.Api;
@@ -498,5 +499,95 @@ public class OpenAiResponsesTests
         Assert.Contains("Ask your workspace admin to increase it", message, StringComparison.Ordinal);
 
         Assert.Equal("plain failure", OpenAiResponses.DescribeChatGptError("plain failure"));
+    }
+
+    // =============================================================================
+    // wire：api-key → Authorization 头
+    // =============================================================================
+
+    /// <summary>
+    /// 请求必须带 <c>Authorization: Bearer &lt;apiKey&gt;</c>。TS 侧由 OpenAI SDK 的
+    /// <c>new OpenAI({ apiKey })</c> 自动写入；C# 换成裸 <see cref="HttpClient"/> 后曾漏掉这一步，
+    /// 表现为所有 <c>openai-responses</c> 模型 401「未提供令牌」。
+    /// </summary>
+    [Fact]
+    public async Task SendsBearerAuthorizationFromApiKey()
+    {
+        using var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+
+        var stream = OpenAiResponses.StreamSimple(
+            ResponsesModel(),
+            Context(new UserMessage([new TextContent("hi")], 1)),
+            new SimpleStreamOptions(ApiKey: "sk-test") { MaxRetries = 0 },
+            client);
+        await stream.WaitForDoneAsync();
+
+        Assert.Equal("/v1/responses", handler.Path);
+        Assert.Equal("Bearer sk-test", handler.Headers["Authorization"]);
+    }
+
+    /// <summary>调用方自带的 Authorization 覆盖由 apiKey 推导出的头（对齐 SDK 的 request headers）。</summary>
+    [Fact]
+    public async Task CallerAuthorizationHeaderOverridesApiKey()
+    {
+        using var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+
+        var stream = OpenAiResponses.StreamSimple(
+            ResponsesModel(),
+            Context(new UserMessage([new TextContent("hi")], 1)),
+            new SimpleStreamOptions(ApiKey: "sk-test")
+            {
+                MaxRetries = 0,
+                Headers = new Dictionary<string, string?> { ["Authorization"] = "Bearer custom" },
+            },
+            client);
+        await stream.WaitForDoneAsync();
+
+        Assert.Equal("Bearer custom", handler.Headers["Authorization"]);
+    }
+
+    /// <summary>只给头不给 apiKey 也算已认证（TS 的 <c>"unused"</c> 哨兵）。</summary>
+    [Fact]
+    public async Task AcceptsAuthorizationHeaderWithoutApiKey()
+    {
+        using var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+
+        var stream = OpenAiResponses.StreamSimple(
+            ResponsesModel(),
+            Context(new UserMessage([new TextContent("hi")], 1)),
+            new SimpleStreamOptions
+            {
+                MaxRetries = 0,
+                Headers = new Dictionary<string, string?> { ["Authorization"] = "Bearer only-header" },
+            },
+            client);
+        await stream.WaitForDoneAsync();
+
+        Assert.Equal("Bearer only-header", handler.Headers["Authorization"]);
+    }
+
+    /// <summary>记录请求并把最小 SSE 流回给调用方。</summary>
+    private sealed class RecordingHandler : HttpMessageHandler
+    {
+        public string? Path { get; private set; }
+
+        public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Path = request.RequestUri!.AbsolutePath;
+            foreach (var (name, values) in request.Headers) Headers[name] = string.Join(",", values);
+
+            var body = "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n"
+                       + "data: " + ResponseCompleted().ToJsonString() + "\n\n";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "text/event-stream"),
+            });
+        }
     }
 }

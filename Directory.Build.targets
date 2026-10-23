@@ -10,4 +10,25 @@
   <PropertyGroup Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe'">
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+
+  <!--
+    版本一致性守卫。
+
+    `Config.Version` 沿用 TS 语义：优先读随包分发的 `Assets/package.json` 的 `version`，
+    只有读不到时才回落到程序集版本。而发版流程（.github/workflows/nuget-publish.yml）
+    只改 Directory.Build.props 的 <Version>。1.4.0 发布时就是漏改资产，导致启动横幅和
+    命令行的版本输出仍报 v1.0.4。这里在构建期把这种漂移直接变成错误，别等发出去才发现。
+  -->
+  <Target Name="ValidatePackagedVersion"
+          BeforeTargets="BeforeBuild"
+          Condition="'$(MSBuildProjectName)' == 'Pi.CodingAgent'
+                     and '$(DesignTimeBuild)' != 'true'
+                     and Exists('$(MSBuildProjectDirectory)/Assets/package.json')">
+    <PropertyGroup>
+      <_PiPackageJson>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/Assets/package.json'))</_PiPackageJson>
+      <_PiPackagedVersion>$([System.Text.RegularExpressions.Regex]::Match($(_PiPackageJson), '(?&lt;="version": ")[^"]+').Value)</_PiPackagedVersion>
+    </PropertyGroup>
+    <Error Condition="'$(_PiPackagedVersion)' != '$(Version)'"
+           Text="Assets/package.json 的 version（$(_PiPackagedVersion)）与 Directory.Build.props 的 &lt;Version&gt;（$(Version)）不一致。启动横幅与 --version 取前者，发版时两处必须同时改。" />
+  </Target>
 </Project>

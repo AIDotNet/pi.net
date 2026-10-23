@@ -111,6 +111,20 @@ public static class OpenAiResponses
         throw new InvalidOperationException($"No API key for provider: {provider}");
     }
 
+    /// <summary>
+    /// api-key 认证对应的 <c>Authorization</c> 头。TS 侧由 OpenAI SDK 的
+    /// <c>new OpenAI({ apiKey })</c> 自动写入，C# 走裸 <see cref="HttpClient"/> 后必须显式补上
+    /// （<see cref="OpenAiCompletions"/> 同位置有等价处理）。
+    /// <c>"unused"</c> 是「认证已由调用方自带的头提供」的哨兵，此时不写。
+    /// </summary>
+    private static IReadOnlyDictionary<string, string?>? ApiKeyHeader(string apiKey)
+        => apiKey == "unused"
+            ? null
+            : new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Authorization"] = $"Bearer {apiKey}",
+            };
+
     private static string DetectSessionAffinityFormat(ModelSpec model)
         => model.Provider == "openrouter" || model.BaseUrl.Contains("openrouter.ai") ? "openrouter" : "openai";
 
@@ -316,6 +330,7 @@ public static class OpenAiResponses
 
                 var headers = Headers.Merge(
                     BuildDefaultHeaders(model, normalizedContext, compat, cacheSessionId, options?.Identity),
+                    ApiKeyHeader(apiKey),
                     options?.Headers);
 
                 var response = await ProviderRetry.RetryAsync(async () =>

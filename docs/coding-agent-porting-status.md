@@ -2816,6 +2816,7 @@ settings→请求选项（超时/重试/sessionId/signal/`transformHeaders` 摘�
 | **C166** | `SemverRange` 把 `loose` / `includePrerelease` 固定 `false`；`COMPARATORTRIM` 先试严格版本 | 唯一调用方从不传选项；分歧仅在 `> 01.2.3` 这类严格 `Comparator` 本就会拒绝的写法 |
 | **C167** | `GlobSync` 不跟随符号链接目录（上游默认跟随）；`Directory.Exists`/`File.Exists` 把悬空软链判为「既非文件也非目录」并跳过 | 与上游 `statSync` 抛错后 `continue` 同结果；包根含 `node_modules`，跟随软链有环风险 |
 | **C168（已由阶段 3 关闭）** | `GetNpmInstallPath` 最初只返回 managed 安装路径，未复刻 TS 的 legacy 全局根回退 | 已实现 `npm root -g` 与 `pnpm list -g --depth 0 --json` 回退；`PackageManagerUpdateTests` 覆盖两种布局。 |
+| **C170** | TS 的 `openai-responses` 适配器把 apiKey 交给 OpenAI SDK（`new OpenAI({ apiKey })`），`Authorization: Bearer …` 由 SDK 隐式写入；端口改走裸 `HttpClient` 后必须在默认头之后**显式**补这个头 | **真实缺陷（2026-10-23 修复）**：此前所有 `openai-responses` 模型（含内置 `openai` 的 gpt-4o/gpt-5/o3）都发不出鉴权头，一律 401（New API 中转报「未提供令牌」）。补法对齐 `OpenAiCompletions`：默认头 → `Bearer <apiKey>` → 调用方 `headers` 覆盖；`"unused"` 哨兵（认证已由调用方头提供）时不写。`OpenAiResponsesTests` 的 `SendsBearerAuthorizationFromApiKey` / `CallerAuthorizationHeaderOverridesApiKey` / `AcceptsAuthorizationHeaderWithoutApiKey` 覆盖。 |
 
 **已核实的真实缺陷（本批修复）**
 
