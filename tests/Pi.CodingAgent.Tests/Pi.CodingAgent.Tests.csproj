@@ -10,6 +10,12 @@
          obj/.../SelfRegisteredExtensions.cs and add it to the compilation, producing CS0101. -->
     <GenerateSelfRegisteredExtensions>false</GenerateSelfRegisteredExtensions>
     <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+    <!--
+      刻意与 Pi.CodingAgent 的 <Version> 错开。本项目的入口程序集就是测试宿主自身，
+      ConfigVersionFallbackTests 要区分「回退取入口程序集」与「回退取 Config 所在程序集」
+      两种实现，只能靠两者版本不同；版本相同的话用例在错误实现下也会通过。
+    -->
+    <Version>0.0.1</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="xunit.v3" Version="3.2.2" />

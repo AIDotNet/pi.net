@@ -1031,16 +1031,31 @@ public static partial class Config
     }
 
     /// <summary>
-    /// The version to use when there is no readable <c>package.json</c>: the entry assembly's
-    /// <c>AssemblyInformationalVersion</c> (the csproj <c>&lt;Version&gt;</c>), with the
+    /// The version to use when there is no readable <c>package.json</c>: the <b>Pi.CodingAgent</b>
+    /// assembly's <c>AssemblyInformationalVersion</c> (the csproj <c>&lt;Version&gt;</c>), with the
     /// <c>+&lt;sha&gt;</c> build-metadata suffix stripped. TS always has a package.json, so this
     /// fallback is a port-only path (difference C304).
     /// </summary>
-    private static string ReadAssemblyVersion()
+    /// <remarks>
+    /// Deliberately <c>typeof(Config).Assembly</c>, not <see cref="Assembly.GetEntryAssembly"/>.
+    /// TS resolves <c>package.json</c> from its own module directory, so <c>VERSION</c> is always
+    /// <em>pi's</em> version and never the host application's. Using the entry assembly instead made
+    /// an embedded host report its own version — a host built as <c>1.0.0</c> printed
+    /// <c>Config.Version == "1.0.0"</c> — because a NuGet consumer has no packaged
+    /// <c>Assets/package.json</c> (<c>Pack="false"</c>), so this fallback is the <em>only</em> path
+    /// taken when Pi.CodingAgent is consumed as a library. The CLI is unaffected either way: its
+    /// <c>package.json</c> ships next to the assembly, and Pi.Cli is versioned in lockstep.
+    /// </remarks>
+    internal static string ReadAssemblyVersion() => ReadAssemblyVersionFrom(typeof(Config).Assembly);
+
+    /// <summary>
+    /// <inheritdoc cref="ReadAssemblyVersion" path="/summary"/>
+    /// </summary>
+    /// <param name="assembly">The assembly to read the informational version from.</param>
+    internal static string ReadAssemblyVersionFrom(Assembly assembly)
     {
-        var assembly = System.Reflection.Assembly.GetEntryAssembly() ?? typeof(Config).Assembly;
         var informational = assembly
-            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
         if (!string.IsNullOrEmpty(informational))
         {
             var plus = informational.IndexOf('+');

@@ -3,6 +3,22 @@
 All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/badlogic/pi-mono) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
+## [Unreleased]
+
+### Fixed
+
+- **库被嵌入时 `Config.Version` 上报的是宿主版本**: 没有可读 `package.json` 时，版本回退取的是
+  `Assembly.GetEntryAssembly()`——也就是**宿主程序**的程序集版本。而 `Assets/package.json` 是
+  `Pack="false"`、不进 nupkg，所以「把 Pi.CodingAgent 当库装进来」的宿主**只**会走这条回退路径：
+  一个 `1.0.0` 的宿主调 `Config.Version` 会拿到 `"1.0.0"`，并顺着 `BugReport` 的 version、
+  `PiUserAgent` 的 UA、`ClientIdentity`、`CrashLog`、MCP client info 的 `Version`、启动横幅和
+  `lastChangelogVersion` 一路扩散出去。上游 TS 是从模块自身目录读 `package.json`，`VERSION`
+  永远是 pi 包的版本、与宿主无关；现在回退固定取 `typeof(Config).Assembly` 的
+  `AssemblyInformationalVersion`（剥掉 `+<sha>`）。CLI 行为不变：它的 `package.json` 随包落在
+  程序集旁边，本来就优先命中。回归用例
+  `FallsBackToTheCodingAgentAssemblyRatherThanTheEntryAssembly` 把测试项目的 `<Version>`
+  刻意设成 `0.0.1`——两者版本相同时两种实现结果一致，否则测不出这个区别。
+
 ## [1.4.2] - 2026-10-23
 
 发 1.4.1 之后又攒到三处真实缺陷：一处让**所有带参数的 MCP 工具**不可用，一处让**自定义
