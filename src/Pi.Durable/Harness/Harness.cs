@@ -166,7 +166,10 @@ public sealed class HarnessImpl : DurableSession, IHarness
     private bool _closed;
 
     public HarnessImpl(IStorage storage, HarnessOptions options, Context context)
-        : base(storage)
+        : base(storage,
+            options.Now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
+            // 每次使用时读设置（所有设置都如此），但只读这一个字段：它每次提交都要读一次。
+            () => options.Settings?.DocumentRetentionMs)
     {
         _storage = storage;
         _options = options;

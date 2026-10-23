@@ -850,6 +850,13 @@ public sealed record HarnessSettings
     public double? ContextRetentionMs { get; init; }
 
     /// <summary>
+    /// 已缓存文档在没有观察者时，多久没被读写就从缓存里驱逐（下次访问从 Storage 重载）；
+    /// <c>0</c> 表示用完即弃，<see cref="double.PositiveInfinity"/> 表示永不驱逐；非毫秒数按缺省十分钟。
+    /// 对应 TS <c>HarnessSettings.documentRetentionMs</c>。
+    /// </summary>
+    public double? DocumentRetentionMs { get; init; }
+
+    /// <summary>
     /// 失败的运行（<c>model_error</c>、<c>no_model</c>）对它后面排队的输入做什么：<c>keep</c> 留在队列里等下一个
     /// 输入或排队的写入，<c>continue</c> 如同一次回答那样用它启动下一个运行，<c>withdraw</c> 以 reason
     /// <c>run_failed</c> 结算为 unanswered。缺省 <see cref="Harness.AfterFailedRun.Keep"/>。
@@ -888,6 +895,9 @@ public sealed record Settings
 
     /// <summary>空闲对话缓存上下文读取的毫秒数。对应 TS <c>Settings.contextRetentionMs</c>。</summary>
     public required double ContextRetentionMs { get; init; }
+
+    /// <summary>已解析的文档缓存保留时长（毫秒，可能为 <see cref="double.PositiveInfinity"/>）。</summary>
+    public required double DocumentRetentionMs { get; init; }
 
     /// <summary>失败的运行对其后排队输入的策略。对应 TS <c>Settings.afterFailedRun</c>。</summary>
     public required AfterFailedRun AfterFailedRun { get; init; }

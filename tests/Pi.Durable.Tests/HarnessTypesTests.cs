@@ -1,7 +1,8 @@
-using Pi.Ai.Types;
+﻿using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Durable.Env;
 using Pi.Durable.Harness;
+using Pi.Durable.Session;
 using Pi.Durable.Types;
 using Xunit;
 using TaskState = Pi.Durable.Types.TaskState;
@@ -125,6 +126,7 @@ public class HarnessTypesTests
             FollowUpMode = QueueMode.All,
             RestartLimit = AgentDocs.DefaultRestartLimit,
             ContextRetentionMs = AgentDocs.DefaultContextRetentionMs,
+            DocumentRetentionMs = DurableSession.DocumentRetention(null),
             AfterFailedRun = AfterFailedRun.Keep,
         };
         Assert.True(settings.Retry.Enabled);

@@ -28,6 +28,18 @@ public class DurableSession : ISession
 {
     private readonly IStorage _storage;
     private readonly Dictionary<string, LoadedDocument> _documents = [];
+    /// <summary>没有观察者的已缓存文档，按最后使用时间从旧到新。对应 TS <c>#idleDocuments</c>。</summary>
+    private readonly LinkedList<IdleDocument> _idleDocuments = [];
+    private readonly Dictionary<string, LinkedListNode<IdleDocument>> _idleIndex = [];
+    /// <summary>每个文档化身（记录 ID）的观察者计数：有观察者的化身永不驱逐。对应 TS <c>#attachedDocuments</c>。</summary>
+    private readonly Dictionary<DocumentId, int> _attachedDocuments = [];
+    /// <summary>保护上面三个容器的记账；缓存记账不得改变它所跟随的操作的结果。</summary>
+    private readonly object _documentCacheGate = new();
+    private readonly Func<long> _clock;
+    private readonly Func<double> _documentRetentionMs;
+    /// <summary>待执行的驱逐：最旧空闲文档的到期时刻（毫秒，可能为 <see cref="double.PositiveInfinity"/>）。</summary>
+    private DocumentSweep? _documentSweep;
+    private int _sweepJobs;
     private readonly HashSet<Action<CommitPublication, Context>> _commitListeners = [];
     private readonly HashSet<Action> _closeListeners = [];
     private readonly ITransactionHost _host;
@@ -36,10 +48,72 @@ public class DurableSession : ISession
     private Task? _closing;
     private Exception? _poison;
 
-    public DurableSession(IStorage storage)
+    /// <summary>缺省文档保留时长：十分钟（与保留上下文一致）。</summary>
+    private static double _defaultDocumentRetention = 600_000;
+
+    /// <summary>
+    /// 保留时长：给定值是毫秒数（<c>0</c> 表示用完即弃，<see cref="double.PositiveInfinity"/> 表示永不驱逐）
+    /// 时用它，否则用缺省值。对应 TS <c>documentRetention</c>。
+    /// </summary>
+    public static double DocumentRetention(double? ms) => ms is { } value && value >= 0 ? value : _defaultDocumentRetention;
+
+    /// <summary>测试用：改变「保持缺省」的 Session 所用的保留时长。对应 TS <c>setDefaultDocumentRetention</c>。</summary>
+    public static void SetDefaultDocumentRetention(double ms) => _defaultDocumentRetention = ms;
+
+    /// <summary>
+    /// 在一个存储后端上打开 Session 内核。<paramref name="now"/> 是任务时间用的墙钟（缺省
+    /// <c>DateTimeOffset.UtcNow</c>）；<paramref name="documentRetentionMs"/> 每次使用时读取，使设置可以随时改。
+    /// </summary>
+    public DurableSession(
+        IStorage storage, Func<long>? now = null, Func<double?>? documentRetentionMs = null)
     {
         _storage = storage;
+        // 缓存记账绝不能改变它所跟随的操作的结果：时钟或设置抛出时按「现在」与缺省值处理。
+        _clock = () =>
+        {
+            try
+            {
+                return now?.Invoke() ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+            catch (Exception)
+            {
+                return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            }
+        };
+        _documentRetentionMs = () =>
+        {
+            try
+            {
+                return DocumentRetention(documentRetentionMs?.Invoke());
+            }
+            catch (Exception)
+            {
+                return DocumentRetention(null);
+            }
+        };
         _host = new SessionHost(this);
+    }
+
+    private sealed record IdleDocument(string AddressId, double Since);
+
+    private sealed class DocumentSweep(double at)
+    {
+        public double At { get; } = at;
+
+        /// <summary>后台定时器：不拖住进程退出（对应上游 <c>unref()</c>）。</summary>
+        public System.Threading.Timer? Timer { get; set; }
+    }
+
+    /// <summary>测试用：缓存里的文档数、空闲数、被钉住的化身数与迄今为止排到线上的驱逐作业数。</summary>
+    public (int Cached, int Idle, int Attached, int Sweeps) DocumentCacheSizes
+    {
+        get
+        {
+            lock (_documentCacheGate)
+            {
+                return (_documents.Count, _idleDocuments.Count, _attachedDocuments.Count, _sweepJobs);
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -177,6 +251,7 @@ public class DurableSession : ISession
         AssertUsable();
         var resolved = DurableDocuments.ResolveAddress(definition, args);
         _documents.TryGetValue(resolved.Id, out var cached);
+        if (cached?.ValueVersion == definition.Version) TouchDocument(resolved.Id);
         var loaded = cached?.ValueVersion == definition.Version
             ? cached
             : await Enqueue(async () =>
@@ -328,7 +403,15 @@ public class DurableSession : ISession
                 .ContinueWith(_ => Enqueue<object?>(async () =>
                 {
                     _commitListeners.Clear();
-                    _documents.Clear();
+                    lock (_documentCacheGate)
+                    {
+                        _documents.Clear();
+                        _idleDocuments.Clear();
+                        _idleIndex.Clear();
+                        _attachedDocuments.Clear();
+                        _documentSweep?.Timer?.Dispose();
+                        _documentSweep = null;
+                    }
                     await _storage.CloseAsync().ConfigureAwait(false);
                     return null;
                 }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
@@ -403,9 +486,152 @@ public class DurableSession : ISession
     public Task UnloadDocumentsAsync()
         => Enqueue<object?>(async () =>
         {
-            _documents.Clear();
+            lock (_documentCacheGate)
+            {
+                _documents.Clear();
+                _idleDocuments.Clear();
+                _idleIndex.Clear();
+            }
             return null;
         });
+
+    // ─── 文档缓存按使用量回收 ───────────────────────────────────────────────
+
+    /// <summary>记一次对已缓存文档的使用：没有观察者的它成为最新的空闲文档，并安排一次驱逐。</summary>
+    private void TouchDocument(string addressId)
+    {
+        var schedule = false;
+        lock (_documentCacheGate)
+        {
+            var cached = _documents.GetValueOrDefault(addressId);
+            if (cached is null || _attachedDocuments.ContainsKey(cached.Record.Id)) return;
+            var now = _clock();
+            var retention = _documentRetentionMs();
+            if (_idleIndex.TryGetValue(addressId, out var existing))
+            {
+                // 热文档每「颗粒」（保留时长的十分之一，至多 1 秒）才后移一次：它可能因此提前一个颗粒被驱逐，
+                // 代价是一次重载；提交密集的负载则省掉了每次重排。
+                if (now - existing.Value.Since < Math.Min(1_000, retention / 10)) return;
+                _idleDocuments.Remove(existing);
+                _idleIndex.Remove(addressId);
+            }
+
+            _idleIndex[addressId] = _idleDocuments.AddLast(new IdleDocument(addressId, now));
+            // 已有更早的待驱逐任务就不必改；保留时长被调小则要提前。
+            schedule = _documentSweep is null || _documentSweep.At > now + retention;
+        }
+
+        if (schedule) ScheduleDocumentSweep();
+    }
+
+    /// <summary>把文档连同它的空闲记录一起丢掉。</summary>
+    private void DropDocument(string addressId)
+    {
+        lock (_documentCacheGate)
+        {
+            _documents.Remove(addressId);
+            if (_idleIndex.Remove(addressId, out var node)) _idleDocuments.Remove(node);
+        }
+    }
+
+    /// <summary>
+    /// 安排最旧空闲文档的驱逐：保留时长为 0 时立刻排到线上，否则到期用一个后台定时器唤醒。
+    /// 定时器不拖住进程退出，因此不需要上游「定时器不可用就只靠提交驱逐」那条退路。
+    /// </summary>
+    private void ScheduleDocumentSweep()
+    {
+        if (_closing is not null) return;
+        DocumentSweep sweep;
+        double delay;
+        lock (_documentCacheGate)
+        {
+            if (_idleDocuments.First is not { } oldest) return;
+            var retention = _documentRetentionMs();
+            // 无限保留：没有东西会过期，也不必留一个 24 天的定时器。
+            if (double.IsPositiveInfinity(retention)) return;
+            var at = oldest.Value.Since + retention;
+            if (_documentSweep is not null && _documentSweep.At <= at) return;
+            _documentSweep?.Timer?.Dispose();
+            // 待驱逐任务保持到它的作业跑完，线上的忙碌期间不再排队。
+            sweep = new DocumentSweep(at);
+            _documentSweep = sweep;
+            delay = at - _clock();
+        }
+
+        void Run()
+        {
+            Interlocked.Increment(ref _sweepJobs);
+            _ = Enqueue<object?>(() =>
+            {
+                lock (_documentCacheGate)
+                {
+                    if (ReferenceEquals(_documentSweep, sweep)) _documentSweep = null;
+                }
+                if (_closing is null) SweepDocuments();
+                return Task.FromResult<object?>(null);
+            }).ContinueWith(static task => _ = task.Exception, TaskScheduler.Default);
+        }
+
+        if (delay <= 0)
+        {
+            Run();
+            return;
+        }
+
+        sweep.Timer = new System.Threading.Timer(
+            _ => Run(), null, (long)Math.Min(delay, int.MaxValue), Timeout.Infinite);
+    }
+
+    /// <summary>在线上：把超过保留时长的空闲文档从旧到新驱逐，然后安排下一次。</summary>
+    private void SweepDocuments()
+    {
+        lock (_documentCacheGate)
+        {
+            var expired = _clock() - _documentRetentionMs();
+            while (_idleDocuments.First is { } first && first.Value.Since <= expired)
+            {
+                _idleDocuments.RemoveFirst();
+                _idleIndex.Remove(first.Value.AddressId);
+                _documents.Remove(first.Value.AddressId);
+            }
+        }
+
+        ScheduleDocumentSweep();
+    }
+
+    /// <summary>
+    /// 为一个观察者钉住某个已缓存化身；返回的函数在最后一个观察者摘下时解钉，使它重新成为空闲。
+    /// 对应 TS <c>#pinDocument</c>。
+    /// </summary>
+    private Action PinDocument(string addressId, DocumentId recordId)
+    {
+        lock (_documentCacheGate)
+        {
+            _attachedDocuments[recordId] = _attachedDocuments.GetValueOrDefault(recordId) + 1;
+            if (_idleIndex.Remove(addressId, out var node)) _idleDocuments.Remove(node);
+        }
+
+        var pinned = true;
+        return () =>
+        {
+            if (!pinned) return;
+            pinned = false;
+            lock (_documentCacheGate)
+            {
+                var count = _attachedDocuments.GetValueOrDefault(recordId, 1) - 1;
+                if (count > 0)
+                {
+                    _attachedDocuments[recordId] = count;
+                    return;
+                }
+
+                _attachedDocuments.Remove(recordId);
+            }
+
+            // 它可能已被替换成别的化身：只有还是同一个才重新成为空闲。
+            if (_documents.GetValueOrDefault(addressId)?.Record.Id == recordId) TouchDocument(addressId);
+        };
+    }
 
     // ─── 提交执行 ───────────────────────────────────────────────────────────
 
@@ -424,12 +650,25 @@ public class DurableSession : ISession
         catch (Exception)
         {
             await tx.SettleFailureAsync().ConfigureAwait(false);
+            // 结算失败也要驱逐到期的空闲文档：否则缓存只在成功提交时才收缩。
+            SweepDocuments();
             throw;
         }
-        var writes = await tx.SettleSuccessAsync().ConfigureAwait(false);
+        IReadOnlyList<StorageWrite> writes;
+        try
+        {
+            writes = await tx.SettleSuccessAsync().ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // 结算已撤销每个变更。
+            SweepDocuments();
+            throw;
+        }
         if (writes.Count == 0)
         {
             tx.Discard();
+            SweepDocuments();
             return result;
         }
         // Storage 在批次持久后同步采纳（早于它的下一次提交）；这里不能让异常穿到 Storage，
@@ -487,7 +726,22 @@ public class DurableSession : ISession
             Report(adoptionError, new Harness.ReportInfo.SessionFailed());
             throw adoptionError;
         }
+        // 刚写过的文档算一次使用：它们不会被紧接着的驱逐带走。
+        foreach (var document in adoptedDocuments!)
+        {
+            switch (document)
+            {
+                case DocumentCommitChange.Document changed:
+                    TouchDocument(DurableDocuments.AddressId(changed.Record));
+                    break;
+                case DocumentCommitChange.Copy copy:
+                    TouchDocument(DurableDocuments.AddressId(copy.Record));
+                    break;
+            }
+        }
+
         Publish(seq, writes, adoptedDocuments!, context);
+        SweepDocuments();
         return result;
     }
 
@@ -553,13 +807,25 @@ public class DurableSession : ISession
         DurableDocuments.CheckRecordVersion(definition, loaded.Record, loaded.StoredVersion);
         IDisposable unsubscribeCommit = new Unsubscription(() => { });
         IDisposable unsubscribeClose = new Unsubscription(() => { });
+        // 被观察的化身留在缓存里；最后一个观察者摘下或它退休之后，它重新成为空闲。
+        var unpin = PinDocument(loaded.AddressId, loaded.Record.Id);
         Action detach = () =>
         {
             unsubscribeCommit.Dispose();
             unsubscribeClose.Dispose();
+            unpin();
         };
-        var observer = new CommittedWatch<IReadOnlyDictionary<string, object?>?>(
-            loaded.Tracker.Value, detach, error => Report(error));
+        CommittedWatch<IReadOnlyDictionary<string, object?>?> observer;
+        try
+        {
+            observer = new CommittedWatch<IReadOnlyDictionary<string, object?>?>(
+                loaded.Tracker.Value, detach, error => Report(error));
+        }
+        catch (Exception)
+        {
+            unpin();
+            throw;
+        }
         var observed = new ObservedVersion { Version = loaded.ValueVersion };
         unsubscribeCommit = SubscribeCommits((publication, context) =>
         {
@@ -573,6 +839,7 @@ public class DurableSession : ISession
                 if (document.Change.Value is null)
                 {
                     // 已退休的化身不再变化：其 watch 投递退休，但不再持有任何东西。
+                    unpin();
                     observer.Retire(context);
                     continue;
                 }
@@ -597,8 +864,12 @@ public class DurableSession : ISession
     {
         _documents.TryGetValue(addressId, out var cached);
         // 跟踪器只服务于其值被物化时的版本的令牌；其他版本从 Storage 重载。
-        if (cached?.ValueVersion == definition.Version) return cached;
-        if (cached is not null) _documents.Remove(addressId);
+        if (cached?.ValueVersion == definition.Version)
+        {
+            TouchDocument(addressId);
+            return cached;
+        }
+        if (cached is not null) DropDocument(addressId);
         var record = await _storage.FindDocumentAsync(address, new DocumentPoint.Current())
             .ConfigureAwait(false);
         if (record is null) return null;
@@ -620,6 +891,7 @@ public class DurableSession : ISession
             Tracker = new Tracker<IReadOnlyDictionary<string, object?>>(value),
         };
         _documents[addressId] = loaded;
+        TouchDocument(addressId);
         return loaded;
     }
 
@@ -677,7 +949,11 @@ public class DurableSession : ISession
         public IStorage Storage => session._storage;
 
         public LoadedDocument? Cached(string addressId)
-            => session._documents.GetValueOrDefault(addressId);
+        {
+            var cached = session._documents.GetValueOrDefault(addressId);
+            if (cached is not null) session.TouchDocument(addressId);
+            return cached;
+        }
 
         public Task<LoadedDocument?> LoadAsync(
             DurableDocuments.AnyDocDefinition definition,
@@ -686,12 +962,16 @@ public class DurableSession : ISession
             Context context)
             => session.LoadDocumentAsync(definition, addressId, address, context);
 
-        public void Install(LoadedDocument document) => session._documents[document.AddressId] = document;
+        public void Install(LoadedDocument document)
+        {
+            session._documents[document.AddressId] = document;
+            session.TouchDocument(document.AddressId);
+        }
 
         public void Evict(string addressId, DocumentId recordId)
         {
             if (session._documents.GetValueOrDefault(addressId)?.Record.Id == recordId)
-                session._documents.Remove(addressId);
+                session.DropDocument(addressId);
         }
 
         public Task ConversationCreatedAsync(Transaction tx, ConversationRecord record)
