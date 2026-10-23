@@ -80,7 +80,8 @@ C# 客户端直接与它对话，跑 Durable 的 env conformance 全套用例 + 
 ### E1 协议连接层 — `9013cbb`
 
 - `src/Pi.Env/{EnvJson,Connection}.cs` + `Pi.Env.csproj`，`Pi.slnx` 增加 `src/Pi.Env`、`tests/Pi.Env.Tests`、`tests/Pi.Env.FakeDaemon`。
-- 参考守护进程：`cargo build --target-dir tools/pi-env-daemon-target`（本机 Rust 1.92）→ `pi-env 1.0.4`。
+- 参考守护进程：`cargo build --target-dir tools/pi-env-daemon-target`（当时 Rust 1.92）→ `pi-env 1.0.4`。
+  2026-10-23 按上游 `v1.4.0` 源码重建后报 `pi-env 1.4.0`（Rust 1.96.0，依赖就绪约 35 秒）；端口侧 `Pi.Env.Tests` 47 项（44 通过、3 项平台跳过）。
 - `ConnectionTests` 9/9；全解决方案 `dotnet build Pi.slnx -m:1` 0 警告 0 错误。
 
 ### E2 SSH 层 — `d7230b9`

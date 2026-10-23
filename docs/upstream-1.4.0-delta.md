@@ -223,6 +223,11 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 
 ## 5. 验证结果
 
+> 下表是各批收口时的记录，批次之间会累加。**最终全量（2026-10-23 复验）为 30,449 项 / 30,440 通过 /
+> 0 失败 / 9 项平台跳过**：Tui 23,937、CodingAgent 5,074（3 跳过）、Ai 515、Durable 507、Chord 106、
+> Codemode 57、Evals 56（2 跳过）、Mcp 55、Env 47（3 跳过）、Agent 36、Server 33、Protocol 14、Telemetry 12。
+> 与下表个别数字的差异来自后续批次（如第 41、53 批）新增用例。
+
 | 项 | 结果 |
 | --- | --- |
 | `dotnet build`（slnx） | 0 警告 / 0 错误 |
@@ -1315,8 +1320,8 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
   在「查询未落地」期间对 ESC 做一次 30ms/64 字符的装配：命中回复就吞掉并翻支持标志；命中 DA1
   （`ESC [ ?`）就把待定标志收掉；其余情况把装配结果**原样**交给输入处理器，不丢键。窗口只在启动后
   那一次查询期间打开，稳态下不参与输入。
-- `stdin-buffer.ts` 的 `TERMINAL_REPLY_HEADER_PATTERN`（把 `7501;?` 加进回复头）没有跟：端口的
-  `StdinBuffer` 尚未接进 `ProcessTerminal`，这一项要等那条路径落地时一起改。
+- `stdin-buffer.ts` 的 `TERMINAL_REPLY_HEADER_PATTERN`（把 `7501;?` 加进回复头）：**已关闭（C383，2026-10-23）**——
+  `StdinBuffer` 已接进 `ProcessTerminal`（`MapKey` → `Process` → `Data`/`Paste`），7501 的回复头分支随之落地。
 
 **交互模式**（`Modes/Interactive/ProgramStatusReporter.cs`）
 
@@ -2443,9 +2448,9 @@ Copilot 对超过字节上限的请求体回 413 + 通用正文（`failed to par
   `ProcessCore` 的兜底超时对「回复头已成立」的缓冲**不再冲刷**（原来会把尾巴当文字，OSC 的 BEL
   还会变成 Ctrl+G，即外编辑器快捷键），而其它输入（含 `Alt+]` 后跟文字）仍按超时恢复，
   冲刷时把 `ESC]` 两个字符单独发出去、余下重新解析成按键。
-- 端口 `StdinBuffer` 至今没有接进 `ProcessTerminal`（读取走 `Console.ReadKey`，见 §6.f），所以这条
-  修复目前只让这个类与上游 1.4.0 对齐；`docs/upstream-1.4.0-delta.md` §6.f 里「`stdin-buffer.ts` 的
-  `TERMINAL_REPLY_HEADER_PATTERN` 改动未跟」这一条到此关闭。
+- 端口 `StdinBuffer` 当时还没接进 `ProcessTerminal`（读取走 `Console.ReadKey`，见 §6.f），所以这一批只让该类
+  与上游 1.4.0 对齐；**2026-10-23 的 C383 已把它接进真实管线**（`MapKey` → `Process` → `Data`/`Paste`），
+  修复在读取路径生效，§6.f 的 `TERMINAL_REPLY_HEADER_PATTERN` 一条随之关闭。
 - 测试 23 例：6 条回复串 × 表头之后的每一个切分点都能整条保住；跨多次超时仍缓存；裸 `ESC]` /
   `ESC P` / `ESC _` 仍按 Alt 键超时；11 条歧义输入在超时后恢复成「Alt + 逐键」；表头在歧义窗口内
   拼齐；未终结的回复遇到新转义序列让位；`CAN`/`SUB` 取消不吞后续输入。

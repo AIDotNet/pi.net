@@ -118,7 +118,7 @@ curl -X DELETE "https://www.nuget.org/api/v2/package/Pi.Ai/1.0.5" \
 原因是这套用例依赖运行环境：`Pi.Tui` 需要真实交互终端（尺寸、ANSI、Kitty 协议），
 `Pi.Env` 需要本地 sshd。GitHub runner 是非交互会话且没有 ssh 服务，实测同一份代码在
 `ubuntu-latest` 有 959 项失败、`windows-latest` 有 369 项失败，而本地 Windows 上
-30,103 项只偶发 1 个已知 flake。这不是代码问题，所以没有把 CI 变成长期红灯。
+30,449 项（9 项平台跳过）只偶发 1 个已知的时序 flake。这不是代码问题，所以没有把 CI 变成长期红灯。
 
 两种跑法：
 

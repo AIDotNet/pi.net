@@ -1,5 +1,9 @@
 # coding-agent 剩余迁移：现状分析、迁移清单与分阶段计划
 
+> **2026-10-23 注记**：本文是 2026-10-13 起的分批执行台账，最后一条（0.42）停在 1.0.4 发布日。
+> 1.4.0/1.4.1 的增量与取舍见 [upstream-1.4.0-delta.md](./upstream-1.4.0-delta.md)，当前完成度见
+> [migration-execution-status.md](./migration-execution-status.md)。下文保留原始分批记录，不再更新。
+
 > 生成时间：2026-10-13（2026-10-16 修订：参照基线切换 + 新增 R2 漂移对账阶段 + S3c 收口；**2026-10-18 修订：剩余工作全量重清点 + S6/S7 阶段计划**）
 > 参照源：`D:\AI\参考项目\pi`（`packages/coding-agent`），基线 commit **`eb326d265`（= 当前检出，2026-10-18 复核无漂移）**
 > 目标仓库：`D:\AI\参考项目\pi.net`，当前 commit **`2918a5d`**（S0 `42ed85c` → S1 `4ebf6fa` → S2a `3b1346a` → S2b `e657dac` → S3a `2c74e2c` → S3b `a633cb2` + `97eae94` → S4 `3cd141d` → S3c `413718a` → 4f-3d/3e/4 各批 → 4f-4m-1～4 → /name `7a64200` → 4f-4m-5a/5c `9b9d67e` → 4f-4m-5b `159fda6` → 4f-4m-5c 余量 `4b9180d` → compact 公共入口 `9b7bc1a` → 4f-4m-6 `c0ffee2` → 4f-5 `68812e9` → 4g-1a `3d61bbc` → 4g-1b `190814b` → 4g-1c `364926c` → 4g-2 `5c1d79a` → 4g-3a `1b4be2c` → 4g-3b-1 `cc5bcaa` → 4g-3b-2 `70c9e9f` → 4g-3b-3 `ca4b2a0` → 4g-3b-4 `8500da8` → **4g-3c-1 `2918a5d`**）
@@ -418,7 +422,7 @@ offline 短路 + 失败空表，不抛错；npm/git 版本比对的网络检查�
 - **worker 的装配顺序**（TS 同序）：两个 runtime facet（`@pi/agent-controller-runtime` / `@pi/session-plugins-runtime`，
   后者的 `reload` 初始是拒绝桩 "Session plugins are not ready"，装配完成后由 worker 换成尾链实现）→ models facet → transcript facet
   → `createStaticFacetLoader(...).load()` → plugin loader 首次 load → `createFacetHost`（失败时反序清理，单错原样抛/多错 AggregateException）
-  → reload 尾链（`reloadTail.then(...)`，失败也吞进尾链保证串行）→ 按 scope 建端点（key = `serverConnectionId attachmentId`）。
+  → reload 尾链（`reloadTail.then(...)`，失败也吞进尾链保证串行）→ 按 scope 建端点（key = `serverConnectionId\0attachmentId`）。
 - **`Invoke` 的返回值**：TS 的 endpoint.invoke 内部处理控制调用（catalogue/subscribe/unsubscribe），C# 的
   `RemoteServiceEndpoint.InvokeAsync` 同样内部处理并返回 `(IsControl, Result)`，worker 直接返回 `Result`——与 TS 的
   `JsonValue | undefined` 观察行为一致（unsubscribe 对应 null）。

@@ -9,14 +9,17 @@
 
 | 指标 | 数值 |
 |---|---|
-| TS 源码（不含 `*.test.ts`） | 45 个文件 / 19,293 行 |
-| 已移植 | 44 个文件 / 19,101 行（99.0%） |
-| 待移植 | 1 个文件 / 192 行（`index.ts` 桶文件） |
-| .NET 产出 | 59 个 `.cs` / 26,902 行 |
-| 测试 | `Pi.Tui.Tests` 23,854 项全部通过（4f-2a 补 `TerminalColorsTests` 42 项） |
+| TS 源码（不含 `*.test.ts`） | 46 个文件 / 19,644 行（上游 `v1.4.0`） |
+| 已移植 | 45 个文件 / 19,449 行（99.0%，含 `program-status.ts`） |
+| 待移植 | 1 个文件 / 195 行（`index.ts` 桶文件） |
+| .NET 产出 | 64 个 `.cs` / 28,368 行 |
+| 测试 | `Pi.Tui.Tests` 23,937 项全部通过（2026-10-23 全量复验） |
 | 构建 | 0 警告 0 错误（`dotnet build Pi.slnx -m:1`） |
 
 ## 逐文件清单
+
+> 下表的行数列是 1.0.4 基线的实测值；上游 `v1.4.0` 改动过多处文件（并新增 `program-status.ts`），
+> 总览按 v1.4.0 重新统计，因此逐行相加与总览的 19,449 行会有差值。
 
 ### ✅ 已完成
 
@@ -28,6 +31,7 @@
 | `terminal.ts` | 554 | `Terminal.cs` | `ITerminal` + `ProcessTerminal` + `StringTerminal`（测试假件，TS 侧由 vitest 注入）。输入前端是 `Console.ReadKey` + `MapKey` 的按键事件解码器（.NET 无跨平台 raw mode），`StdinBuffer` 因此接在 `MapKey` 之后；见 C383 |
 | `tui-main-screen.ts` | 655 | `TuiMainScreen.cs` | 差分渲染全流程、同步输出（CSI 2026）、kitty 图像行预留、超宽行守卫 |
 | `terminal-colors.ts` | 91 | `TerminalColors.cs` + `Tui.cs`（查询链） | OSC 10/11/4 应答与 DSR 配色方案上报解析；**2026-10-14（4f-2a）补上此前缺失的查询本体**（OSC 10 + 11 + 16×OSC 4 + DA1 收尾、最老查询 FIFO、超时后迟到回复只回调一次、cell size 应答消费），此前 `QueryTerminalBackgroundColorAsync` 从未收到过回复。TS 的 `TerminalColors` **接口**改名 `TerminalColorsSnapshot`（见 C194w）|
+| `program-status.ts` | 53 | `ProgramStatus.cs` | OSC 7501 程序状态上报：状态联合（idle/working/blocked 等）与根组件状态聚合，按屏发送并去重；1.4.0 第二十五批落地，差异见 T34 |
 | `layout-node.ts` | 51 | `LayoutNode.cs` | 栈式布局节点与视口 |
 | `fuzzy.ts` | 138 | `Fuzzy.cs` | 模糊匹配与打分排序 |
 | `kill-ring.ts` | 46 | `KillRing.cs` | Emacs 风格 kill/yank 环 |
@@ -130,7 +134,7 @@
 | T31 | **终端配色查询的「迟到回复只回调一次」** | `queryTerminalColors` 在开始时给查询装 `onResult`，超时时把它换成 `options.onLateReply`，`complete()` 再置空——所以迟到的答复**不是每条各触发一次**，而是在查询最终完成（DA1 或 18 条回复齐）时回调一次。测试首版按「每条一次」写，断言 `Assert.Single()` 失败；已按 TS 语义修正，并补两条用例区分「单条迟到回复不触发」与「迟到补齐调色板后触发一次」。另：DA1 对**最老的查询**收尾（`Available` 队列 FIFO），重复 target 由 `Replied` 去重，`palette.Index >= 16` 计数但不存储。 |
 | T32 | **CJK 强调的星平面码点只能进谓词，进不了分隔符正则** | `marked-cjk-friendly` 用来判「旁边的字算不算 CJK」的字符类含 `\u{16FE0}`–`\u{3FFFD}`（emoji、CJK 扩展 B 及以后）。.NET 字符类按 UTF-16 码元工作，写不出星平面区间，所以 `MarkedCjk` 的做法是：区间表（34 BMP + 30 星平面）作为唯一真源，**BMP 部分**拼成 `[^\s\p{P}\p{S}…]` 之类的类供两条右分隔符正则使用，而逐码点判定的两个函数（`IsPrevCharCjk` 恢复变体选择符/低位代理前面的真实码点、`IsCjkAdjacentToDelimiter` 取匹配前后的首码点）走 `Rune`，覆盖全表。偏差仅在「星平面 CJK 紧贴分隔符」时：正则把它当普通字符（等于改动前的行为），谓词判定仍正确。区间表按包内 `src/index.ts` 的 CJK 常量逐段抄录，`tools/gen-tui-cjk-corpus.mjs` 的星平面用例（`𠀀` 在强调内外两侧）钉住了谓词那一半。 |
 | T33 | **假光标标记只能靠测试侧还原成录制字节** | 上游 `1cedd3272` 把光标格的绘制权从组件收到渲染器：`Editor` / `Input` 不再写 `ESC[7m…ESC[0m`，改发零宽 APC 标记 `<c>FAKE_CURSOR_START</c>` / `<c>FAKE_CURSOR_END</c>`，由 `TuiBase.ResolveFakeCursors` 在「OSC 133 剥离之后、高亮与合成之前」一次性换成 `ESC[7m` / `ESC[27m`（硬件光标模式下先把「`CURSOR_MARKER` + 标记对」折叠成只有文本）。组件输出的字节因此变了，而 `editor` / `input` / `extra-components` / `alt-screen-search` 四份语料的生成器（`gen.mjs` + harness）并未入库，无法按新源码重录，所以这四处比对在测试侧经 `LegacyCursorEncoding.Resolve` 把标记还原成录制时的字节。对 `Input` 及其派生组件（设置列表、搜索框）**无损**——渲染器产出的正是 `ESC[7m`/`ESC[27m`；只有 `Editor` 的光标格从 `ESC[0m`（全重置）变成 `ESC[27m`（只关反显），这是上游的刻意改动，用 `EditorLegacyEnd` 单独映射，并在 `FakeCursorTests` 里以真实渲染器输出钉住新形式。`stripAnsi` 不管 APC，所以凡是「剥 ANSI 后整行比较」的断言（如 `LoginDialogTests.RenderDialog`）都要先剥 `\x1b_[^\x07]*\x07`（上游 `21d1dcd4d` 的同一处修正）。 |
-| T34 | **退出复原与 stdin 回复串的三处载体差异** | 1.4.0 的两处修复依赖 Node 侧独有的载体，C# 侧换成等价物：① **进程退出兜底**——上游 `process.on("exit")` 直接改成 `AppDomain.CurrentDomain.ProcessExit`，并在 `Start()` 里 `-=` 后 `+=`（委托按 target+method 去重，否则重复 `Start()` 会叠加回调）、`Stop()` 的锁内 `-=`；退出路径必须同步 `Flush`，且外层 `try/catch` 吞异常（上游同样不抛）。② **撤掉终端模式**——上游记了 `modifyOtherKeysPushed` 与 `keyboardProtocolPushed` 两个标志位，端口从未推送过 `modifyOtherKeys`（`ESC[>4;1m`），因此没有对应的 `ESC[>4;0m`；kitty 撤栈一律以 `Keys.IsKittyProtocolActive()` 判定（与上游 `keyboardProtocolPushed` 同义）。③ **`StdinBuffer` 尚未接进 `ProcessTerminal`**——端口的读取走 `Console.ReadKey`，OSC 7501 之类的回复由 `ProcessTerminal.TryConsumeProgramStatusReply` 做有界装配。所以回复串修复只把 `StdinBuffer` 这一类本身对齐到 1.4.0（`TERMINAL_REPLY_HEADER_PATTERN`、`\x18`/`\x1a` 取消、未终结回复的重同步），真实读取路径不经过它；上游在 `#10256`/`#10657` 里修的那个「OSC 的 BEL 变成 Ctrl+G」在端口这边的等价物是 `TryConsumeProgramStatusReply` 的缓冲策略，已单独覆盖。 |
+| T34 | **退出复原与 stdin 回复串的三处载体差异** | 1.4.0 的两处修复依赖 Node 侧独有的载体，C# 侧换成等价物：① **进程退出兜底**——上游 `process.on("exit")` 直接改成 `AppDomain.CurrentDomain.ProcessExit`，并在 `Start()` 里 `-=` 后 `+=`（委托按 target+method 去重，否则重复 `Start()` 会叠加回调）、`Stop()` 的锁内 `-=`；退出路径必须同步 `Flush`，且外层 `try/catch` 吞异常（上游同样不抛）。② **撤掉终端模式**——上游记了 `modifyOtherKeysPushed` 与 `keyboardProtocolPushed` 两个标志位，端口从未推送过 `modifyOtherKeys`（`ESC[>4;1m`），因此没有对应的 `ESC[>4;0m`；kitty 撤栈一律以 `Keys.IsKittyProtocolActive()` 判定（与上游 `keyboardProtocolPushed` 同义）。③ ~~**`StdinBuffer` 尚未接进 `ProcessTerminal`**~~——**已由 C383 关闭（2026-10-23，1.4.1）**：管线改为 `MapKey` → `StdinBuffer.Process` → `Data`/`Paste`，回复串修复（`TERMINAL_REPLY_HEADER_PATTERN`、`\x18`/`\x1a` 取消、未终结回复的重同步）在真实读取路径生效；`ProcessTerminal.TryConsumeProgramStatusReply` 仍负责状态查询回复的有界装配。上游 `#10256`/`#10657` 修的「OSC 的 BEL 变成 Ctrl+G」由此覆盖。 |
 
 ## 差分验证（latex.ts）
 

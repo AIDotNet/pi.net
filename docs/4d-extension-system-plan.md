@@ -1,5 +1,10 @@
 # 4d 扩展系统 — 执行方案
 
+> **2026-10-23 注记**：本文是 2026-10-10 的方案与调研记录。当时的待办（4d-4 MCP 适配层、
+> 4d-5 codemode 适配层、4d-7 llama 非 UI 部分、llama `ui.ts`、renderers 的 `renderCall`/`renderResult`）
+> 已由后续 Stage 4 与各批关闭；当前状态见 [migration-execution-status.md](./migration-execution-status.md)。
+> 下文保留原始边界与分批依据。
+
 > 目标：把 TS `packages/coding-agent/src/core/extensions/*`（4,493 行）与
 > `packages/coding-agent/src/extensions/*`（6,194 行）移植到
 > `src/Pi.CodingAgent/Core/Extensions/*`。合计约 10,700 行 TS。

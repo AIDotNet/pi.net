@@ -6,6 +6,10 @@
 
 本审计回答两个问题：源包的公开导出面在 .NET 是否有可调用/可承载的落点；跨进程与 provider 边界的 JSON/wire 形状是否一致。它是逐项分类结论，不是“文件名/导出名自动匹配率”。
 
+> 2026-10-23 注记：导出面基线是 1.0.4（`eb326d2`）。1.4.0 的契约变更（`telemetryContext` → `telemetry`、
+> `identity`、`TranscriptToolSupport` 等）已在 [upstream-1.4.0-delta.md](./upstream-1.4.0-delta.md)
+> 逐项记录；其中 span 链路判不适用，理由见该文档 §6 第 2、3 条。
+
 ## 判定方法
 
 1. **入口解析**：按各包 `package.json` 的 exports 与 `src/index.ts` 入口，递归展开 `export *`、`export { … } from`，只统计可从包外导入的符号；`evals` 是 CLI 包，没有 barrel export，故不在导出面统计内。

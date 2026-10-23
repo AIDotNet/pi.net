@@ -6,6 +6,7 @@
 > 本文档在迁移期间持续更新；逐文件细节见 [porting-status.md](porting-status.md) 与 [tui-porting-status.md](tui-porting-status.md)。
 >
 > **当前执行状态以 [migration-execution-status.md](./migration-execution-status.md) 为准。** 本文的逐包统计与阶段表是较早的历史快照，其中 coding-agent 阶段和后续 SQLite/harness 缺口未同步；请勿据此判断当前完成度。
+> （2026-10-23：端口已对齐上游 `v1.4.0` 并发布 `1.4.1`；本文的 `428a12b` 基线与「11 个运行时项目 + 10 个测试项目」计数均已过期。）
 
 ---
 

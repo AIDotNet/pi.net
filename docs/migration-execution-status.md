@@ -64,6 +64,7 @@
 | 不采纳（产品决策） | durable 的 `./codemode` 与 `./tool-search` 入口 | 上游仓内无消费方，端口已有等价能力；重启条件与照搬清单见 delta §6 第 7 条。 |
 | 暂不移植（成本/收益） | telemetry span（`observeModelRequest`）与 chord 的 `telemetry`/`traceIn`；上游模型目录数据 | span 需重建整条流式观察链；模型数据不在上游仓库，硬编等于编造。见 delta §6 第 2、3、4 条。 |
 | 验证缺口（非代码缺口） | 交互式 TUI、OAuth 浏览器登录流、steering 的运行中打断时序、官方 `api.openai.com` 密钥路径；CI 仅 Windows、测试未进 CI | 需要人工交互、密钥或非 Windows runner；本地已用真实端点覆盖 print/json/continue/fork/export/RPC/MCP/AGENTS.md/skills/compaction/follow_up（delta §6.at）。 |
+| 已登记的语义差异（非 1.4.0 范围） | C152 消息就地替换的观察者、C154 扩展就地改写工具入参、C258 mermaid 渲染、T11 TUI 调试日志等 | 结构或运行时形态限制，逐条见 [review-inconsistencies-2026-10-21.md](./review-inconsistencies-2026-10-21.md)；不属于 1.4.0 未落地项。 |
 
 **2026-10-21 的 1.0.4 收口结论（历史）**：迁移、公开契约审计、G4 容器验收、G6 POSIX/SSH 验收与 G7 Anthropic OIDC federation 均已完成。本机 13 个测试项目共 30,103 项，30,098 通过、0 失败、5 项平台跳过（2 项 Linux-only Evals 权限测试、2 项无 POSIX shell、1 项无 sshd），solution 0 警告构建；外部 Ubuntu 主机上 G4 两镜像与权限探针通过，POSIX `Pi.Server.Tests` 33/33、`Pi.Env.Tests` 48/48。下表保留当时的收口项。
 
