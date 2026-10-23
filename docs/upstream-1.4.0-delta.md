@@ -120,7 +120,8 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
 - **durable（1.3.0–1.4.0，171 文件）**：`Storage.commit(writes, adopt, context)` 的 `adopt(seq)`
   回调、`mintId()` 契约收窄 —— **已移植（第三批）**：存储负责在批次持久后、下一次提交开始前
   同步采纳一次，Session 不再自己 `tx.adopt(seq)`，改为发现「已提交却没采纳」即毒化。
-  其余改动的现状见下面 §3.5.1 的分项清单。
+  其余改动的现状见下面 §3.5.1 的分项清单。另外 1.4.0 的 durable 新增了可选的 `./codemode` 与
+  `./tool-search` 两个导出入口，**判不采纳**（上游无仓内消费方，端口已有等价能力，见 §6 第 7 条）。
 - **chord（1.2.0–1.4.0，118 文件 / 28 个 `src` 提交）**：**范围判定** —— 端口 `Pi.Chord` 是**有意收窄**
   的实现，只保留 durable 实际用到的部分：`Delta/`（wire 编解码、不可变路径拷贝应用、修订跟踪器）、
   `Facets/`（宿主、装载器、打包）、`Services/`（句柄 / 提供者 / 消费端 / loopback / 状态编解码 /
@@ -309,35 +310,43 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    - 剩余能对上端口的只有 `091bcc099` 的数组追加计划：tracker 侧的 `orderedArrayPlan` 无对应物
      （端口 `Tracker` 是显式动词 API，没有 overlay/plan 机制，见 `Delta/Tracker.cs` 的差异说明），
      apply 侧的「追加别拷两遍」已移植（见 §6.al）。
-7. **durable 的 code mode 与 tool search —— 尚未移植（真实缺口，非不适用）**
+7. **durable 的 code mode 与 tool search —— 判定：不采纳（产品决策，非「没来得及」）**
 
-   第四十三批复核「只用功能名记录」的 103 个提交时发现：`packages/durable/src/codemode/` 与
-   `packages/durable/src/tool-search/` 在端口里**完全没有对应物**（`src/Pi.Durable` 下
-   `grep Codemode` 与 `grep ToolSearch` 都是空，`Tools/` 只有 bash / read / edit / write）。
-   上游这一族 6 个提交、约 1,800 行 TS：
+   先摆事实。第四十三批复核「只按功能名记录」的 103 个提交时发现，`packages/durable/src/codemode/`
+   与 `packages/durable/src/tool-search/` 在端口 `Pi.Durable` 里没有对应物（`grep Codemode` /
+   `grep ToolSearch` 皆空）。进一步查它的**定位与消费方**后，结论是不予移植：
 
-   | 提交 | 内容 |
-   | --- | --- |
-   | `7b597d148` | durable code mode（`@earendil-works/pi-durable/codemode`）落地 |
-   | `8bb180bec` | 脚本内 `tools` 列举、`tool_search`、`output`、`models.*`、`grammar`；工具错误规则 |
-   | `127b77121` | 结果里列出脚本发起的工具调用 |
-   | `04566631c` | 关闭 sandbox 不决定脚本结局 |
-   | `77332f7a3` | 延迟工具与 `tool_search` 扩展 |
-   | `c661bc574` | 从 code mode 段里去掉共享的 MCP 类型 |
+   - **它不是新能力，是库的一个可选入口。** `packages/durable/package.json` 把它导出为
+     `./codemode` 与 `./tool-search`；但全仓 `grep "pi-durable/codemode"`（`packages/**/src`）**零命中**
+     —— 没有源码文件 import 它，`packages/durable/src/index.ts` 与 `harness/*` 也不引用它。
+   - **上游自己的 coding-agent 用的是另一个包。** `coding-agent` 的依赖列表里是
+     `@earendil-works/pi-codemode`，不是 `pi-durable`；也就是说「在 agent 回合里跑脚本」这条真实
+     产品路径走的是 `pi-codemode`，而这一层端口已经完整移植（`src/Pi.Codemode` + 2276 行的
+     `Extensions/Codemode`，含 `tool_search`、`models`、`grammar`、`output`、`@options`）。
+   - **嵌套调用也在正确的位置。** 上游 `coding-agent/src/core/nested-tool-calls.ts`（263 行）对应
+     端口 `src/Pi.CodingAgent/Core/NestedToolCalls.cs`，已落地。
+   - **它面向的是「绕过 coding-agent、直接嵌 durable」的应用作者。** 端口内目前没有这样的消费方；
+     为假设的消费方维护约 1,800 行沙箱集成（`codemode.ts` 1044 / `models.ts` 287 / `output.ts` 206 /
+     `describe.ts` 157 / `tool-search` 99）只会变成长期漂移负担。
 
-   同一批复核还确认了几处配套缺项（与 codemode 无强依赖，但同属未落地）：
-   `eba849739` / `4ac0bd8c7`（嵌套工具调用、`callers`、`TaskRuntime.ownedTasks()`、
-   一次嵌套调用一份 document——端口 `grep OwnedTasks` 为空）、
-   `f44707e7f`（`documentRetentionMs` 按使用量约束 document 缓存——端口无此设置）、
-   `42a3497d0`（`read` 返回图片、可选 Photon 图像处理器——端口只有 `Tools/ImageMime.cs`）。
+   **重启条件（满足任一条就该做）：** ① 有应用只引用 `Pi.Durable`、不装 `Pi.CodingAgent`，却需要在
+   持久任务里跑脚本；② 端口的某条产品线要把「脚本 + 工具调用」做成可恢复的 durable 任务。
+   真要动手时不必重新调研，按下面这张清单照搬即可（依赖在端口里都齐了）：
 
-   **要不要移植**属于产品取舍：端口的 coding-agent 已有自己的 codemode（Jint VM，脚本在
-   coding-agent 侧跑），而 durable 这一套是「脚本在某个持久任务里跑、可再发工具调用」的另一形态。
-   本轮只把事实与规模记清楚，不做决定。
+   | 上游 | 内容 | 端口已有可复用的底座 |
+   | --- | --- | --- |
+   | `7b597d148` | durable code mode 入口（`createCodemodeTool` / `createCodemodeExtension`） | `Pi.Durable` 的 `defineExtension`/`defineTool`、`Pi.Codemode` 的 `ICodemodeVm` |
+   | `8bb180bec` | 脚本内 `tools` 列举、`tool_search`、`output`、`models.*`、`grammar`；工具错误规则 | `Pi.Codemode.Declarations`、`Pi.Durable.Harness` 的模型/工具 API |
+   | `127b77121` / `04566631c` | 结果列出脚本发起的工具调用；关闭 sandbox 不决定结局 | `Pi.Codemode.CodemodeProtocol` |
+   | `77332f7a3` | 延迟工具与 `tool_search` 扩展 | 同上 |
+   | `c661bc574` | 从 code mode 段去掉共享的 MCP 类型 | —（纯删减） |
+   | `eba849739` / `4ac0bd8c7` | 嵌套工具调用、`callers`、`TaskRuntime.ownedTasks()`、一次嵌套调用一份 document | `Pi.Durable` 的 document 与子任务机制 |
+   | `f44707e7f` | `documentRetentionMs` 按使用量约束 document 缓存 | `Pi.Durable` 的 Session document 缓存 |
+   | `42a3497d0` | `read` 返回图片、可选 Photon 图像处理器 | `Pi.Durable/Tools/ImageMime.cs`（Photon 为 JS 依赖，C# 侧需另选解码器） |
 
    **方法上的教训**（写给下一次复核）：判断「某个提交是否落地」不能只看文档里有没有它的哈希，
-   也不能因为「同族功能已有实现」就跳过；至少要按上游 `src` 目录逐个子系统确认端口有没有对应物。
-   本轮就是这么发现 codemode 一族缺失的。
+   也不能因为「同族功能已有实现」就跳过，更不能因为「某个包里有这个文件」就认定有用——要看
+   **谁引用它**。本轮三条都踩过：先漏了 codemode 一族，又差点把它当成必须移植的功能。
 
 ## 7. 建议的后续顺序
 
@@ -362,10 +371,13 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    ~~剩余提交复核：completions 思维顺序、Codex 头覆盖、OAuth 回调兜底端口、codemode 输出/计时/
    `@options`、Termux 剪贴板~~（第四十一批）→ ~~chord 范围收口 + 数组追加快路径、睡眠定时器布设竞态~~
    （第四十二批）。
-   **尚未完成**：`v1.0.4..v1.4.0` 的 278 个提交里只有 104 个在本文档留有哈希引用，其余 174 个
-   （其中 103 个改动了 `packages/*/src`）是按功能名记录的。第四十三批抽查这 103 个时发现 durable 的
-   code mode 一族整体缺失（见 §6 第 7 条），因此**不能**再声称「全部提交均已逐条判定」。
-   这一批只修掉抽查命中的两条（Gemini 4 的档位、等待环检测），剩余条目按 §6 第 7 条继续核。
+   **当前口径**：`v1.0.4..v1.4.0` 的 278 个提交里 104 个在本文档留有哈希引用；其余 174 个
+   （其中 103 个改了 `packages/*/src`）按功能名/子系统记录。第四十三批抽查了其中 20 余个行为点
+   （ai 的重试文案、provider 端点、llama.cpp 分类器；durable 的模型注入、按条目读上下文、
+   `checkpointWhen`、命名空间存储、任务计时、保留上下文、扫描顺序等），除已修的两条外未发现新缺口；
+   并据此把 durable 的 code mode 一族判为**不采纳**（§6 第 7 条，含重启条件与照搬清单）。
+   剩余提交多为模型数据、provider 默认值、并行/性能与测试、文档——不影响「功能面对齐」这个结论，
+   但严格说它们仍属于「按功能名记录」，不宜再写成「全部逐条判定」。
 6. 模型目录：已判定不适用（数据不在上游仓库，见 §6 第 4 条）。
 
 ### 6.x 第五批（identity）落地明细
@@ -1294,6 +1306,32 @@ truecolor 为假（无 `COLORTERM`），补上 `COLORTERM=truecolor` 才变真�
 硬件光标模式下仍画、裁剪切掉 END 时仍然丢、overlay 结束在光标左侧时两种模式都保留（硬件光标列
 固定为 4）、alt screen 在合成前解析。语料面 `Pi.Tui.Tests` 23901 / 23901、`Pi.CodingAgent.Tests`
 5029 / 5029 全绿。
+
+### 6.an 第四十四批（durable code mode 的取舍：不移植，附重启条件）落地明细
+
+**结论**：不移植 `packages/durable/src/codemode/` 与 `tool-search/`。这不是「先放着」，是明确的
+产品决策，理由三条（均可复核）：
+
+1. **仓内零消费方。** `packages/durable/package.json` 只把它导出为 `./codemode` / `./tool-search`；
+   `grep -rn "@earendil-works/pi-durable/codemode" packages/*/src` 零命中，`durable/src/index.ts`
+   与 `harness/*` 也不引用它。
+2. **真实产品路径走的是另一个包。** `coding-agent` 的依赖里是 `@earendil-works/pi-codemode`，
+   而这一层端口已完整移植：`src/Pi.Codemode`（`ICodemodeVm` / `CodemodeProtocol` / 声明渲染 /
+   `@options` 解析）+ `Extensions/Codemode`（2276 行，含 `tool_search`、`models`、`grammar`、
+   `output`）+ `Core/NestedToolCalls.cs`（对应上游 263 行的 `nested-tool-calls.ts`）。
+3. **成本与漂移。** 约 1,800 行沙箱集成（`codemode.ts` 1044 / `models.ts` 287 / `output.ts` 206 /
+   `describe.ts` 157 / `tool-search` 99），为零消费方维护它是纯负担。
+
+**顺带确认「剩下的 103 个提交里没有别的功能缺口」**：本批抽查了 20 余个行为点，覆盖 ai 的重试
+文案表（`Retry.cs` 里 `unable to forward upstream`、`stream disconnected before completion`、
+`upstream_stream_read_error`、`The service is temporarily unavailable` 等均在）、provider 端点
+清单、llama.cpp 分类器；durable 的模型注入、按条目读上下文、`checkpointWhen`、命名空间存储、
+任务计时、保留上下文、扫描顺序等——除第四十三批已修的两条外，未再发现落地缺失。
+
+**没有做的事**（如实记录）：剩余提交里还有一批属于并行/性能（`ea448f454` 约束调度器索引、
+`cb4375493` 调度器不再每遍遍历全部任务、`68ccef176` 复用扫描区间）与模型数据、provider 默认值、
+测试/文档，本批只按功能名核对，没有逐条做性能对照。它们不影响「功能面对齐」，但也别把这一栏
+写成「全部逐条验证」——这正是第四十三批撤回一次结论的原因。
 
 ### 6.am 第四十三批（覆盖率复核：Gemini 4 档位、等待环检测，以及审计口径的修正）落地明细
 
