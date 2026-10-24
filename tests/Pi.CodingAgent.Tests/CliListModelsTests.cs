@@ -1,5 +1,7 @@
 using Pi.Ai.Models;
+using Pi.Ai.Auth;
 using Pi.CodingAgent.Cli;
+using Pi.CodingAgent.Core;
 using Xunit;
 
 namespace Pi.CodingAgent.Tests;
@@ -10,6 +12,86 @@ namespace Pi.CodingAgent.Tests;
 /// </summary>
 public class CliListModelsTests
 {
+    [Theory]
+    [InlineData("团队专用网关")]
+    [InlineData("专用")]
+    [InlineData("team GATEWAY")]
+    [InlineData("tmgw")]
+    [InlineData("fixture-model")]
+    [InlineData("audit-provider")]
+    public void FilterModelsSearchesDisplayNamesAsWellAsProviderAndId(string query)
+    {
+        var target = Model("audit-provider", "fixture-model", 4096, 256, false, false)
+            with { Name = "团队专用网关 Team Gateway" };
+        var other = Model("other", "unrelated", 4096, 256, false, false);
+
+        Assert.Equal([target], ListModels.FilterModels([target, other], query));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void FilterModelsWithoutQueryPreservesTheInput(string? query)
+    {
+        var models = new[]
+        {
+            Model("z", "last", 4096, 256, false, false),
+            Model("a", "first", 4096, 256, false, false) with { Name = "" },
+        };
+
+        Assert.Same(models, ListModels.FilterModels(models, query));
+    }
+
+    [Fact]
+    public void FilterModelsHandlesEmptyNamesAndNoMatches()
+    {
+        var model = Model("local", "fixture", 4096, 256, false, false) with { Name = "" };
+
+        Assert.Equal([model], ListModels.FilterModels([model], "fixture"));
+        Assert.Empty(ListModels.FilterModels([model], "团队网关"));
+    }
+
+    [Fact]
+    public async Task ListModelsFindsAConfiguredDisplayNameWithoutChangingTheTable()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "pi-model-search-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var previousOutput = Console.Out;
+        using var output = new StringWriter();
+        try
+        {
+            var modelsPath = Path.Combine(root, "models.json");
+            await File.WriteAllTextAsync(modelsPath, """
+                {"providers":{"audit-local":{"baseUrl":"http://127.0.0.1:1/v1",
+                  "api":"openai-completions","apiKey":"test-placeholder",
+                  "models":[{"id":"fixture-model","name":"团队专用网关",
+                    "contextWindow":4096,"maxTokens":256}]}}}
+                """);
+            var runtime = await ModelRuntime.CreateAsync(new CreateModelRuntimeOptions
+            {
+                ModelsPath = modelsPath,
+                Credentials = new InMemoryCredentialStore(),
+                ModelsStore = new InMemoryCodingAgentModelsStore(),
+                AllowModelNetwork = false,
+                Env = name => name == "PI_OFFLINE" ? "1" : null,
+                AuthContext = new StubAuthContext(_ => null),
+            });
+            Console.SetOut(output);
+
+            await ListModels.ListModelsAsync(runtime, "团队专用网关");
+
+            Assert.Contains("audit-local", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("fixture-model", output.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("No models matching", output.ToString(), StringComparison.Ordinal);
+            Assert.StartsWith("provider", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(previousOutput);
+            Directory.Delete(root, true);
+        }
+    }
+
     [Theory]
     [InlineData(0, "0")]
     [InlineData(1, "1")]

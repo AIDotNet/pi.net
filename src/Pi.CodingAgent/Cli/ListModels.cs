@@ -108,6 +108,15 @@ public static class ListModels
         return lines;
     }
 
+    /// <summary>Filter by provider, ID, or display name using the CLI's existing fuzzy matcher.</summary>
+    internal static IReadOnlyList<ModelSpec> FilterModels(IReadOnlyList<ModelSpec> models, string? searchPattern)
+        => string.IsNullOrEmpty(searchPattern)
+            ? models
+            : Fuzzy.Filter(models, searchPattern, model =>
+                string.IsNullOrEmpty(model.Name)
+                    ? $"{model.Provider} {model.Id}"
+                    : $"{model.Provider} {model.Id} {model.Name}");
+
     /// <summary>对应 TS <c>listModels</c>。</summary>
     public static async Task ListModelsAsync(
         ModelRuntime modelRuntime,
@@ -128,12 +137,7 @@ public static class ListModels
             return;
         }
 
-        // TS `if (searchPattern)`：空串为假，故不走过滤。
-        IReadOnlyList<ModelSpec> filtered = models;
-        if (!string.IsNullOrEmpty(searchPattern))
-        {
-            filtered = Fuzzy.Filter(models, searchPattern, model => $"{model.Provider} {model.Id}");
-        }
+        var filtered = FilterModels(models, searchPattern);
 
         if (filtered.Count == 0)
         {
