@@ -155,14 +155,17 @@ public static class ToolsManager
     /// system binary on <c>PATH</c>, otherwise <see langword="null"/>.
     /// </summary>
     /// <param name="tool">One of <see cref="Fd"/> or <see cref="Rg"/>.</param>
-    public static string? GetToolPath(string tool)
+    public static string? GetToolPath(string tool) => GetToolPath(tool, ToolsDir);
+
+    /// <summary>Read-only lookup for a caller-selected managed bin directory.</summary>
+    internal static string? GetToolPath(string tool, string toolsDir)
     {
         if (!Tools.TryGetValue(tool, out var config))
         {
             return null;
         }
 
-        var localPath = NodePath.Join(ToolsDir, config.BinaryName + (Platform == "win32" ? ".exe" : string.Empty));
+        var localPath = NodePath.Join(toolsDir, config.BinaryName + (Platform == "win32" ? ".exe" : string.Empty));
         if (File.Exists(localPath))
         {
             return localPath;

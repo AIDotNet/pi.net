@@ -22,7 +22,31 @@ pi [options] [--] [@files...] [messages...]
 | `pi config [-l]` | TUI 里开关包资源（Tab 切换作用域） |
 | `pi auth <command>` | 打印凭据、检查 provider 可用性（`auth print-api-key` / `auth print-bearer-token`） |
 | `pi mcp <command>` | 检查 MCP 服务器、OAuth 登录/登出 |
+| `pi doctor [--json]` | 离线检查本地配置、Shell、搜索工具和凭据来源 |
 | `pi <command> --help` | 查看子命令帮助 |
+
+## 本地诊断
+
+`pi doctor` 在会话与扩展初始化之前运行，适合排查首次启动或配置加载问题：
+
+```powershell
+pi doctor
+pi doctor --json | ConvertFrom-Json
+pi doctor --help
+```
+
+检查包括运行时版本/平台、全局配置目录、settings/models/auth/trust 文件、默认工具、
+Bash/PowerShell 与 rg/fd 的定位结果，以及保存的凭据类型和已设置的已知认证环境变量名。
+项目设置仅在已有保存的信任决定时加载；缺省配置文件属于正常情况。
+
+诊断不联网、不加载用户扩展、不写配置、不自动下载工具，也不执行取密命令或刷新 OAuth。
+找到 Shell 路径不代表已执行验证；凭据来源存在不代表认证有效。本地端点、ambient 认证和
+扩展可能无需已知 API key，因此未发现凭据来源仅报告警告。MCP 连通性仍使用 `pi mcp check`。
+
+文本和 JSON 使用相同的 `ok` / `warning` / `error` / `skipped` 状态。
+JSON 是带 `schemaVersion: 1`、`version` 和 `checks` 数组的单个对象；每项包含 `id`、`status`、
+`message`，以及可选的 `path` / `suggestion`，不输出凭据值或原始配置内容。
+退出码：`0` 为无错误（允许警告），`1` 为存在诊断错误，`2` 为参数错误。
 
 ## 常用选项
 

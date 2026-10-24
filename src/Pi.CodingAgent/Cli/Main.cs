@@ -118,6 +118,16 @@ public static class Main
         var setEnv = options.SetEnv ?? ((name, value) => Environment.SetEnvironmentVariable(name, value));
         var exitCode = 0;
 
+        if (args.Length > 0 && args[0] == "doctor")
+        {
+            return await DoctorCommand.RunAsync(args.Skip(1).ToArray(), new DoctorOptions
+            {
+                Cwd = options.Cwd ?? Environment.CurrentDirectory,
+                AgentDir = options.AgentDir ?? Config.GetAgentDir(),
+                GetEnv = getEnv,
+            }, output, error).ConfigureAwait(false);
+        }
+
         void Exit(int code) => (options.Exit ?? (c => throw new MainExitException(c)))(code);
 
         Timings.Reset();
