@@ -10,6 +10,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - `pi doctor [--json]`：在会话初始化前离线诊断本地配置、项目信任、Shell/搜索工具路径和凭据来源。
   支持文本与结构化 JSON 输出；不加载用户扩展、不写文件、不刷新 OAuth 或执行取密命令。
 
+### Fixed
+
+- `--list-models` 的模糊搜索包含模型显示名称，可搜索 `models.json` 中的自定义名称；表格格式与排序保持兼容。
+
 ## [1.4.3] - 2026-10-24
 
 ### Added

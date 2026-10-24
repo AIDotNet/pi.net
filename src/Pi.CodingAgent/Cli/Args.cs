@@ -577,7 +577,7 @@ public static class CliArgs
               --no-themes                    Disable theme discovery and loading
               --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading
               --export <file>                Export session file to HTML and exit
-              --list-models [search]         List available models (with optional fuzzy search)
+              --list-models [search]         List available models (fuzzy search by provider, ID, or name)
               --verbose                      Force verbose startup (overrides quietStartup setting)
               --tui-mode <mode>              TUI mode: fullscreen (default) or regular
               --approve, -a                  Trust project-local files for this run

@@ -73,7 +73,7 @@ JSON 是带 `schemaVersion: 1`、`version` 和 `checks` 数组的单个对象；
 | `--api-key <key>` | 显式 API key（缺省走环境变量发现） |
 | `--models <patterns>` | Ctrl+P 轮换的模型组，支持 glob 与模糊匹配 |
 | `--thinking <level>` | off / minimal / low / medium / high / xhigh / max |
-| `--list-models [search]` | 列出可用模型 |
+| `--list-models [search]` | 列出可用模型，可按 provider、模型 ID 或显示名称模糊搜索 |
 
 工具与扩展类：
 
