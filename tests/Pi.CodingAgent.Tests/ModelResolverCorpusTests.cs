@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Pi.Ai.Models;
+using Pi.Ai.Providers;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Utils;
@@ -188,6 +189,21 @@ public class ModelResolverCorpusTests
 
         Assert.False(ModelResolver.HasDefaultModelProvider("not-a-provider"));
         Assert.Null(ModelResolver.GetDefaultModelId("not-a-provider"));
+    }
+
+    /// <summary>
+    /// 默认模型表里的每一对 provider/model 都必须在随包目录里存在。历史缺口：表跟着上游更新了、
+    /// 目录数据没跟——全新安装遍历完整张表也选不到模型。
+    /// </summary>
+    [Fact]
+    public void EveryDefaultModelResolvesInTheBuiltinCatalog()
+    {
+        var missing = ModelResolver.DefaultModelPerProvider
+            .Where(pair => All.GetBuiltinModel(pair.Key, pair.Value) is null)
+            .Select(pair => $"{pair.Key}/{pair.Value}")
+            .ToList();
+
+        Assert.Empty(missing);
     }
 
     [Fact]

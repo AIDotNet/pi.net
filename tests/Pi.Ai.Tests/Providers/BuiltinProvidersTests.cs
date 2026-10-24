@@ -52,7 +52,7 @@ public class BuiltinProvidersTests
         // 无静态 baseUrl 的家（Bedrock / Vertex / Azure 部署名由模型携带）。
         Assert.Null(Create("amazon-bedrock").BaseUrl);
         Assert.Null(Create("google-vertex").BaseUrl);
-        Assert.Null(Create("azure-openai-responses").BaseUrl);
+        Assert.Null(Create("azure").BaseUrl);
     }
 
     [Fact]
@@ -60,17 +60,17 @@ public class BuiltinProvidersTests
     {
         // 嵌入资源里有 anthropic / deepseek / openai 三家目录。
         Assert.Equal(2, All.GetBuiltinModels("deepseek").Count);
-        Assert.NotNull(All.GetBuiltinModel("deepseek", "deepseek-chat"));
-        Assert.Equal("openai-completions", All.GetBuiltinModel("deepseek", "deepseek-chat")!.Api);
+        Assert.NotNull(All.GetBuiltinModel("deepseek", "deepseek-v4-pro"));
+        Assert.Equal("openai-completions", All.GetBuiltinModel("deepseek", "deepseek-v4-pro")!.Api);
 
         Assert.Equal("anthropic-messages", All.GetBuiltinModel("anthropic", "claude-sonnet-4-5")!.Api);
         Assert.NotNull(All.GetBuiltinModel("openai", "gpt-5"));
 
-        // 无嵌入数据 → 空目录（不是抛错）。
-        Assert.Empty(All.GetBuiltinModels("groq"));
-        Assert.Null(All.GetBuiltinModel("groq", "whatever"));
-        // 无生成产物 → 目录时间戳为 null。
-        Assert.Null(All.GetBuiltinModelDataGeneratedAt());
+        // 未知 provider → 空目录（不是抛错）。
+        Assert.Empty(All.GetBuiltinModels("no-such-provider"));
+        Assert.Null(All.GetBuiltinModel("no-such-provider", "whatever"));
+        // 随包清单带生成时间，用于判断目录新旧。
+        Assert.NotNull(All.GetBuiltinModelDataGeneratedAt());
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class BuiltinProvidersTests
         Assert.Equal(42, models.GetProviders().Count);
         Assert.NotNull(models.GetProvider("deepseek"));
         Assert.NotNull(models.GetProvider("radius"));
-        Assert.NotNull(models.GetModel("deepseek", "deepseek-chat"));
+        Assert.NotNull(models.GetModel("deepseek", "deepseek-v4-pro"));
     }
 
     [Fact]
@@ -132,7 +132,8 @@ public class BuiltinProvidersTests
     public void RadiusProviderReplacesBaselineWithDynamicCatalog()
     {
         var provider = new RadiusProvider();
-        Assert.Empty(provider.GetModels());
+        // 默认网关：随包基线目录就在（radius.json 的 32 个 chat 模型）。
+        Assert.NotEmpty(provider.GetModels());
 
         var config = new RadiusGatewayConfig
         {

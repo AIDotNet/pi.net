@@ -228,7 +228,7 @@ public class ToolsTests
     // ─── read：图片（tools/image.ts / tools/image-processor.ts） ─────────────
 
     /// <summary>最小合法 PNG 头：签名 + IHDR（长度 13、宽高）。CRC 不参与格式与尺寸判定。</summary>
-    private static byte[] PngHeader(int width, int height)
+    private static byte[] PngHeader(long width, long height)
     {
         var bytes = new byte[33];
         byte[] signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -333,6 +333,21 @@ public class ToolsTests
         Assert.True(run.Result.IsError);
         Assert.Contains("is an image (image/png) of 3000x120, larger than 2000x2000", run.DiagnosticText);
         Assert.Contains("no image processor is configured to shrink it", run.DiagnosticText);
+    }
+
+    /// <summary>宽高空过 int.MaxValue 时不能被截成负数而绕过像素限制。</summary>
+    [Fact]
+    public async Task Read_PngWithHugeDimensions_IsRejected()
+    {
+        var env = CreateEnv();
+        await env.WriteFileAsync("huge.png", PngHeader(4_000_000_000, 4_000_000_000), Ctx);
+
+        var run = await RunAsync(
+            ReadTool.Create(), new Dictionary<string, object?> { ["path"] = "huge.png" }, env,
+            model: VisionModel());
+
+        Assert.True(run.Result.IsError);
+        Assert.Contains("of 4000000000x4000000000, larger than 2000x2000", run.DiagnosticText);
     }
 
     [Fact]

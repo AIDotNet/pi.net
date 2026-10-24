@@ -21,7 +21,7 @@ public class ProviderFactoriesTests
         Assert.Equal("DeepSeek", deepseek.Name);
         Assert.Equal("https://api.deepseek.com", deepseek.BaseUrl);
         Assert.Equal(2, deepseek.GetModels().Count);
-        Assert.Contains(deepseek.GetModels(), m => m.Id == "deepseek-reasoner" && m.Reasoning);
+        Assert.Contains(deepseek.GetModels(), m => m.Id == "deepseek-v4-pro" && m.Reasoning);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class ProviderFactoriesTests
     {
         var models = All.BuiltinModels();
         Assert.Equal(42, models.GetProviders().Count);
-        Assert.NotNull(models.GetModel("deepseek", "deepseek-chat"));
+        Assert.NotNull(models.GetModel("deepseek", "deepseek-v4-pro"));
     }
 
     private sealed class FakeAuthContext(IReadOnlyDictionary<string, string> values) : IAuthContext

@@ -55,18 +55,18 @@ public class ModelsTests
         var models = new Pi.Ai.Models.Models();
         models.SetProvider(new CatalogProvider("openai", catalog));
 
-        // 查询。
-        Assert.Equal(4, models.GetModels().Count);
-        Assert.Equal(4, models.GetModels("openai").Count);
+        // 查询。openai 目录 43 个条目：42 个 chat + 1 个 classifier。
+        Assert.Equal(catalog.ChatModels.Count, models.GetModels().Count);
+        Assert.Equal(catalog.ChatModels.Count, models.GetModels("openai").Count);
         Assert.Empty(models.GetModels("unknown"));
-        Assert.NotNull(models.GetModel("openai", "gpt-4o"));
+        Assert.NotNull(models.GetModel("openai", "gpt-5.5"));
         Assert.Null(models.GetModel("openai", "nonexistent"));
 
         // 分发：model.provider 指向注册的 provider。
-        var gpt4o = models.GetModel("openai", "gpt-4o")!;
-        var message = await models.CompleteSimpleAsync(gpt4o,
+        var gpt55 = models.GetModel("openai", "gpt-5.5")!;
+        var message = await models.CompleteSimpleAsync(gpt55,
             [Messages.UserText("hi")]);
-        Assert.Equal("echo:gpt-4o", ((TextContent)message.Content[0]).Text);
+        Assert.Equal("echo:gpt-5.5", ((TextContent)message.Content[0]).Text);
         Assert.Equal(Types.StopReason.Stop, message.StopReason);
     }
 
@@ -78,7 +78,7 @@ public class ModelsTests
         models.SetProvider(new CatalogProvider("openai", catalog));
 
         // TS 语义：stream()/streamSimple() 经 lazyStream 同步返回，未注册 provider 以 error 终态呈现。
-        var foreign = catalog.ChatModels["gpt-4o"] with { Provider = "anthropic" };
+        var foreign = catalog.ChatModels["gpt-5.5"] with { Provider = "anthropic" };
         var message = await models.CompleteSimpleAsync(foreign, [Messages.UserText("hi")]);
         Assert.Equal(Types.StopReason.Error, message.StopReason);
         Assert.Contains("Unknown provider: anthropic", message.ErrorMessage);

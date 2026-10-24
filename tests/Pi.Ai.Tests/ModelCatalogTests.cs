@@ -12,18 +12,42 @@ public class ModelCatalogTests
         var openai = ModelCatalog.LoadFromResource("openai");
         Assert.Equal("openai", openai.Provider);
 
-        // flatten：跨 api 分组按模型 id 索引。
-        var gpt4o = openai.ChatModels["gpt-4o"];
-        Assert.Equal("openai-completions", gpt4o.Api);
-        Assert.Equal("https://api.openai.com/v1", gpt4o.BaseUrl);
-        Assert.Equal(["text", "image"], gpt4o.Input);
-        Assert.Equal(2.5, gpt4o.Cost!.Input);
-        Assert.False(gpt4o.Reasoning);
+        // flatten：跨 api 分组按模型 id 索引。目录取自上游 v1.4.0 的 providers/data。
+        var gpt55 = openai.ChatModels["gpt-5.5"];
+        Assert.Equal("openai-responses", gpt55.Api);
+        Assert.Equal("https://api.openai.com/v1", gpt55.BaseUrl);
+        Assert.True(gpt55.Reasoning);
+        Assert.Equal(272000, gpt55.ContextWindow);
 
         // chat 是缺省类型（JSON 无 type 字段）。
-        Assert.Equal(ModelType.Chat, gpt4o.Type);
-        Assert.Equal(4, openai.ChatModels.Count);
+        Assert.Equal(ModelType.Chat, gpt55.Type);
+        Assert.Equal(42, openai.ChatModels.Count);
         Assert.Empty(openai.ImageModels);
+        // openai-decisions 的分类模型落在独立桶里。
+        Assert.Equal("openai-decisions", Assert.Single(openai.ClassifierModels.Values).Api);
+    }
+
+    /// <summary>42 份随包目录都必须能解析出模型，且 provider 键与文件名一致。</summary>
+    [Fact]
+    public void EveryEmbeddedCatalogParses()
+    {
+        var providers = Pi.Ai.Providers.All.GetBuiltinProviders();
+        Assert.Equal(42, providers.Count);
+
+        var empty = new List<string>();
+        var total = 0;
+        foreach (var provider in providers)
+        {
+            var catalog = ModelCatalog.LoadFromResource(provider);
+            Assert.Equal(provider, catalog.Provider);
+            var count = catalog.ChatModels.Count + catalog.ImageModels.Count + catalog.ClassifierModels.Count;
+            total += count;
+            if (count == 0) empty.Add(provider);
+        }
+
+        Assert.Empty(empty);
+        // 上游 v1.4.0 的 42 份数据 flatten 后按 id 去重，总计 1713 个条目。
+        Assert.Equal(1713, total);
     }
 
     [Fact]
@@ -52,7 +76,7 @@ public class ModelCatalogTests
 
         var deepseek = ModelCatalog.LoadFromResource("deepseek");
         Assert.Equal(2, deepseek.ChatModels.Count);
-        Assert.True(deepseek.ChatModels["deepseek-reasoner"].Reasoning);
+        Assert.True(deepseek.ChatModels["deepseek-v4-pro"].Reasoning);
     }
 
     [Fact]

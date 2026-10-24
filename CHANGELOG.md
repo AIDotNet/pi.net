@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ### Added
 
+- **42 家 provider 的完整模型目录（1713 个条目）**：此前 `src/Pi.Ai/ModelData/` 只有三个手写文件、
+  8 个条目（`gpt-4o` 那批已被上游淘汰的模型），而 `ModelResolver.DefaultModelPerProvider` 的 41 条
+  默认模型是照上游新 id 抄的——**41 条里一条都解析不到**，全新安装遍历完整张表也选不出模型。
+  数据取自 `@earendil-works/pi-ai@1.4.0` 的 `dist/providers/data/`（上游 `build:offline` 会把
+  gitignore 的 `src/providers/data` 复制进发布包），连同 `.manifest.json`（`generatedAt` 供
+  `GetBuiltinModelDataGeneratedAt` 判断目录新旧）。现在 openai 42 chat + 1 classifier、
+  openrouter 401 chat + 63 image + 28 classifier、anthropic 17、radius 32 基线，默认表 41/41 全部可解析。
+  未识别字段（`enabled` / `lab` / `providers` / `output` / `promptCache` / `free`）进 `Extra` 原样保留
+  ——上游的 `model-catalog.ts` / `models.ts` 也不消费它们。新增回归
+  `EveryEmbeddedCatalogParses`（42 份都能解析、总数 1713）与
+  `EveryDefaultModelResolvesInTheBuiltinCatalog`（默认表逐条可解析）。
 - **OpenAI Decisions 分类器（`src/Pi.Ai/Api/OpenAiDecisions.cs`）**：整块补上上游
   `api/openai-decisions.ts`。此前 OpenAI 是唯一**没有**注册 `classifiers` 的 provider——System One
   的另外五个承载（Cloudflare Workers AI、TypeSafe、OpenRouter、OpenCode、Vercel AI Gateway）都在，
@@ -40,6 +51,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ### Fixed
 
+- **`azure` provider 的 id 仍是上游已废弃的旧名**：`Providers/AzureOpenAiResponses.cs` 写成
+  `azure-openai-responses`，而上游早已把 provider 改名为 `azure`（CHANGELOG 明确要求同步
+  `auth.json` / `models.json` / `settings.json` 里的 key），`azure-openai-responses` 现在只是 api 名。
+  后果有三：`defaultProvider: "azure"` 找不到 provider、`models.json` 里 azure 的配置失配、
+  `azure.json` 目录永远按 `Pi.Ai.ModelData.azure-openai-responses.json` 找不到。现在 id 与
+  `ModelCatalog._knownProviders` 都改成 `azure`。
 - **库被嵌入时 `Config.Version` 上报的是宿主版本**: 没有可读 `package.json` 时，版本回退取的是
   `Assembly.GetEntryAssembly()`——也就是**宿主程序**的程序集版本。而 `Assets/package.json` 是
   `Pack="false"`、不进 nupkg，所以「把 Pi.CodingAgent 当库装进来」的宿主**只**会走这条回退路径：

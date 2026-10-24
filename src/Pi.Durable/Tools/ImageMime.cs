@@ -84,32 +84,32 @@ public static class ImageMime
 
     /// <summary>图片在头部声明的宽高，不解码。对应 TS <c>imageDimensions</c>：PNG 的 IHDR、GIF 的屏幕、
     /// WebP 的 VP8 / VP8L / VP8X 块、JPEG 的首个 SOF 段。头部读不出时为 null。</summary>
-    public static (int Width, int Height)? ImageDimensions(byte[] bytes, string mimeType)
+    public static (long Width, long Height)? ImageDimensions(byte[] bytes, string mimeType)
     {
         switch (mimeType)
         {
             case "image/png":
                 return bytes.Length < 24
                     ? null
-                    : ((int)ReadUint32Be(bytes, 16), (int)ReadUint32Be(bytes, 20));
+                    : (ReadUint32Be(bytes, 16), ReadUint32Be(bytes, 20));
             case "image/gif":
                 return bytes.Length < 10
                     ? null
-                    : ((int)ReadUint16Le(bytes, 6), (int)ReadUint16Le(bytes, 8));
+                    : (ReadUint16Le(bytes, 6), ReadUint16Le(bytes, 8));
             case "image/webp":
                 if (bytes.Length < 30) return null;
                 if (StartsWithAscii(bytes, 12, "VP8 "))
                 {
-                    return ((int)(ReadUint16Le(bytes, 26) & 0x3fff), (int)(ReadUint16Le(bytes, 28) & 0x3fff));
+                    return (ReadUint16Le(bytes, 26) & 0x3fff, ReadUint16Le(bytes, 28) & 0x3fff);
                 }
                 if (StartsWithAscii(bytes, 12, "VP8L"))
                 {
                     var bits = ReadUint32Le(bytes, 21);
-                    return ((int)((bits & 0x3fff) + 1), (int)(((bits >> 14) & 0x3fff) + 1));
+                    return ((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1);
                 }
                 if (StartsWithAscii(bytes, 12, "VP8X"))
                 {
-                    int Uint24(int offset) => (int)ReadUint16Le(bytes, offset) + (ByteAt(bytes, offset + 2) << 16);
+                    long Uint24(int offset) => ReadUint16Le(bytes, offset) + ((long)ByteAt(bytes, offset + 2) << 16);
                     return (Uint24(24) + 1, Uint24(27) + 1);
                 }
                 return null;
@@ -126,7 +126,7 @@ public static class ImageMime
                     // SOF0 到 SOF15，除去同处一段的 DHT(C4)、JPG(C8)、DAC(CC)。
                     if (marker is >= 0xc0 and <= 0xcf && marker is not 0xc4 and not 0xc8 and not 0xcc)
                     {
-                        return ((int)ReadUint16Be(bytes, offset + 7), (int)ReadUint16Be(bytes, offset + 5));
+                        return (ReadUint16Be(bytes, offset + 7), ReadUint16Be(bytes, offset + 5));
                     }
                     offset += 2 + (int)ReadUint16Be(bytes, offset + 2);
                 }

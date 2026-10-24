@@ -116,6 +116,19 @@ public class TelemetryRenderAndMetricsTests
     [Fact]
     public void EmptyInputRendersEmptyText() => Assert.Equal(string.Empty, TelemetryRender.RenderTrace([]));
 
+    /// <summary>重复 id 按 Map 语义处理：位置取首次出现，值取最后一次（不会渲染成两行）。</summary>
+    [Fact]
+    public void RepeatedSpanIdKeepsItsFirstPositionAndLatestValue()
+    {
+        var text = TelemetryRender.RenderTrace(
+        [
+            Span("1", "first", 0, 1),
+            Span("1", "last", 2, 5),
+        ]);
+
+        Assert.Equal("last (3ms)", text);
+    }
+
     [Fact]
     public async Task InMemorySpansRenderAsATrace()
     {

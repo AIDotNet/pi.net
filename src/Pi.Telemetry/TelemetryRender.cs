@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -22,14 +21,18 @@ public static class TelemetryRender
     public static string RenderTrace(IReadOnlyList<StoredSpan> spans)
     {
         var byId = new Dictionary<string, StoredSpan>(StringComparer.Ordinal);
-        foreach (var span in spans) byId[span.Id] = span;
+        // Map semantics of the TS original: a repeated id keeps its first position and its last value.
+        var order = new List<string>();
+        foreach (var span in spans)
+        {
+            if (!byId.ContainsKey(span.Id)) order.Add(span.Id);
+            byId[span.Id] = span;
+        }
 
         var roots = new List<StoredSpan>();
         var children = new Dictionary<string, List<StoredSpan>>(StringComparer.Ordinal);
-        // Stable sort: ties keep input order, like Array.prototype.sort in current V8.
-        foreach (var span in spans
-            .Where(span => byId.ContainsKey(span.Id))
-            .OrderBy(span => span.StartedMs))
+        // Stable sort: ties keep the map's insertion order, like Array.prototype.sort in current V8.
+        foreach (var span in order.Select(id => byId[id]).OrderBy(span => span.StartedMs))
         {
             if (span.ParentId is null || !byId.ContainsKey(span.ParentId))
             {

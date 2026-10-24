@@ -121,7 +121,7 @@
 - `tools/` 下被 `.gitignore` 排除的覆盖/导出面脚本仅作启发式线索；未匹配文件名或导出 token 不等价于功能缺失，也不代表公开契约已核验完成。
 - **1.4.0 的 telemetry span 不接**：`telemetryContext` → `telemetry?: TelemetrySpan` 在端口没有落点，ai 层没有 `observeModelRequest` 观察器（`LazyStream` 无 observer 参数），要接需重建整条流式观察链。chord 的 `telemetry` 成员与 `traceIn` 依赖同一条 span 链路，随之一起不接（delta §6 第 2、3 条）。
 - **durable 的 `./codemode` 与 `./tool-search` 不采纳**（产品决策，不是遗漏）：上游把它作为 `pi-durable` 的可选入口，但 `packages/**/src` 内零 import；上游 coding-agent 走的是 `@earendil-works/pi-codemode`，这一层端口已完整移植。重启条件与照搬清单见 delta §6 第 7 条。
-- **模型目录数据不更新**：上游 `providers/data/*.json` 被 `.gitignore` 排除，仓库里只有生成脚本与壳，没有快照；端口只保留手写的三份目录。代码侧的档位与映射（`xhigh`/`max`、`clampThinkingLevel`、各 provider effort）已对齐，缺的只是「哪些模型有哪些档位」这份数据（delta §6 第 4 条）。
+- **模型目录数据不更新**：上游 `providers/data/*.json` 被 `.gitignore` 排除，仓库里只有生成脚本与壳，没有快照；端口此前只保留手写的三份目录（**2026-10-24 已补齐 42 家，见 delta §6.av**）。代码侧的档位与映射（`xhigh`/`max`、`clampThinkingLevel`、各 provider effort）已对齐，缺的只是「哪些模型有哪些档位」这份数据（delta §6 第 4 条）。
 - **配置 schema 是静态产物**：端口没有上游 TypeBox 那层定义，四份 `Assets/schemas/*.schema.json` 从 v1.4.0 逐字节复制，运行时仍由各加载器校验；一致性由 `ConfigurationSchemaTests` 钉住，不提供运行期 Compile（delta §6.c）。
 - **chord 是有意收窄的实现**：只保留 durable 实际用到的 `Delta`/`Facets`/`Services`/`Context`/`Node`；对象运行时与跨进程链路没有对应物，上游该区间的 118 个文件大多判不适用（delta §3.5、§6 第 6 条）。
 - **1.4.1 与 1.4.0 的包关系**：NuGet 的 `id + version` 不可覆盖，1.4.0 已发布的包仍带 C383/C384/C170；修复只能以 1.4.1 发出，按 CHANGELOG 建议 unlist 1.4.0。

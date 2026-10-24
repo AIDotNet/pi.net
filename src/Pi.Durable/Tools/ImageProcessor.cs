@@ -1,7 +1,7 @@
 namespace Pi.Durable.Tools;
 
 /// <summary>图片的像素尺寸。对应 TS <c>{ width, height }</c>。</summary>
-public sealed record ImageSize(int Width, int Height);
+public sealed record ImageSize(long Width, long Height);
 
 /// <summary>模型看到的图片必须满足的限制。对应 TS <c>ImageLimits</c>。</summary>
 public sealed record ImageLimits(int MaxWidth, int MaxHeight, long MaxBytes)

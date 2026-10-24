@@ -37,7 +37,7 @@ public class CompatTests
     {
         // 静态构造触发内建 api 注册。
         Assert.Equal(42, CompatApi.GetProviders().Count);
-        Assert.NotNull(CompatApi.GetModel("deepseek", "deepseek-chat"));
+        Assert.NotNull(CompatApi.GetModel("deepseek", "deepseek-v4-pro"));
         Assert.Equal(2, CompatApi.GetModels("deepseek").Count);
         Assert.Contains("openai-completions", CompatApi.BuiltinApiIds);
         Assert.Contains("anthropic-messages", CompatApi.BuiltinApiIds);

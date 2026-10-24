@@ -62,10 +62,13 @@ public class ModelsStoreAndImageModelsTests
     [Fact]
     public void ImageModelsCompatReadsBuiltinCatalog()
     {
-        // pi 仓库不带生成产物 → 图片模型目录为空，读取返回 null / 空表（不抛错）。
+        // 目录取自上游 providers/data：openrouter 带 63 个图片模型。
         Assert.Null(ImageModels.GetImageModel("openrouter", "anything"));
-        Assert.Empty(ImageModels.GetImageModels("openrouter"));
-        Assert.Empty(ImageModels.GetImageProviders());
+        var flux = ImageModels.GetImageModel("openrouter", "black-forest-labs/flux-3-image");
+        Assert.NotNull(flux);
+        Assert.Equal("openrouter-images", flux!.Api);
+        Assert.NotEmpty(ImageModels.GetImageModels("openrouter"));
+        Assert.Contains("openrouter", ImageModels.GetImageProviders());
         Assert.Equal(42, All.GetBuiltinProviders().Count);
     }
 

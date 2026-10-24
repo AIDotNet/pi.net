@@ -136,7 +136,7 @@ public sealed class ModelCatalog
 
     private static readonly List<string> _knownProviders =
     [
-        "amazon-bedrock", "ant-ling", "anthropic", "azure-openai-responses", "baseten",
+        "amazon-bedrock", "ant-ling", "anthropic", "azure", "baseten",
         "cerebras", "cloudflare-ai-gateway", "cloudflare-workers-ai", "deepseek", "fireworks",
         "github-copilot", "google", "google-vertex", "groq", "huggingface",
         "kimi-coding", "meta", "minimax", "minimax-cn", "mistral",

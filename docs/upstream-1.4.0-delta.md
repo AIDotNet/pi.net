@@ -296,17 +296,16 @@ server 29、env 24、client 19、telemetry 18、protocol 17、mcp 15、agent 9�
    `WatchEnd` 迁 chord 并改 `ended`/`failed`、显式 `retire`）。仍缺的只有 chord 的 `telemetry`
    成员与 `traceIn(options, fn, context)`：它要和第 2 条的 span 链路一起落地，端口 chord 目前
    没有 `TelemetrySpan` 可供承载。
-4. **模型目录新增条目**：**已判定不适用**。上游的模型数据不在仓库里 ——
-   `packages/ai/src/providers/data/*.json` 被 `.gitignore` 排除（`.gitignore` 第 11 行），
-   `providers/*.models.ts` 只是 `generate-models.ts` 从这些 JSON 生成的壳；
-   `scripts/hydrate-model-catalog.ts` 明确要求传入**本地的** `models.all.json` 快照
-   （「without network access」），仓库里没有这份快照，本机也没有。端口只有
-   `src/Pi.Ai/ModelData/{anthropic,deepseek,openai}.json` 三个手写文件，忠实同步 42 家目录
-   需要有源数据，硬编会变成编造。决定不改目录数据。
-   需要澄清的是**代码侧并无缺口**：`xhigh`/`max` 档位、`clampThinkingLevel` 的顺序、
-   `supportsNativeXhighEffort`、各 provider 的 effort 映射在端口里都已存在
-   （`Pi.Ai/Models/Models.cs`、`Api/BedrockConverseStream.cs`、`Api/SimpleOptions.cs` 等），
-   所以缺的只是「哪些模型有哪些档位」这份数据。
+4. ~~**模型目录新增条目**~~ —— **第五十五批已补齐，原判断被推翻**。
+   原先的记录是「数据不在仓库里，硬编会变成编造，决定不改」：`packages/ai/src/providers/data/*.json`
+   确实被 `.gitignore` 第 11 行排除，`hydrate-model-catalog.ts` 也确实要求本地 `models.all.json`
+   快照。但漏看了一条：`packages/ai/package.json` 的 `build:offline` 里有
+   `shx cp -r src/providers/data dist/providers/data` —— **发布到 npm 的包自带这 42 份数据**。
+   于是数据可以从 `@earendil-works/pi-ai@1.4.0` 的 `dist/providers/data/` 原样取得，既不用编造，
+   也不用访问 42 家 API。落地细节见 §6.av。
+   代码侧本来就没缺口：`xhigh`/`max` 档位、`clampThinkingLevel` 的顺序、`supportsNativeXhighEffort`、
+   各 provider 的 effort 映射都在（`Pi.Ai/Models/Models.cs`、`Api/BedrockConverseStream.cs`、
+   `Api/SimpleOptions.cs` 等）。
 5. ~~**`sessionShareDestination` / resume 活动工具 / `--model` 选择策略**~~ —— 均已移植：
    `sessionShareDestination`（第七批）、恢复会话时恢复活动工具集（第八批）、`--model` 的 provider
    选择策略统一（第二十一批，连带 5 项 `defaultModelPerProvider` 同步与差异 C78 退休）。
@@ -2514,3 +2513,70 @@ Copilot 对超过字节上限的请求体回 413 + 通用正文（`failed to par
 **测试**：`Pi.Ai.Tests` 527（+12 `OpenAiDecisionsTests`，另 1 例 Anthropic 严格工具的并发 flaky
 单独跑通过）、`Pi.Durable.Tests` 514（+7 图片用例，另 1 例输出节流的时序 flaky 单独跑通过）、
 `Pi.Telemetry.Tests` 23（+8）、`Pi.Agent.Tests` 36、`Pi.CodingAgent.Tests` 5082（3 跳过、0 失败）。
+
+### 6.av 第五十五批（42 家模型目录数据：来源、前提、影响）
+
+**① 数据从哪来**
+
+`packages/ai/src/providers/data/` 被 `.gitignore` 排除，`hydrate-model-catalog.ts` 又要求本地
+`models.all.json` 快照——这两条让 §6 第 4 条判了「不适用」。漏掉的是 **`packages/ai/package.json`
+的 `build:offline`**：
+
+```json
+"build:offline": "npm run check:model-data && tsc -p tsconfig.build.json && shx rm -rf dist/providers/data && shx cp -r src/providers/data dist/providers/data"
+```
+
+也就是说**发布到 npm 的包自带这 42 份数据**。因此可以从 `@earendil-works/pi-ai@1.4.0` 的
+`dist/providers/data/` 原样取出 42 份 JSON 与 `.manifest.json`，不需要访问任何模型 API、
+也不需要编造。
+
+`.manifest.json` 也要带上：端口 `All.GetBuiltinModelDataGeneratedAt()` 读的就是
+`Pi.Ai.ModelData..manifest.json` 的 `generatedAt`（MSBuild 的 `ModelData\*.json` 能匹配隐藏文件）。
+
+**② 一个必须先修的前提：`azure` 的 provider id**
+
+上游 CHANGELOG 有明确记录（Renamed the Azure provider from `azure-openai-responses` to `azure`，
+并要求同步 `auth.json` / `models.json` / `settings.json` 的 provider key）。端口
+`Providers/AzureOpenAiResponses.cs` 仍用旧名，于是 `azure.json` 永远按
+`Pi.Ai.ModelData.azure-openai-responses.json` 找不到。本批把 id 改成 `azure`
+（`azure-openai-responses` 现在只是 api 名），`ModelCatalog._knownProviders` 同步。
+
+**③ 这不是可选优化：默认模型表原本一条都解析不到**
+
+`ModelResolver.DefaultModelPerProvider` 41 条（`gpt-5.5` / `claude-opus-4-8` /
+`deepseek-v4-pro` / `gemini-3.1-pro-preview` …）是照上游 `models.generated.ts` 抄的新 id，
+但端口目录里只有三个手写文件、内容是 `gpt-4o` 这类旧模型。核对结果：
+
+| 指标 | 补数据前 | 补数据后 |
+| --- | --- | --- |
+| 目录条目总数 | 8（openai 4 + anthropic 2 + deepseek 2） | **1713** |
+| 默认模型表可解析条数 | **0 / 41** | **41 / 41** |
+| 有目录数据的 provider | 3 / 42 | **42 / 42** |
+
+也就是说补数据前，全新安装遍历完整张默认表也选不到模型。新增回归
+`EveryDefaultModelResolvesInTheBuiltinCatalog`（`Pi.CodingAgent.Tests`）与
+`EveryEmbeddedCatalogParses`（`Pi.Ai.Tests`，断言 42 份都能解析、总条目 1713）。
+
+**④ 未解析字段的处置**
+
+上游 20 个字段里，端口 `ParseSpec` 已消费 18 类，未识别的进 `Extra` 原样保留：
+
+| 字段 | 出现次数 | 处置 |
+| --- | --- | --- |
+| `enabled` / `lab` / `providers` | 32 / 32 / 32（全在 `radius.json`） | 进 `Extra`。上游 `model-catalog.ts` / `models.ts` / `radius.ts` 也不消费它们，无行为差异 |
+| `output` | 63（`openrouter.json` 的 image 模型） | 进 `Extra` |
+| `promptCache` | 25（`anthropic.json`） | 进 `Extra` |
+| `free` | 1 | 进 `Extra` |
+
+**⑤ 测试口径的更新（10 处）**
+
+原先有 10 条断言写的是「数据缺失状态下的事实」，数据补齐后按上游事实改写：
+`gpt-4o`→`gpt-5.5`（openai 现在只有 `openai-responses` / `openai-decisions` 两组，`gpt-4o` 已被上游淘汰）、
+`deepseek-chat` / `deepseek-reasoner`→`deepseek-v4-pro`（上游是 `deepseek-flash` / `deepseek-v4-pro`）、
+openai chat 数 4→42、openrouter 图片目录空→63 个、radius 基线空→32 个、
+`GetBuiltinModelDataGeneratedAt()` null→非 null。另外 `groq` 的空目录断言改成
+`no-such-provider`（42 家现在都有数据）。
+
+**测试**：`Pi.Ai.Tests` 528（+1 `EveryEmbeddedCatalogParses`）、`Pi.CodingAgent.Tests` 5083
+（+1 `EveryDefaultModelResolvesInTheBuiltinCatalog`，3 跳过、0 失败）、`Pi.Durable.Tests` 515、
+`Pi.Telemetry.Tests` 24、`Pi.Agent.Tests` 36。
