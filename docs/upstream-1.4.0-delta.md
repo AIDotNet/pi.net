@@ -2631,3 +2631,22 @@ BMP 只能报错、超像素的图也报错。上游 `durable/images/{index,node
 **测试**：`Pi.Ai.Tests` 540（+12 `OpenRouterCostTests`）、`Pi.CodingAgent.Tests` 5090
 （+7 `SkiaImageProcessorTests`，3 跳过、0 失败）、`Pi.Durable.Tests` 515、`Pi.Telemetry.Tests` 24、
 `Pi.Agent.Tests` 36。
+
+**④ 回归补强（第五十六批附带）**
+
+按「能力链路」复查多模态与工具调用时，发现实现都在、但**回归只覆盖了 Anthropic 一家**。
+这批补三处：
+
+| 补什么 | 用例 | 为什么 |
+| --- | --- | --- |
+| 四个 API 的工具结果图片 | `ToolResultImageTests` 17 例 | 这是纯 wire 层逻辑，只有端到端会挂。openai-completions（提成 user 消息 + `requiresAssistantAfterToolResult` 插 assistant）、Google（`functionResponse.parts`，且仅 Gemini 3+）、responses（`input_image` 数组 vs 文本占位）、Mistral（`BuildToolResultText` 六种组合）。三态各测：有文本 / 只有图 / 模型不吃图 |
+| Anthropic 的 OpenRouter 成本接入 | `AnthropicOpenRouterCostTests` 3 例 | 上一批的 `ApplyReportedCost` 是纯函数、测过了，但「从流里的哪个字段取 usage」没法用纯函数测。起最小 SSE server 走真实链路，顺带验证 provider 与 baseUrl 两条命中路径 |
+| 目录字段健全性 | `EveryChatModelKeepsItsCoreFields` | 上一批只断言「42 份都能解析、总数 1713」，字段名拼错会静默解析成 0。现在断言 1599 个 chat 模型的 api / name / input / cost / contextWindow 零缺失（`baseUrl` 除外——azure 的端点由部署名决定，目录里本来就没有） |
+
+补测试过程中我自己错了两次，恰好说明这一层容易误判：
+① 以为 openai-completions 在不支持图片时只发原文本，实际共用变换层（`TransformMessages`）会追加
+`(tool image omitted: model does not support images)`；② 以为 responses 的「只有图」会返回占位字符串，
+实际返回只含 `input_image` 的数组（占位只在模型不吃图时出现）。
+
+**累计测试**：`Pi.Ai.Tests` 561（540 + 17 + 3 + 1）、`Pi.CodingAgent.Tests` 5090、
+`Pi.Durable.Tests` 515、`Pi.Telemetry.Tests` 24、`Pi.Agent.Tests` 36。

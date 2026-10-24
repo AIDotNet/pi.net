@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ### Added
 
+- **工具结果图片的跨 API 回归**：这条链路（工具返回截图后，模型看到的是"文本占位 + 附着的图片"）
+  此前只有 Anthropic 有断言，其余四个 API 的 wire 逻辑没有覆盖。新增 `ToolResultImageTests`（17 例）
+  钉住 openai-completions（提成 user 消息、`requiresAssistantAfterToolResult` 插 assistant、
+  不支持图片时由共用变换层追加 `(tool image omitted: …)`）、Google（`functionResponse.parts`，仅
+  Gemini 3+）、responses（`input_image` 数组 vs 文本占位）、Mistral（六种占位组合）的三态行为。
+  另补 `AnthropicOpenRouterCostTests`（起 SSE server 验证成本接入的取数位置）与
+  `EveryChatModelKeepsItsCoreFields`（1599 个 chat 模型的 api/name/input/cost/contextWindow 零缺失）。
 - **durable 的内置图片处理器**：上一版只补了 `read` 的图片分支与 `IImageProcessor` 契约，宿主不注入
   处理器时 BMP 仍只能报错、超像素的图也报错。现在 `Pi.CodingAgent/Utils/Image/SkiaImageProcessor.cs`
   给出默认实现（解码 → EXIF 摆正 → 缩放到限制 → PNG/JPEG 编码 → 按 3/4 递减尺寸直到字节达标），

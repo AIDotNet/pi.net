@@ -50,6 +50,36 @@ public class ModelCatalogTests
         Assert.Equal(1713, total);
     }
 
+    /// <summary>
+    /// 目录数据的关键字段必须齐全。上一批只断言了「能解析」，但字段名拼错（如 <c>contextwindow</c>）
+    /// 会静默解析成 0 / 空串而不报错——那条断言抓不到。
+    /// </summary>
+    [Fact]
+    public void EveryChatModelKeepsItsCoreFields()
+    {
+        var incomplete = new List<string>();
+        var total = 0;
+        foreach (var provider in Pi.Ai.Providers.All.GetBuiltinProviders())
+        {
+            foreach (var model in ModelCatalog.LoadFromResource(provider).ChatModels.Values)
+            {
+                total++;
+                // baseUrl 不在此列：azure 的端点由部署名决定，目录里本就没有。
+                if (model.Api.Length == 0
+                    || model.Name.Length == 0
+                    || model.Input.Count == 0
+                    || model.Cost is null
+                    || model.ContextWindow == 0)
+                {
+                    incomplete.Add($"{provider}/{model.Id}");
+                }
+            }
+        }
+
+        Assert.Empty(incomplete);
+        Assert.Equal(1599, total);
+    }
+
     [Fact]
     public void CrossApiFlattenAndFind()
     {
