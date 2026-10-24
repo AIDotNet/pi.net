@@ -21,6 +21,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/Pi.Samples.CodingSession/Pi.Samples.CodingSession.csproj" />
     <Project Path="samples/Pi.Samples.FauxAgent/Pi.Samples.FauxAgent.csproj" />
+    <Project Path="samples/Pi.Sample.Extension/Pi.Sample.Extension.csproj" />
     <Project Path="samples/Pi.Samples.McpClient/Pi.Samples.McpClient.csproj" />
     <Project Path="samples/Pi.Samples.RealModel/Pi.Samples.RealModel.csproj" />
   </Folder>

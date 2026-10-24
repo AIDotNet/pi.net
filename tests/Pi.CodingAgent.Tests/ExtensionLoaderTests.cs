@@ -222,16 +222,19 @@ public class ExtensionLoaderTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadExtensions_WithoutModuleLoader_ReportsClearError()
+    public async Task LoadExtensions_DefaultsToTheAssemblyLoader()
     {
         var dir = NewTempDir();
-        var path = Path.Combine(dir, "ext.ts");
+        var path = Path.Combine(dir, "not-an-assembly.dll");
+        WriteFile(path);
 
         var result = await ExtensionLoader.LoadExtensions([path], dir);
 
+        // 不给 module loader 时走真实的 ALC 装载器；4d-2b 的「no IExtensionModuleLoader was
+        // supplied」占位错误已经退休——它曾让 ResourceLoader 的两处调用点永远加载不了扩展。
         var error = Assert.Single(result.Errors);
-        Assert.Contains("no IExtensionModuleLoader was supplied", error.Error, StringComparison.Ordinal);
-        Assert.Contains("4d-3", error.Error, StringComparison.Ordinal);
+        Assert.Contains("Failed to load extension", error.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain("no IExtensionModuleLoader was supplied", error.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -762,6 +765,71 @@ public class ExtensionLoaderTests : IDisposable
         Assert.Equal(2, loader.ImportCount);
     }
 
+    // ------------------------------------------------------------------ source extensions
+
+    /// <summary>
+    /// 端口只能加载程序集：发现结果里的 .ts/.js 被分流成 warning（附带能照做的提示），
+    /// 只有 .dll 进加载器。否则用户看到的是 ALC 抛出的 BadImageFormat。
+    /// </summary>
+    [Fact]
+    public void PartitionSourceExtensions_SplitsAssembliesFromSourceFiles()
+    {
+        var (assemblies, skipped) = ExtensionLoader.PartitionSourceExtensions(
+            ["/ext/a.dll", "/ext/b.ts", "/ext/c.js", "/ext/d.dll"]);
+
+        Assert.Equal(["/ext/a.dll", "/ext/d.dll"], assemblies);
+        Assert.Equal(["/ext/b.ts", "/ext/c.js"], skipped.Select(warning => warning.Path));
+        Assert.All(skipped, warning => Assert.Contains("not loadable by the .NET port", warning.Warning));
+        Assert.All(skipped, warning => Assert.Contains("dotnet-extensions.md", warning.Warning));
+    }
+
+    /// <summary>端到端：项目 extensions 目录里的 .ts 不产生 error，只留一条能照做的 warning。</summary>
+    [Fact]
+    public async Task DiscoverAndLoadExtensions_ReportsSourceExtensionsInsteadOfFailing()
+    {
+        var cwd = NewTempDir();
+        var agentDir = NewTempDir();
+        WriteFile(Path.Combine(cwd, Config.ConfigDirName, "extensions", "legacy.ts"));
+
+        var result = await ExtensionLoader.DiscoverAndLoadExtensions(
+            [], cwd, agentDir, moduleLoader: new FakeModuleLoader());
+
+        Assert.Empty(result.Extensions);
+        Assert.Empty(result.Errors);
+        Assert.Contains(result.Warnings, warning => warning.Path.EndsWith("legacy.ts", StringComparison.Ordinal));
+    }
+
+    /// <summary>同一目录里源码与编译产物并存时，只有 .dll 进加载器。</summary>
+    [Fact]
+    public async Task DiscoverAndLoadExtensions_LoadsTheAssemblyBesideASourceExtension()
+    {
+        var cwd = NewTempDir();
+        var agentDir = NewTempDir();
+        var extDir = Path.Combine(cwd, Config.ConfigDirName, "extensions");
+        var dllPath = Path.Combine(extDir, "legacy.dll");
+        WriteFile(Path.Combine(extDir, "legacy.ts"));
+        WriteFile(dllPath);
+        var loader = new FakeModuleLoader((dllPath, static _ => Task.CompletedTask));
+
+        var result = await ExtensionLoader.DiscoverAndLoadExtensions([], cwd, agentDir, moduleLoader: loader);
+
+        Assert.Single(result.Extensions);
+        Assert.Equal(1, loader.ImportCount);
+        Assert.Single(result.Warnings);
+    }
+
+    [Fact]
+    public void ResolveExtensionEntries_PrefersIndexDllOverIndexTs()
+    {
+        var dir = NewTempDir();
+        WriteFile(Path.Combine(dir, "index.ts"));
+        WriteFile(Path.Combine(dir, "index.dll"));
+
+        var entries = ExtensionLoader.ResolveExtensionEntries(dir);
+
+        Assert.Equal([Path.Combine(dir, "index.dll")], entries);
+    }
+
     // ------------------------------------------------------------------ discovery
 
     [Fact]
@@ -874,9 +942,9 @@ public class ExtensionLoaderTests : IDisposable
     {
         var cwd = NewTempDir();
         var agentDir = NewTempDir();
-        var projectExtension = Path.Combine(cwd, ".pi", "extensions", "project.ts");
-        var globalExtension = Path.Combine(agentDir, "extensions", "global.ts");
-        var configuredExtension = Path.Combine(cwd, "configured.ts");
+        var projectExtension = Path.Combine(cwd, ".pi", "extensions", "project.dll");
+        var globalExtension = Path.Combine(agentDir, "extensions", "global.dll");
+        var configuredExtension = Path.Combine(cwd, "configured.dll");
         WriteFile(projectExtension);
         WriteFile(globalExtension);
         WriteFile(configuredExtension);
@@ -904,9 +972,9 @@ public class ExtensionLoaderTests : IDisposable
     {
         var cwd = NewTempDir();
         var agentDir = NewTempDir();
-        var index = Path.Combine(cwd, "bundle", "index.ts");
+        var index = Path.Combine(cwd, "bundle", "index.dll");
         WriteFile(index);
-        WriteFile(Path.Combine(cwd, "bundle", "other.ts")); // must not be loaded
+        WriteFile(Path.Combine(cwd, "bundle", "other.dll")); // must not be loaded
 
         var loader = new FakeModuleLoader((index, _ => Task.CompletedTask));
 
@@ -925,11 +993,11 @@ public class ExtensionLoaderTests : IDisposable
     {
         var cwd = NewTempDir();
         var agentDir = NewTempDir();
-        var configured = Path.Combine(cwd, "rel.ts");
+        var configured = Path.Combine(cwd, "rel.dll");
         WriteFile(configured);
         var loader = new FakeModuleLoader((configured, _ => Task.CompletedTask));
 
-        var result = await ExtensionLoader.DiscoverAndLoadExtensions(["rel.ts"], cwd, agentDir, moduleLoader: loader);
+        var result = await ExtensionLoader.DiscoverAndLoadExtensions(["rel.dll"], cwd, agentDir, moduleLoader: loader);
 
         Assert.Empty(result.Errors);
         Assert.Single(loader.ImportedPaths, configured);

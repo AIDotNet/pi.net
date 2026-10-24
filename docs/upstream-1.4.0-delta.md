@@ -1178,7 +1178,7 @@ provider 的提示词前缀缓存随之失效。
 **随包资源**
 
 `Assets/docs/extensions.md` 补「启动期间算忙」一句与 `messageType` 说明；
-`Assets/examples/extensions/plan-mode/index.ts` 的处理器改成 `if (event.messageType !== "user") return;`
+`Assets/examples/extensions-typescript/plan-mode/index.ts` 的处理器改成 `if (event.messageType !== "user") return;`
 （后台任务通知触发的那一轮不该重复注入计划模式上下文）。
 
 **测试**
@@ -2360,7 +2360,7 @@ Copilot 对超过字节上限的请求体回 413 + 通用正文（`failed to par
   用户可以拿本地路径引用，也可以直接指向发布地址（与上游文档一致）。
 - 内置主题 `Assets/theme/{dark,light}.json` 的 `$schema` 从 `raw.githubusercontent.com/.../
   theme-schema.json` 改为 `https://pi.dev/schemas/theme.schema.json`（`96abe9a5a` 原文）。
-- 示例 `Assets/examples/extensions/dynamic-resources/dynamic.json` 同步同一地址。
+- 示例 `Assets/examples/extensions-typescript/dynamic-resources/dynamic.json` 同步同一地址。
 - 文档同步四篇：`settings.md` 顶部加 `"$schema"` 一行、`themes.md` 两处链接换成发布地址、
   `keybindings.md` / `models.md` 的示例块补 `$schema` 键。
 - `ConfigurationSchemaTests`（8 例）钉住产物一致性：四份文件都在、`$id` 与 draft 正确、内置主题的

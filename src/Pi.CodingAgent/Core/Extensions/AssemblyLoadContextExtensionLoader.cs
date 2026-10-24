@@ -64,6 +64,12 @@ public sealed class ExtensionAssemblyLoadContext : AssemblyLoadContext
 /// </remarks>
 public sealed class AssemblyLoadContextExtensionLoader : IExtensionModuleLoader
 {
+    /// <summary>
+    /// 进程内共享一个实例：每个扩展路径的 collectible context 记在实例字段里，换成新实例就
+    /// 失去卸载/复用能力。也是 <see cref="ExtensionLoader"/> 不给 module loader 时的默认。
+    /// </summary>
+    public static AssemblyLoadContextExtensionLoader Instance { get; } = new();
+
     private readonly object gate = new();
     private readonly Dictionary<string, ExtensionAssemblyLoadContext> contexts = new(StringComparer.Ordinal);
 

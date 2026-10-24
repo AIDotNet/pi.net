@@ -8,6 +8,22 @@ Extensions execute inside the Pi process with that process's operating-system pe
 read prompts, tool arguments, files, credentials, and session history. Load only trusted assemblies.
 An extension is not a security boundary.
 
+## A compilable example
+
+`samples/Pi.Sample.Extension` is a complete, buildable extension: one tool, one slash command, a
+status-line update, and the project file that keeps Pi's contract assemblies out of the output
+directory (`ProjectReference Private="false"`).
+
+```bash
+dotnet build samples/Pi.Sample.Extension
+cp samples/Pi.Sample.Extension/bin/Debug/net10.0/Pi.Sample.Extension.dll .pi/extensions/
+```
+
+`Assets/examples/extensions-typescript/` keeps the upstream TypeScript examples for **protocol
+reference only** — those files cannot be loaded here. Discovery reports each of them as a warning
+(`TypeScript/JavaScript extensions are not loadable by the .NET port`), and the assemblies beside
+them still load.
+
 ## Create an assembly extension
 
 An assembly must contain exactly one public concrete implementation of `IExtensionEntry`. Its

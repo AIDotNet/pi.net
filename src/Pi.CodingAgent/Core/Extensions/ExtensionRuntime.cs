@@ -212,7 +212,7 @@ public sealed record ExtensionLoadWarning(string Path, string Warning);
 /// </summary>
 /// <param name="Extensions">Successfully loaded extensions, in load order.</param>
 /// <param name="Errors">Failures, one per failed path; loading continues past them.</param>
-/// <param name="Warnings">Non-fatal diagnostics (always empty in the loader; the runner adds to it).</param>
+/// <param name="Warnings">Non-fatal diagnostics: the loader records skipped source extensions, the runner adds more.</param>
 /// <param name="Runtime">Shared runtime — actions are throwing stubs until the runner binds.</param>
 public sealed record LoadExtensionsResult(
     IReadOnlyList<Extension> Extensions,

@@ -275,7 +275,9 @@ public static class ExtensionLoader
         var resolvedCwd = cacheToken?.Cwd ?? Paths.ResolvePath(cwd);
         var resolvedEventBus = eventBus ?? EventBusController.CreateEventBus();
         var resolvedRuntime = runtime ?? CreateExtensionRuntime();
-        var resolvedLoader = moduleLoader ?? MissingModuleLoader.Instance;
+        // 默认就是真实装载器：4d-2b 的占位（MissingModuleLoader）在 4d-3 落地后忘了替换，
+        // 结果是没显式传 loader 的调用方（ResourceLoader 的两处）加载任何扩展都会失败。
+        var resolvedLoader = moduleLoader ?? AssemblyLoadContextExtensionLoader.Instance;
 
         foreach (var extensionPath in paths)
         {
@@ -305,6 +307,53 @@ public static class ExtensionLoader
 
     // ------------------------------------------------------------------ discovery
 
+    /// <summary>
+    /// 把发现结果分成「可加载的程序集」与「被跳过的源码扩展」。分流放在发现出口而不是
+    /// <see cref="LoadExtensions"/> 内部：加载器本身要保持与上游一致（它可以被喂任意路径，
+    /// 由上层的 module loader 决定怎么处理），而这个端口只有程序集能真正加载。
+    /// </summary>
+    internal static (IReadOnlyList<string> Assemblies, IReadOnlyList<ExtensionLoadWarning> Skipped)
+        PartitionSourceExtensions(IEnumerable<string> paths)
+    {
+        var assemblies = new List<string>();
+        var skipped = new List<ExtensionLoadWarning>();
+        foreach (var path in paths)
+        {
+            if (IsSourceExtension(path))
+            {
+                skipped.Add(new ExtensionLoadWarning(path, SourceExtensionWarning));
+            }
+            else
+            {
+                assemblies.Add(path);
+            }
+        }
+
+        return (assemblies, skipped);
+    }
+
+    /// <summary>
+    /// 上游的扩展是 TypeScript/JavaScript 源码（jiti 运行时编译）；端口只能加载程序集。
+    /// 这类路径在加载阶段被跳过并记一条 warning，见 <see cref="SourceExtensionWarning"/>。
+    /// </summary>
+    private static bool IsSourceExtension(string path) =>
+        path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".js", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".mjs", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".cjs", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".jsx", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>源码扩展被跳过时给用户看的提示（不是错误：同目录的 .dll 仍会正常加载）。</summary>
+    internal const string SourceExtensionWarning =
+        "TypeScript/JavaScript extensions are not loadable by the .NET port. Compile the extension into an "
+        + "assembly that implements IExtensionEntry, then load the .dll instead "
+        + "(see docs/dotnet-extensions.md).";
+
+    /// <summary>
+    /// 发现阶段接受的扩展文件。<c>.ts</c>/<c>.js</c> 保留在列表里，是为了让加载阶段能给出一条
+    /// 定向提示——直接过滤掉会让用户只看到「什么都没发生」。
+    /// </summary>
     private static bool IsExtensionFile(string name) =>
         name.EndsWith(".ts", StringComparison.Ordinal)
         || name.EndsWith(".js", StringComparison.Ordinal)
@@ -340,6 +389,14 @@ public static class ExtensionLoader
             }
         }
 
+        // 端口优先 index.dll：同一目录同时存在 TS 源与编译产物时，能加载的那个才算数
+        // （上游的顺序是 ts → js，因为它的运行时能编译源码）。
+        var indexDll = NodePath.Join(dir, "index.dll");
+        if (File.Exists(indexDll))
+        {
+            return [indexDll];
+        }
+
         var indexTs = NodePath.Join(dir, "index.ts");
         if (File.Exists(indexTs))
         {
@@ -350,12 +407,6 @@ public static class ExtensionLoader
         if (File.Exists(indexJs))
         {
             return [indexJs];
-        }
-
-        var indexDll = NodePath.Join(dir, "index.dll");
-        if (File.Exists(indexDll))
-        {
-            return [indexDll];
         }
 
         return null;
@@ -467,7 +518,14 @@ public static class ExtensionLoader
             AddPaths([resolved]);
         }
 
-        return await LoadExtensions(allPaths, resolvedCwd, eventBus, moduleLoader: moduleLoader, cancellationToken: cancellationToken);
+        // 端口只能加载程序集。上游生态的扩展全是 .ts/.js —— 把上游示例拷进 extensions 目录是
+        // 最常见的踩坑路径，所以在这里分流并把跳过的写成 warning，而不是让 ALC 抛 BadImageFormat。
+        var (assemblies, skipped) = PartitionSourceExtensions(allPaths);
+        var loaded = await LoadExtensions(
+            assemblies, resolvedCwd, eventBus, moduleLoader: moduleLoader, cancellationToken: cancellationToken);
+        return skipped.Count == 0
+            ? loaded
+            : loaded with { Warnings = [.. skipped, .. loaded.Warnings] };
     }
 
     // ------------------------------------------------------------------ default module loader
@@ -477,13 +535,4 @@ public static class ExtensionLoader
     /// clear error (aggregated into <see cref="LoadExtensionsResult.Errors"/>), because the
     /// AssemblyLoadContext route lands with batch 4d-3.
     /// </summary>
-    private sealed class MissingModuleLoader : IExtensionModuleLoader
-    {
-        public static readonly MissingModuleLoader Instance = new();
-
-        public ValueTask<ExtensionFactory?> LoadAsync(string extensionPath, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException(
-                $"Cannot load extension module \"{extensionPath}\": no IExtensionModuleLoader was supplied. " +
-                "The AssemblyLoadContext implementation lands with batch 4d-3 (built-in extension registration).");
-    }
 }

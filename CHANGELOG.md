@@ -9,9 +9,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 - `pi doctor [--json]`：在会话初始化前离线诊断本地配置、项目信任、Shell/搜索工具路径和凭据来源。
   支持文本与结构化 JSON 输出；不加载用户扩展、不写文件、不刷新 OAuth 或执行取密命令。
+- **可编译的 C# 扩展示例**：`samples/Pi.Sample.Extension`（一个工具 + 一个斜杠命令 + 状态栏更新），
+  里面写了 `ProjectReference Private="false"` 的原因（契约程序集必须由宿主解析，扩展目录不能放
+  私有副本）。已加入解决方案并接入 `dotnet-extensions.md`。
+
+### Changed
+
+- **源码扩展改为一条可执行的提示，而不是一个坏掉的加载**：发现结果里的 `.ts`/`.js`/`.mjs`
+  等在进入加载器前被分流，记一条 warning「TypeScript/JavaScript extensions are not loadable by
+  the .NET port. Compile … into an assembly …」，同目录的 `.dll` 仍然正常加载。
+  `LoadExtensions` 本身保持与上游一致（它可以被喂任意路径，由 module loader 决定怎么处理）。
+- **`ResolveExtensionEntries` 优先 `index.dll`**：同一目录同时存在 TS 源与编译产物时，只有能加载
+  的那个算数（上游顺序是 ts → js，因为它的运行时能编译源码）。
+- `Assets/examples/extensions` 重命名为 **`extensions-typescript`**，README 顶部标明「protocol
+  reference only」，避免用户拷进 `.pi/extensions/` 后误以为能生效。
 
 ### Fixed
 
+- **扩展模块的默认装载器还是 4d-2b 的占位实现，真实加载必然失败**：`ExtensionLoader` 在调用方
+  不给 `moduleLoader` 时落到 `MissingModuleLoader`，它直接抛「no IExtensionModuleLoader was
+  supplied. The AssemblyLoadContext implementation lands with batch 4d-3」。而 4d-3 的
+  `AssemblyLoadContextExtensionLoader` 早就写好了，只是默认值没换——`ResourceLoader` 的两处
+  `LoadExtensionsCached(...)` 都没传 loader，于是**任何真实扩展都加载不了**（内置扩展不受影响，
+  它们走 `BuiltInExtensions`）。现在默认 `AssemblyLoadContextExtensionLoader.Instance`
+  （进程内单例，保住按路径复用的 collectible context），占位类删除。
 - `--list-models` 的模糊搜索包含模型显示名称，可搜索 `models.json` 中的自定义名称；表格格式与排序保持兼容。
 
 ## [1.4.3] - 2026-10-24

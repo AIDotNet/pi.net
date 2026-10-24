@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    扩展示例：编译成程序集（不是 Exe），`dotnet build` 后的 dll 可直接放进
+    <c>.pi/extensions/</c> 或全局 <c>~/.pi/extensions/</c> 被加载。
+
+    ProjectReference 设 Private=false：Pi 的契约程序集由宿主解析，扩展目录里不该出现
+    Pi.CodingAgent.dll 之类的私有副本（否则会出现两个同名程序集、类型身份不匹配）。
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Pi.Sample.Extension</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Pi.CodingAgent\Pi.CodingAgent.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>
