@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-10-24
+
 ### Added
 
 - **工具结果图片的跨 API 回归**：这条链路（工具返回截图后，模型看到的是"文本占位 + 附着的图片"）
