@@ -139,10 +139,44 @@ public sealed record TelemetrySpanDefinition(
 /// <summary>Status policy of a span. Mirrors TS <c>status: { default: "ok"; errorWhen: string }</c>.</summary>
 public sealed record TelemetryStatusPolicy(string Default, string ErrorWhen);
 
+/// <summary>Kind of a telemetry metric. Mirrors TS <c>TelemetryMetricDefinition["kind"]</c>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<TelemetryMetricKind>))]
+public enum TelemetryMetricKind
+{
+    [JsonStringEnumMemberName("counter")]
+    Counter,
+
+    [JsonStringEnumMemberName("upDownCounter")]
+    UpDownCounter,
+
+    [JsonStringEnumMemberName("histogram")]
+    Histogram,
+}
+
+/// <summary>
+/// Definition of one metric in a telemetry schema. Mirrors TS <c>TelemetryMetricDefinition</c>;
+/// the union's two arms (counters vs. histogram with <c>boundaries</c>) collapse into one record
+/// with an optional <see cref="Boundaries"/>.
+/// </summary>
+public sealed record TelemetryMetricDefinition
+{
+    public required string Description { get; init; }
+
+    public string? Unit { get; init; }
+
+    public required IReadOnlyDictionary<string, TelemetryRequiredAttributeDefinition> Attributes { get; init; }
+
+    public required TelemetryMetricKind Kind { get; init; }
+
+    /// <summary>Histogram bucket hints; null for counters.</summary>
+    public IReadOnlyList<double>? Boundaries { get; init; }
+}
+
 /// <summary>Root schema document. Mirrors TS <c>TelemetrySchemaDefinition</c>.</summary>
 public sealed record TelemetrySchemaDefinition(
     int Version,
-    IReadOnlyDictionary<string, TelemetrySpanDefinition> Spans);
+    IReadOnlyDictionary<string, TelemetrySpanDefinition> Spans,
+    IReadOnlyDictionary<string, TelemetryMetricDefinition>? Metrics = null);
 
 /// <summary>
 /// Identity helper for serializable telemetry schema data. Mirrors TS <c>defineTelemetrySchema</c>.

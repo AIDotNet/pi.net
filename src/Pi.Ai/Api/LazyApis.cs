@@ -271,4 +271,11 @@ public static class LazyApis
         Classify = (model, context, options, cancellationToken) =>
             CloudflareWorkersAiSystemOne.ClassifyAsync(model, context, options, cancellationToken: cancellationToken),
     };
+
+    /// <summary>OpenAI Decisions 分类 API。对应 TS <c>openAIDecisionsApi()</c>。</summary>
+    public static ProviderClassifier OpenAiDecisionsApi() => new()
+    {
+        Classify = (model, context, options, cancellationToken) =>
+            OpenAiDecisions.ClassifyAsync(model, context, options, cancellationToken: cancellationToken),
+    };
 }

@@ -1,3 +1,4 @@
+using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Durable.Env;
@@ -22,7 +23,7 @@ public class ToolsTests
     /// 最小执行 API：只有环境、收集到的输出与诊断，不含任何 durable 能力。
     /// 对应 TS <c>fakeApi(env)</c>。文档面与事务面均不支持（工具不会用到）。
     /// </summary>
-    private sealed class FakeToolApi(IExecutionEnv? env) : IToolExecutionApi
+    private sealed class FakeToolApi(IExecutionEnv? env, ModelSpec? model = null) : IToolExecutionApi
     {
         public List<string> Outputs { get; } = [];
 
@@ -40,7 +41,17 @@ public class ToolsTests
 
         public IRegistrySnapshot Registry => Pi.Durable.Harness.Registry.CreateRegistry().Snapshot();
 
-        public Task<Agent> AgentAsync(Context context) => throw new NotSupportedException();
+        public Task<Agent> AgentAsync(Context context) => Task.FromResult(new Agent
+        {
+            Model = model is null ? null : new ModelRef(model.Provider, model.Id),
+            ThinkingLevel = ThinkingLevel.Off,
+            Extensions = [],
+            Tools = [],
+            Sections = [],
+        });
+
+        public ModelSpec? GetModel(string provider, string modelId)
+            => model is { } found && found.Provider == provider && found.Id == modelId ? found : null;
 
         public long Now() => 0;
 
@@ -152,9 +163,10 @@ public class ToolsTests
     }
 
     private static async Task<RunResult> RunAsync(
-        IToolRegistration tool, Dictionary<string, object?> args, IExecutionEnv? env, Context? context = null)
+        IToolRegistration tool, Dictionary<string, object?> args, IExecutionEnv? env, Context? context = null,
+        ModelSpec? model = null)
     {
-        var api = new FakeToolApi(env);
+        var api = new FakeToolApi(env, model);
         var result = await tool.ExecuteAsync(args, api, context ?? Ctx);
         return new RunResult(result, api);
     }
@@ -211,6 +223,209 @@ public class ToolsTests
 
         Assert.Equal($"Showing lines 1-2000 of 2500. Use offset=2001 to continue.", run.DiagnosticText);
         Assert.Equal("truncated", run.Result.Diagnostics![0].Code);
+    }
+
+    // ─── read：图片（tools/image.ts / tools/image-processor.ts） ─────────────
+
+    /// <summary>最小合法 PNG 头：签名 + IHDR（长度 13、宽高）。CRC 不参与格式与尺寸判定。</summary>
+    private static byte[] PngHeader(int width, int height)
+    {
+        var bytes = new byte[33];
+        byte[] signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+        signature.CopyTo(bytes, 0);
+        bytes[11] = 13;
+        "IHDR"u8.CopyTo(bytes.AsSpan(12));
+        WriteUInt32Be(bytes, 16, (uint)width);
+        WriteUInt32Be(bytes, 20, (uint)height);
+        bytes[24] = 8;
+        bytes[25] = 2;
+        return bytes;
+    }
+
+    /// <summary>最小合法 BMP 头：BM + 声明大小 + 像素偏移 + 40 字节 DIB + 1 平面 + 24 位。</summary>
+    private static byte[] BmpHeader(int width, int height)
+    {
+        var bytes = new byte[54];
+        bytes[0] = (byte)'B';
+        bytes[1] = (byte)'M';
+        WriteUInt32Le(bytes, 2, 1000);
+        WriteUInt32Le(bytes, 10, 54);
+        WriteUInt32Le(bytes, 14, 40);
+        WriteUInt32Le(bytes, 18, (uint)width);
+        WriteUInt32Le(bytes, 22, (uint)height);
+        bytes[26] = 1;
+        bytes[28] = 24;
+        return bytes;
+    }
+
+    private static void WriteUInt32Be(byte[] buffer, int offset, uint value)
+    {
+        buffer[offset] = (byte)(value >> 24);
+        buffer[offset + 1] = (byte)(value >> 16);
+        buffer[offset + 2] = (byte)(value >> 8);
+        buffer[offset + 3] = (byte)value;
+    }
+
+    private static void WriteUInt32Le(byte[] buffer, int offset, uint value)
+    {
+        buffer[offset] = (byte)value;
+        buffer[offset + 1] = (byte)(value >> 8);
+        buffer[offset + 2] = (byte)(value >> 16);
+        buffer[offset + 3] = (byte)(value >> 24);
+    }
+
+    private static ModelSpec VisionModel(ModelImageResizeOptions? resize = null)
+        => new()
+        {
+            Id = "vision-1", Name = "Vision", Api = "test-api", Provider = "test", BaseUrl = "https://test",
+            Input = [ModelInput.Text, ModelInput.Image],
+            InputLimits = resize is null
+                ? null
+                : new ModelInputLimits { Images = new ModelImageInputLimits { Resize = resize } },
+        };
+
+    private sealed class FixedProcessor(PreparedImage? prepared) : IImageProcessor
+    {
+        public byte[]? LastBytes { get; private set; }
+
+        public string? LastMimeType { get; private set; }
+
+        public ImageLimits? LastLimits { get; private set; }
+
+        public Task<PreparedImage?> PrepareAsync(byte[] bytes, string mimeType, ImageLimits limits)
+        {
+            LastBytes = bytes;
+            LastMimeType = mimeType;
+            LastLimits = limits;
+            return Task.FromResult(prepared);
+        }
+    }
+
+    [Fact]
+    public async Task Read_PngWithoutProcessor_ReturnsInlineImage()
+    {
+        var env = CreateEnv();
+        var bytes = PngHeader(120, 80);
+        await env.WriteFileAsync("photo.png", bytes, Ctx);
+
+        var run = await RunAsync(
+            ReadTool.Create(), new Dictionary<string, object?> { ["path"] = "photo.png" }, env,
+            model: VisionModel());
+
+        Assert.False(run.Result.IsError);
+        var image = Assert.IsType<ImageContent>(Assert.Single(run.Result.Content!));
+        Assert.Equal("image/png", image.MimeType);
+        Assert.Equal(Convert.ToBase64String(bytes), image.Data);
+        Assert.Equal("image", Assert.Single(run.Result.Diagnostics!).Code);
+        Assert.Equal("Read image file [image/png].", run.DiagnosticText);
+    }
+
+    [Fact]
+    public async Task Read_PngLargerThanPixelLimit_WithoutProcessorIsAnError()
+    {
+        var env = CreateEnv();
+        await env.WriteFileAsync("big.png", PngHeader(3000, 120), Ctx);
+
+        var run = await RunAsync(
+            ReadTool.Create(), new Dictionary<string, object?> { ["path"] = "big.png" }, env,
+            model: VisionModel());
+
+        Assert.True(run.Result.IsError);
+        Assert.Contains("is an image (image/png) of 3000x120, larger than 2000x2000", run.DiagnosticText);
+        Assert.Contains("no image processor is configured to shrink it", run.DiagnosticText);
+    }
+
+    [Fact]
+    public async Task Read_BmpWithoutProcessor_NeedsConverting()
+    {
+        var env = CreateEnv();
+        await env.WriteFileAsync("scan.bmp", BmpHeader(64, 64), Ctx);
+
+        var run = await RunAsync(
+            ReadTool.Create(), new Dictionary<string, object?> { ["path"] = "scan.bmp" }, env,
+            model: VisionModel());
+
+        Assert.True(run.Result.IsError);
+        Assert.Contains("is an image (image/bmp) that needs converting", run.DiagnosticText);
+    }
+
+    [Fact]
+    public async Task Read_UsesProcessorAndReportsConversionAndResize()
+    {
+        var env = CreateEnv();
+        var bytes = BmpHeader(3000, 2000);
+        await env.WriteFileAsync("scan.bmp", bytes, Ctx);
+        var processor = new FixedProcessor(new PreparedImage
+        {
+            Data = "PREPARED",
+            MimeType = "image/jpeg",
+            ConvertedFrom = "image/bmp",
+            ResizedFrom = new ImageSize(3000, 2000),
+            ResizedTo = new ImageSize(1500, 1000),
+        });
+
+        var run = await RunAsync(
+            ReadTool.Create(processor), new Dictionary<string, object?> { ["path"] = "scan.bmp" }, env,
+            model: VisionModel(new ModelImageResizeOptions { MaxWidth = 1600, MaxHeight = 1600, MaxBytes = 1024 }));
+
+        Assert.False(run.Result.IsError);
+        var image = Assert.IsType<ImageContent>(Assert.Single(run.Result.Content!));
+        Assert.Equal("PREPARED", image.Data);
+        Assert.Equal("image/jpeg", image.MimeType);
+        Assert.Equal(bytes, processor.LastBytes);
+        Assert.Equal("image/bmp", processor.LastMimeType);
+        // 模型下发的限制原样传给处理器。
+        Assert.Equal(new ImageLimits(1600, 1600, 1024), processor.LastLimits);
+        Assert.Contains("Converted from image/bmp to image/jpeg.", run.DiagnosticText);
+        Assert.Contains("Resized from 3000x2000 to 1500x1000.", run.DiagnosticText);
+        Assert.Contains("Multiply coordinates by 2.00", run.DiagnosticText);
+    }
+
+    [Fact]
+    public async Task Read_ProcessorThatCannotPrepare_IsAnError()
+    {
+        var env = CreateEnv();
+        await env.WriteFileAsync("odd.bmp", BmpHeader(32, 32), Ctx);
+
+        var run = await RunAsync(
+            ReadTool.Create(new FixedProcessor(null)), new Dictionary<string, object?> { ["path"] = "odd.bmp" }, env,
+            model: VisionModel());
+
+        Assert.True(run.Result.IsError);
+        Assert.Contains("cannot be prepared for the model", run.DiagnosticText);
+    }
+
+    [Fact]
+    public async Task Read_ImageForModelWithoutVision_NotesThePlaceholder()
+    {
+        var env = CreateEnv();
+        await env.WriteFileAsync("photo.png", PngHeader(10, 10), Ctx);
+        var textOnly = new ModelSpec
+        {
+            Id = "text-1", Name = "Text", Api = "test-api", Provider = "test", BaseUrl = "https://test",
+        };
+
+        var run = await RunAsync(
+            ReadTool.Create(), new Dictionary<string, object?> { ["path"] = "photo.png" }, env, model: textOnly);
+
+        Assert.False(run.Result.IsError);
+        Assert.Contains("does not support images; it sees a placeholder instead", run.DiagnosticText);
+        // 描述里仍列出无条件支持的格式。
+        Assert.Contains("jpg, png, gif, webp", ReadTool.Create().Description);
+        Assert.Contains("jpg, png, gif, webp, bmp", ReadTool.Create(new FixedProcessor(null)).Description);
+    }
+
+    [Fact]
+    public async Task Read_TextFileStaysUnaffectedByImageSupport()
+    {
+        var env = CreateEnv();
+        await WriteAsync(env, "note.txt", "hello");
+
+        var run = await RunAsync(
+            ReadTool.Create(), new Dictionary<string, object?> { ["path"] = "note.txt" }, env);
+
+        Assert.False(run.Result.IsError);
+        Assert.Equal("hello", Assert.IsType<TextContent>(Assert.Single(run.Result.Content!)).Text);
     }
 
     // ─── write ──────────────────────────────────────────────────────────────

@@ -82,6 +82,60 @@ public static class ImageMime
         return null;
     }
 
+    /// <summary>图片在头部声明的宽高，不解码。对应 TS <c>imageDimensions</c>：PNG 的 IHDR、GIF 的屏幕、
+    /// WebP 的 VP8 / VP8L / VP8X 块、JPEG 的首个 SOF 段。头部读不出时为 null。</summary>
+    public static (int Width, int Height)? ImageDimensions(byte[] bytes, string mimeType)
+    {
+        switch (mimeType)
+        {
+            case "image/png":
+                return bytes.Length < 24
+                    ? null
+                    : ((int)ReadUint32Be(bytes, 16), (int)ReadUint32Be(bytes, 20));
+            case "image/gif":
+                return bytes.Length < 10
+                    ? null
+                    : ((int)ReadUint16Le(bytes, 6), (int)ReadUint16Le(bytes, 8));
+            case "image/webp":
+                if (bytes.Length < 30) return null;
+                if (StartsWithAscii(bytes, 12, "VP8 "))
+                {
+                    return ((int)(ReadUint16Le(bytes, 26) & 0x3fff), (int)(ReadUint16Le(bytes, 28) & 0x3fff));
+                }
+                if (StartsWithAscii(bytes, 12, "VP8L"))
+                {
+                    var bits = ReadUint32Le(bytes, 21);
+                    return ((int)((bits & 0x3fff) + 1), (int)(((bits >> 14) & 0x3fff) + 1));
+                }
+                if (StartsWithAscii(bytes, 12, "VP8X"))
+                {
+                    int Uint24(int offset) => (int)ReadUint16Le(bytes, offset) + (ByteAt(bytes, offset + 2) << 16);
+                    return (Uint24(24) + 1, Uint24(27) + 1);
+                }
+                return null;
+            case "image/jpeg":
+                for (var offset = 2; offset + 9 <= bytes.Length;)
+                {
+                    if (ByteAt(bytes, offset) != 0xff) return null;
+                    var marker = ByteAt(bytes, offset + 1);
+                    if (marker == 0xff)
+                    {
+                        offset++;
+                        continue;
+                    }
+                    // SOF0 到 SOF15，除去同处一段的 DHT(C4)、JPG(C8)、DAC(CC)。
+                    if (marker is >= 0xc0 and <= 0xcf && marker is not 0xc4 and not 0xc8 and not 0xcc)
+                    {
+                        return ((int)ReadUint16Be(bytes, offset + 7), (int)ReadUint16Be(bytes, offset + 5));
+                    }
+                    offset += 2 + (int)ReadUint16Be(bytes, offset + 2);
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
+
     private static bool IsPng(byte[] buffer)
         => buffer.Length >= 16
            && ReadUint32Be(buffer, PngSignature.Length) == 13
@@ -139,6 +193,9 @@ public static class ImageMime
 
     private static long ReadUint16Le(byte[] buffer, int offset)
         => ByteAt(buffer, offset) + ((long)ByteAt(buffer, offset + 1) << 8);
+
+    private static long ReadUint16Be(byte[] buffer, int offset)
+        => ((long)ByteAt(buffer, offset) << 8) + ByteAt(buffer, offset + 1);
 
     private static long ReadUint32Be(byte[] buffer, int offset)
         => (long)ByteAt(buffer, offset) * 0x1000000

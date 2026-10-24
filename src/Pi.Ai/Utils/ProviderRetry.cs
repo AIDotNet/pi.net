@@ -8,6 +8,12 @@ public sealed record ProviderRetryOptions
     public int? MaxRetryDelayMs { get; init; }
 
     public CancellationToken Signal { get; init; }
+
+    /// <summary>
+    /// 本可重试（5xx）但必须立刻失败的状态码。OpenAI Decisions 用它把网关 504 排除在重试之外：
+    /// 超长输入会稳定撞上同一时间上限，重试只是再撞一次。
+    /// </summary>
+    public IReadOnlyCollection<int>? NoRetryStatuses { get; init; }
 }
 
 /// <summary>
@@ -123,6 +129,8 @@ public static class ProviderRetry
                 if (error is not ProviderHttpException providerError
                     || retriesRemaining <= 0
                     || !IsRetryable(providerError))
+                    throw;
+                if (options?.NoRetryStatuses is { } noRetry && noRetry.Contains(providerError.Status))
                     throw;
 
                 var retryIndex = maxRetries - retriesRemaining;

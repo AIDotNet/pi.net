@@ -36,6 +36,9 @@ public static partial class ToolTask
 
         public Task<Agent> AgentAsync(Context context) => runtime.AgentAsync(context);
 
+        public Pi.Ai.Models.ModelSpec? GetModel(string provider, string modelId)
+            => runtime.Models.GetModel(provider, modelId);
+
         public long Now() => runtime.Now();
 
         public void Output(string chunk, ShellOutputSkip? skipped = null)

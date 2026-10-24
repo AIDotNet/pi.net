@@ -115,3 +115,43 @@ public abstract record SpanStatus
     public static SpanStatus FromError(Exception exception) => new ErrorStatus(
         new TelemetryErrorDetail(exception.GetType().Name, exception.Message));
 }
+
+/// <summary>
+/// An event stored on a span, with the offset from the span start. Mirrors the element type of TS
+/// <c>StoredSpan.events</c>.
+/// </summary>
+public sealed record StoredSpanEvent(string Name, long TimeMs, SpanAttributes Attributes);
+
+/// <summary>An event/link style reference to another trace's span. Mirrors a TS <c>StoredSpan.links</c> element.</summary>
+public sealed record StoredSpanLink(string TraceId, string SpanId, SpanAttributes? Attributes = null);
+
+/// <summary>
+/// A span as stored by an adapter: stable string ids, wall-clock bounds, and its recorded events
+/// and links. Mirrors TS <c>StoredSpan</c>. Input to <see cref="TelemetryRender.RenderTrace"/>.
+/// </summary>
+public sealed record StoredSpan
+{
+    public required string Id { get; init; }
+
+    public required string TraceId { get; init; }
+
+    /// <summary>Parent span id; absent for roots and for spans whose parent was not stored.</summary>
+    public string? ParentId { get; init; }
+
+    public required string Name { get; init; }
+
+    public required long StartedMs { get; init; }
+
+    public required long EndedMs { get; init; }
+
+    public required SpanAttributes Attributes { get; init; }
+
+    public IReadOnlyList<StoredSpanEvent> Events { get; init; } = [];
+
+    public IReadOnlyList<StoredSpanLink> Links { get; init; } = [];
+
+    public required SpanStatus Status { get; init; }
+}
+
+/// <summary>One stored trace: the spans sharing a trace id. Mirrors TS <c>StoredTrace</c>.</summary>
+public sealed record StoredTrace(string TraceId, IReadOnlyList<StoredSpan> Spans);

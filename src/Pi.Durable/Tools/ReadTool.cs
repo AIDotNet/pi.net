@@ -90,16 +90,22 @@ public static class ReadTool
     /// <summary>
     /// 构建 <c>read</c> 工具注册。对应 TS <c>createReadTool()</c>。
     /// </summary>
-    public static IToolRegistration Create() => new Registration();
+    /// <param name="images">
+    /// 图片处理器；不给时，受支持且在字节上限内的图片原样透传（超过像素上限则报错），
+    /// 与上游「未配置处理器」的行为一致。
+    /// </param>
+    public static IToolRegistration Create(IImageProcessor? images = null) => new Registration(images);
 
-    private sealed class Registration : IToolRegistration
+    private sealed class Registration(IImageProcessor? images) : IToolRegistration
     {
         public string Name => "read";
 
         public string Description =>
-            $"Read the contents of a text file. Output is truncated to {Truncate.DefaultMaxLines} lines or " +
-            $"{Truncate.DefaultMaxBytes / 1024}KB (whichever is hit first). Use offset/limit for large files. " +
-            "When you need the full file, continue with offset until complete.";
+            "Read the contents of a file. Supports text files and images (" +
+            (images is null ? "jpg, png, gif, webp" : "jpg, png, gif, webp, bmp") +
+            "). Images are sent as attachments. For text files, output is truncated to " +
+            $"{Truncate.DefaultMaxLines} lines or {Truncate.DefaultMaxBytes / 1024}KB (whichever is hit first). " +
+            "Use offset/limit for large files. When you need the full file, continue with offset until complete.";
 
         public ToolSchema Parameters => Schema;
 
@@ -123,13 +129,22 @@ public static class ReadTool
             var reader = (await env.OpenBinaryReaderAsync(absolutePath, null, context).ConfigureAwait(false)).GetOrThrow();
             try
             {
-                // 并发的写者可能在扫描与读取之间改动文件；从一趟新的扫描重试一次。
+                // 并发的写者可能在扫描与读取之间改动文件。追加写（增长中的日志）保留已扫描到的文本；
+                // 图片必须是完整的。其余情况重读一次。
                 for (var attempt = 0; ; attempt++)
                 {
                     var before = (await reader.InfoAsync(context).ConfigureAwait(false)).GetOrThrow();
-                    var result = await ReadTextAsync(reader, before, path, offset, limit, context).ConfigureAwait(false);
+                    var mimeType = await ImageMime.DetectSupportedImageMimeTypeOfAsync(
+                            new ReaderByteSource(reader, context, before.Size))
+                        .ConfigureAwait(false);
+                    var result = mimeType is null
+                        ? await ReadTextAsync(reader, path, offset, limit, context).ConfigureAwait(false)
+                        : await ReadImageAsync(
+                            reader, before, path, mimeType, images,
+                            await ImageModelAsync(api, context).ConfigureAwait(false), context).ConfigureAwait(false);
                     var after = (await reader.InfoAsync(context).ConfigureAwait(false)).GetOrThrow();
-                    if (after.Size == before.Size && after.MtimeMs == before.MtimeMs) return result;
+                    var unchanged = after.Size == before.Size && after.MtimeMs == before.MtimeMs;
+                    if (unchanged || (mimeType is null && after.Size > before.Size)) return result;
                     if (attempt == 1) throw new InvalidOperationException($"{path} changed while it was read");
                 }
             }
@@ -141,34 +156,130 @@ public static class ReadTool
     }
 
     /// <summary>
+    /// 对话模型能接收什么：是否支持图片，以及图片限制。对应 TS <c>imageModel</c>：
+    /// <see cref="ImageLimits.Default"/> 被模型的 <c>inputLimits.images.resize</c> 覆盖；
+    /// 解析不到模型时按「能接收图片、默认限制」处理。
+    /// </summary>
+    private static async Task<(bool Vision, ImageLimits Limits)> ImageModelAsync(
+        IToolExecutionApi api, Context context)
+    {
+        var agent = await api.AgentAsync(context).ConfigureAwait(false);
+        var model = agent.Model is { } reference ? api.GetModel(reference.Provider, reference.ModelId) : null;
+        var resize = model?.InputLimits?.Images?.Resize;
+        return (
+            model is null || model.Input.Contains("image", StringComparer.Ordinal),
+            new ImageLimits(
+                resize?.MaxWidth ?? ImageLimits.Default.MaxWidth,
+                resize?.MaxHeight ?? ImageLimits.Default.MaxHeight,
+                resize?.MaxBytes ?? ImageLimits.Default.MaxBytes));
+    }
+
+    /// <summary>
+    /// 一张图片块：由处理器备好，或（没有处理器时）格式可内联且在限制内时原样透传；
+    /// 否则给出说明原因的 error 结果。图片处理过程写成 <c>info</c> 诊断，程序拿到的只有
+    /// <see cref="ImageContent"/>。对应 TS <c>readImage</c>。
+    /// </summary>
+    private static async Task<ToolExecutionResult> ReadImageAsync(
+        IBinaryReader reader,
+        EnvFileInfo info,
+        string path,
+        string mimeType,
+        IImageProcessor? processor,
+        (bool Vision, ImageLimits Limits) model,
+        Context context)
+    {
+        string data;
+        string mime;
+        var notes = new List<string>();
+        if (processor is not null)
+        {
+            var bytes = (await reader.ReadAsync(0, info.Size, context).ConfigureAwait(false)).GetOrThrow();
+            var prepared = await processor.PrepareAsync(bytes, mimeType, model.Limits).ConfigureAwait(false);
+            if (prepared is null)
+            {
+                return ImageError($"{path} is an image ({mimeType}) that cannot be prepared for the model");
+            }
+            data = prepared.Data;
+            mime = prepared.MimeType;
+            if (prepared.ConvertedFrom is { } convertedFrom)
+            {
+                notes.Add($"Converted from {convertedFrom} to {mime}.");
+            }
+            if (prepared.ResizedFrom is { } from && prepared.ResizedTo is { } to && to.Width > 0)
+            {
+                var scale = (from.Width / (double)to.Width).ToString(
+                    "F2", System.Globalization.CultureInfo.InvariantCulture);
+                notes.Add(
+                    $"Resized from {from.Width}x{from.Height} to {to.Width}x{to.Height}. " +
+                    $"Multiply coordinates by {scale} to map them to the original.");
+            }
+        }
+        else
+        {
+            if (!ImageEncoding.InlineImageTypes.Contains(mimeType))
+            {
+                return ImageError(
+                    $"{path} is an image ({mimeType}) that needs converting, and no image processor is configured");
+            }
+            const string unshrinkable = "and no image processor is configured to shrink it";
+            if (ImageEncoding.Base64Length(info.Size) > model.Limits.MaxBytes)
+            {
+                return ImageError(
+                    $"{path} is an image ({mimeType}) of {Truncate.FormatSize(info.Size)}, too large to send, {unshrinkable}");
+            }
+            var bytes = (await reader.ReadAsync(0, info.Size, context).ConfigureAwait(false)).GetOrThrow();
+            var size = ImageMime.ImageDimensions(bytes, mimeType);
+            if (size is null)
+            {
+                return ImageError($"{path} is an image ({mimeType}) whose size cannot be read");
+            }
+            if (size.Value.Width > model.Limits.MaxWidth || size.Value.Height > model.Limits.MaxHeight)
+            {
+                return ImageError(
+                    $"{path} is an image ({mimeType}) of {size.Value.Width}x{size.Value.Height}, " +
+                    $"larger than {model.Limits.MaxWidth}x{model.Limits.MaxHeight}, {unshrinkable}");
+            }
+            data = ImageEncoding.ToBase64(bytes);
+            mime = mimeType;
+        }
+
+        if (!model.Vision)
+        {
+            notes.Add("The current model does not support images; it sees a placeholder instead.");
+        }
+        return new ToolExecutionResult
+        {
+            Content = [new ImageContent(data, mime)],
+            Diagnostics =
+            [
+                new ToolDiagnostic
+                {
+                    Severity = "info",
+                    Code = "image",
+                    Message = string.Join(" ", new[] { $"Read image file [{mime}]." }.Concat(notes)),
+                },
+            ],
+        };
+    }
+
+    private static ToolExecutionResult ImageError(string message)
+        => new()
+        {
+            Content = [],
+            IsError = true,
+            Diagnostics =
+            [
+                new ToolDiagnostic { Severity = "error", Code = "unsupported_image", Message = message },
+            ],
+        };
+
+    /// <summary>
     /// 已打开文件的读取结果。等价于「用 <c>TextDecoder</c> 解码整个文件、按 <c>\n</c> 切行、再用
     /// <c>truncateHead</c> 界定选中行」，但只读一份扫描量加一个头部。对应 TS <c>readText</c>。
     /// </summary>
     private static async Task<ToolExecutionResult> ReadTextAsync(
-        IBinaryReader reader, EnvFileInfo info, string path, double? offset, double? limit, Context context)
+        IBinaryReader reader, string path, double? offset, double? limit, Context context)
     {
-        var mimeType = await ImageMime.DetectSupportedImageMimeTypeOfAsync(
-                new ReaderByteSource(reader, context, info.Size))
-            .ConfigureAwait(false);
-        if (mimeType is not null)
-        {
-            // 目前还不支持图片内容。
-            return new ToolExecutionResult
-            {
-                Content = [],
-                IsError = true,
-                Diagnostics =
-                [
-                    new ToolDiagnostic
-                    {
-                        Severity = "error",
-                        Code = "unsupported_image",
-                        Message = $"{path} is an image ({mimeType}); reading images is not supported",
-                    },
-                ],
-            };
-        }
-
         var startLine = offset is { } o ? Math.Max(0, o - 1) : 0;
         var startLineDisplay = startLine + 1;
         // 行按 allLines.slice(startLine, endLine) 选取，索引的小数部分被截断。

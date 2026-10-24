@@ -24,5 +24,13 @@ public static class OpenAi
         },
         Models = BuiltinCatalog.All("openai"),
         Api = LazyApis.OpenAiResponsesApi(),
+        Classifiers = new Dictionary<string, ProviderClassifier>
+        {
+            [OpenAiDecisions.ApiName] = LazyApis.OpenAiDecisionsApi(),
+        },
+        // Sign in with ChatGPT 的 token 只能到 Responses API；Decisions API 拒绝它们。
+        FilterAllModels = static (models, credential) => credential is Credential.OAuth
+            ? [.. models.Where(model => model.Type != ModelType.Classifier)]
+            : models,
     });
 }

@@ -2461,3 +2461,56 @@ Copilot 对超过字节上限的请求体回 413 + 通用正文（`failed to par
 1 例 `AltScreenTests.UnhandledWheelInputScrollsTheTranscriptUnderAFocusedOverlay`、
 1 例 `AutocompleteTests.EscapesRegexMetacharactersInSingleSegmentFdQueries`），
 `Pi.CodingAgent.Tests` 5029 / 5029，其余 11 个测试项目全绿。
+
+### 6.au 第五十四批（基线遗漏：三处「上游早就有、台账从未记过」的功能）
+
+**① 为什么会漏**
+
+前面五十三批的比对口径都是 `v1.0.4..v1.4.0` 的 **delta**：拿提交清单逐条判「这次移植 / 不适用」。
+它有一个结构性盲区——**v1.0.4 之前就存在、而首移植时没搬的东西，永远不在清单里**。
+这一批换了个口径交叉验证：把上游各包的 `.ts` 文件按 kebab-case → PascalCase 映射到端口，
+找出「没有同名落点」的文件，再逐个判断它是 barrel / `.lazy` 垫片 / 模型数据（可解释）
+还是有真实功能的整文件缺失。结果命中三处：
+
+| # | 上游 | 端口缺口 | 影响 |
+| --- | --- | --- | --- |
+| 1 | `ai/src/api/openai-decisions.ts`（197 行） | 没有对应文件；`Providers/OpenAi.cs` 连 `classifiers` 都没注册 | 上游 6 个 provider 注册分类器，端口只有 5 个，**唯独漏 OpenAI**；`model.Api = "openai-decisions"` 落到「不支持分类」 |
+| 2 | `durable/src/tools/read.ts` 的 `readImage` + `images/` + `tools/image-processor.ts` | `ReadTool` 遇图片直接返回 `unsupported_image` | durable 的 `read` 读不了图片，模型侧看不到附件 |
+| 3 | `telemetry/src/metrics.ts`（145）+ `render.ts`（49） | `Pi.Telemetry` 无 `Counter`/`Histogram`/`RenderTrace` | 指标与 trace 渲染整套能力缺失 |
+
+三处的共同点：**都不在 §6 的任何一条里**，也都不属于 `1.4.0` 的改动，所以按 delta 排期永远不会被排到。
+
+**② 顺带纠正两条台账**
+
+同一次文件比对还发现两条**已经补上但台账没回写**的记录（与 §0.40 的结论同源：台账会指向一个
+已经不存在的缺口）：
+
+- §6 第 1 条（CJK 强调）之外，`§6` 早期记的 **`LlamaView` / `HuggingFaceSearch` / `showLlamaUi`
+  未移植**（C173）实际已经落地：`Extensions/Llama/LlamaManagerView.cs`（697 行）对应
+  `ui.ts`（542 行），`LlamaUi.cs`（260 行）承载 `ShowUi` 缝的默认实现。
+- §0.41 记的 **`extensions/codemode/renderer.ts` 从未移植**实际已经落地：
+  `Extensions/Codemode/CodemodeRenderers.cs`（240 行）对应上游 156 行。
+
+**③ 本轮落地**
+
+- 分类器：新增 `Pi.Ai/Api/OpenAiDecisions.cs`（`SystemOne` 之外的第二套 wire 协议：`/decisions`、
+  choice/score/predicate、概率数组、predicate 无 criteria 字段、refusal 即错误、usage 先于答案）；
+  `ProviderRetryOptions.NoRetryStatuses`（上游 `noRetryStatuses`，504 不重试）；
+  `CreateProviderOptions.FilterAllModels`（上游 `filterAllModels`，OAuth 凭据下藏掉分类模型）。
+- durable 读图：`Tools/ImageProcessor.cs`（`ImageLimits` / `PreparedImage` / `IImageProcessor` /
+  `ImageEncoding`）、`ImageMime.ImageDimensions`、`ReadTool` 的 `readImage` 两条路径
+  （有处理器 → 转换+缩放，无处理器 → 内联格式透传 + 像素/字节限制检查）、
+  `IToolExecutionApi.GetModel`（上游 `api.models.getModel`）。附带修正读循环的「追加写」分支。
+- telemetry：`TelemetryMetrics.cs`（三个 instrument 接口 + `CreateTypedMetrics`）、
+  `TelemetryRender.cs`（`RenderTrace`）、`TelemetrySchemaDefinition.Metrics`、
+  `InMemoryTelemetryContext.GetStoredSpans()`（真实起止时间 + 事件偏移 + 本上下文 trace id）。
+
+**④ 口径说明（别再改口）**
+
+§6 第 2、3 条（`observeModelRequest` 观察链、chord 的 `telemetry` 成员与 `traceIn`）**仍然成立**：
+本批补的是「指标」与「trace 渲染」，不是「span 观察链」。端口 chord 依旧没有 `TelemetrySpan`
+可供承载，所以那两条继续挂着。
+
+**测试**：`Pi.Ai.Tests` 527（+12 `OpenAiDecisionsTests`，另 1 例 Anthropic 严格工具的并发 flaky
+单独跑通过）、`Pi.Durable.Tests` 514（+7 图片用例，另 1 例输出节流的时序 flaky 单独跑通过）、
+`Pi.Telemetry.Tests` 23（+8）、`Pi.Agent.Tests` 36、`Pi.CodingAgent.Tests` 5082（3 跳过、0 失败）。

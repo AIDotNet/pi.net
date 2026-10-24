@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+### Added
+
+- **OpenAI Decisions 分类器（`src/Pi.Ai/Api/OpenAiDecisions.cs`）**：整块补上上游
+  `api/openai-decisions.ts`。此前 OpenAI 是唯一**没有**注册 `classifiers` 的 provider——System One
+  的另外五个承载（Cloudflare Workers AI、TypeSafe、OpenRouter、OpenCode、Vercel AI Gateway）都在，
+  唯独 `POST /v1/decisions` 这条路缺失，`model.Api = "openai-decisions"` 会落到「不支持分类」。
+  逐条对齐上游：状态以紧凑 JSON 文本作 `input`；带图时变成一条 user 消息（`input_text` 后跟
+  `input_image` data URL，上限 128 张）；`choice`/`score`/`bool` 分别映射到
+  `choice`/`score`/`predicate`，predicate 没有 criteria 字段，true/false 的含义并进 `instructions`；
+  概率是 `[{value, probability}]` 数组而非对象；refusal 是错误结果而不是答案；usage 在解析答案
+  **之前**读（畸形答案的请求同样已计费）。连带补 `CreateProviderOptions.FilterAllModels`
+  （上游 `filterAllModels`）：ChatGPT 订阅 token 到不了 Decisions 路由，因此 OAuth 凭据下分类
+  模型不可见。
+- **`ProviderRetryOptions.NoRetryStatuses`**：上游 `retryProviderRequest` 的 `noRetryStatuses`。
+  Decisions 用它把网关 504 挡在重试之外——超大输入（约 60 万 token 以上）会稳定撞上同一条时间
+  上限，重试只是再撞一次；504 另给固定的超时文案而不是通用错误串。
+- **`Pi.Durable` 的 `read` 支持图片**（`tools/read.ts` 的 `readImage`）：此前遇到图片直接返回
+  `unsupported_image`。现在按上游两条路径处理：给了 `IImageProcessor` 就交它解码/摆正/缩放/重编码，
+  并把「从 X 转成 Y」「从 AxB 缩到 CxD，坐标乘 N 倍」写成 `info` 诊断；没给处理器时，PNG/JPEG/
+  GIF/WebP 在字节与像素限制内原样透传（BMP 等需要转换的格式报错并说明）。限制取自对话模型的
+  `inputLimits.images.resize`，缺省 2000×2000 / base64 4.5 MiB；模型不支持图片时补一条占位说明。
+  配套补齐 `ImageMime.ImageDimensions`（PNG IHDR / GIF 屏幕 / WebP VP8·VP8L·VP8X / JPEG 首个 SOF）
+  与 `ImageEncoding`（`InlineImageTypes` / `ToBase64` / `Base64Length`）。`IToolExecutionApi` 新增
+  `GetModel`，对应上游 `api.models.getModel`。附带修正读循环：上游允许「追加写」（`after.size >
+  before.size` 时沿用已扫描的文本），端口此前一律重读并在第二次抛错。
+- **telemetry 的 metrics 与 trace 渲染**：补 `metrics.ts`（`InstrumentOptions` /
+  `HistogramOptions` / 三个 instrument 接口 / `ITelemetryMetrics` / `CreateTypedMetrics`，后者把
+  schema 里的 description、unit、boundaries 绑到 instrument 上）与 `render.ts`
+  （`TelemetryRender.RenderTrace`：按 `startedMs` 组成森林、父节点缺失视为根、每层两空格缩进，
+  行尾带耗时与 error 详情，事件 `·`、链接 `→`）。`TelemetrySchemaDefinition` 新增可选
+  `Metrics`；`InMemoryTelemetryContext` 新增 `GetStoredSpans()`（真实起止时间、事件偏移、本
+  上下文的 trace id），让渲染有可喂的数据。
+
 ### Fixed
 
 - **库被嵌入时 `Config.Version` 上报的是宿主版本**: 没有可读 `package.json` 时，版本回退取的是

@@ -193,6 +193,12 @@ public interface IToolExecutionApi : IDocumentObserver, IDocumentReader
     /// <summary>调用方对话的 agent，按工具任务的阶段解析。</summary>
     Task<Agent> AgentAsync(Context context);
 
+    /// <summary>
+    /// 模型目录里的模型形状（图片输入限制等）。对应 TS <c>api.models.getModel(provider, modelId)</c>；
+    /// 未找到时为 null。
+    /// </summary>
+    ModelSpec? GetModel(string provider, string modelId);
+
     /// <summary>由 <see cref="HarnessOptions.EnvFactory"/> 为本次调用构建；无环境为 undefined。</summary>
     IExecutionEnv? Env { get; }
 

@@ -23,8 +23,15 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
 {
     private readonly object _lock = new();
     private readonly List<MutableSpan> _spans = new();
+    private readonly string _traceId = Guid.NewGuid().ToString("N");
+    private readonly long _origin = System.Diagnostics.Stopwatch.GetTimestamp();
     private int _nextSpanId = 1;
     private int _nextEndSequence = 1;
+
+    private long NowMs() => (long)System.Diagnostics.Stopwatch.GetElapsedTime(_origin).TotalMilliseconds;
+
+    /// <summary>Recorded event plus its offset from the owning span's start.</summary>
+    private sealed record EventSlot(RecordedTelemetryEvent Event, long TimeMs);
 
     private sealed class MutableSpan
     {
@@ -32,7 +39,9 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
         public required int? ParentId { get; init; }
         public required string Name { get; init; }
         public required SpanAttributes Attributes { get; init; }
-        public List<RecordedTelemetryEvent> Events { get; } = new();
+        public required long StartedMs { get; init; }
+        public long? EndedMs { get; set; }
+        public List<EventSlot> Events { get; } = new();
         public SpanStatus Status { get; set; } = SpanStatus.Ok.Instance;
         public bool ExplicitStatus { get; set; }
         public bool Settled { get; set; }
@@ -72,6 +81,7 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
                     ParentId = parent?.Id,
                     Name = options.Name,
                     Attributes = attributes,
+                    StartedMs = NowMs(),
                 };
                 _spans.Add(recordedSpan);
             }
@@ -121,6 +131,7 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
             if (failed && !span.ExplicitStatus)
                 span.Status = error is not null ? SpanStatus.FromError(error) : SpanStatus.ErrorStatus.Bare;
             span.Settled = true;
+            span.EndedMs = NowMs();
             span.EndSequence = _nextEndSequence++;
         }
     }
@@ -135,10 +146,38 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
                 span.ParentId,
                 span.Name,
                 span.Attributes.Copy().ToDictionary(kv => kv.Key, kv => kv.Value),
-                span.Events.Select(e => e with { }).ToList(),
+                span.Events.Select(slot => slot.Event with { }).ToList(),
                 span.Status,
                 span.Settled,
                 span.EndSequence)).ToList();
+        }
+    }
+
+    /// <summary>
+    /// Snapshots in the adapter-neutral <see cref="StoredSpan"/> shape, ready for
+    /// <see cref="TelemetryRender.RenderTrace"/>. Ids are the recorded span numbers as strings; all
+    /// spans share this context's trace id; links are always empty (this context has no link API).
+    /// </summary>
+    public IReadOnlyList<StoredSpan> GetStoredSpans()
+    {
+        lock (_lock)
+        {
+            return _spans.Select(span => new StoredSpan
+            {
+                Id = span.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                TraceId = _traceId,
+                ParentId = span.ParentId?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Name = span.Name,
+                StartedMs = span.StartedMs,
+                // An unsettled span has no end yet; report it as instantaneous rather than guessing.
+                EndedMs = span.EndedMs ?? span.StartedMs,
+                Attributes = span.Attributes.Copy(),
+                Events = span.Events
+                    .Select(slot => new StoredSpanEvent(
+                        slot.Event.Name, slot.TimeMs, new SpanAttributes(slot.Event.Attributes)))
+                    .ToList(),
+                Status = span.Status,
+            }).ToList();
         }
     }
 
@@ -161,7 +200,8 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
                         copy[key] = SpanAttributes.CopyValue(value);
                     }
                 }
-                lock (owner._lock) recorded.Events.Add(new RecordedTelemetryEvent(name, copy));
+                lock (owner._lock) recorded.Events.Add(new EventSlot(
+                    new RecordedTelemetryEvent(name, copy), owner.NowMs() - recorded.StartedMs));
             }
             catch
             {

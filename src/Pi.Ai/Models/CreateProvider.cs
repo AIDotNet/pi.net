@@ -37,6 +37,12 @@ public sealed record CreateProviderOptions
 
     /// <summary>按凭据的 chat 模型可用性策略。对应 TS <c>filterModels</c>。</summary>
     public Func<IReadOnlyList<ModelSpec>, Credential?, IReadOnlyList<ModelSpec>>? FilterModels { get; init; }
+
+    /// <summary>
+    /// 按凭据过滤<em>全部类别</em>（chat / image / classifier）的可用模型。对应 TS <c>filterAllModels</c>：
+    /// 未设置时由 <see cref="FilterModels"/> 推导 chat 可用集、其余类别原样保留。
+    /// </summary>
+    public Func<IReadOnlyList<ModelSpec>, Credential?, IReadOnlyList<ModelSpec>>? FilterAllModels { get; init; }
 }
 
 /// <summary>
@@ -110,6 +116,9 @@ public static class ProviderFactory
 
         public IReadOnlyList<ModelSpec> FilterModels(IReadOnlyList<ModelSpec> models, Credential? credential)
             => _input.FilterModels?.Invoke(models, credential) ?? models;
+
+        public IReadOnlyList<ModelSpec>? FilterAllModels(IReadOnlyList<ModelSpec> models, Credential? credential)
+            => _input.FilterAllModels?.Invoke(models, credential);
 
         private ProviderStreams? ApiFor(ModelSpec model) => _single ?? _byApi?.GetValueOrDefault(model.Api);
 
