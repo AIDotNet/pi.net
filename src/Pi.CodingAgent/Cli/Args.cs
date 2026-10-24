@@ -536,7 +536,8 @@ public static class CliArgs
               {{Config.AppName}} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
               {{Config.AppName}} auth <command>            Print credentials or check provider readiness
               {{Config.AppName}} mcp <command>             Check MCP servers, sign in to or out of OAuth servers
-              {{Config.AppName}} <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp
+              {{Config.AppName}} doctor [--json]           Diagnose local configuration, tools, and credential sources offline
+              {{Config.AppName}} <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp/doctor
 
             {{Chalk.Bold("Options:")}}
               --provider <name>              Provider to search for --model (requires --model)
