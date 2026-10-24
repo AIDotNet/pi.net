@@ -7,6 +7,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ### Added
 
+- **durable 的内置图片处理器**：上一版只补了 `read` 的图片分支与 `IImageProcessor` 契约，宿主不注入
+  处理器时 BMP 仍只能报错、超像素的图也报错。现在 `Pi.CodingAgent/Utils/Image/SkiaImageProcessor.cs`
+  给出默认实现（解码 → EXIF 摆正 → 缩放到限制 → PNG/JPEG 编码 → 按 3/4 递减尺寸直到字节达标），
+  由 `DurableHarnessSetup` 注入 `CodingTools.Create(...)`，对应上游 `createCodingTools({ images })`。
+  配套给 `ImageResizeOptions` 加 `ForceReencode`：BMP 这类 provider 不能内联接收的格式必须重编码，
+  否则缩放核心的快路径会把它原样透传。
+- **OpenRouter 上报成本**：`UsageCost.TotalFromProvider` + `Utils/OpenRouterCost.cs`
+  （`IsOpenRouterModel` / `ApplyReportedCost`）。走 OpenRouter 时非 BYOK 直接用上报的 `cost`，
+  BYOK 再叠加 `upstream_inference_cost`（缺失时用 prompt + completions 两段之和），
+  `is_byok` 缺失或成本非法则保持目录价。接入 `AnthropicMessages` 的 `message_delta` 与
+  `OpenAiCompletions.ParseChunkUsage`；`CalculateCost` 会把这个标记重置为 false。
+  此前这类请求只按目录价计入，BYOK 场景下真实开销完全不进 `cost.total`。
 - **42 家 provider 的完整模型目录（1713 个条目）**：此前 `src/Pi.Ai/ModelData/` 只有三个手写文件、
   8 个条目（`gpt-4o` 那批已被上游淘汰的模型），而 `ModelResolver.DefaultModelPerProvider` 的 41 条
   默认模型是照上游新 id 抄的——**41 条里一条都解析不到**，全新安装遍历完整张表也选不出模型。

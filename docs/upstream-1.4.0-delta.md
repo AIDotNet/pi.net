@@ -2580,3 +2580,54 @@ openai chat 数 4→42、openrouter 图片目录空→63 个、radius 基线空�
 **测试**：`Pi.Ai.Tests` 528（+1 `EveryEmbeddedCatalogParses`）、`Pi.CodingAgent.Tests` 5083
 （+1 `EveryDefaultModelResolvesInTheBuiltinCatalog`，3 跳过、0 失败）、`Pi.Durable.Tests` 515、
 `Pi.Telemetry.Tests` 24、`Pi.Agent.Tests` 36。
+
+### 6.aw 第五十六批（收口两处真缺口；以及「未发布提交先不跟」的正式策略）
+
+**① OpenRouter 上报成本（上游 `cae8d69e5`）**
+
+原先整套缺失：端口 `UsageCost` 没有 `totalFromProvider` 字段，`isOpenRouterModel` /
+`applyOpenRouterReportedCost` 也没有对应物。后果是走 OpenRouter 时只按目录价算，
+**BYOK 场景下用户在上游 provider 那边的真实开销完全不进 `cost.total`**。
+
+落地：
+- `UsageCost.TotalFromProvider`（`bool?`，`totalFromProvider`，缺省不序列化）。
+- `Utils/OpenRouterCost.cs`：`IsOpenRouterModel`（provider 或 baseUrl 命中）+
+  `ApplyReportedCost`——非 BYOK 直接用上报值；BYOK 用 `cost + upstream_inference_cost`，
+  该字段为 null 时退回 `upstream_inference_prompt_cost + upstream_inference_completions_cost`；
+  `is_byok` 缺失、成本为负/非有限、`cost_details` 缺失时一律不动用量。
+- `ModelOperations.CalculateCost` 末尾把 `TotalFromProvider` 重置为 false（对应 TS
+  `usage.cost.totalFromProvider = false`），`Scale` 改 `with` 表达式以免丢字段。
+- 接入点两处：`AnthropicMessages` 的 `message_delta` 分支（`event.usage` 存在时）、
+  `OpenAiCompletions.ParseChunkUsage`。
+- 测试 12 例，前 6 例照抄上游 `test/openrouter-cost.test.ts`，其余覆盖 `is_byok` 缺失、
+  非法成本、目录价重算清标记，以及两个接入点。
+
+**② durable 的内置图片处理器**
+
+第五十四批补的是「read 的图片分支 + `IImageProcessor` 契约」，但**没有实现**——宿主不注入时
+BMP 只能报错、超像素的图也报错。上游 `durable/images/{index,node,exif}.ts` 是 Photon 实现。
+
+落地（不改 `Pi.Durable` 的依赖面）：
+- `Pi.CodingAgent/Utils/Image/SkiaImageProcessor.cs` 实现 `Pi.Durable.Tools.IImageProcessor`，
+  底层复用既有的 `ImageResize`（SkiaSharp）：解码 → EXIF 摆正 → 缩到限制 → PNG/JPEG 编码 →
+  不够就按 3/4 递减尺寸。
+- `ImageResizeOptions.ForceReencode`：BMP 这类 provider 不能内联接收的格式必须重编码，
+  否则 `ImageResizeCore` 的快路径会把它原样透传（这正是第一版测试暴露的问题）。
+- `CodingTools.Create(IImageProcessor?)` + `DurableHarnessSetup` 注入 `SkiaImageProcessor.Instance`，
+  对应上游 `createCodingTools({ images })`。`CodingTools.Extension` 仍是无处理器的版本。
+- 两处已知差异：JPEG 源上游先试 JPEG（`jpegFirst`），端口沿用 PNG 优先（更保守，可能多降一档尺寸）；
+  字节判定上游 `<=`、端口 `<`。
+- 测试 7 例：原样透传、缩到 2000×2000、BMP 转 PNG、自定义像素上限、按字节预算递减、
+  坏字节返回 null、接线（带处理器的 read 描述里出现 `bmp`）。
+
+**③ 正式策略：上游未发布提交先不跟**
+
+`v1.4.0..HEAD` 目前 32 个提交（`/ir` 从 URL 导入、Harness 只读打开、pi-messages 带
+`responseModel`、device-code 确认、chord `Watchable`、以及一批 tui/mcp/ai 的 fix）。
+**决定：不在 main 上逐条追，等上游打出下一个稳定 tag 后一次性评估。** 理由：这批提交还在变
+（本轮核对时从 22 涨到 32），逐条追的返工成本高于收益；唯一例外是上面 ①——它修的是真实计费
+错误，与版本节奏无关，所以先落地。
+
+**测试**：`Pi.Ai.Tests` 540（+12 `OpenRouterCostTests`）、`Pi.CodingAgent.Tests` 5090
+（+7 `SkiaImageProcessorTests`，3 跳过、0 失败）、`Pi.Durable.Tests` 515、`Pi.Telemetry.Tests` 24、
+`Pi.Agent.Tests` 36。

@@ -8,16 +8,23 @@ namespace Pi.Durable.Tools;
 /// </summary>
 public static class CodingTools
 {
-    /// <summary>四个工具扩展。对应 TS <c>CodingTools</c>。</summary>
-    public static IExtension Extension { get; } = new CodingToolsExtension();
+    /// <summary>四个工具扩展（<c>read</c> 不接图片处理器）。对应 TS <c>CodingTools</c>。</summary>
+    public static IExtension Extension { get; } = Create();
 
-    private sealed class CodingToolsExtension : IExtension
+    /// <summary>
+    /// 四个工具扩展，<c>read</c> 用 <paramref name="images"/> 备图片。对应 TS
+    /// <c>createCodingTools(options)</c> 的 <c>options.images</c>：不给处理器时，受支持且在限制内的
+    /// 图片原样透传，BMP 之类需要转换的格式报错。
+    /// </summary>
+    public static IExtension Create(IImageProcessor? images = null) => new CodingToolsExtension(images);
+
+    private sealed class CodingToolsExtension(IImageProcessor? images) : IExtension
     {
         public string Name => "coding-tools";
 
         public IReadOnlyList<IToolRegistration>? Tools =>
         [
-            ReadTool.Create(),
+            ReadTool.Create(images),
             WriteTool.Create(),
             EditTool.Create(),
             BashTool.Create(),

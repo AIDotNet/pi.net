@@ -137,13 +137,28 @@ public sealed record UsageCost(
     [property: JsonPropertyName("cacheWrite")] double CacheWrite = 0,
     [property: JsonPropertyName("total")] double Total = 0)
 {
+    /// <summary>
+    /// <see cref="Total"/> 是否为 provider 上报的实际计费，而非按目录价算出来的。
+    /// OpenRouter 在流式 usage 里附带实际计费（BYOK 时含上游推理成本），命中即覆盖总价并置真；
+    /// 目录价重算（<see cref="Pi.Ai.Utils.ModelOperations.CalculateCost"/>）会把它重置为 false。
+    /// 对应 TS <c>cost.totalFromProvider?</c>（缺省不写）。
+    /// </summary>
+    [JsonPropertyName("totalFromProvider")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? TotalFromProvider { get; init; }
+
     /// <summary>全零成本：provider 初始化用量时的起点（TS 的 <c>{ input: 0, …, total: 0 }</c>）。</summary>
     public static UsageCost Zero { get; } = new();
 
     /// <summary>按倍率缩放四桶与总价（服务档位加价）。对应 TS 侧对 <c>cost.total</c> 的乘法。</summary>
-    public UsageCost Scale(double multiplier)
-        => new(Input * multiplier, Output * multiplier, CacheRead * multiplier,
-            CacheWrite * multiplier, Total * multiplier);
+    public UsageCost Scale(double multiplier) => this with
+    {
+        Input = Input * multiplier,
+        Output = Output * multiplier,
+        CacheRead = CacheRead * multiplier,
+        CacheWrite = CacheWrite * multiplier,
+        Total = Total * multiplier,
+    };
 
     /// <summary>按四桶重算 <see cref="Total"/>。对应 TS <c>calculateCost</c> 的末行。</summary>
     public UsageCost WithRecomputedTotal() => this with { Total = Input + Output + CacheRead + CacheWrite };

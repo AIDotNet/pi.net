@@ -68,7 +68,7 @@ public static class ModelOperations
     public static Usage CalculateCost(ModelSpec model, Usage usage)
     {
         var rates = model.Cost;
-        if (rates is null) return usage with { Cost = UsageCost.Zero };
+        if (rates is null) return usage with { Cost = UsageCost.Zero with { TotalFromProvider = false } };
 
         var inputTokens = usage.Input + usage.CacheRead + usage.CacheWrite;
         if (rates.Tiers is { Count: > 0 } tiers)
@@ -92,7 +92,8 @@ public static class ModelOperations
             Output: rates.Output / 1_000_000 * usage.Output,
             CacheRead: (rates.CacheRead ?? 0) / 1_000_000 * usage.CacheRead,
             CacheWrite: ((rates.CacheWrite ?? 0) * shortWrite + rates.Input * 2 * longWrite) / 1_000_000);
-        return usage with { Cost = cost.WithRecomputedTotal() };
+        // 目录价重算：总价不再来自 provider 上报。
+        return usage with { Cost = cost.WithRecomputedTotal() with { TotalFromProvider = false } };
     }
 
     public static AssistantImages ImageErrorResult(ModelSpec model, Exception error, bool aborted = false)

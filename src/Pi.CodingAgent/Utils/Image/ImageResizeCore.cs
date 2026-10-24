@@ -14,6 +14,12 @@ public sealed record ImageResizeOptions
     public int? JpegQuality { get; init; }
 
     /// <summary>
+    /// 即使尺寸与字节都在限制内也重新编码。provider 不能内联接收的格式（BMP）要靠它转成 PNG，
+    /// 否则会把原格式原样发出去。对应 durable 的 <c>prepare</c> 里「不在 INLINE_IMAGE_TYPES 就走编码」这一条。
+    /// </summary>
+    public bool ForceReencode { get; init; }
+
+    /// <summary>
     /// Bridges the model catalog's nominal <see cref="Pi.Ai.Types.ModelImageResizeOptions"/> to this
     /// type. The two are structurally identical but deliberately separate (difference C30): one is the
     /// profile the catalog hands down, the other the generic caller-facing override.
@@ -100,7 +106,8 @@ public static class ImageResizeCore
             string format = mimeType.Contains('/') ? mimeType.Split('/')[1] : "png";
 
             // Check if already within all limits (dimensions AND encoded size)
-            if (originalWidth <= maxWidth && originalHeight <= maxHeight && inputBase64Size < maxBytes)
+            if (!(options?.ForceReencode ?? false)
+                && originalWidth <= maxWidth && originalHeight <= maxHeight && inputBase64Size < maxBytes)
             {
                 return new ResizedImage
                 {

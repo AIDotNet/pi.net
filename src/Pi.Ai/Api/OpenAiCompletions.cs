@@ -1339,7 +1339,11 @@ public static class OpenAiCompletions
             Reasoning = (long)reasoningTokens,
             TotalTokens = (long)(input + outputTokens + cacheReadTokens + cacheWriteTokens),
         };
-        return ModelOperations.CalculateCost(model, usage);
+        var costed = ModelOperations.CalculateCost(model, usage);
+        // OpenRouter 在 usage 里附带实际计费，命中即覆盖目录价总价。
+        return OpenRouterCost.IsOpenRouterModel(model)
+            ? OpenRouterCost.ApplyReportedCost(costed, rawUsage)
+            : costed;
     }
 
     /// <summary>finish_reason → StopReason + 错误文本。对应 TS <c>mapStopReason</c>。</summary>

@@ -1508,6 +1508,12 @@ public static class AnthropicMessages
                                 TotalTokens = usageNow.Input + usageNow.Output
                                     + usageNow.CacheRead + usageNow.CacheWrite,
                             });
+                            // OpenRouter 在这条 message_delta 的 usage 里附带实际计费，命中即覆盖总价。
+                            if (eventObject.Obj("usage") is { } reportedUsage
+                                && OpenRouterCost.IsOpenRouterModel(model))
+                            {
+                                output.Usage = OpenRouterCost.ApplyReportedCost(output.Usage, reportedUsage);
+                            }
                             break;
                         }
                     }

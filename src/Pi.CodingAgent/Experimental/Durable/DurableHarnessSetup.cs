@@ -1,5 +1,6 @@
 using Pi.Chord.Context;
 using Pi.CodingAgent.Core;
+using Pi.CodingAgent.Utils.Image;
 using Pi.Durable.Env;
 using Pi.Durable.Harness;
 using Pi.Durable.Tools;
@@ -35,7 +36,7 @@ public static class DurableHarnessSetup
     /// <summary>往既有注册表里装 pi 的编码工具与系统提示（运行时用这个，因为注册表已经建好）。</summary>
     public static void InstallCodingRegistry(IRegistry registry, SettingsManager settingsManager, string cwd)
     {
-        registry.Install(CodingTools.Extension);
+        registry.Install(CodingTools.Create(SkiaImageProcessor.Instance));
         registry.Install(SessionWorkerHarnessSetup.CreatePiPrompt(settingsManager, cwd));
     }
 }
