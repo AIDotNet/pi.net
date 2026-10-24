@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+### Fixed
+
+- `--list-models` 的模糊搜索包含模型显示名称，可搜索 `models.json` 中的自定义名称；表格格式与排序保持兼容。
+
 ## [1.4.3] - 2026-10-24
 
 ### Added
