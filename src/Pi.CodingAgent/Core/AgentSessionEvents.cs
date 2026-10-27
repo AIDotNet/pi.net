@@ -26,6 +26,12 @@ namespace Pi.CodingAgent.Core;
 /// <see cref="Type"/> 常量一一对应；因此 <see cref="Type"/> 本身必须
 /// <c>[JsonIgnore]</c>——STJ 不允许判别式属性名与普通属性重名
 /// （见 <c>JsonSerializer</c> 的冲突检查）。
+/// <para>
+/// 注意：基类上的 <c>[JsonIgnore]</c> **不会**被 override 出来的属性继承（STJ 读特性时
+/// 只取直接声明的那个），所以每个变体的 <c>override Type</c> 都要自己标一遍。漏标时
+/// 序列化会写出两个 <c>"type"</c> 键：net10.0 的 <c>JsonObject</c> 默认容忍重复键，
+/// net9.0 则抛 <c>An item with the same key has already been added</c>。
+/// </para>
 /// </remarks>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(AgentSessionEvent.AgentStartEvent), "agent_start")]
@@ -64,18 +70,21 @@ public abstract record AgentSessionEvent
     /// <summary>TS <c>agent_start</c>。</summary>
     public sealed record AgentStartEvent : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "agent_start";
     }
 
     /// <summary>TS <c>agent_end</c> 的会话形态：追加 <c>willRetry</c>。</summary>
     public sealed record AgentEndEvent(IReadOnlyList<ChatMessage> Messages, bool WillRetry) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "agent_end";
     }
 
     /// <summary>TS <c>turn_start</c>。</summary>
     public sealed record TurnStartEvent : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "turn_start";
     }
 
@@ -83,12 +92,14 @@ public abstract record AgentSessionEvent
     public sealed record TurnEndEvent(AssistantMessage Message, IReadOnlyList<ToolResultMessage> ToolResults)
         : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "turn_end";
     }
 
     /// <summary>TS <c>message_start</c>。</summary>
     public sealed record MessageStartEvent(ChatMessage Message) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "message_start";
     }
 
@@ -96,12 +107,14 @@ public abstract record AgentSessionEvent
     public sealed record MessageUpdateEvent(AssistantMessageEvent AssistantMessageEvent, AssistantMessage Message)
         : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "message_update";
     }
 
     /// <summary>TS <c>message_end</c>。</summary>
     public sealed record MessageEndEvent(ChatMessage Message) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "message_end";
     }
 
@@ -112,6 +125,7 @@ public abstract record AgentSessionEvent
         object? Args,
         string? ParentToolCallId = null) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "tool_execution_start";
     }
 
@@ -123,6 +137,7 @@ public abstract record AgentSessionEvent
         object? PartialResult,
         string? ParentToolCallId = null) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "tool_execution_update";
     }
 
@@ -138,6 +153,7 @@ public abstract record AgentSessionEvent
         long? DurationMs = null,
         string? ParentToolCallId = null) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "tool_execution_end";
     }
 
@@ -149,6 +165,7 @@ public abstract record AgentSessionEvent
     /// <param name="Aborted">本轮是否因中止（例如按 Escape）而结束。TS <c>aborted</c>。</param>
     public sealed record AgentSettledEvent(bool Aborted) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "agent_settled";
     }
 
@@ -156,30 +173,35 @@ public abstract record AgentSessionEvent
     public sealed record QueueUpdateEvent(IReadOnlyList<string> Steering, IReadOnlyList<string> FollowUp)
         : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "queue_update";
     }
 
     /// <summary>TS <c>compaction_start</c>。<paramref name="Reason"/> ∈ manual | threshold | overflow。</summary>
     public sealed record CompactionStartEvent(string Reason) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "compaction_start";
     }
 
     /// <summary>TS <c>entry_appended</c>：会话树新增条目（自定义条目 / cache warmer 回填等）。</summary>
     public sealed record EntryAppendedEvent(SessionEntry Entry) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "entry_appended";
     }
 
     /// <summary>TS <c>session_info_changed</c>：会话名变化。</summary>
     public sealed record SessionInfoChangedEvent(string? Name) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "session_info_changed";
     }
 
     /// <summary>TS <c>thinking_level_changed</c>。</summary>
     public sealed record ThinkingLevelChangedEvent(ThinkingLevel Level) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "thinking_level_changed";
     }
 
@@ -191,6 +213,7 @@ public abstract record AgentSessionEvent
         bool WillRetry,
         string? ErrorMessage = null) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "compaction_end";
     }
 
@@ -198,12 +221,14 @@ public abstract record AgentSessionEvent
     public sealed record AutoRetryStartEvent(int Attempt, int MaxAttempts, int DelayMs, string ErrorMessage)
         : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "auto_retry_start";
     }
 
     /// <summary>TS <c>auto_retry_end</c>。</summary>
     public sealed record AutoRetryEndEvent(bool Success, int Attempt, string? FinalError = null) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "auto_retry_end";
     }
 
@@ -211,6 +236,7 @@ public abstract record AgentSessionEvent
     public sealed record SummarizationRetryScheduledEvent(int Attempt, int MaxAttempts, int DelayMs, string ErrorMessage)
         : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "summarization_retry_scheduled";
     }
 
@@ -221,18 +247,21 @@ public abstract record AgentSessionEvent
     /// </summary>
     public sealed record SummarizationRetryAttemptStartEvent(string Source, string? Reason = null) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "summarization_retry_attempt_start";
     }
 
     /// <summary>TS <c>summarization_retry_finished</c>。</summary>
     public sealed record SummarizationRetryFinishedEvent : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "summarization_retry_finished";
     }
 
     /// <summary>TS <c>bash_execution_update</c>：bash 执行的流式增量。</summary>
     public sealed record BashExecutionUpdateEvent(string? Id, string Delta) : AgentSessionEvent
     {
+        [JsonIgnore]
         public override string Type => "bash_execution_update";
     }
 }

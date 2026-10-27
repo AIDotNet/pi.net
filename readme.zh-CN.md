@@ -6,7 +6,7 @@
 [![CI](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/AIDotNet/pi.net)](https://github.com/AIDotNet/pi.net/blob/main/LICENSE)
 
-Pi.NET 是 [Pi](https://github.com/earendil-works/pi) 的 .NET 10 移植版。Pi 是一个极简、可扩展的 Agent harness（TypeScript monorepo，约 17.1 万行），本项目把它的核心库逐一移植到 `net10.0`，让 .NET 生态用上同一套能力。
+Pi.NET 是 [Pi](https://github.com/earendil-works/pi) 的 .NET 10 移植版。Pi 是一个极简、可扩展的 Agent harness（TypeScript monorepo，约 17.1 万行），本项目把它的核心库逐一移植到 `net9.0` / `net10.0`，让 .NET 生态用上同一套能力。
 
 Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只做最小而完整的事，上层由你自己组合。本项目沿用这一理念——不是把 TS 代码翻成 C# 就完事，而是在语义等价的前提下用 C# 的方式重建（判别联合 → abstract record 模式匹配、JS Proxy → 显式动词 API）。
 
@@ -57,7 +57,7 @@ TypeScript monorepo 仍是行为参考；随包提供的上游 docs/examples 保
 
 ### 从 NuGet 安装
 
-13 个库已发布到 nuget.org，包名与项目名一致，目标框架 `net10.0`：
+13 个库已发布到 nuget.org，包名与项目名一致，目标框架 `net9.0` 与 `net10.0`：
 
 ```bash
 dotnet add package Pi.Ai        # 多供应商 LLM 统一 API
@@ -75,7 +75,7 @@ dotnet add package Pi.CodingAgent   # 整套依赖，含 CLI 运行时资源
 
 ### 从源码构建
 
-需要 .NET 10 SDK。
+需要 .NET 10 SDK。库与可执行程序都是多目标 `net9.0` / `net10.0`。
 
 ```bash
 dotnet restore Pi.slnx

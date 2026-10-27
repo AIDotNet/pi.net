@@ -97,9 +97,18 @@ function truncate(content, options, fromTail) {
   var kept = fromTail ? lines.slice(Math.max(0, lines.length - maxLines)) : lines.slice(0, maxLines);
   var output = kept.join("\n");
 
-  while (byteLength(output) > maxBytes) {
-    if (fromTail) output = output.slice(1);
-    else output = output.slice(0, -1);
+  // Byte trimming used to walk one character at a time, which is quadratic on a
+  // megabyte-sized tool result. Cut proportionally first, then converge: each pass
+  // removes at least the measured excess, so this finishes in a handful of steps.
+  if (byteLength(output) > maxBytes) {
+    var ratio = maxBytes / byteLength(output);
+    var chars = Math.max(1, Math.floor(output.length * ratio));
+    output = fromTail ? output.slice(output.length - chars) : output.slice(0, chars);
+    while (output.length > 0 && byteLength(output) > maxBytes) {
+      var excess = byteLength(output) - maxBytes;
+      var cut = Math.min(output.length, Math.max(1, excess));
+      output = fromTail ? output.slice(cut) : output.slice(0, output.length - cut);
+    }
   }
 
   return {

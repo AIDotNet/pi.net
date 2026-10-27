@@ -40,9 +40,45 @@ public sealed class ExtensionCompilerTests
         finally
         {
             loader.Unload(assemblyPath);
-            if (Directory.Exists(agentDir))
+            DeleteDirectoryWithRetry(agentDir);
+        }
+    }
+
+    /// <summary>
+    /// 删除临时目录，容忍一次卸载后仍被占用的程序集。
+    /// </summary>
+    /// <remarks>
+    /// collectible 的 <see cref="AssemblyLoadContext"/> 卸载是异步的：Windows 上文件句柄在
+    /// <c>Unload</c> 返回后还要等运行时真正释放。net9.0 的释放明显比 net10.0 慢，紧接着删目录会
+    /// 稳定抛 <c>UnauthorizedAccessException: Access to the path 'sample.dll' is denied</c>
+    /// （删除已加载的程序集所在目录）。这里重试几次；句柄迟迟不释放时最后一次仍照原样抛出，
+    /// 免得把真正的缺陷藏起来。
+    /// </remarks>
+    private static void DeleteDirectoryWithRetry(string path)
+    {
+        const int attempts = 25;
+        for (var attempt = 1; attempt <= attempts; attempt++)
+        {
+            if (!Directory.Exists(path))
             {
-                Directory.Delete(agentDir, recursive: true);
+                return;
+            }
+
+            try
+            {
+                Directory.Delete(path, recursive: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt == attempts)
+                {
+                    throw;
+                }
+
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                Thread.Sleep(100);
             }
         }
     }

@@ -38,6 +38,7 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
     private readonly JsValue stringify = engine.Evaluate("(value) => JSON.stringify(value === undefined ? null : value)");
 
     private readonly Dictionary<string, object> contexts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Action> eventHandlers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, AgentToolUpdateCallback> toolUpdates = new(StringComparer.Ordinal);
     private IExtensionApi? api;
     private bool disposed;
@@ -48,14 +49,6 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
     internal string Cwd { get; } = cwd;
 
     internal void Bind(IExtensionApi extensionApi) => api = extensionApi;
-
-    internal void Unbind(IExtensionApi extensionApi)
-    {
-        if (ReferenceEquals(api, extensionApi))
-        {
-            api = null;
-        }
-    }
 
     private IExtensionApi Api => api
         ?? throw new InvalidOperationException(
@@ -106,7 +99,7 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
             case "registerFlag": RegisterFlag(payload); return null;
             case "getFlag": return JsonNode.Parse(JsonSerializer.Serialize(Api.GetFlag(RequiredString(payload, "name")), JsonOptions))?.ToJsonString();
             case "on": RegisterEventHandler(payload); return null;
-            case "off": return null;
+            case "off": Unsubscribe(payload); return null;
 
             // ---- session actions ----
             case "exec": return Exec(payload);
@@ -130,6 +123,17 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
             // ---- host paths ----
             case "agentDir": return JsonSerializer.Serialize(Config.GetAgentDir(), JsonOptions);
             case "packageDir": return JsonSerializer.Serialize(AppContext.BaseDirectory, JsonOptions);
+
+            // ---- lazy context fields ----
+            case "ctx.model": return ContextJson(payload, context => JsonSerializer.SerializeToNode(context.Model, JsonOptions));
+            case "ctx.thinkingLevel": return ContextJson(payload, context => JsonValue.Create(context.ThinkingLevel?.ToString().ToLowerInvariant()));
+            case "ctx.isIdle": return ContextJson(payload, context => JsonValue.Create(context.IsIdle()));
+            case "ctx.isProjectTrusted": return ContextJson(payload, context => JsonValue.Create(context.IsProjectTrusted()));
+
+            // ---- session inspection ----
+            case "ctx.session.entries": return JsonSerializer.Serialize(SessionEntries(payload), JsonOptions);
+            case "ctx.session.id": return JsonSerializer.Serialize(SessionContext(payload).SessionManager.SessionId, JsonOptions);
+            case "ctx.session.file": return JsonSerializer.Serialize(SessionContext(payload).SessionManager.SessionFile, JsonOptions);
 
             // ---- tool streaming ----
             case "tool.update": RaiseToolUpdate(payload); return null;
@@ -172,6 +176,69 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
                 if (method.StartsWith("zlib.", StringComparison.Ordinal)) return ZlibCall(method, payload);
                 if (method.StartsWith("events.", StringComparison.Ordinal)) return EventsCall(method, payload);
                 throw new InvalidOperationException($"Unknown host method '{method}'.");
+        }
+    }
+
+    private void Unsubscribe(JsonObject payload)
+    {
+        var key = EventKey(RequiredString(payload, "event"), RequiredString(payload, "handler"));
+        if (eventHandlers.Remove(key, out var unsubscribe))
+        {
+            unsubscribe();
+        }
+    }
+
+    /// <summary>
+    /// Read one context field, answering null when the runtime cannot provide it yet.
+    /// A missing field is a degraded context, not a broken extension.
+    /// </summary>
+    private string? ContextJson(JsonObject payload, Func<IExtensionContext, JsonNode?> read)
+    {
+        var handle = RequiredString(payload, "handle");
+        if (!contexts.TryGetValue(handle, out var value) || value is not IExtensionContext context)
+        {
+            throw new InvalidOperationException("This ctx is stale: extension contexts are only valid for the duration of the callback that received them.");
+        }
+
+        return SafeNode(() => read(context))?.ToJsonString();
+    }
+
+    private JsonNode? SafeNode(Func<JsonNode?> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (Exception error)
+        {
+            Log("debug", $"A context field is unavailable: {error.Message}");
+            return null;
+        }
+    }
+
+    private IExtensionContext SessionContext(JsonObject payload)
+    {
+        var handle = RequiredString(payload, "handle");
+        return contexts.TryGetValue(handle, out var value) && value is IExtensionContext context
+            ? context
+            : throw new InvalidOperationException("This ctx is stale: extension contexts are only valid for the duration of the callback that received them.");
+    }
+
+    /// <summary>
+    /// Session entries as JSON. <c>getBranch()</c> is served from the same list:
+    /// the port's <see cref="IReadonlySessionManager"/> exposes the flat entry list
+    /// and has no branch cursor, so a branch read returns every entry.
+    /// </summary>
+    private JsonNode? SessionEntries(JsonObject payload)
+    {
+        try
+        {
+            return JsonSerializer.SerializeToNode(SessionContext(payload).SessionManager.Entries, JsonOptions);
+        }
+        catch (Exception error)
+        {
+            Log("warn", $"ctx.sessionManager.getBranch() returned an empty list: {error.Message}");
+            return new JsonArray();
         }
     }
 
@@ -470,7 +537,9 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
 
         // The runner dispatches `(event, ctx)` as loosely typed args, so the JS
         // handler receives the serialized event plus a rebuilt context.
-        Api.On<object>(eventName, (@event, ctx) =>
+        // On<E> drops the handler's result, On<E, R> keeps it; event results
+        // (tool_call blocking, message rewrites, …) only work through the latter.
+        var unsubscribe = Api.On<object, object>(eventName, (@event, ctx) =>
         {
             var scope = new ContextScope(this);
             var ctxPayload = scope.Register(ctx);
@@ -492,7 +561,14 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
                 scope.Dispose();
             }
         });
+
+        if (unsubscribe is not null)
+        {
+            eventHandlers[EventKey(eventName, handlerId)] = unsubscribe;
+        }
     }
+
+    private static string EventKey(string eventName, string handlerId) => eventName + "\u001f" + handlerId;
 
     /// <summary>
     /// Event results are plain objects upstream (`{ block: true }`, `{ message }`,
@@ -527,17 +603,43 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
             return "null";
         }
 
+        JsonObject node;
         try
         {
-            return JsonSerializer.Serialize(@event, @event.GetType(), JsonOptions);
+            node = JsonSerializer.SerializeToNode(@event, @event.GetType(), JsonOptions) as JsonObject
+                ?? new JsonObject();
         }
         catch (Exception)
         {
             // Event records with a delegate or a live component cannot be
             // serialized; the extension sees the fields it can read.
-            return JsonSerializer.Serialize(new { type = @event.GetType().Name }, JsonOptions);
+            node = new JsonObject();
         }
+
+        if (@event is IToolCallEvent)
+        {
+            // The C# records encode the tool in the *type*; upstream carries it as
+            // `toolName`, and every guard extension branches on that field.
+            node["type"] = ExtensionEventNames.ToolCall;
+            node["toolName"] ??= ToolNameOf(@event);
+        }
+
+        return node.ToJsonString();
     }
+
+    private static string? ToolNameOf(object @event) => @event switch
+    {
+        ExtensionEvent.BashToolCall => "bash",
+        ExtensionEvent.PowerShellToolCall => "powershell",
+        ExtensionEvent.ReadToolCall => "read",
+        ExtensionEvent.EditToolCall => "edit",
+        ExtensionEvent.WriteToolCall => "write",
+        ExtensionEvent.GrepToolCall => "grep",
+        ExtensionEvent.FindToolCall => "find",
+        ExtensionEvent.LsToolCall => "ls",
+        ExtensionEvent.CustomToolCall custom => custom.ToolName,
+        _ => null,
+    };
 
     // ------------------------------------------------------------ session
 
@@ -778,35 +880,30 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
         var handle = Guid.NewGuid().ToString("N");
         contexts[handle] = context;
 
+        // Only fields that cannot fail are read here. `ThinkingLevel`, `Model` and
+        // `IsIdle` go through the runtime action table, which throws while the runner
+        // has not bound it (extension loading, project-trust contexts, tests) — reading
+        // them eagerly turned every event dispatch into "runtime not initialized".
         var payload = new JsonObject
         {
             ["handle"] = handle,
             ["cwd"] = context.Cwd,
             ["mode"] = context.Mode,
             ["hasUI"] = context.HasUI,
-            ["isIdle"] = context.IsIdle(),
-            ["thinkingLevel"] = context.ThinkingLevel?.ToString().ToLowerInvariant(),
-            ["model"] = context.Model is null ? null : JsonSerializer.SerializeToNode(context.Model, JsonOptions),
             ["sessionManager"] = new JsonObject
             {
                 ["sessionId"] = context.SessionManager.SessionId,
                 ["sessionFile"] = context.SessionManager.SessionFile,
-                ["getSessionId"] = JsFunctionMarker,
-                ["getSessionFile"] = JsFunctionMarker,
-                ["getBranch"] = JsFunctionMarker,
-                ["getEntries"] = JsFunctionMarker,
             },
             ["ui"] = new JsonObject
             {
-                ["theme"] = JsonSerializer.SerializeToNode(context.Ui.Theme?.Name, JsonOptions),
+                ["theme"] = SafeNode(() => JsonSerializer.SerializeToNode(context.Ui.Theme?.Name, JsonOptions)),
             },
         };
 
         // Functions cannot cross the JSON boundary; the prelude rebuilds them.
         return payload.ToJsonString();
     }
-
-    private const string JsFunctionMarker = "__pi_fn__";
 
     /// <summary>Tracks the contexts handed out during one callback and drops them afterwards.</summary>
     private sealed class ContextScope(JsExtensionHost host) : IDisposable
@@ -1294,6 +1391,7 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
         disposed = true;
         contexts.Clear();
         toolUpdates.Clear();
+        eventHandlers.Clear();
 
         lock (BusGate)
         {

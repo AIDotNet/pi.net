@@ -4,7 +4,7 @@
     Mirrors the TS monorepo layout: src/<Pi.Package> maps to packages/<pkg>.
   -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -23,7 +23,7 @@
     <Version>1.4.4</Version>
     <Authors>xuzeyu</Authors>
     <Product>Pi.NET</Product>
-    <Description>Pi.NET - a .NET 10 port of Pi, a minimal and extensible agent harness. See https://github.com/AIDotNet/pi.net for the full package list.</Description>
+    <Description>Pi.NET - a .NET 9/10 port of Pi, a minimal and extensible agent harness. See https://github.com/AIDotNet/pi.net for the full package list.</Description>
     <Copyright>Copyright (c) 2025 Mario Zechner (upstream Pi); .NET port Copyright (c) 2026 xuzeyu</Copyright>
     <PackageProjectUrl>https://github.com/AIDotNet/pi.net</PackageProjectUrl>
     <RepositoryUrl>https://github.com/AIDotNet/pi.net</RepositoryUrl>

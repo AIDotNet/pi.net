@@ -122,19 +122,13 @@ internal sealed class JsExtensionRuntime : IDisposable
     {
         lock (gate)
         {
+            // Bound for the lifetime of the extension, not just the factory call:
+            // commands, tools and event handlers reach `pi.*` later, and upstream
+            // allows that. A reload re-runs the factory and rebinds the new api.
             host.Bind(api);
-            try
-            {
-                var apiObject = engine.Evaluate("__pi_make_api()");
-                var result = engine.Call(factory, JsValue.Undefined, [apiObject]);
-                Await(result, "extension factory");
-            }
-            finally
-            {
-                // The api is only valid while the factory and its callbacks run; a
-                // later event dispatch rebinds it.
-                host.Unbind(api);
-            }
+            var apiObject = engine.Evaluate("__pi_make_api()");
+            var result = engine.Call(factory, JsValue.Undefined, [apiObject]);
+            Await(result, "extension factory");
         }
     }
 
@@ -154,23 +148,6 @@ internal sealed class JsExtensionRuntime : IDisposable
 
             var result = engine.Call(invoke, JsValue.Undefined, [JsValue.FromObject(engine, callbackId), array]);
             return Await(result, $"extension callback {callbackId}");
-        }
-    }
-
-    /// <summary>Run <paramref name="action"/> with the api bound (event dispatch and friends).</summary>
-    internal void WithApi(IExtensionApi api, Action action)
-    {
-        lock (gate)
-        {
-            host.Bind(api);
-            try
-            {
-                action();
-            }
-            finally
-            {
-                host.Unbind(api);
-            }
         }
     }
 

@@ -108,6 +108,19 @@ var fsModule = {
   copyFileSync: function (from, to) { call("fs.copyFile", { from: String(from), to: String(to) }); },
   realpathSync: function (path) { return call("fs.realpath", { path: String(path) }); },
   mkdtempSync: function (prefix) { return call("fs.mkdtemp", { prefix: String(prefix) }); },
+
+  // The host has no background event loop: an extension runs only while a callback
+  // is on the stack, so a watcher could never deliver into an idle engine. Failing
+  // loudly beats returning a handle that silently never fires.
+  watch: function () {
+    throw new Error(
+      "fs.watch is not available in the .NET JavaScript extension host: extensions run only while a " +
+      "callback is on the stack, so a file watcher could never deliver an event into an idle extension. " +
+      "Poll from a command or a tool instead.");
+  },
+  watchFile: function () {
+    throw new Error("fs.watchFile is not available in the .NET JavaScript extension host (no background event loop).");
+  },
   constants: { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 },
 };
 
@@ -146,6 +159,9 @@ fsModule.promises = {
   realpath: function (path) { return Promise.resolve(fsModule.realpathSync(path)); },
   access: function (path) {
     return fsModule.existsSync(path) ? Promise.resolve() : Promise.reject(new Error("ENOENT: " + path));
+  },
+  watch: function () {
+    throw new Error("fs.promises.watch is not available in the .NET JavaScript extension host (no background event loop).");
   },
 };
 

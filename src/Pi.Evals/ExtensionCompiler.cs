@@ -204,10 +204,15 @@ public static partial class ExtensionCompiler
                 return $"    <Reference Include=\"{Xml(name)}\"><HintPath>{Xml(Path.GetFullPath(path))}</HintPath><Private>false</Private></Reference>";
             });
 
+        // 扩展程序集必须与**当前运行时**同属一个目标框架：进程是 net9.0 时照 net10.0 编译，
+        // 加载器解析 IExtensionEntry 会失败（FindEntryFactory 拿不到工厂），而同样的代码在
+        // net10.0 进程里恰好能跑——是硬编码 TFM 掩盖了这个差异。
+        var targetFramework = $"net{Environment.Version.Major}.{Environment.Version.Minor}";
+
         return $$"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
-                <TargetFramework>net10.0</TargetFramework>
+                <TargetFramework>{{targetFramework}}</TargetFramework>
                 <AssemblyName>{{Xml(assemblyName)}}</AssemblyName>
                 <ImplicitUsings>enable</ImplicitUsings>
                 <Nullable>enable</Nullable>

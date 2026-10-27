@@ -511,6 +511,24 @@
     };
   }
 
+  /**
+   * `ctx.sessionManager`. The id and file come with the context payload; the entry
+   * list is fetched on demand, because a session can hold thousands of entries and
+   * most handlers never read them.
+   */
+  function makeSessionManager(handle, snapshot) {
+    var data = snapshot || {};
+    return {
+      sessionId: data.sessionId,
+      sessionFile: data.sessionFile,
+      getSessionId: function () { return data.sessionId; },
+      getSessionFile: function () { return data.sessionFile; },
+      getBranch: function () { return __pi_call("ctx.session.entries", { handle: handle }) || []; },
+      getEntries: function () { return __pi_call("ctx.session.entries", { handle: handle }) || []; },
+      getCwd: function () { return data.cwd; },
+    };
+  }
+
   function makeUi(handle, snapshot) {
     var ui = {};
     var data = snapshot || {};
@@ -619,6 +637,25 @@
   globalThis.__pi_make_context = function (payload) {
     if (!payload) return undefined;
     var handle = payload.handle;
+
+    // Fields that route through the runtime action table are getters: reading them
+    // eagerly would either throw (runtime not bound yet) or pay for a value the
+    // handler never looks at.
+    function lazyField(method) {
+      var cached;
+      var loaded = false;
+      return {
+        get: function () {
+          if (!loaded) {
+            loaded = true;
+            cached = __pi_call(method, { handle: handle });
+          }
+          return cached === null ? undefined : cached;
+        },
+        configurable: true,
+      };
+    }
+
     var ctx = {
       // Host-side identity for capabilities that must call back in later (a tool
       // definition running the built-in tool it wraps).
@@ -626,15 +663,16 @@
       cwd: payload.cwd,
       mode: payload.mode,
       hasUI: payload.hasUI,
-      isIdle: payload.isIdle,
-      model: payload.model,
       modelRegistry: payload.modelRegistry,
       scopedModels: payload.scopedModels,
-      thinkingLevel: payload.thinkingLevel,
       signal: makeSignal(),
-      sessionManager: payload.sessionManager,
+      sessionManager: makeSessionManager(handle, payload.sessionManager),
       ui: makeUi(handle, payload.ui),
     };
+
+    Object.defineProperty(ctx, "model", lazyField("ctx.model"));
+    Object.defineProperty(ctx, "thinkingLevel", lazyField("ctx.thinkingLevel"));
+    Object.defineProperty(ctx, "isIdle", lazyField("ctx.isIdle"));
 
     ctx.shutdown = function () { return Promise.resolve(__pi_call("ctx.shutdown", { handle: handle })); };
     ctx.reload = function () { return Promise.resolve(__pi_call("ctx.reload", { handle: handle })); };
@@ -645,7 +683,7 @@
     ctx.fork = function (entryId, options) { return Promise.resolve(__pi_call("ctx.fork", { handle: handle, entryId: entryId, options: options })); };
     ctx.switchSession = function (sessionPath, options) { return Promise.resolve(__pi_call("ctx.switchSession", { handle: handle, sessionPath: sessionPath, options: options })); };
     ctx.navigateTree = function (targetId, options) { return Promise.resolve(__pi_call("ctx.navigateTree", { handle: handle, targetId: targetId, options: options })); };
-    ctx.isProjectTrusted = function () { return payload.isProjectTrusted === true; };
+    ctx.isProjectTrusted = function () { return __pi_call("ctx.isProjectTrusted", { handle: handle }) === true; };
     return ctx;
   };
 
@@ -666,6 +704,13 @@
         annotations: tool.annotations,
         namespace: tool.namespace,
       };
+
+      if (typeof tool.renderCall === "function" || typeof tool.renderResult === "function") {
+        __pi_call("host.warn", {
+          message: "Tool '" + tool.name + "' declares renderCall/renderResult; the .NET JavaScript "
+            + "extension host ignores custom tool rendering and uses the default.",
+        });
+      }
 
       if (typeof tool.execute === "function") {
         payload.execute = register(function (toolCallId, params, ctxPayload, updateToken) {
@@ -723,7 +768,11 @@
     };
 
     api.on = function (eventName, handler) {
-      var id = register(handler);
+      // The host sends the context as JSON; it has to be rebuilt into the same shape
+      // commands and tools receive, or `ctx.ui` / `ctx.sessionManager` are plain data.
+      var id = register(function (event, ctxPayload) {
+        return handler(event, __pi_make_context(ctxPayload));
+      });
       __pi_call("on", { event: String(eventName), handler: id });
       return function () {
         __pi_call("off", { event: String(eventName), handler: id });

@@ -38,7 +38,9 @@
 | 发布 `pi` 到目录 | `dotnet publish src/Pi.Cli -c Release -o ./pi-bin` |
 | 重新生成 models.json 字段文档 | `node scripts/gen-models-configuration.mjs`（`--check` 供 CI 判断是否过期） |
 
-需要 .NET 10 SDK。单一目标框架 `net10.0`，没有多目标；消费方也必须是 net10.0 及以上。
+需要 .NET 10 SDK。库与可执行程序都是多目标 `net9.0;net10.0`，消费方按自己的运行时选；net8.0 及以下不支持。
+
+多目标是零成本的：net9.0 已经有 net10.0 用到的全部 API（`JsonStringEnumMemberName`、`System.Threading.Lock`、`Convert.ToHexStringLower`、`JsonSerializerOptions.NewLine`），所以代码里没有任何 `#if` 分支。真正的运行时差异只有两处，都已按「两个 TFM 行为一致」修掉：事件记录上的 `Type` 属性必须逐个标 `[JsonIgnore]`（否则一行 JSON 出现两个 `type` 键，net9.0 的 `JsonObject` 会直接抛错），以及 `Pi.Evals.ExtensionCompiler` 生成扩展工程时必须用当前运行的 TFM 而不是硬编码。
 
 `samples/` 下五个工程**在 solution 里**，这是故意的：改公共 API 时它们一起编译失败，逼迫文档里的示例不烂掉。
 

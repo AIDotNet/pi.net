@@ -41,6 +41,7 @@ Not bridged yet, and how each behaves:
 | `registerProvider`, `unregisterProvider`, `registerVirtualModel`, `registerMcpServer` | Throws. Silently ignoring these would make a user believe a provider is registered. |
 | `ctx.ui.custom()` | Throws. The component protocol needs the terminal render loop in the same process. |
 | `process.exit()`, `crypto.createHash` | Throws. An extension shares the host process; exiting it would kill the session. |
+| `fs.watch`, `fs.watchFile`, `fs.promises.watch` | Throws. There is no background event loop to deliver an event into an idle extension; poll from a command or tool instead. |
 
 Notes that matter when porting an extension:
 
@@ -49,6 +50,10 @@ Notes that matter when porting an extension:
   does not drive (a socket, a worker) never settles and is reported as an error rather than hanging.
 - **Contexts are scoped to the callback that received them.** A `ctx` captured beyond its handler is
   stale, matching upstream's documented reload/session-replacement rule.
+- **No background work.** `setTimeout` fires while a handler is running (the host pumps timers while
+  it waits for the handler's promise), but a timer that outlives the handler only runs when the
+  extension is next called. Anything that must react between turns has to be a command, a tool or an
+  event handler.
 - **`create*ToolDefinition()` returns a permissive schema.** The real built-in schema is not marshalled
   to JavaScript yet; execution still runs the host's tool through `ctx.executeTool`.
 - **No npm install step.** Packages are resolved from `node_modules` next to the extension. Install them

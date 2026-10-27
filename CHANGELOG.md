@@ -40,14 +40,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   加载失败。`registerProvider` / `registerVirtualModel` 仍然显式抛错——静默忽略会让用户误以为模型
   供应商已注册。
 
+### Fixed（运行期审查发现的缺陷）
+
+结论：`JsExtensionTests` 只证明「能加载并注册」，用 `ExtensionRunner` 真实派发事件后才暴露出下面 6 个问题。
+均已在本次修掉，并补了 `JsExtensionRuntimeTests`（7 例，含两个真实上游守卫扩展）钉住：
+
+- **事件处理函数拿到的是原始 JSON，不是 ctx**：`api.on` 直接把宿主传来的 payload 交给 handler，
+  于是 `ctx.ui.notify`、`ctx.sessionManager.getBranch`、`ctx.ui.theme` 全部是普通字段，
+  上游扩展在 `session_start` 里一调用就崩（语料里 18 例）。命令与工具走的是
+  `__pi_make_context`，只有事件漏了。修复后语料运行期通过数 55 → 71。
+- **`pi.*` 在工厂返回后失效**：`InvokeFactory` 在 `finally` 里解绑 api，而命令/工具/事件回调都在
+  工厂之后才执行，因此 `pi.getActiveTools()` 之类会抛「used its pi object outside a host call」。
+  改为绑定到扩展生命周期（reload 时重新绑定）。
+- **事件处理函数的结果被丢弃**：调用的是 `On<E>` 重载（返回值 `Task`），结果恒为 null，
+  只有 `On<E, R>` 会保留；`tool_call` 的 `{ block: true }` 因此从来没生效过。
+- **`ctx.sessionManager` 是个空壳**：payload 里放的是字符串占位 `"__pi_fn__"`，
+  `getBranch`/`getEntries` 一调用就 TypeError。改为由宿主按需提供（`ctx.session.entries` 等）。
+- **上下文构造时急切读取运行时动作**：`RegisterContext` 直接读 `ThinkingLevel`/`Model`/`IsIdle`，
+  在运行时未绑定（加载期、project-trust、测试）时抛「Extension runtime not initialized」，
+  让一次事件派发整体失败。改为 JS 侧惰性 getter + 宿主 try/catch 降级。
+- **`fs.watch` 报「not a function」**：改为明确的「没有后台事件循环」错误，并补 `fs.watchFile` /
+  `fs.promises.watch`；`pi.registerTool` 丢弃 `renderCall`/`renderResult` 时也会告警而不是静默。
+
 ### Added (verification)
 
-- `JsExtensionTests`：上游 `hello.ts` 真实加载并执行工具、`node:fs`/`node:path` 解析、命令/flag/
-  快捷键/事件注册、无默认导出、`enum`/`satisfies`/泛型语法，共 6 个端到端用例。
-- 对上游 86 个 TypeScript 示例做一次性语料探针：73 个加载并完成注册；剩余 7 个失败中 4 个是当前环境
-  缺第三方 npm 包（`@anthropic-ai/sdk`、`@earendil-works/gondolin`、`@anthropic-ai/sandbox-runtime`、
-  `ms`），2 个依赖 provider/virtual-model 注册，1 个是读取 `~/.pi/agent/extensions/auth.json` 的测试脚本；
-  另 6 个是没有默认导出的辅助模块（`doom-engine.ts` 等），本就不是扩展入口。
+- `JsExtensionTests`（6 例）：上游 `hello.ts` 真实加载并执行工具、`node:fs`/`node:path` 解析、
+  命令/flag/快捷键/事件注册、无默认导出、`enum`/`satisfies`/泛型语法。
+- `JsExtensionRuntimeTests`（7 例）：经 `ExtensionRunner` 真实派发事件——上游 `protected-paths.ts`
+  拦截 `.env` 写入且对非目标工具放行、`permission-gate.ts` 拦截危险命令、命令处理函数在工厂返回后
+  仍能调用 `pi.*` 并读 `ctx.sessionManager`、`pi.on` 的退订生效、工具 `execute` 拿到工具上下文并
+  透传 `onUpdate` 部分结果、`pi.events` 跨扩展投递。
+- 对上游 86 个 TypeScript 示例做**运行期**语料探针（加载 + 注册 + 派发 `session_start` 与两次
+  `tool_call`）：71 个完全通过；6 个是没有默认导出的辅助模块（`doom-engine.ts` 等，本就不是入口）；
+  9 个未通过 = 4 个缺第三方 npm 包（`@anthropic-ai/sdk`、`@earendil-works/gondolin`、
+  `@anthropic-ai/sandbox-runtime`、`ms`，装上即可）+ 2 个 provider/virtual-model 注册 +
+  1 个读取 `~/.pi/agent/extensions/auth.json` 的测试脚本 + 1 个 `fs.watch`（无后台循环）+
+  1 个 `osascript`（macOS 专用，Windows 上失败属预期）。
 
 ## [1.4.4] - 2026-10-27
 
