@@ -1,14 +1,13 @@
 # Extension Examples (TypeScript — reference only)
 
-> **这些示例不能在 pi.net 上加载。** pi.net 只加载编译好的 .NET 程序集，不能像上游那样
-> 在运行时编译 TypeScript。这里的 `.ts` 文件保留下来是为了**对照上游的扩展协议**：
-> 看某个能力（工具、命令、渲染器、钩子）在上游长什么样，再按同样的语义写成 C#。
+> **这些示例可以在 pi.net 上直接加载。** 端口把 TypeScript 编译成 CommonJS 后在进程内执行
+> （Jint + Babel），所以本目录的 `.ts` 文件既是上游协议参考，也是可运行的扩展：拷进
+> `.pi/extensions/` 或 `pi -e <file>` 即可。
 >
-> 可编译的 C# 扩展示例见 `samples/Pi.Sample.Extension`，接口约定见
-> `docs/dotnet-extensions.md`。
+> 覆盖范围与尚未桥接的 API 见 `docs/dotnet-extensions.md`。渲染器注册目前降级为警告
+> （扩展照常加载，自定义渲染不生效）；provider/virtual-model 注册会显式报错。
 >
-> 把本目录的文件拷进 `.pi/extensions/` 不会报错也不会生效——发现阶段会把源码扩展分流成一条
-> warning（`TypeScript/JavaScript extensions are not loadable by the .NET port`）。
+> 编译为 .NET 程序集的扩展见 `samples/Pi.Sample.Extension`。
 
 Example extensions for pi-coding-agent.
 

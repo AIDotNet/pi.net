@@ -58,6 +58,15 @@
       <PackagePath>contentFiles/any/any/Assets/assets/</PackagePath>
       <PackageCopyToOutput>true</PackageCopyToOutput>
     </Content>
+    <!-- JavaScript 扩展运行时：Babel（TypeScript → CommonJS）、prelude 与 node/pi 的 shim 模块。
+         扩展在进程内加载 .ts 时按 AppContext.BaseDirectory/Assets/extension-runtime 查找，
+         因此必须随包分发。 -->
+    <Content Include="Assets\extension-runtime\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>true</Pack>
+      <PackagePath>contentFiles/any/any/Assets/extension-runtime/</PackagePath>
+      <PackageCopyToOutput>true</PackageCopyToOutput>
+    </Content>
     <!-- 上游文档 / 示例 / 元数据只进构建输出，不随包分发：
          它们占 Assets 的 4.1MB，且 examples 里的 .gitignore 会触发 NU5119。
          注意 Assets\package.json 是 Config.Version 的运行时来源（TS 语义优先于程序集版本），

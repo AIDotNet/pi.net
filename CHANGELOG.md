@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+### Added
+
+- **进程内 JavaScript/TypeScript 扩展宿主（方案 A）**：`.ts` / `.tsx` / `.js` / `.mjs` / `.cjs` / `.jsx`
+  扩展现在直接加载，不再要求先编译成程序集。实现要点：
+  - **转译**：`@babel/standalone` 跑在 Jint 上（`Assets/extension-runtime/vendor/babel.min.js`），
+    `sourceType: unambiguous` 让 TypeScript、node_modules 里的 ESM 和 CommonJS 走同一条管线；
+    结果按内容哈希缓存，编译线程用 64 MB 栈（TypeBox 的生成式解析器会撑爆默认栈）。
+  - **模块系统**：CommonJS 解析（相对路径、`node_modules` 上溯、`package.json` 的
+    `exports`/`module`/`main`、目录 index），每个扩展一个 Jint engine，互不污染。
+  - **Node 内置模块**：`fs`、`path`、`os`、`process`、`timers`、`url`、`crypto`、`util`、`events`、
+    `child_process`、`buffer`、`module`、`zlib`、`readline` 的 shim，全部经宿主落到真实的文件系统/进程。
+  - **`@earendil-works/*` 运行时**：`pi-ai`（TypeBox 风格 `Type`、`StringEnum`、`uuidv7`）、
+    `pi-coding-agent`（`defineTool`、`getAgentDir`、`withFileMutationQueue`、截断助手、
+    内置工具工厂）、`pi-tui`（`Text`/`Box`/`Container`/`matchesKey`/`visibleWidth` 等）。
+  - **宿主 API 桥**：`pi.*` 全量注册接口（工具/命令/快捷键/flag/事件/exec/消息/会话标题/工具开关）、
+    `ctx.ui`（notify/select/confirm/input/editor/status/widget）、`ctx.sessionManager`、
+    `pi.events` 跨扩展事件总线，全部经 JSON 桥落到既有 `IExtensionApi`。
+  - **Promise 泵**：扩展的 `async` 工厂与处理函数由 `Engine.Advanced.ProcessTasks()` 加自建定时器队列
+    驱动，宿主不需要事件循环。
+- `CompositeExtensionModuleLoader`：按扩展名分派——`.dll` 走 `AssemblyLoadContext`，源码走 Jint。
+  `ExtensionLoader` 的默认装载器换成它，`DiscoverAndLoadExtensions` 不再把 `.ts`/`.js` 分流成 warning。
+- `docs/dotnet-extensions.md` 重写：两条扩展路径（程序集 / 源码）的入口约定、shim 覆盖面、
+  尚未桥接的 API 清单。
+
+### Changed
+
+- **`ResolveExtensionEntries` 恢复上游顺序 `index.ts` → `index.js` → `index.dll`**：源码是事实来源，
+  编译产物退为后备（1.4.4 里「优先 index.dll」的做法按上游语义回退）。
+- 1.4.4 里「源码扩展只给一条提示」的行为已被上面的宿主取代；`SourceExtensionWarning` 与
+  `PartitionSourceExtensions` 一并删除。
+- `pi.registerMessageRenderer` / `registerEntryRenderer` / `registerToolRenderer` /
+  `registerMarkdownTransformer` 目前**降级为警告**：扩展照常加载，自定义渲染不生效，而不是让整个扩展
+  加载失败。`registerProvider` / `registerVirtualModel` 仍然显式抛错——静默忽略会让用户误以为模型
+  供应商已注册。
+
+### Added (verification)
+
+- `JsExtensionTests`：上游 `hello.ts` 真实加载并执行工具、`node:fs`/`node:path` 解析、命令/flag/
+  快捷键/事件注册、无默认导出、`enum`/`satisfies`/泛型语法，共 6 个端到端用例。
+- 对上游 86 个 TypeScript 示例做一次性语料探针：73 个加载并完成注册；剩余 7 个失败中 4 个是当前环境
+  缺第三方 npm 包（`@anthropic-ai/sdk`、`@earendil-works/gondolin`、`@anthropic-ai/sandbox-runtime`、
+  `ms`），2 个依赖 provider/virtual-model 注册，1 个是读取 `~/.pi/agent/extensions/auth.json` 的测试脚本；
+  另 6 个是没有默认导出的辅助模块（`doom-engine.ts` 等），本就不是扩展入口。
+
 ## [1.4.4] - 2026-10-27
 
 对齐上游 `v1.4.0` 之后 88 个未发布提交里的 P0 部分：13 条用户能撞到的缺陷，外加几条低风险特性。

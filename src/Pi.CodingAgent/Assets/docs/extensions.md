@@ -6,7 +6,7 @@ An extension runs inside the Pi process with the same operating-system permissio
 
 Typical extensions add an agent tool, protect paths, confirm dangerous commands, react to session events, modify context, expose a command, or display persistent status.
 
-The .NET port loads compiled C# assemblies rather than compiling TypeScript at runtime. See [.NET Extensions](dotnet-extensions.md) for its assembly entry point and C# contracts; the examples on this page are TypeScript-specific.
+The .NET port compiles and runs these TypeScript modules in-process (Babel on Jint), so the API on this page applies unchanged; see [.NET Extensions](dotnet-extensions.md) for the shim coverage, the APIs that are not bridged yet, and the compiled-assembly alternative.
 
 <a id="quick-start"></a>
 <a id="writing-an-extension"></a>

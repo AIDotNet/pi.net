@@ -241,6 +241,7 @@ C# 侧另有若干「JS 语义」辅助（TS 无对应文件，供全部子阶�
 
 1. **llama 拆分**：4d 只移植 `client.ts` / `provider.ts` / `huggingface.ts` / `index.ts`（963 行，HTTP 客户端 + 提供者注册）；`ui.ts`（503 行）依赖 4f 的 Theme 与交互组件，随 4f 落地。
 2. **扩展加载走 C# 原生插件路线**（与 `migration-plan.md` 一致）：扩展为 .NET 程序集，用 `AssemblyLoadContext` 加载。功能等价，但分发形式从「丢一个 `.ts` 文件」变为「放一个 `.dll`」。
+   **修订（2026-10-27，方案 A）**：`JsExtensionModuleLoader` 在进程内转译并执行 TS/JS 扩展，`CompositeExtensionModuleLoader` 按扩展名分派，`.ts` 恢复为可分发形态；程序集仍是等价的第二条路径。
 
 
 ## 关键设计差异（TS → C#）

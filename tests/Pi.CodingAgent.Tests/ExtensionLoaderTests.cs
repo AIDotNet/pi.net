@@ -768,58 +768,48 @@ public class ExtensionLoaderTests : IDisposable
     // ------------------------------------------------------------------ source extensions
 
     /// <summary>
-    /// 端口只能加载程序集：发现结果里的 .ts/.js 被分流成 warning（附带能照做的提示），
-    /// 只有 .dll 进加载器。否则用户看到的是 ALC 抛出的 BadImageFormat。
+    /// 源码扩展不再被分流：发现阶段保留 .ts，交给注入的装载器（默认为按扩展名分派的
+    /// CompositeExtensionModuleLoader）。
     /// </summary>
     [Fact]
-    public void PartitionSourceExtensions_SplitsAssembliesFromSourceFiles()
-    {
-        var (assemblies, skipped) = ExtensionLoader.PartitionSourceExtensions(
-            ["/ext/a.dll", "/ext/b.ts", "/ext/c.js", "/ext/d.dll"]);
-
-        Assert.Equal(["/ext/a.dll", "/ext/d.dll"], assemblies);
-        Assert.Equal(["/ext/b.ts", "/ext/c.js"], skipped.Select(warning => warning.Path));
-        Assert.All(skipped, warning => Assert.Contains("not loadable by the .NET port", warning.Warning));
-        Assert.All(skipped, warning => Assert.Contains("dotnet-extensions.md", warning.Warning));
-    }
-
-    /// <summary>端到端：项目 extensions 目录里的 .ts 不产生 error，只留一条能照做的 warning。</summary>
-    [Fact]
-    public async Task DiscoverAndLoadExtensions_ReportsSourceExtensionsInsteadOfFailing()
+    public async Task DiscoverAndLoadExtensions_HandsSourceExtensionsToTheModuleLoader()
     {
         var cwd = NewTempDir();
         var agentDir = NewTempDir();
-        WriteFile(Path.Combine(cwd, Config.ConfigDirName, "extensions", "legacy.ts"));
+        var legacy = Path.Combine(cwd, Config.ConfigDirName, "extensions", "legacy.ts");
+        WriteFile(legacy);
 
-        var result = await ExtensionLoader.DiscoverAndLoadExtensions(
-            [], cwd, agentDir, moduleLoader: new FakeModuleLoader());
+        var loader = new FakeModuleLoader();
+        await ExtensionLoader.DiscoverAndLoadExtensions([], cwd, agentDir, moduleLoader: loader);
 
-        Assert.Empty(result.Extensions);
-        Assert.Empty(result.Errors);
-        Assert.Contains(result.Warnings, warning => warning.Path.EndsWith("legacy.ts", StringComparison.Ordinal));
+        Assert.Contains(loader.ImportedPaths, path => path.EndsWith("legacy.ts", StringComparison.Ordinal));
     }
 
-    /// <summary>同一目录里源码与编译产物并存时，只有 .dll 进加载器。</summary>
+    /// <summary>同一目录里源码与编译产物并存时，两者都进加载器（由装载器按扩展名分派）。</summary>
     [Fact]
-    public async Task DiscoverAndLoadExtensions_LoadsTheAssemblyBesideASourceExtension()
+    public async Task DiscoverAndLoadExtensions_LoadsBothTheAssemblyAndTheSourceExtension()
     {
         var cwd = NewTempDir();
         var agentDir = NewTempDir();
         var extDir = Path.Combine(cwd, Config.ConfigDirName, "extensions");
         var dllPath = Path.Combine(extDir, "legacy.dll");
-        WriteFile(Path.Combine(extDir, "legacy.ts"));
+        var tsPath = Path.Combine(extDir, "legacy.ts");
+        WriteFile(tsPath);
         WriteFile(dllPath);
         var loader = new FakeModuleLoader((dllPath, static _ => Task.CompletedTask));
 
         var result = await ExtensionLoader.DiscoverAndLoadExtensions([], cwd, agentDir, moduleLoader: loader);
 
+        Assert.Equal(2, loader.ImportCount);
+        Assert.Contains(tsPath, loader.ImportedPaths);
+        Assert.Contains(dllPath, loader.ImportedPaths);
+        // 假装载器只认 .dll，源码扩展解析出 null 工厂，因此只有程序集算作已加载。
         Assert.Single(result.Extensions);
-        Assert.Equal(1, loader.ImportCount);
-        Assert.Single(result.Warnings);
     }
 
+    /// <summary>目录入口顺序与上游一致：index.ts 优先于 index.js / index.dll。</summary>
     [Fact]
-    public void ResolveExtensionEntries_PrefersIndexDllOverIndexTs()
+    public void ResolveExtensionEntries_PrefersIndexTsOverIndexDll()
     {
         var dir = NewTempDir();
         WriteFile(Path.Combine(dir, "index.ts"));
@@ -827,7 +817,7 @@ public class ExtensionLoaderTests : IDisposable
 
         var entries = ExtensionLoader.ResolveExtensionEntries(dir);
 
-        Assert.Equal([Path.Combine(dir, "index.dll")], entries);
+        Assert.Equal([Path.Combine(dir, "index.ts")], entries);
     }
 
     // ------------------------------------------------------------------ discovery
