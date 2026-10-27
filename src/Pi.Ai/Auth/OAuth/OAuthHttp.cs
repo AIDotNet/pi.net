@@ -82,6 +82,20 @@ internal static class OAuthHttp
         }
     }
 
+    /// <summary>
+    /// 只接受 http/https 的绝对 URL，返回规范化后的字符串；否则 null。
+    /// 这些地址由服务端下发，登录流程会交给系统 URL 处理器打开，放行 <c>file:</c>
+    /// 或自定义协议等于让服务端拉起本地程序。对应上游 <c>trustedHttpUrl()</c>。
+    /// </summary>
+    public static string? TrustedHttpUrl(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        return Uri.TryCreate(value, UriKind.Absolute, out var url)
+               && url.Scheme is "http" or "https"
+            ? url.ToString()
+            : null;
+    }
+
     /// <summary>读响应文本（失败返回空串）。对应 <c>response.text().catch(() =&gt; "")</c>。</summary>
     public static async Task<string> ReadTextAsync(HttpResponseMessage response)
     {

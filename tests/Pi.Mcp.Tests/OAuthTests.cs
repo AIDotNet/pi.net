@@ -77,6 +77,30 @@ public class OAuthTests
         Assert.Null(tokens.Scope);
     }
 
+    [Theory]
+    [InlineData("file:///tmp/payload.app")]
+    [InlineData("search-ms:query=secret")]
+    [InlineData("ftp://example.com/authorize")]
+    public void AuthorizationEndpointsOutsideHttpAreRejected(string endpoint)
+    {
+        // 授权端点会被系统 URL 处理器打开，file: 或自定义协议等于让服务器拉起本地程序。
+        Assert.Throws<ArgumentException>(() => OAuthTypes.ParseAuthorizationServerMetadata(new JsonObject
+        {
+            ["issuer"] = "https://a.com",
+            ["authorization_endpoint"] = endpoint,
+            ["token_endpoint"] = "https://a.com/token",
+            ["response_types_supported"] = new JsonArray("code"),
+        }));
+
+        Assert.Throws<ArgumentException>(() => OAuthTypes.ParseAuthorizationServerMetadata(new JsonObject
+        {
+            ["issuer"] = "https://a.com",
+            ["authorization_endpoint"] = "https://a.com/authorize",
+            ["token_endpoint"] = endpoint,
+            ["response_types_supported"] = new JsonArray("code"),
+        }));
+    }
+
     [Fact]
     public void BuildsDiscoveryUrlCandidates()
     {

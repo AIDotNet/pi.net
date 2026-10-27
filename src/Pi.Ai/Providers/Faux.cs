@@ -419,14 +419,16 @@ public static class Faux
             {
                 var cachedChars = CommonPromptPrefixLength(previousPrompt, prompt);
                 cacheRead = (long)Math.Ceiling(cachedChars / 4.0);
-                cacheWrite = (long)Math.Ceiling((promptLength - cachedChars) / 4.0);
-                input = Math.Max(0, promptTokens - cacheRead);
+                cacheWrite = Math.Max(0, promptTokens - cacheRead);
             }
             else
             {
                 cacheWrite = promptTokens;
             }
 
+            // 模拟缓存期间每个 prompt token 要么命中缓存、要么写入缓存，不能再计进 input，
+            // 否则 input + cacheRead + cacheWrite 会超过估算的 prompt。
+            input = 0;
             promptCache[sessionId] = prompt;
         }
 

@@ -39,6 +39,23 @@ public sealed class LoginDialogComponent : Container, IFocusable
 
     private static string BelHyperlink(string text, string url) => $"{Osc8Open}{url}{Osc8Bel}{text}{Osc8Close}";
 
+    /// <summary>
+    /// 只认 http/https。共享的打开器同时也能开文件和自定义协议，登录只能打开网页地址。
+    /// 顺便把控制字符百分号编码，否则它们会提前结束终端超链接。
+    /// </summary>
+    private static string? WebUrl(string value)
+        => Uri.TryCreate(value, UriKind.Absolute, out var url) && url.Scheme is "http" or "https"
+            ? url.ToString()
+            : null;
+
+    /// <summary>能规范成网页地址就规范化，否则把控制字符替换成空格（不可信字符串不能原样打印）。</summary>
+    private static string DisplayUrl(string value)
+        => WebUrl(value) ?? Ansi.ReplaceControlCharacters(value);
+
+    /// <summary>网页地址才做成终端超链接，其余只留纯文本。</summary>
+    private static string WebLink(string text, string url)
+        => WebUrl(url) is { } target ? BelHyperlink(text, target) : text;
+
     private readonly Container _contentContainer;
     private readonly Input _input;
     private readonly ITui _tui;
@@ -145,9 +162,10 @@ public sealed class LoginDialogComponent : Container, IFocusable
     /// <summary>Called by the <c>onAuth</c> callback — show URL and optional instructions.</summary>
     public void ShowAuth(string url, string? instructions = null)
     {
+        var target = WebUrl(url);
         _contentContainer.Clear();
         _contentContainer.AddChild(new Spacer(1));
-        _authUrl = new AuthUrlComponent(_tui, url);
+        _authUrl = new AuthUrlComponent(_tui, target ?? Ansi.ReplaceControlCharacters(url));
         _contentContainer.AddChild(_authUrl);
 
         if (!string.IsNullOrEmpty(instructions))
@@ -156,7 +174,11 @@ public sealed class LoginDialogComponent : Container, IFocusable
             _contentContainer.AddChild(new TuiText(ThemeRuntime.Current.Fg("warning", instructions), 1, 0));
         }
 
-        OpenBrowser.Open(url);
+        if (target is not null)
+        {
+            OpenBrowser.Open(target);
+        }
+
         _tui.RequestRender();
     }
 
@@ -168,11 +190,12 @@ public sealed class LoginDialogComponent : Container, IFocusable
         _contentContainer.Clear();
         _contentContainer.AddChild(new Spacer(1));
 
-        var linkedUrl = BelHyperlink(info.VerificationUri, info.VerificationUri);
+        var shownUrl = DisplayUrl(info.VerificationUri);
+        var linkedUrl = WebLink(shownUrl, shownUrl);
         _contentContainer.AddChild(new TuiText(theme.Fg("accent", linkedUrl), 1, 0));
 
         var clickHint = OperatingSystem.IsMacOS() ? "Cmd+click to open" : "Ctrl+click to open";
-        var hyperlink = BelHyperlink(clickHint, info.VerificationUri);
+        var hyperlink = WebLink(clickHint, info.VerificationUri);
         _contentContainer.AddChild(new TuiText(theme.Fg("dim", hyperlink), 1, 0));
         _contentContainer.AddChild(new Spacer(1));
         _contentContainer.AddChild(new TuiText(theme.Fg("warning", $"Enter code: {info.UserCode}"), 1, 0));
@@ -244,8 +267,9 @@ public sealed class LoginDialogComponent : Container, IFocusable
 
         foreach (var link in links ?? [])
         {
-            var text = link.Label is { Length: > 0 } label ? $"{label}: {link.Url}" : link.Url;
-            _contentContainer.AddChild(new TuiText(theme.Fg("accent", BelHyperlink(text, link.Url)), 1, 0));
+            var url = DisplayUrl(link.Url);
+            var text = link.Label is { Length: > 0 } label ? $"{label}: {url}" : url;
+            _contentContainer.AddChild(new TuiText(theme.Fg("accent", WebLink(text, url)), 1, 0));
         }
 
         if (showCloseHint)

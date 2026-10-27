@@ -126,10 +126,18 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
     {
         _contentContainer.Clear();
 
-        var hasVisibleContent = message.Content.Any(IsVisibleContent);
-        if (hasVisibleContent)
+        // 空行按需添加：紧挨着下一个可见块之前加。这样第一个可见块前仍有一个空行，
+        // 而后面还有内容的可见 thinking 段之后也会有；隐藏且无标签的 thinking 则什么都不留。
+        var needsSpacer = true;
+        void AddVisibleChild(IComponent child)
         {
-            _contentContainer.AddChild(new Spacer(1));
+            if (needsSpacer)
+            {
+                _contentContainer.AddChild(new Spacer(1));
+                needsSpacer = false;
+            }
+
+            _contentContainer.AddChild(child);
         }
 
         // Render content in order.
@@ -141,7 +149,7 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
             {
                 // Assistant text messages with no background - trim the text.
                 // Set paddingY=0 to avoid extra spacing before tool executions.
-                _contentContainer.AddChild(new Markdown(
+                AddVisibleChild(new Markdown(
                     text.Trim(),
                     _outputPad,
                     0,
@@ -178,14 +186,15 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
 
                 // Add spacing only when another visible assistant content block follows.
                 // This avoids a superfluous blank line before separately-rendered tool execution blocks.
-                var hasVisibleContentAfter = message.Content
-                    .Skip(i + 1)
-                    .Any(IsVisibleContent);
-
                 var runIndex = thinkingRunIndex++;
                 var hidden = _thinkingVisibilityOverrides.TryGetValue(runIndex, out var overrideHidden)
                     ? overrideHidden
                     : _hideThinkingBlock;
+                // 隐藏且标签为空时整段不渲染，也不留空行。
+                if (hidden && string.IsNullOrWhiteSpace(_hiddenThinkingLabel))
+                {
+                    continue;
+                }
                 IComponent thinkingComponent = hidden
                     ? new Text(
                         ThemeRuntime.Current.Italic(ThemeRuntime.Current.Fg("thinkingText", _hiddenThinkingLabel)),
@@ -205,7 +214,7 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
                         {
                             Transform = MarkdownTransform.Create("assistant-thinking", isStreaming, _markdownTransformers),
                         });
-                _contentContainer.AddChild(new MouseRegion(thinkingComponent, @event =>
+                AddVisibleChild(new MouseRegion(thinkingComponent, @event =>
                 {
                     if (@event.Type != TuiMouseEventType.Click || @event.Button != TuiMouseButton.Left)
                     {
@@ -220,10 +229,8 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
 
                     return new TuiMouseEventResult { Handled = true };
                 }));
-                if (hasVisibleContentAfter)
-                {
-                    _contentContainer.AddChild(new Spacer(1));
-                }
+                // 下一段可见内容之前再补空行；没有后续内容就不留尾部空行。
+                needsSpacer = true;
             }
         }
 

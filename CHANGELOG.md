@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-10-27
+
+对齐上游 `v1.4.0` 之后 88 个未发布提交里的 P0 部分：13 条用户能撞到的缺陷，外加几条低风险特性。
+上游剩余的大头是 chord/durable 的 watch 体系重构，另立阶段处理。
+
 ### Added
 
 - `pi doctor [--json]`：在会话初始化前离线诊断本地配置、项目信任、Shell/搜索工具路径和凭据来源。
@@ -12,6 +17,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - **可编译的 C# 扩展示例**：`samples/Pi.Sample.Extension`（一个工具 + 一个斜杠命令 + 状态栏更新），
   里面写了 `ProjectReference Private="false"` 的原因（契约程序集必须由宿主解析，扩展目录不能放
   私有副本）。已加入解决方案并接入 `dotnet-extensions.md`。
+
+- **GPT-6.1 Terra**：`openai`、`openai-codex`、`azure` 三个 provider 补上 `gpt-6.1-terra`
+  （$1/$5，缓存读 $0.05、写 $1.25，272k 以上走长上下文档位；Codex 侧 500k 窗口）。它接受
+  `reasoning.effort: "none"`，而 Sol 不接受，两者都拒绝 `minimal`——thinking 档位表按此填写。
+  `openai` 的默认模型同时从 `gpt-5.5` 换成 `gpt-6.1-sol`。
+- `pi-messages` 终态事件（`done`/`error`）现在透传 `responseModel`，与其它五家 API 一致。
 
 ### Changed
 
@@ -34,6 +45,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   它们走 `BuiltInExtensions`）。现在默认 `AssemblyLoadContextExtensionLoader.Instance`
   （进程内单例，保住按路径复用的 collectible context），占位类删除。
 - `--list-models` 的模糊搜索包含模型显示名称，可搜索 `models.json` 中的自定义名称；表格格式与排序保持兼容。
+- **MCP 登录只认 http/https**：授权端点会用系统 URL 处理器打开，之前只挡了
+  `javascript:`/`data:`/`vbscript:`，`file:` 和 `search-ms:` 这类自定义协议仍会被拉起本地程序。
+  元数据解析和 `startAuthorization` 两处都按上游改成只放行 http/https。
+- **不可信输入加固**：`pi-messages` 的 `contentIndex` 来自 wire 却直接当数组下标用，`__proto__`
+  式的越界值会把 content 撑成稀疏数组或让后续 delta 写错块，现在只接受「下一块或已有块」；
+  Radius OAuth 的授权端点与 `verification_uri` 走统一的 http/https 校验；登录对话框只打开
+  http/https 链接，非网页 URL 里的控制字符替换成空格；终端标题（会话名来自会话文件）同样
+  清洗 C0/C1 控制字符，避免 BEL/ESC 提前结束 OSC 序列。
+- **Anthropic 系统更新落到 user 消息前面导致 400**：转换后没有任何块的 assistant 消息会被丢弃，
+  而中段系统消息在检查之前就 flush 了；现在压在真正发出去的 assistant 消息之前。
+- **Anthropic 逐消息 effort 时顶层固定发 `low`**：组织可以设 effort 上限，之前固定 `high` 会让
+  低/中档请求也被整条拒掉；真实档位仍由逐条消息的 `output_config` 携带。
+- **faux provider 把缓存写入又算进 input**：带 `sessionId` 时同一个 prompt token 同时进了
+  `input` 和 `cacheWrite`，`input + cacheRead + cacheWrite` 超过估算的 prompt。现在缓存模拟期间
+  `input` 恒为 0，`cacheWrite` 用 `promptTokens - cacheRead` 计算。
+- **OpenCode 走了错的协议端点**：`/inference/v1` 是所有协议共用的旧地址，按上游改成
+  `/inference/openai/v1`、`/inference/anthropic`、`/inference/google/v1beta`、
+  `/inference/systemone/v1`（Go 侧同理加 `/go` 前缀）。顺带把 `deepseek-v4.1-flash` 的
+  `supportsLongCacheRetention` 关掉——网关会拒 `prompt_cache_retention`。
+- **`pi.exec` 吞掉 spawn 失败原因**：`Process.Start` 找不到可执行文件时抛 `Win32Exception`，
+  之前整个方法直接抛出去；现在按 Node 的 reject 分支返回 `code 1` 并把错误信息放进 `stderr`。
+- **一个装不上的扩展包会拦住整个启动**：`settings.json` 里的包因为注册表不可达、包不存在或
+  git prepare 失败时，解析阶段抛异常直接崩；现在跳过该包、记一条 warning（带 `pi remove`
+  提示），下次启动或 `/reload` 重试。
+- **grep 上下文行在孤立 CR 的文件里整体偏移**：取上下文时把 CRLF 和单个 CR 都折成了换行，
+  而 ripgrep 只按 LF 计行；现在只归一 CRLF。
+- **provider id 含 `/` 时 `provider/id` 解析不到**：`llama-server=http://host:10800` 这类
+  URL 派生的 id 会在第一个 `/` 处被切断；改成在已知 provider id 里做最长匹配。
+- **深层嵌套引用块渲染爆炸**：宽度被嵌套耗尽后仍按 1 列逐层重排，80 列下 50 层要 30 秒、
+  55 层直接栈溢出；现在放不下边框时按原宽直接渲染子节点。语料里修复前的引用块向量改为
+  由专门的深度用例覆盖（`MarkdownBlockquoteDepthTests`）。
+- **隐藏 thinking 且标签为空时留下一行空白**：空标签的隐藏块现在整段不渲染，也不再占一个
+  空行；有标签时保持原来的标签行与间距。
+- **工具搜索不优先点名匹配**：查询就是工具名（或 MCP 名的 `__` 末段）时，长度归一化会把描述里
+  恰好含这些词的短文档排到前面；现在点名匹配排最前，其余仍按 BM25 分数排。
 
 ## [1.4.3] - 2026-10-24
 

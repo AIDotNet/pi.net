@@ -210,7 +210,9 @@ public class AnthropicMessagesWireTests
         Assert.Equal("adaptive", Str(thinking, "type"));
         Assert.Equal("summarized", Str(thinking, "display"));
         Assert.Equal("drop_block", Str(thinking["block_binding"], "prefix_mismatch_behavior"));
-        Assert.Equal("high", Str(parameters["output_config"], "effort"));
+        // 顶层 effort 固定 low：组织可以设上限，高于上限的档位会被整条请求拒掉；
+        // 逐条消息的 effort 标记仍带真实档位（见下方的 medium / high）。
+        Assert.Equal("low", Str(parameters["output_config"], "effort"));
 
         var messages = Arr(parameters["messages"]);
         var efforts = messages

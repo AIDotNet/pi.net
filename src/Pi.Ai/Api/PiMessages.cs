@@ -289,6 +289,7 @@ public static class PiMessages
         public AssistantMessageEvent Convert(JsonObject @event)
         {
             var type = @event.Str("type");
+            ValidateContentIndex(@event, type);
             switch (type)
             {
                 case "done":
@@ -296,6 +297,10 @@ public static class PiMessages
                     _partial.StopReason = MapStopReason(@event.Str("reason"), terminal: true);
                     _partial.Usage = ParseUsage(@event["usage"]);
                     _partial.ResponseId = @event.Str("responseId");
+                    if (@event.Str("responseModel") is { } responseModel)
+                    {
+                        _partial.ResponseModel = responseModel;
+                    }
                     if (@event.Str("providerThinkingLevel") is { } thinkingLevel)
                     {
                         _partial.ProviderThinkingLevel = thinkingLevel;
@@ -309,6 +314,10 @@ public static class PiMessages
                     _partial.ErrorMessage = @event.Str("errorMessage");
                     _partial.Usage = ParseUsage(@event["usage"]);
                     _partial.ResponseId = @event.Str("responseId");
+                    if (@event.Str("responseModel") is { } errorResponseModel)
+                    {
+                        _partial.ResponseModel = errorResponseModel;
+                    }
                     if (@event.Str("providerThinkingLevel") is { } errorThinkingLevel)
                     {
                         _partial.ProviderThinkingLevel = errorThinkingLevel;
@@ -458,6 +467,28 @@ public static class PiMessages
 
         private int ContentIndex(JsonObject @event)
             => (int)(@event.Num("contentIndex") ?? 0);
+
+        /// <summary>
+        /// contentIndex 来自 wire，却直接当 content 数组下标用：负数、非整数或离谱的大值
+        /// 要么把数组撑成几十亿个空洞，要么让后续 delta 落到错误的块上。<c>*_start</c>
+        /// 只能新增下一块，其余事件必须指向已存在的块。
+        /// </summary>
+        private void ValidateContentIndex(JsonObject @event, string? type)
+        {
+            if (!@event.TryGetPropertyValue("contentIndex", out var node) || node is null) return;
+            var limit = type?.EndsWith("_start", StringComparison.Ordinal) == true
+                ? _partial.Content.Count
+                : _partial.Content.Count - 1;
+            if (node is not JsonValue value
+                || !value.TryGetValue<double>(out var number)
+                || number != Math.Floor(number)
+                || number < 0
+                || number > limit)
+            {
+                throw new InvalidOperationException(
+                    $"Invalid contentIndex {node.ToJsonString()} in pi-messages {type} event");
+            }
+        }
 
         private ContentBlock? GetBlock(int index)
             => index >= 0 && index < _partial.Content.Count ? _partial.Content[index] : null;

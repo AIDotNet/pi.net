@@ -199,7 +199,9 @@ public static class GrepTool
                     try
                     {
                         var content = await ops.ReadFileAsync(filePath).ConfigureAwait(false);
-                        lines = EditDiff.NormalizeToLf(content).Split('\n').ToList();
+                        // 只归一 CRLF，孤立 CR 不能当换行：ripgrep 只按 LF 计行，
+                        // 把 CR 也折成行会让匹配点之后的行号整体偏移一位（上游 #11398）。
+                        lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
                     }
                     catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                     {

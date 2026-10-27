@@ -488,6 +488,23 @@ public sealed class Markdown : IComponent
 
             case "blockquote":
             {
+                // 放不下再一层边框（"│ " 加至少一列内容）时，按原宽直接渲染子节点：否则每多一层
+                // 都会把子行按宽度 1 重新折行，输出随嵌套深度指数增长（60 层就能把进程打崩）。
+                if (width < 3)
+                {
+                    var deepTokens = token.Tokens ?? [];
+                    for (var i = 0; i < deepTokens.Count; i++)
+                    {
+                        var deepNextType = i + 1 < deepTokens.Count ? deepTokens[i + 1].Type : null;
+                        foreach (var deepLine in RenderToken(deepTokens[i], width, deepNextType, styleContext))
+                        {
+                            lines.Add(deepLine);
+                        }
+                    }
+
+                    break;
+                }
+
                 var quoteStyle = (string text) => _theme.Quote(_theme.Italic(text));
                 var quoteStylePrefix = GetStylePrefix(quoteStyle);
                 string ApplyQuoteStyle(string line)
@@ -502,7 +519,7 @@ public sealed class Markdown : IComponent
                 }
 
                 // Calculate available width for quote content (subtract border "│ " = 2 chars)
-                var quoteContentWidth = Math.Max(1, width - 2);
+                var quoteContentWidth = width - 2;
 
                 // Blockquotes contain block-level tokens (paragraph, list, code, etc.), so render
                 // children with renderToken() instead of renderInlineTokens().

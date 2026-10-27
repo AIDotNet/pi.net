@@ -452,7 +452,9 @@ public sealed class ProcessTerminal : ITerminal
 
     public void ClearScreen() => Write("\x1b[2J\x1b[H");
 
-    public void SetTitle(string title) => Write($"\x1b]0;{title}\x07");
+    // 标题里出现 BEL/ESC 会提前结束 OSC 序列，剩下的字节被终端当成转义指令执行；
+    // 会话名来自会话文件，先把控制字符替换掉。
+    public void SetTitle(string title) => Write($"\x1b]0;{Ansi.ReplaceControlCharacters(title)}\x07");
 
     public void SetProgress(bool active)
     {
@@ -635,7 +637,9 @@ public sealed class StringTerminal : ITerminal
 
     public void ClearScreen() => Write("\x1b[2J\x1b[H");
 
-    public void SetTitle(string title) => Write($"\x1b]0;{title}\x07");
+    // 标题里出现 BEL/ESC 会提前结束 OSC 序列，剩下的字节被终端当成转义指令执行；
+    // 会话名来自会话文件，先把控制字符替换掉。
+    public void SetTitle(string title) => Write($"\x1b]0;{Ansi.ReplaceControlCharacters(title)}\x07");
 
     public void SetProgress(bool active) => Write(active ? "\x1b]9;4;3\x07" : "\x1b]9;4;0\x07");
 

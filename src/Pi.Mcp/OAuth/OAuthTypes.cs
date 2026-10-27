@@ -192,15 +192,21 @@ public static class OAuthTypes
         => map.TryGetValue(name, out var value) && value is JsonValue { } jsonValue
             && jsonValue.TryGetValue<bool>(out var flag) ? flag : null;
 
-    /// <summary>校验 URL 且拒绝 javascript:/data:/vbscript: 协议。</summary>
+    /// <summary>
+    /// 只接受 http/https URL。这些地址由 MCP 服务器提供，授权端点会用系统 URL 处理器打开，
+    /// 放行 <c>file:</c> 或自定义协议（如 <c>search-ms:</c>）等于让服务器拉起本地程序。
+    /// </summary>
     private static string SafeUrl(string text)
     {
         if (!Uri.TryCreate(text, UriKind.Absolute, out var url))
             throw new ArgumentException($"Invalid URL: {text}");
-        if (url.Scheme is "javascript" or "data" or "vbscript")
+        if (!IsHttpUrl(url))
             throw new ArgumentException($"Invalid URL scheme: {url.Scheme}");
         return text;
     }
+
+    /// <summary>仅 http/https。对应上游 <c>isHttpUrl()</c>。</summary>
+    public static bool IsHttpUrl(Uri url) => url.Scheme is "http" or "https";
 
     private static string? OptionalUrl(Dictionary<string, JsonNode?> map, string name)
         => !map.TryGetValue(name, out var value) || Absent(value) ? null : SafeUrl(RequiredString(map, name, name));

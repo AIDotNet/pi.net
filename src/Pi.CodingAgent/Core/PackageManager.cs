@@ -82,6 +82,19 @@ public sealed record ResolvedResources
     public IReadOnlyList<ResolvedResource> Prompts { get; init; } = [];
 
     public IReadOnlyList<ResolvedResource> Themes { get; init; } = [];
+
+    /// <summary>配置了但装不上的包（注册表不可达、包不存在、git prepare 失败等）。</summary>
+    public IReadOnlyList<PackageInstallFailure> InstallFailures { get; init; } = [];
+}
+
+/// <summary>Port of TS <c>PackageInstallFailure</c>.</summary>
+public sealed record PackageInstallFailure
+{
+    public required string Source { get; init; }
+
+    public required string Scope { get; init; }
+
+    public required string Message { get; init; }
 }
 
 /// <summary>Port of TS <c>ConfiguredPackage</c>.</summary>
@@ -252,6 +265,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
     {
         cancellationToken.ThrowIfCancellationRequested();
         var accumulator = new Accumulator();
+        var installFailures = new List<PackageInstallFailure>();
 
         // Collect all packages with scope (project first so cwd resources win collisions).
         var allPackages = new List<PackageEntry>();
@@ -267,7 +281,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
 
         // Dedupe: project scope wins over global for the same package identity.
         var packageSources = DedupePackages(allPackages);
-        await ResolvePackageSourcesAsync(packageSources, accumulator, onMissing, cancellationToken)
+        await ResolvePackageSourcesAsync(packageSources, accumulator, onMissing, installFailures, cancellationToken)
             .ConfigureAwait(false);
 
         var globalBaseDir = _agentDir;
@@ -318,7 +332,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
                     ?? PackageManagerPatterns.IsEnabledByOverrides(path, GlobalEntries("extensions"), globalBaseDir));
         }
 
-        return ToResolvedPaths(accumulator);
+        return ToResolvedPaths(accumulator, installFailures);
     }
 
     /// <summary>TS <c>resolveExtensionSources</c>.</summary>
@@ -330,6 +344,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
     {
         cancellationToken.ThrowIfCancellationRequested();
         var accumulator = new Accumulator();
+        var installFailures = new List<PackageInstallFailure>();
         var scope = temporary ? SourceScope.Temporary : local ? SourceScope.Project : SourceScope.User;
 
         // `-e builtin:<name>` loads a built-in extension; the resource loader reports unknown names.
@@ -355,8 +370,9 @@ public sealed partial class DefaultPackageManager : IPackageManager
             }
         }
 
-        await ResolvePackageSourcesAsync(packageSources, accumulator, null, cancellationToken).ConfigureAwait(false);
-        return ToResolvedPaths(accumulator);
+        await ResolvePackageSourcesAsync(packageSources, accumulator, null, installFailures, cancellationToken)
+            .ConfigureAwait(false);
+        return ToResolvedPaths(accumulator, installFailures);
     }
 
     /// <summary>TS <c>listConfiguredPackages</c>.</summary>
@@ -394,6 +410,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
         IReadOnlyList<PackageEntry> sources,
         Accumulator accumulator,
         Func<string, Task<string>>? onMissing,
+        List<PackageInstallFailure> installFailures,
         CancellationToken cancellationToken)
     {
         foreach (var entry in sources)
@@ -408,6 +425,8 @@ public sealed partial class DefaultPackageManager : IPackageManager
             var resolvedScope = deltaBase?.Scope ?? scope;
             var parsed = ParseSource(resolvedSource);
             var metadata = new PathMetadata { Source = sourceStr, Scope = scope, Origin = SourceOrigin.Package };
+            // onMissing 明确要求报错时不能当成「装不上」吞掉，见下方 TryInstallAsync 的过滤条件。
+            var missingSourceRequested = false;
 
             if (parsed.Type == "local")
             {
@@ -437,11 +456,32 @@ public sealed partial class DefaultPackageManager : IPackageManager
 
                 if (action == MissingSourceAction.Error)
                 {
+                    missingSourceRequested = true;
                     throw new InvalidOperationException($"Missing source: {resolvedSource}");
                 }
 
                 await InstallParsedSourceAsync(parsed, resolvedScope, cancellationToken).ConfigureAwait(false);
                 return true;
+            }
+
+            // 装不上一个配错的包不该让整个 pi 起不来：记下失败、跳过这个包，
+            // 下次启动或 /reload 会重试（对应上游 #11304）。
+            async Task<bool> TryInstallAsync()
+            {
+                try
+                {
+                    return await InstallMissingAsync().ConfigureAwait(false);
+                }
+                catch (Exception error) when (error is not OperationCanceledException && !missingSourceRequested)
+                {
+                    installFailures.Add(new PackageInstallFailure
+                    {
+                        Source = resolvedSource,
+                        Scope = resolvedScope,
+                        Message = error.Message,
+                    });
+                    return false;
+                }
             }
 
             if (parsed.Type == "npm")
@@ -451,7 +491,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
                     || !InstalledNpmMatchesConfiguredVersion(parsed, installedPath);
                 if (needsInstall)
                 {
-                    var installed = await InstallMissingAsync().ConfigureAwait(false);
+                    var installed = await TryInstallAsync().ConfigureAwait(false);
                     if (!installed)
                     {
                         continue;
@@ -470,7 +510,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
                 var installedPath = GetGitInstallPath(parsed, resolvedScope);
                 if (!Directory.Exists(installedPath))
                 {
-                    var installed = await InstallMissingAsync().ConfigureAwait(false);
+                    var installed = await TryInstallAsync().ConfigureAwait(false);
                     if (!installed)
                     {
                         continue;
@@ -1109,7 +1149,8 @@ public sealed partial class DefaultPackageManager : IPackageManager
     /// TS <c>toResolvedPaths</c>: sort by precedence (stable, so ties keep insertion order), then drop
     /// canonical-path duplicates keeping the first.
     /// </summary>
-    private static ResolvedResources ToResolvedPaths(Accumulator accumulator)
+    private static ResolvedResources ToResolvedPaths(
+        Accumulator accumulator, IReadOnlyList<PackageInstallFailure>? installFailures = null)
     {
         static List<ResolvedResource> MapToResolved(ResourceMap map)
         {
@@ -1149,6 +1190,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
             Skills = MapToResolved(accumulator.Skills),
             Prompts = MapToResolved(accumulator.Prompts),
             Themes = MapToResolved(accumulator.Themes),
+            InstallFailures = installFailures ?? [],
         };
     }
 

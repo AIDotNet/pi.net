@@ -95,7 +95,7 @@ public sealed class RadiusOAuth : IOAuthAuth
         }
 
         var discovery = await OAuthHttp.ReadObjectAsync(response).ConfigureAwait(false);
-        if (discovery?.Str("authorizationEndpoint") is not { } endpoint)
+        if (OAuthHttp.TrustedHttpUrl(discovery?.Str("authorizationEndpoint")) is not { } endpoint)
         {
             throw new InvalidOperationException($"Invalid Radius OAuth config from {_gateway}");
         }
@@ -261,7 +261,7 @@ public sealed class RadiusOAuth : IOAuthAuth
             ?? throw new InvalidOperationException("Radius OAuth device authorization response is missing required fields");
         if (data.Str("device_code") is not { Length: > 0 } deviceCode
             || data.Str("user_code") is not { Length: > 0 } userCode
-            || data.Str("verification_uri") is not { Length: > 0 } verificationUri
+            || OAuthHttp.TrustedHttpUrl(data.Str("verification_uri")) is not { } verificationUri
             || data.Num("expires_in") is not { } expiresIn)
         {
             throw new InvalidOperationException("Radius OAuth device authorization response is missing required fields");

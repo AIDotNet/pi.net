@@ -96,6 +96,42 @@ public static class Ansi
         }
     }
 
+    /// <summary>
+    /// 把成串的 C0/C1 控制字符（ESC、BEL、换行等）替换为一个空格。
+    /// 对应 TS <c>replaceControlCharacters()</c>。
+    /// </summary>
+    public static string ReplaceControlCharacters(string str)
+    {
+        if (str.Length == 0)
+        {
+            return str;
+        }
+
+        StringBuilder? buffer = null;
+        var lastWasControl = false;
+        for (var i = 0; i < str.Length; i++)
+        {
+            var c = str[i];
+            var isControl = c <= '\u001f' || (c >= '\u007f' && c <= '\u009f');
+            if (!isControl)
+            {
+                lastWasControl = false;
+                buffer?.Append(c);
+                continue;
+            }
+
+            buffer ??= new StringBuilder(str.Length).Append(str, 0, i);
+            if (!lastWasControl)
+            {
+                buffer.Append(' ');
+            }
+
+            lastWasControl = true;
+        }
+
+        return buffer?.ToString() ?? str;
+    }
+
     /// <summary>Remove ANSI, OSC, and APC control sequences while preserving visible text.</summary>
     public static string StripTerminalSequences(string str)
     {

@@ -288,7 +288,7 @@ public static class ModelResolver
         new("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
         new("ant-ling", "Ring-2.6-1T"),
         new("anthropic", "claude-opus-4-8"),
-        new("openai", "gpt-5.5"),
+        new("openai", "gpt-6.1-sol"),
         new("azure", "gpt-5.4"),
         new("openai-codex", "gpt-6.1-sol"),
         new("radius", "balanced"),
@@ -572,17 +572,30 @@ public static class ModelResolver
     /// <summary>
     /// Split a leading <c>provider/</c> off <paramref name="text"/> when it names a provider of the pool.
     /// </summary>
+    /// <remarks>
+    /// Provider ids themselves may contain <c>/</c> (URL-derived ids such as
+    /// <c>llama-server=http://host:10800</c>), so the split cannot just take the first slash:
+    /// match the known ids and let the longest one win. Ordinary ids resolve exactly as before.
+    /// </remarks>
     private static (string Provider, string ModelText)? SplitProviderPrefix(
         string text, IReadOnlyList<ModelSpec> models)
     {
-        var slashIndex = text.IndexOf('/');
-        if (slashIndex == -1) return null;
-        var prefix = JsString.Trim(text[..slashIndex]);
-        var modelText = JsString.Trim(text[(slashIndex + 1)..]);
-        if (prefix.Length == 0 || modelText.Length == 0) return null;
-        prefix = JsString.ToLowerCase(prefix);
-        var provider = models.FirstOrDefault(model => JsString.ToLowerCase(model.Provider) == prefix)?.Provider;
-        return provider is null ? null : (provider, modelText);
+        var lowerText = JsString.ToLowerCase(text);
+        (string Provider, string ModelText)? best = null;
+        foreach (var model in models)
+        {
+            var prefix = JsString.ToLowerCase(JsString.Trim(model.Provider));
+            if (prefix.Length == 0) continue;
+            if (best is { } current && current.Provider.Length >= model.Provider.Length) continue;
+            // C# 的 IndexOf(char, startIndex) 越界会抛；JS 的 indexOf 返回 -1。
+            if (prefix.Length >= lowerText.Length) continue;
+            var slashIndex = lowerText.IndexOf('/', prefix.Length);
+            if (slashIndex == -1 || JsString.Trim(lowerText[..slashIndex]) != prefix) continue;
+            var modelText = JsString.Trim(text[(slashIndex + 1)..]);
+            if (modelText.Length > 0) best = (model.Provider, modelText);
+        }
+
+        return best;
     }
 
     /// <summary>

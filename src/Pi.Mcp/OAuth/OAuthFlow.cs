@@ -161,6 +161,9 @@ public static class OAuthFlow
 
         var url = metadata?.AuthorizationEndpoint is { } endpoint
             ? new Uri(endpoint) : new Uri(new Uri(authorizationServerUrl), "/authorize");
+        // 调用方会用系统 URL 处理器打开这个地址，它同样能拉起文件和自定义协议。
+        if (!OAuthTypes.IsHttpUrl(url))
+            throw new InvalidOperationException($"Invalid authorization endpoint {url}");
         var (verifier, challenge) = Pkce();
         var query = System.Web.HttpUtility.ParseQueryString(string.Empty);
         query["response_type"] = "code";

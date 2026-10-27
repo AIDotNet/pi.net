@@ -41,14 +41,25 @@ public static class Exec
         string cwd,
         ExecOptions? options = null)
     {
-        var process = ChildProcess.SpawnProcess(
-            command,
-            args,
-            new SpawnOptions
-            {
-                Cwd = cwd,
-                Stdio = [StdioMode.Ignore, StdioMode.Pipe, StdioMode.Pipe],
-            });
+        ChildProcessHandle process;
+        try
+        {
+            process = ChildProcess.SpawnProcess(
+                command,
+                args,
+                new SpawnOptions
+                {
+                    Cwd = cwd,
+                    Stdio = [StdioMode.Ignore, StdioMode.Pipe, StdioMode.Pipe],
+                });
+        }
+        catch (Exception error)
+        {
+            // Node 的 spawn 失败走 reject 分支：返回 code 1，并把错误信息塞进 stderr。
+            // C# 这边 Process.Start 直接抛（找不到可执行文件是 Win32Exception），
+            // 不接住的话 "command not found" 只剩一个异常，调用方看不到 ENOENT 之类的原因。
+            return new ExecResult("", error.Message, 1, false);
+        }
 
         var killed = false;
         void KillProcess()

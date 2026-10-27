@@ -103,13 +103,60 @@ public class ToolSearchCorpusTests
         foreach (var vector in Corpus.GetProperty("rank").EnumerateArray())
         {
             var documents = ReadDocuments(vector.GetProperty("documents"));
+            var query = vector.GetProperty("query").GetString()!;
+            // 语料取自「点名优先」规则（上游 ae823bc）之前的实现：点名查询的期望顺序会变，
+            // 这里跳过，命名规则由 Bm25Ranker_PrefersTheToolTheQueryNames 单独钉住。
+            if (QueryNamesADocument(query, documents))
+            {
+                continue;
+            }
+
             var matches = new ToolSearch.Bm25Ranker().Rank(
-                vector.GetProperty("query").GetString()!,
+                query,
                 documents,
                 vector.GetProperty("limit").GetInt32());
             CheckMatches($"rank {vector.GetProperty("query").GetString()} limit {vector.GetProperty("limit").GetInt32()}",
                 vector.GetProperty("expected"), matches);
         }
+    }
+
+    [Fact]
+    public void Bm25Ranker_PrefersTheToolTheQueryNames()
+    {
+        var documents = new List<ToolSearchDocument>
+        {
+            new("grep", "search file contents for patterns"),
+            new("mcp__docs__search", "search documentation mcp server"),
+        };
+
+        var matches = new ToolSearch.Bm25Ranker().Rank("search", documents, 8);
+        Assert.Equal("mcp__docs__search", matches[0].Name);
+
+        // 全名同样命中，且 MCP 前缀的末段也算点名。
+        Assert.Equal("mcp__docs__search", new ToolSearch.Bm25Ranker().Rank("mcp__docs__search", documents, 8)[0].Name);
+        Assert.Equal("mcp__docs__search", new ToolSearch.Bm25Ranker().Rank("docs__search", documents, 8)[0].Name);
+    }
+
+    private static bool QueryNamesADocument(string query, IReadOnlyList<ToolSearchDocument> documents)
+    {
+        static string Normalize(string name)
+        {
+            var builder = new System.Text.StringBuilder(name.Trim().Length);
+            foreach (var c in name.Trim().ToLowerInvariant())
+            {
+                builder.Append(c is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '_' or '$' ? c : '_');
+            }
+
+            return builder.ToString();
+        }
+
+        var normalizedQuery = Normalize(query);
+        return documents.Any(document =>
+        {
+            var normalizedName = Normalize(document.Name);
+            return normalizedName == normalizedQuery
+                || normalizedName.EndsWith($"__{normalizedQuery}", StringComparison.Ordinal);
+        });
     }
 
     [Fact]
@@ -120,8 +167,14 @@ public class ToolSearchCorpusTests
             var k1 = vector.GetProperty("k1").ValueKind == JsonValueKind.Null ? (double?)null : vector.GetProperty("k1").GetDouble();
             var b = vector.GetProperty("b").ValueKind == JsonValueKind.Null ? (double?)null : vector.GetProperty("b").GetDouble();
             var documents = ReadDocuments(vector.GetProperty("documents"));
+            var query = vector.GetProperty("query").GetString()!;
+            if (QueryNamesADocument(query, documents))
+            {
+                continue;
+            }
+
             var matches = new ToolSearch.Bm25Ranker(k1, b).Rank(
-                vector.GetProperty("query").GetString()!,
+                query,
                 documents,
                 vector.GetProperty("limit").GetInt32());
             CheckMatches($"rankCustom k1={k1} b={b} query={vector.GetProperty("query").GetString()}",

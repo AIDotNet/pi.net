@@ -150,11 +150,12 @@ public class FauxUsageEstimateTests
 
         var message = await RunAsync(core, [UserText("hello")], new SimpleStreamOptions(SessionId: "s1"));
 
+        // 模拟缓存期间每个 prompt token 都进 cacheWrite，input 必须是 0。
         var usage = Assert.IsType<Usage>(message.UsageStats);
-        Assert.Equal(3, usage.Input);
+        Assert.Equal(0, usage.Input);
         Assert.Equal(0, usage.CacheRead);
         Assert.Equal(3, usage.CacheWrite);
-        Assert.Equal(7, usage.TotalTokens);
+        Assert.Equal(4, usage.TotalTokens);
     }
 
     [Fact]
@@ -187,9 +188,9 @@ public class FauxUsageEstimateTests
 
         // 首次：提示 = "user:aaa"(8) + "assistant:bbb"(13)，(2-1)*2+21 = 23 → ceil(23/4) = 6。
         var firstUsage = Assert.IsType<Usage>(first.UsageStats);
-        Assert.Equal(6, firstUsage.Input);
+        Assert.Equal(0, firstUsage.Input);
         Assert.Equal(6, firstUsage.CacheWrite);
-        Assert.Equal(13, firstUsage.TotalTokens);
+        Assert.Equal(7, firstUsage.TotalTokens);
 
         var second = await RunAsync(
             core,
@@ -198,12 +199,12 @@ public class FauxUsageEstimateTests
 
         // 逐条比较：第 0 条相等 → index=1；首条长度贡献 joinedLength(prev,1) = 8。
         // 余段 "\n\nassistant:bb" 共 14 字符相同 → cachedChars = 8 + 14 = 22 → cacheRead = ceil(22/4) = 6。
-        // 当前提示 23 字符 → cacheWrite = ceil((23-22)/4) = 1；input = max(0, 6-6) = 0。
+        // 当前提示 6 token → cacheWrite = max(0, 6-6) = 0；input 固定为 0。
         var secondUsage = Assert.IsType<Usage>(second.UsageStats);
         Assert.Equal(0, secondUsage.Input);
         Assert.Equal(6, secondUsage.CacheRead);
-        Assert.Equal(1, secondUsage.CacheWrite);
-        Assert.Equal(8, secondUsage.TotalTokens);
+        Assert.Equal(0, secondUsage.CacheWrite);
+        Assert.Equal(7, secondUsage.TotalTokens);
     }
 
     [Fact]
@@ -235,7 +236,7 @@ public class FauxUsageEstimateTests
 
         // 另一个会话 id 没有历史提示 → 仍走「首次写入」分支。
         var usage = Assert.IsType<Usage>(message.UsageStats);
-        Assert.Equal(3, usage.Input);
+        Assert.Equal(0, usage.Input);
         Assert.Equal(0, usage.CacheRead);
         Assert.Equal(3, usage.CacheWrite);
     }

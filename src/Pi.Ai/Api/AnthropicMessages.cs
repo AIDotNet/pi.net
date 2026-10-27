@@ -326,7 +326,9 @@ public static class AnthropicMessages
                 ["display"] = options?.ThinkingDisplay ?? "summarized",
                 ["block_binding"] = new JsonObject { ["prefix_mismatch_behavior"] = "drop_block" },
             };
-            parameters["output_config"] = new JsonObject { ["effort"] = "high" };
+            // 顶层 effort 是缓存前缀的一部分，必须固定；定成 low 是因为组织可以设上限，
+            // 任何高于上限的档位都会被整条请求拒掉，而逐条消息的 effort 标记已经带上了真实档位。
+            parameters["output_config"] = new JsonObject { ["effort"] = "low" };
         }
         else if (model.Reasoning)
         {
@@ -521,7 +523,6 @@ public static class AnthropicMessages
             }
             else if (message is AssistantMessage assistant)
             {
-                FlushPendingSystemMessages();
                 var blocks = new JsonArray();
                 foreach (var block in assistant.Content)
                 {
@@ -595,6 +596,9 @@ public static class AnthropicMessages
                     }
                 }
                 if (blocks.Count == 0) continue;
+                // 转换后没有块的 assistant 消息会被丢弃，系统更新必须压在它之后，
+                // 否则会落到 user 消息前面，Claude 直接 400（上游 #11091）。
+                FlushPendingSystemMessages();
                 var messageIndex = parameters.Count;
                 parameters.Add(new JsonObject { ["role"] = "assistant", ["content"] = blocks });
                 if (managedProvider is not null

@@ -382,9 +382,29 @@ public static partial class ToolSearch
             _b = b ?? 0.75;
         }
 
-        public IReadOnlyList<ToolSearchMatch> Rank(string query, IReadOnlyList<ToolSearchDocument> documents, int limit)
+        /// <summary>小写化，并把标识符里不合法的字符逐个换成 <c>_</c>，让 <c>dev-radius</c> 能匹配 <c>dev_radius</c>。</summary>
+        private static string NormalizeName(string name)
         {
-            var queryTerms = Tokenize(query).Distinct().ToList();
+            var trimmed = name.Trim().ToLowerInvariant();
+            var chars = new char[trimmed.Length];
+            for (var i = 0; i < trimmed.Length; i++)
+            {
+                var c = trimmed[i];
+                chars[i] = c is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '_' or '$' ? c : '_';
+            }
+
+            return new string(chars);
+        }
+
+        /// <summary>查询是否就是在点名这个工具：全名，或 <c>__</c> 之后的末段。</summary>
+        private static bool IsNameQuery(string normalizedQuery, string name)
+        {
+            var normalized = NormalizeName(name);
+            return normalized == normalizedQuery || normalized.EndsWith($"__{normalizedQuery}", StringComparison.Ordinal);
+        }
+
+        public IReadOnlyList<ToolSearchMatch> Rank(string query, IReadOnlyList<ToolSearchDocument> documents, int limit)
+        {            var queryTerms = Tokenize(query).Distinct().ToList();
             if (queryTerms.Count == 0 || documents.Count == 0 || limit <= 0)
             {
                 return [];
@@ -415,7 +435,8 @@ public static partial class ToolSearch
                 idf[term] = Math.Log(1 + (documents.Count - frequency + 0.5) / (frequency + 0.5));
             }
 
-            var matches = new List<ToolSearchMatch>();
+            var matches = new List<(ToolSearchMatch Match, bool Named)>();
+            var nameQuery = NormalizeName(query);
             for (var index = 0; index < documents.Count; index++)
             {
                 double score = 0;
@@ -432,12 +453,20 @@ public static partial class ToolSearch
 
                 if (score > 0)
                 {
-                    matches.Add(new ToolSearchMatch(documents[index].Name, score));
+                    matches.Add((
+                        new ToolSearchMatch(documents[index].Name, score),
+                        IsNameQuery(nameQuery, documents[index].Name)));
                 }
             }
 
-            // JS Array.prototype.sort is stable (ES2019); List<T>.Sort is not, so keep OrderByDescending.
-            return matches.OrderByDescending(match => match.Score).Take(limit).ToList();
+            // 点名查询优先：长度归一化会把「描述里恰好含这些词」的短文档排到前面，这里直接压过去。
+            // JS Array.prototype.sort 稳定（ES2019）；LINQ 的 OrderBy 同样稳定，所以同分保持文档顺序。
+            return matches
+                .OrderByDescending(match => match.Named)
+                .ThenByDescending(match => match.Match.Score)
+                .Take(limit)
+                .Select(match => match.Match)
+                .ToList();
         }
     }
 }

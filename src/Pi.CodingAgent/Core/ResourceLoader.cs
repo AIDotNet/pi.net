@@ -255,6 +255,18 @@ public sealed class DefaultResourceLoader
             temporary: true,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
+        // 装不上的包只会让对应扩展缺席，不该拦住启动；这里把它变成一条可见的告警。
+        foreach (var failure in resolved.InstallFailures.Concat(cliResolved.InstallFailures))
+        {
+            var removeHint = failure.Scope == SourceScope.Project
+                ? $"pi remove {failure.Source} --local"
+                : $"pi remove {failure.Source}";
+            diagnostics.Add(ResourceDiagnostic.Warning(
+                $"Extension package \"{failure.Source}\": failed to install ({failure.Message}). " +
+                $"Run \"{removeHint}\" to remove it from settings.json.",
+                failure.Source));
+        }
+
         // TS rebuilds the provenance tables on every reload; post-reload passes (`extendResources`)
         // read them back, so they must stay on the instance.
         _resourceMetadataByPath = new Dictionary<string, PathMetadata>(StringComparer.Ordinal);

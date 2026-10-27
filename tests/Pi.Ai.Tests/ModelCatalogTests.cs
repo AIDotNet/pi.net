@@ -21,7 +21,7 @@ public class ModelCatalogTests
 
         // chat 是缺省类型（JSON 无 type 字段）。
         Assert.Equal(ModelType.Chat, gpt55.Type);
-        Assert.Equal(42, openai.ChatModels.Count);
+        Assert.Equal(43, openai.ChatModels.Count);
         Assert.Empty(openai.ImageModels);
         // openai-decisions 的分类模型落在独立桶里。
         Assert.Equal("openai-decisions", Assert.Single(openai.ClassifierModels.Values).Api);
@@ -46,8 +46,9 @@ public class ModelCatalogTests
         }
 
         Assert.Empty(empty);
-        // 上游 v1.4.0 的 42 份数据 flatten 后按 id 去重，总计 1713 个条目。
-        Assert.Equal(1713, total);
+        // 上游 v1.4.0 的 42 份数据 flatten 后按 id 去重 1713 个条目；1.4.4 补入
+        // GPT-6.1 Terra（openai / openai-codex / azure 三条），总计 1716。
+        Assert.Equal(1716, total);
     }
 
     /// <summary>
@@ -77,7 +78,7 @@ public class ModelCatalogTests
         }
 
         Assert.Empty(incomplete);
-        Assert.Equal(1599, total);
+        Assert.Equal(1602, total);
     }
 
     [Fact]
