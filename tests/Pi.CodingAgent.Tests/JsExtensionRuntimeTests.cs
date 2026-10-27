@@ -222,6 +222,72 @@ public sealed class JsExtensionRuntimeTests
         Assert.Equal("got:hi", subscriberHarness.Recorder.SessionName);
     }
 
+    [Fact]
+    public async Task Exec_RunsACommandAndReturnsStdout()
+    {
+        // 19 upstream examples shell out through pi.exec; the result shape has to match
+        // upstream (`stdout` / `stderr` / `code`), not the C# record's property names.
+        var directory = NewTempDir();
+        var extensionPath = Path.Combine(directory, "shell.ts");
+        await File.WriteAllTextAsync(extensionPath, """
+            import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+            export default function (pi: ExtensionAPI) {
+              pi.registerTool({
+                name: "shell",
+                label: "Shell",
+                description: "Runs a command through pi.exec.",
+                parameters: { type: "object", properties: {}, additionalProperties: false },
+                async execute() {
+                  const result = await pi.exec("git", ["--version"]);
+                  return {
+                    content: [{ type: "text", text: result.code + "|" + result.stdout.trim() }],
+                  };
+                },
+              });
+            }
+            """);
+
+        var harness = await CreateRunnerAsync(extensionPath);
+        var tool = harness.Extension.Tools["shell"].Definition;
+
+        var result = await tool.Execute(
+            "call-1",
+            new Dictionary<string, object?>(),
+            CancellationToken.None,
+            null,
+            harness.Runner.CreateToolContext("call-1", CancellationToken.None));
+
+        var text = Assert.IsType<TextContent>(result.Content[0]).Text;
+        Assert.StartsWith("0|", text, StringComparison.Ordinal);
+        Assert.Contains("git version", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ContextHandler_CanReplaceTheMessageList()
+    {
+        // `context` handlers rewrite what the model sees. Returning null here was silent:
+        // the event result only mapped `{ block }`, so `{ messages }` was dropped.
+        var directory = NewTempDir();
+        var extensionPath = Path.Combine(directory, "rewriter.ts");
+        await File.WriteAllTextAsync(extensionPath, """
+            import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+            export default function (pi: ExtensionAPI) {
+              pi.on("context", async () => ({
+                messages: [{ role: "user", content: "injected", timestamp: 1 }],
+              }));
+            }
+            """);
+
+        var harness = await CreateRunnerAsync(extensionPath);
+
+        var messages = await harness.Runner.EmitContextAsync([new UserMessage("original", 0)]);
+
+        var message = Assert.IsType<UserMessage>(Assert.Single(messages));
+        Assert.Equal("injected", message.Content.TextValue);
+    }
+
     // ------------------------------------------------------------------ harness
 
     /// <summary>What the bound host actions recorded, so a handler's effect is observable.</summary>

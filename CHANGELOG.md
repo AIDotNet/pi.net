@@ -61,6 +61,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   让一次事件派发整体失败。改为 JS 侧惰性 getter + 宿主 try/catch 降级。
 - **`fs.watch` 报「not a function」**：改为明确的「没有后台事件循环」错误，并补 `fs.watchFile` /
   `fs.promises.watch`；`pi.registerTool` 丢弃 `renderCall`/`renderResult` 时也会告警而不是静默。
+- **事件结果只映射了 `{ block }`**：`context` 的 `{ messages }` 与 `message_end` 的 `{ message }`
+  被静默丢弃（改写上下文/消息的扩展等于无效）。现在按 `ContextEventResult` / `MessageEndEventResult`
+  映射，形状不匹配时降级为「无结果」并记 debug 日志，不会让其他事件误伤。
 
 ### Added (verification)
 

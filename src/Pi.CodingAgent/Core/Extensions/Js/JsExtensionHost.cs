@@ -593,7 +593,41 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
             };
         }
 
+        // `{ messages }` — the `context` event replacing the message list.
+        if (result["messages"] is JsonArray messages)
+        {
+            return TryMap<ContextEventResult>(() => new ContextEventResult
+            {
+                Messages = messages.Deserialize<List<ChatMessage>>(JsonOptions),
+            });
+        }
+
+        // `{ message }` — `message_end` replacing one message. Other events use the same
+        // field name with a different payload (`before_agent_start` sends a draft), which
+        // fails to deserialize as a ChatMessage and is reported as "no result" instead.
+        if (result["message"] is JsonObject message)
+        {
+            return TryMap<MessageEndEventResult>(() => new MessageEndEventResult
+            {
+                Message = message.Deserialize<ChatMessage>(JsonOptions),
+            });
+        }
+
         return null;
+    }
+
+    /// <summary>Map a returned object, answering null when its shape does not match this event.</summary>
+    private T? TryMap<T>(Func<T> map) where T : class
+    {
+        try
+        {
+            return map();
+        }
+        catch (JsonException error)
+        {
+            Log("debug", $"An event result did not match {typeof(T).Name}: {error.Message}");
+            return null;
+        }
     }
 
     private static string SerializeEvent(object? @event)
