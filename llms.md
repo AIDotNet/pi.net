@@ -112,7 +112,11 @@ dotnet run --project samples/Pi.Samples.CodingSession
 `src/Pi.CodingAgent/Assets/docs/` 是上游 TS 用户文档原文，行为与端口一致（`Assets/docs` 与 `Assets/examples` 不随 NuGet 包分发）。
 
 - [index.md](src/Pi.CodingAgent/Assets/docs/index.md)：39 篇的总索引，按主题分流。
-- [dotnet-extensions.md](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)：**C# 扩展 API 的唯一权威**。上游 `extensions.md` 讲的是 TS 扩展，写 .NET 扩展别照它抄。可编译的示例在 `samples/Pi.Sample.Extension`；`Assets/examples/extensions-typescript/` 是上游 `.ts` 示例，**只作协议参考，端口加载不了**（发现阶段会记一条 warning）。
+- [dotnet-extensions.md](src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)：**C# 扩展 API 的唯一权威**。上游 `extensions.md` 讲的是 TS 扩展，写 .NET 扩展别照它抄；可编译的示例在 `samples/Pi.Sample.Extension`。
+- **TypeScript/JavaScript 扩展可以直接加载**（1.4.5 起）：`Assets/examples/extensions-typescript/` 的上游 `.ts` 示例由进程内 JavaScript 宿主（Jint + Babel）直接跑，不必先编译成程序集；回归口径见
+  `tests/Pi.CodingAgent.Tests/UpstreamTypeScriptExampleTests.cs`（79 个真实入口，71 个端到端通过）。
+  尚未桥接的部分（`registerProvider` / `registerVirtualModel`、`ctx.ui.custom()` 与自定义渲染器）记在
+  `dotnet-extensions.md`。
 - [skills.md](src/Pi.CodingAgent/Assets/docs/skills.md)：`skills/<name>/SKILL.md` 的格式与加载规则。
 - [providers.md](src/Pi.CodingAgent/Assets/docs/providers.md) / [custom-provider.md](src/Pi.CodingAgent/Assets/docs/custom-provider.md)：内置 provider 清单；怎么加一个自定义 provider。
 - [settings.md](src/Pi.CodingAgent/Assets/docs/settings.md) / [configuration.md](src/Pi.CodingAgent/Assets/docs/configuration.md)：settings 字段与配置目录。

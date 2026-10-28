@@ -101,7 +101,7 @@ curl -X DELETE "https://www.nuget.org/api/v2/package/Pi.Ai/1.0.5" \
 
 ## 包内容的几个约定
 
-- **单一目标框架** `net10.0`：消费方项目也必须是 net10.0 及以上。
+- **多目标** `net9.0;net10.0`（1.4.5 起）：消费方项目 net9.0 及以上即可。
 - **`Pi.Mcp`** 依赖 `Microsoft.AspNetCore.App` 框架引用，消费方项目需要 ASP.NET Core（`Web` SDK 或 `FrameworkReference`）。
 - **`Pi.CodingAgent`** 带 3 个运行时资源目录（`Assets/theme`、`Assets/export-html`、`Assets/assets`），
   以 `contentFiles` + `PackageCopyToOutput` 发布，还原后会落到消费方输出目录，
@@ -132,9 +132,18 @@ dotnet test tests/Pi.Tui.Tests -c Release
 
 在 CI 上跑（仅观察用，失败不阻塞）：`Actions -> CI -> Run workflow`，勾选 `run_tests`。
 
-已知负载敏感 flake（并行争抢时偶发，单跑必绿）：
+已知负载敏感 flake（并行争抢时偶发，单跑必绿；**不要**据此判定回归）：
 `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`、
-`ThemeRuntimeTests.StartWatcher_IgnoresChangesToOtherFiles`。
+`ThemeRuntimeTests.StartWatcher_IgnoresChangesToOtherFiles`、
+`PluginPackagesTests.CreateServerPluginPackage_SerialisesBuilds`、
+`Pi.Durable.Tests.HarnessRestartTests`（5s 超时类）、
+`Pi.Ai.Tests` 里的 `CompatTests.FauxProviderRegistrationReplaysAndUnregisters`、
+`Auth.OpenAiChatGptOAuthTests`、`AnthropicFederationWireTests`（共享全局 provider registry /
+凭据文件，跨集合并行时会互相踩）。
+`Pi.Ai.Tests.MistralStreamTests.AStreamThatOutlivesTheTimeoutKeepsGoing` 是**环境依赖**
+（HttpListener 100ms 头超时），在干净 HEAD 上也失败，与本版改动无关。
+判定方法：单独重跑该用例（`--filter-class`）3 次全绿即为 flake；若稳定红，再查
+`git diff <上个 release tag> HEAD -- src/` 确认对应项目本次是否真被改动。
 完整观测名单见 `docs/coding-agent-porting-status.md`。
 
 > 注意不要给 `dotnet test` 加 `-m:1`。串行执行会让测试项目互相干扰：本地实测

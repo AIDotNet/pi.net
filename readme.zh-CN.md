@@ -44,7 +44,7 @@ Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只�
 | **Pi.Tui** | 终端 UI 框架：差分渲染 + 同步输出、字素级宽度测量与换行、ANSI/OSC 解析与 SGR 跟踪、Kitty 键盘协议与按键解码、overlay 栈、焦点管理、鼠标事件派发、颜色（OKLCH/OKHSL）与键位注册表、stdin 转义序列缓冲、终端内联图像（Kitty / iTerm2 协议）、栈/滚动布局引擎、LaTeX 数学渲染、斜杠命令与文件路径自动补全（含 `fd` 模糊搜索）、单行输入组件（Emacs 风格 kill/yank、撤销、括号粘贴）、选择列表组件（过滤/滚动窗口/鼠标/滚轮）、多行编辑器、markdown 渲染、设置列表、图像组件、备用屏渲染器（全屏模式：搜索 / 选择与复制 / 滚动条 / Kitty 图像缓存 / overlay 路由） |
 | **Pi.Durable** | Durable 会话、内存 / SQLite / JSONL 文件存储后端、任务图、恢复机制与 coding-agent harness |
 | **Pi.Env** | SSH 远程执行环境：`pi-env` daemon 客户端及它所讲的帧协议（daemon 本身是上游的原生构件） |
-| **Pi.CodingAgent / Pi.Cli** | 交互式编码 Agent、工具、已编译 .NET 扩展、CLI、RPC 与实验性服务/worker runtime |
+| **Pi.CodingAgent / Pi.Cli** | 交互式编码 Agent、工具、扩展（已编译 .NET 程序集 **与** 上游 TypeScript/JS）、CLI、RPC 与实验性服务/worker runtime |
 | **Pi.Vacation** | 基于 coding-agent runtime 的独立研究与规划宿主 |
 | **Pi.DurableHost** | 基于 coding-agent runtime 的独立 durable 会话宿主（`pi-durable`），带 `subagent` 工具与按目录缓存的执行环境 |
 | **Pi.Evals** | 原生 .NET host/documentation 评测工具；配对文档评测使用 Docker |

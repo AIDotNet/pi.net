@@ -3,7 +3,10 @@
 All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/earendil-works/pi) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
-## [Unreleased]
+## [1.4.5] - 2026-10-28
+
+两个主题：**扩展系统终于能吃上游的 TypeScript 插件**（方案 A，进程内 JavaScript 宿主），
+以及顺带落地的 **.NET 9 兼容**（多目标 `net9.0;net10.0`）。
 
 ### Added
 
@@ -30,6 +33,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   尚未桥接的 API 清单。
 
 ### Changed
+
+- **多目标 `net9.0;net10.0`**：`Directory.Build.props` 的 `TargetFramework` 改为 `TargetFrameworks`，
+  .NET 9 消费者可以直接引用。36 个工程（含测试与示例）在两个 TFM 上都是 0 错误 0 警告——
+  代码零改动，因为 net9 已具备 net10 用到的全部 API。唯一实质改动是
+  `AgentSessionEvents.cs` 的 23 个 `override string Type` 要逐个补 `[JsonIgnore]`：基类上的
+  `[JsonIgnore]` 不会被 override 属性继承（STJ 只读直接声明的特性），漏标会写出两个 `"type"` 键，
+  net10 的 `JsonObject` 默认容忍重复键而 net9 直接抛 `An item with the same key has already been added`。
+  `Pi.Evals/ExtensionCompiler.cs` 生成扩展工程时的 TFM 也改成跟随当前运行时。
+  （不做 .NET 8：实测要改约 66 处 .NET 9 新 API，改造面与长期维护成本都不划算。）
 
 - **`ResolveExtensionEntries` 恢复上游顺序 `index.ts` → `index.js` → `index.dll`**：源码是事实来源，
   编译产物退为后备（1.4.4 里「优先 index.dll」的做法按上游语义回退）。
@@ -73,12 +85,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   拦截 `.env` 写入且对非目标工具放行、`permission-gate.ts` 拦截危险命令、命令处理函数在工厂返回后
   仍能调用 `pi.*` 并读 `ctx.sessionManager`、`pi.on` 的退订生效、工具 `execute` 拿到工具上下文并
   透传 `onUpdate` 部分结果、`pi.events` 跨扩展投递。
-- 对上游 86 个 TypeScript 示例做**运行期**语料探针（加载 + 注册 + 派发 `session_start` 与两次
-  `tool_call`）：71 个完全通过；6 个是没有默认导出的辅助模块（`doom-engine.ts` 等，本就不是入口）；
-  9 个未通过 = 4 个缺第三方 npm 包（`@anthropic-ai/sdk`、`@earendil-works/gondolin`、
-  `@anthropic-ai/sandbox-runtime`、`ms`，装上即可）+ 2 个 provider/virtual-model 注册 +
-  1 个读取 `~/.pi/agent/extensions/auth.json` 的测试脚本 + 1 个 `fs.watch`（无后台循环）+
-  1 个 `osascript`（macOS 专用，Windows 上失败属预期）。
+- `UpstreamTypeScriptExampleTests`：把上面那次一次性语料探针固化成**可复跑的回归测试**。
+  口径 = 顶层 `*.ts` + 各目录 `index.ts` 共 **79 个真实入口**，每个都经真实加载器加载、经
+  `ExtensionRunner` 派发 `session_start` → `tool_call`(bash) → `tool_call`(write) → `context`，
+  并把 handler 异常（`ExtensionRunner.OnError`）也算失败——不是「加载成功了」就算过。
+  当前结果：**71 clean / 2 handler-fail / 6 load-fail**；clean 的 71 个里 43 个注册了事件处理器、
+  16 个注册工具、33 个注册命令、34 个有 UI 表面（合计 80 handlers / 30 tools / 54 commands /
+  3 flags / 2 shortcuts），确认是真在干活而不是空转。
+  8 个失败全部归因明确并钉在 `KnownFailures` 表里（表变了测试就红，无论变好还是变坏）：
+
+  | 入口 | 原因 |
+  | --- | --- |
+  | `custom-provider-anthropic/index.ts` | 缺 `@anthropic-ai/sdk` |
+  | `gondolin/index.ts` | 缺 `@earendil-works/gondolin` |
+  | `sandbox/index.ts` | 缺 `@anthropic-ai/sandbox-runtime` |
+  | `with-deps/index.ts` | 缺 `ms` |
+  | `custom-provider-gitlab-duo/index.ts` | `pi.registerProvider`（需 streaming 协议桥） |
+  | `jev-router.ts` | `pi.registerVirtualModel`（同上） |
+  | `file-trigger.ts` | `fs.watch`（扩展只在回调栈上运行，无法投递给空闲扩展） |
+  | `mac-system-theme.ts` | `osascript`（macOS 专用，Linux/Windows 上同样失败） |
+
+  前 4 个是依赖未安装而非宿主缺陷：这些目录都带 `package.json` + `package-lock.json` 且
+  `node_modules` 被 `.gitignore`（上游也一样，`npm install` 后即可）。宿主解析 node_modules
+  的能力由 `NodeModuleResolution_ResolvesADependencyFromNodeModules` 单独钉住（手写假包，
+  不依赖 Node 与网络），它一旦失败说明这 4 个是宿主的锅。
+
+  未覆盖（非缺陷，记录在 `src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md`）：
+  `registerProvider` / `registerVirtualModel`（需 streaming 协议）、`ctx.ui.custom()` 与
+  三个自定义渲染器（需同进程渲染循环，目前降级为警告而非加载失败）、`create*ToolDefinition`
+  的精确 schema。
 
 ## [1.4.4] - 2026-10-27
 
