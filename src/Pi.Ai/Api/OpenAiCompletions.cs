@@ -1605,6 +1605,7 @@ public static class OpenAiCompletions
                 {
                     textBlock = new StreamBlock { Kind = "text" };
                     blocks.Add(textBlock);
+                    Rebuild(output, blocks);
                     stream.Push(new AssistantMessageEvent.TextStart(ContentIndex(textBlock), output.Snapshot()));
                 }
                 return textBlock;
@@ -1616,6 +1617,7 @@ public static class OpenAiCompletions
                 {
                     thinkingBlock = new StreamBlock { Kind = "thinking", Signature = signature };
                     blocks.Add(thinkingBlock);
+                    Rebuild(output, blocks);
                     stream.Push(new AssistantMessageEvent.ThinkingStart(
                         ContentIndex(thinkingBlock), output.Snapshot()));
                 }
@@ -1661,6 +1663,7 @@ public static class OpenAiCompletions
                     if (streamIndex is { } newIndex) toolCallBlocksByIndex[newIndex] = block;
                     if (id.Length > 0) toolCallBlocksById[id] = block;
                     blocks.Add(block);
+                    Rebuild(output, blocks);
                     stream.Push(new AssistantMessageEvent.ToolCallStart(
                         ContentIndex(block), output.Snapshot()));
                 }
