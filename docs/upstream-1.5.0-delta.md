@@ -167,7 +167,7 @@
 | `be14d9732` | 只读打开 Harness | ✅ 本批 |
 | `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6 |
 | `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | ✅ 脏集合 + 全量回退（§4.15）+ `idleOrder` 索引与睡眠集合（§4.23） |
-| `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | 🔧 P5 |
+| `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | ✅ 已在（`ToolSearch.cs` 的覆盖优先 / 名称权重 / 精确名 / 命名空间 0.5x，以及 NFC + CJK bigram 分词；见 §4.24） |
 | `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
 | `38ff99177` | 工具交接后继续运行 | ✅ 本批 |
 | `b3a29f111` | 重启循环可见地结束；宿主死亡计入一次 generation 尝试 | ✅ 本批（见 §4.19） |
@@ -390,7 +390,7 @@ typebox 语料问题），较基线 5118 增 39 例。
 | 守护进程被终止时杀掉它启动的命令 | `b6d5c2ecd` | `daemon/src/main.rs` + `sys/*.rs`（Rust） | ➖ 同上 |
 | 辅助线程起不来时 `exec`/`pty` 返回 `spawn_error` | `92c1da1f6` | `daemon/src/{exec,pty}.rs`（Rust） | ➖ 同上 |
 | MCP OAuth 优先用 Client ID Metadata Document，否则动态注册（`oauth.clientRegistration: auto/dcr`） | `908aa7b74` | `extensions/mcp/oauth.ts` ~59 行 + `core/mcp-servers.ts` | ⏳ 未做 |
-| 工具搜索：名称权重高于描述、命中词数优先、查询即名称时置顶、CJK 分词；durable 侧同规则 | `cc44fa216` / `e033f255f` / `ae823bc0b` / `79006f061` / `c7372af42` | `extensions/tool-search/tool.ts` + `durable/src/search.ts` | ⏳ 未做（`Tokenize` 目前只切 ASCII，中日韩文本会被整段丢弃） |
+| 工具搜索：名称权重高于描述、命中词数优先、查询即名称时置顶、CJK 分词；durable 侧同规则 | `cc44fa216` / `e033f255f` / `ae823bc0b` / `79006f061` / `c7372af42` | `extensions/tool-search/tool.ts` + `durable/src/search.ts` | ✅ 已在（§4.24 核对） |
 
 > env 三项的判定依据：`docs/env-package-migration.md` 已明确「守护进程（`daemon/src/*.rs`）不移植，
 > 按原生产物处理」。这三条是守护进程内部行为，端口侧没有对应代码路径；升级原生 `pi-env` 即得修复。
@@ -747,3 +747,19 @@ P4（tui）全部 13 项（等语料生成链）。
 一样），否则索引会与保留集合脱节。**行为不变**：睡眠/空闲/保留上下文的既有用例（`HarnessSleepTests` 的
 `Wake().At` 断言、`HarnessContextCacheTests` 的定时过期与保留为零、`HarnessIdleScopesTests` 的脏集合）
 全部照旧通过，durable 554 例全绿。
+
+### 4.24 工具搜索：确认已对齐（`c7372af42` / `79006f061`）
+
+这两行在台账里长期标着 🔧 P5，实际核对下来端口早已具备（此前几批移植时一并做了），这次只补核对记录：
+
+| 上游要求 | 端口落点 |
+| --- | --- |
+| 覆盖优先（命中查询词更多的排在前面，先于分数） | `ToolSearch.cs` 的 `Covered`，排序 `Exact → Covered → Score` |
+| 名称是独立字段、每个词 3x IDF，高于描述里任意次出现 | `NameWeight = 3`、`NameTerms` |
+| 整个本地名（最后一个 `__` 之后）都在查询里 → 加一份「每个词再命中一次」的奖励 | `fullNameBonus` 等价分支 |
+| 查询恰好等于工具名（或 `__` 之后的名字）→ 置顶 | `Exact` |
+| 命名空间文本独立字段、0.5x、不做长度归一 | `NamespaceWeight = 0.5`、`NamespaceTerms` |
+| Unicode 分词：NFC、非字母/标记/数字切分、CJK 不分词脚本要有词 | `Tokenize`：ASCII 快路径 + 无空格脚本的 **bigram**（差异 C391，`Intl.Segmenter` 无 .NET 等价物） |
+
+回归用例也已在：`ToolSearchRankingTests`（`screenshot window`、`peekaboo app`、精确名等上游 ranker 用例）与
+`ToolSearchCorpusTests`，两组合计 **73** 例通过。
