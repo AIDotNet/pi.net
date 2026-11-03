@@ -349,6 +349,10 @@ internal static class HarnessTestSupport
             return (step, reached.Task, () => gate.TrySetResult());
         }
 
+        /// <summary>每个文本增量之后等待 <paramref name="afterDelta"/> 完成（用它把每次增量与它的落盘对齐）。</summary>
+        public static FakeStep AfterEachTextDelta(AssistantMessage message, Func<int, Task> afterDelta)
+            => new((_, _) => Task.FromResult(message), (index, _) => afterDelta(index));
+
         public static (FakeStep Step, Task Reached, Action Release) GatedAfterTextDelta(
             AssistantMessage message, int deltaCount)
         {

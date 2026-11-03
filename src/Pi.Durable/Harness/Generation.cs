@@ -993,15 +993,12 @@ public static partial class Generation
             await foreach (var evt in stream.WithCancellation(runtime.Signal).ConfigureAwait(false))
             {
                 // 没有内容的 partial（如 pi-ai 的开流 start 事件）什么也不显示；deferred 响应不会
-                // 越过它，因此不会留下 partial。
+                // 越过它，因此不会留下 partial。记增量与排队在同一次加锁里完成——否则一次 flush 可能取走
+                // 增量，而它对应的 partial 还没排上队。
                 var partial = PartialOf(evt);
-                if (evt is AssistantMessageEvent.Done or AssistantMessageEvent.Error
-                    || partial is not { Content.Count: > 0 })
-                {
-                    continue;
-                }
-
-                throttle.Post(partial);
+                var shows = evt is not (AssistantMessageEvent.Done or AssistantMessageEvent.Error)
+                    && partial is { Content.Count: > 0 };
+                throttle.Observe(evt, shows ? partial : null);
             }
 
             return await stream.WaitForDoneAsync(runtime.Signal).ConfigureAwait(false);
@@ -1016,16 +1013,24 @@ public static partial class Generation
     private sealed class PartialThrottle(ITaskRuntime runtime, int attempt, Context context)
     {
         private readonly object _gate = new();
+        private readonly PartialChanges _changes = new();
         private AssistantMessage? _pending;
         private Task? _inFlight;
         private Action? _disarm;
         private bool _timerScheduled;
         private bool _stopped;
 
-        public void Post(AssistantMessage partial)
+        /// <summary>
+        /// 记下 <paramref name="evt"/> 增长的文本/思维增量，并在 <paramref name="partial"/> 非空时排队一次冲刷。
+        /// 两件事在同一把锁里完成：否则一次冲刷可能取走增量，而它对应的 partial 还没排队。
+        /// 对应 TS <c>changes.observe(evt)</c> 之后紧接 <c>schedule()</c>。
+        /// </summary>
+        public void Observe(AssistantMessageEvent evt, AssistantMessage? partial)
         {
             lock (_gate)
             {
+                _changes.Observe(evt);
+                if (partial is null) return;
                 _pending = partial;
                 if (!_timerScheduled && _inFlight is null && !_stopped) ScheduleLocked();
             }
@@ -1050,16 +1055,20 @@ public static partial class Generation
         private async Task FlushAsync()
         {
             AssistantMessage? partial;
+            IReadOnlyList<PartialChanges.TextAppend> taken;
             lock (_gate)
             {
                 _timerScheduled = false;
                 partial = _pending;
                 _pending = null;
                 if (partial is null || _stopped) return;
+                // 与取走 partial 同一次加锁：这批增量正好属于这条 partial。
+                taken = _changes.Take();
             }
 
             // 同步拷贝：provider 持续修改其 partial。
             var message = JsonTrees.Deserialize<AssistantMessage>(JsonTrees.ToTree(partial));
+            var tree = (Dictionary<string, object?>)JsonTrees.ToTree(message)!;
             var commit = runtime.CommitAsync(async (tx, _) =>
             {
                 var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
@@ -1069,15 +1078,17 @@ public static partial class Generation
                     Live.SetGeneration(live, new Dictionary<string, object?>
                     {
                         ["attempt"] = (long)attempt,
-                        ["message"] = JsonTrees.ToTree(message),
+                        ["message"] = tree,
                     });
                 }
                 else
                 {
-                    // TS 逐叶 assignJson("message", …) 的整值等价：message 只由本生成写入。
-                    live.Set(
-                        Path.Root.Append(Seg.Key("generation")).Append(Seg.Key("message")),
-                        JsonTrees.ToTree(message));
+                    // 逐叶赋值 + 文本按追加写：每次提交只花新增文本的长度，而不是整段消息的长度。
+                    PartialChanges.Commit(
+                        live, taken, tree,
+                        generation.TryGetValue("message", out var committed)
+                            ? committed as IReadOnlyDictionary<string, object?>
+                            : null);
                 }
 
                 return null;

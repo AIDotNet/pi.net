@@ -263,6 +263,9 @@ public static class Live
 
     private static readonly Path RunPath = Path.Root.Append(Seg.Key("run"));
     private static readonly Path GenerationPath = Path.Root.Append(Seg.Key("generation"));
+
+    /// <summary><c>generation.message</c>：进行中的 partial 消息。对应 TS <c>live.generation.message</c>。</summary>
+    internal static readonly Path MessagePath = GenerationPath.Append(Seg.Key("message"));
     private static readonly Path RunFailurePath = Path.Root.Append(Seg.Key("runFailure"));
     private static readonly Path ToolsPath = Path.Root.Append(Seg.Key("tools"));
     private static readonly Path CompactionsPath = Path.Root.Append(Seg.Key("compactions"));

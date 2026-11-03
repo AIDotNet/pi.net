@@ -40,8 +40,8 @@
 
 > **口径**：§2 各表是**初次评估时**的逐提交视图，行的处置列可能落后于后文的批次记录。
 > 判断某项是否完成，以 §4.x 的批次小节（含用例与落点）与 [migration-execution-status.md](./migration-execution-status.md)
-> 为准：**同一项在 §4.x 里标 ✅ 就以 §4.x 为准**。截至 §4.26，P0/P1/P2/P3/P5 已收口，P4 只做了两项不改渲染
-> 字节的（§4.26），P6 余分组提交 / 节流提交延迟落盘 / `appendText`（§2.5 末行）。
+> 为准：**同一项在 §4.x 里标 ✅ 就以 §4.x 为准**。截至 §4.27，P0/P1/P2/P3/P5 已收口，P4 只做了两项不改渲染
+> 字节的（§4.26），P6 余分组提交 / 节流提交延迟落盘 / `appendText` 的工具参数部分（§2.5 末三行）。
 
 ### 2.1 pi-schema（**破坏性变更**，P0）
 
@@ -170,7 +170,9 @@
 | `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | ✅ `runFailure`（§4.11）、窗口化视图与转录（§4.21）、删 `watchEvents`（§4.22） |
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
 | `be14d9732` | 只读打开 Harness | ✅ 本批 |
-| `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6（三件都未做。`da412b039` 的 chord 侧端口已有等价物——`Change.Append` 直接记追加 op、不做前缀比较；缺的是 durable 侧的增量 JSON 解析器 + `assignJson` 计划，见 §4.26 说明） |
+| `da412b039` | `appendText`：partial 提交按追加写文本，不再重赋整段字符串 | 🟡 durable 侧文本/思维增量已按追加写（§4.27）；chord 侧端口本来就有等价物（`Change.Append` 直接记追加 op）；**工具调用参数仍整体赋值**——上游用 `StreamingJsonParser` 的增量改参数，端口没有这个解析器 |
+| `6c2fd73b0` | 节流提交延迟落盘（`persistence: {kind:"deferred", withinMs}`） | 🔧 P6 |
+| `e5c6182ba` | 分组提交 + 批量 `Storage.commit` | 🔧 P6 |
 | `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | ✅ 脏集合 + 全量回退（§4.15）+ `idleOrder` 索引与睡眠集合（§4.23） |
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | ✅ 已在（`ToolSearch.cs` 的覆盖优先 / 名称权重 / 精确名 / 命名空间 0.5x，以及 NFC + CJK bigram 分词；见 §4.24） |
 | `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
@@ -616,10 +618,10 @@ checkpoint 固定在定义里）。已改为固定 checkpoint 创建。
 `EntriesAsync`（钩子/任务）、`MaxTurns`、`SetRunFailure`、`ContinueRecord`、`Unoffered`、`AddScopesAbove`、
 `IRunEndHooks`、`FinishPhaseAsync`、`TakesContinuation` 均在预期文件；`src/Pi.Durable` 无 TODO/FIXME 残留。
 
-**已知未做**（截至 §4.26，其余都已落地）：`e5c6182ba`（分组提交 + 批量 `Storage.commit`）、`6c2fd73b0`
-（节流提交延迟落盘）、`da412b039`（`appendText`：chord 侧等价物已在——`Change.Append` 直接记追加 op，
-durable 侧还差增量 JSON 解析器）；P4（tui）余 11 项（等语料生成链，已做两项不改字节的见 §4.26）；
-P2 的六行「目录数据」（需先移植 `generate-models` 脚本）。
+**已知未做**（截至 §4.27，其余都已落地）：`e5c6182ba`（分组提交 + 批量 `Storage.commit`）、`6c2fd73b0`
+（节流提交延迟落盘）、`da412b039` 的工具调用参数部分（增量 JSON 解析器没移植，见 §4.27）；
+P4（tui）余 11 项（等语料生成链，已做两项不改字节的见 §4.26）；P2 的六行「目录数据」（需先移植
+`generate-models` 脚本）。
 
 **已知测试噪声**：全量并行满载时，watch/reopen 与计时类用例（`SessionTests.Watch*`、`HarnessViewTests`、
 `HarnessSleepTests`、`HarnessTaskGraphTests`、`ToolsTests.Bash_*`）每轮随机 1–2 例超时，单跑全绿。
@@ -808,3 +810,26 @@ P4 的前置条件是先恢复语料生成链（`markdown-corpus.json` / `alt-sc
 `i=11272` 且 `y=66,h=34,r=1`）需要「录制终端 + 全屏渲染」的测试设施，端口 `Pi.Tui.Tests` 没有这一层
 （现有全屏用例走语料，图像相关用例只测编码/元数据）。因此这项行为只由代码与 `MaxKittyImageRows` 的
 单元用例背书，端到端等语料链恢复后补。
+
+### 4.27 P6 第十六批：partial 提交按追加写文本（`da412b039` 的 durable 侧）
+
+上游 `da412b039`（#9265 的后续）让流式 partial 的提交花「新增文本的长度」，而不是整段消息的长度：
+
+| 上游要求 | 端口落点 |
+| --- | --- |
+| chord 侧 `appendText(draft, key, text)` 免去 O(长度) 的前缀比较 | 端口本来就有等价物：`Tracker.Change.Append(path, text)` 直接记 `a` op（端口不是 JS Proxy + diff，而是显式动词），所以这部分无需改动 |
+| 从响应事件里攒文本/思维增量，块结束（`text_end`/`thinking_end`）时丢弃（provider 可能替换整段） | 新增 `Harness/PartialChanges.cs`：`Observe(evt)` 按内容块序号合并 `text`/`thinking` 增量，`Take()` 取走 |
+| 提交按「逐叶赋值 + 追加」写 `generation.message`；没有已提交消息或块数变了才整段写 | `PartialChanges.Commit(live, taken, message, committed)`：块数相同且已提交块有基串时逐叶赋值 + `Append`，否则整段写 `content` |
+| 增量与 partial 的排队必须是同一原子步骤 | `PartialThrottle.Observe(evt, partial)` 在同一把锁里 `Observe` + 排队（JS 单线程天然如此，端口要显式加锁，否则一次冲刷可能取走增量而它的 partial 还没排队） |
+
+**踩坑**：草稿里 `generation` 在请求开始时只有 `{attempt, compacted}`，`message`/`content` 还不存在；而 `DeltaApply.SetAt`
+对「下标段下降进 null」直接抛 `cannot descend into null`。所以块数为 0（或与已提交块数不等）时必须整段写 `content`，
+不能逐块 `Set`。
+
+**未移植**：工具调用参数的增量（上游每个 `toolcall_delta` 喂自己的 `StreamingJsonParser`，把参数改写成按路径的
+set/append）。端口没有 pi-ai 的增量解析器，工具调用块仍整体赋值——协议语义一致，只是大参数流式时每次提交仍
+O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/streaming-json.ts`（559 行，含宽松修复语义与变更流）。
+
+用例：`HarnessPartialAppendTests.StreamsTextAsAppendsInsteadOfReassigningTheMessage`——每个增量等它落盘再发下一个
+（写入形状不随并行负载的合并而变），断言文本路径上全是 `a` op、没有任何一次把整条 `generation.message` 重赋，
+且最终助手条目仍是完整答案。
