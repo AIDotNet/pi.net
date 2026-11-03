@@ -94,7 +94,7 @@
 | `chord` | `Pi.Chord` | 已迁移（按端口需要收窄） | 1.4.0 区间的 118 个文件大多落在端口没有的对象运行时与跨进程链路上，判不适用；端口内落地的是数组追加快路径、watch 类型与显式退休。106 项。 |
 | `codemode` | `Pi.Codemode` | 已迁移（含 1.4.0 增量） | Jint 默认引擎与声明约束（约束进注释、`@options` 首行、预算回退）；QuickJS worker 排队不适用（端口每个脚本一个 VM，没有 worker 池）。57 项。 |
 | `env` | `Pi.Env` | 客户端实现已迁移；Windows/POSIX 验收通过 | 1.2.0 的 node 侧 `listFiles`/PTY/`nodePlatform` 不适用（端口是 SSH 远程环境）；守护进程按原生产物注入（差异 E-C1），本机需先 `cargo build`，随后 44/47（3 项平台跳过）。 |
-| `durable` | `Pi.Durable` | 已迁移（含 1.4.0 增量） | `Storage.commit(adopt)`、观察面 watch/显式退休、持久睡眠与宿主时钟、crash-loop guard 与 parked/`retryTask`、`ReportInfo`、`afterFailedRun`、按模型压缩阈值、`documentRetentionMs`、调度器所有权索引、SQLite v2 均已落地；507 项。`./codemode` 与 `./tool-search` 判不采纳（上游无仓内消费方，重启条件见 delta §6 第 7 条）。 |
+| `durable` | `Pi.Durable` | 已迁移（含 1.4.0 增量） | `Storage.commit(adopt)`、观察面 watch/显式退休、持久睡眠与宿主时钟、crash-loop guard（1.5.0 起改为「到限可见地结束」，停放与 `retryTask` 已删除）、`ReportInfo`、`afterFailedRun`、按模型压缩阈值、`documentRetentionMs`、调度器所有权索引、SQLite v2 均已落地；507 项。`./codemode` 与 `./tool-search` 判不采纳（上游无仓内消费方，重启条件见 delta §6 第 7 条）。 |
 | `tui` | `Pi.Tui` | 功能实现完成（含 1.3/1.4 修复） | CJK 强调、Rex/Herdr 探测、OSC 7501 状态上报、假光标、stdin 回复串、退出复原、滚轮路由、fd 转义、移位符号键位、并发对话框栈、跨 chunk ANSI 已落地；23,937 项。`index.ts` 是导出桶，不需要单独 C# 文件。 |
 | `coding-agent` | `Pi.CodingAgent` + `Pi.Cli` + `Pi.Vacation` + `Pi.DurableHost` | 主体与 1.4.0 增量已迁移；1.4.1 修三处发版缺陷 | MCP 管理器响应性、配置 schema 产物、`--model` 策略统一、`before_agent_start` 覆盖轮次、工作树上下文、HTML 导出 CJK 强调、Termux 剪贴板等已落地；1.4.1 修 C383 终端输入管线、C384 备用屏退出复原、C170 OpenAI Responses 鉴权。5,074 项（3 项平台跳过）。Bun/Node 专属运行时垫片仍不逐字移植，见“特殊范围决策”。 |
 | `evals` | `Pi.Evals` | 实现完成，容器级验收通过 | 区间内无功能增量（上游 `936e5f40a` 去掉 autoevals 依赖属下一轮）；56 项（2 项 Linux-only 跳过）；Stage 23 已在 Ubuntu + Docker 29.7.1 上完成双镜像与 10 任务编排验收。 |

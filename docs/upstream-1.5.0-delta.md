@@ -652,3 +652,34 @@ P4（tui）全部 13 项（等语料生成链）。
 
 **调试踩到的两个坑**（写进记忆日志）：崩溃模拟必须逐次 `storage.Reopen()`（否则一直克隆最初那份，重启计数
 停在 1）；压缩要能出摘要得有两轮且 `keepRecentTokens` 足够小（一轮时切点是 0，等于没得压）。
+
+### 4.20 自查记录（P6 第十二批之后）
+
+**构建与测试**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **543** 例，本批相关的 39 例全绿。
+全量并行仍有个位数旋转噪声（`HarnessViewTests`、`HarnessTaskGraphTests`、`HarnessEventsTests`、
+`HarnessGenerationRecoveryTests`、`HarnessSleepTests` 里的 reopen/计时/批投递类），逐例单跑通过；判断回归
+仍然只能看失败集合是否变化。
+
+**逐项核对**（b3a29f111 的落点，防漏）：
+
+| 检查 | 结论 |
+| --- | --- |
+| 调度器不再停放、`task_parked` 不再上报、`restart_limit` 不再是阻塞原因 | `Scheduler.cs` 无 `Parked` / `RetryAsync` / `_parkedTasks`；`BlockedReasonOf` 与 `TaskGraphNode.Blocked` 的注释同步 |
+| 到限由调度器 faulted（扩展种类 / abort 处理器） | `ReserveAsync` 的 `cutOff && (mode == "abort" \|\| !_limitsRestarts(kind))`；`ReportInfo.TaskFaulted(..., ReportReasons.RestartLimit, extension)` |
+| 设置只在被切断过的任务上读取 | `record.Restarts is { } && >= RestartLimit()` 短路；`RestartLimit()` 仍只在该条件成立时调用 |
+| 内建任务自己收场并上报 | 工具 / 压缩 / 生成三处的收场都写 `detail.reason`，`RuntimeImpl.CommitAsync` 统一报 `task_interrupted`（只在内建任务经运行时提交时） |
+| 生成请求/轮询被切断 = 一次失败尝试 | `request` / `poll` 在时间判断之前看 `Restarts`；`retry.poll` 保留 handle 再轮询；无重试可用才 `interrupted` |
+| 请求之外的到限 | `prepare` / `retry` / `tools` 各一处 `EndCutOffAsync`；`Salvageable` 决定是否再做转换与取消延迟应答 |
+| 运行被切断时以 `aborted` 结算 | `LiveSettle` 的 `CutOffForRestartLimit` 分支：不转换 partial、结算 `aborted` |
+| 工具结果不跑 `afterTool` | `ToolTask.EndCutOffAsync` 直接走 `SettleAsync`，与上游 `endCutOff` 一致 |
+| `runFailure.first` | `Live.SetRunFailure(..., first: RunFirst(live))`；`RunFailureFirst` 供 continue 读，且在 `StartRunAsync` 清掉前读 |
+| `no_model` 的 detail | `FailNoModelAsync` 传 `message`；恢复测试断言「is not available」 |
+| 失败原因集合 | `RunFailureReasons` 十条与上游联合类型对齐（含 `nothing_to_answer` / `turn_limit`） |
+| 旧引用 | `src` 与两份 readme 无 `retryTask` / `task_parked` 残留；`migration-execution-status.md` 的 durable 行已改 |
+
+**发现并修掉的一处隐患**：`HarnessRestartTests` 里「同一 checkpoint 再提交不算进展」的用例原先断言
+`TaskInspection.Blocked("restart_limit")`，改语义后必然失败——已改为断言到限 faulted（这正是上游的意图）。
+
+**已知未做**（更新）：`f3255de76` 的窗口化视图 + `ConversationTranscript` + 删 `watchEvents`（下一批）；
+`e5c6182ba` / `6c2fd73b0` 分组提交与节流落盘（工具输出在崩溃前是否落盘就取决于它，本批工具用例因此只断言
+诊断码而不部分输出）；`35dfa7573` 的 `idleOrder` 索引与 `wake()` 睡眠集合；P4（tui）13 项等语料链。
