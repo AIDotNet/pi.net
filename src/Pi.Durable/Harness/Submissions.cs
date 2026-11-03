@@ -195,8 +195,10 @@ public static class Admission
             // 上一次失败运行按 afterFailedRun: "keep" 留在队列里的项先被放置，并一起并入这次运行。
             var appliedContinue = await Inbox.ApplyBoundaryAsync(tx, continueBoundary, BoundaryAt.Final, now)
                 .ConfigureAwait(false);
+            // continue 自己不落条目：运行第一个条目是它放置的第一个排队项，没有则以首个工具轮答案补。
             await Generation.StartRunAsync(
-                tx, conversationId, live, [.. appliedContinue.Users, admittedContinue.Id]).ConfigureAwait(false);
+                tx, conversationId, live, [.. appliedContinue.Users, admittedContinue.Id],
+                first: appliedContinue.First).ConfigureAwait(false);
             return admittedContinue.Id;
         }
 
@@ -237,7 +239,8 @@ public static class Admission
             var applied = await Inbox.ApplyBoundaryAsync(tx, boundary, BoundaryAt.Final, now).ConfigureAwait(false);
             if (applied.Users.Count > 0)
             {
-                await Generation.StartRunAsync(tx, conversationId, live, applied.Users).ConfigureAwait(false);
+                await Generation.StartRunAsync(tx, conversationId, live, applied.Users, first: applied.First)
+                    .ConfigureAwait(false);
             }
 
             return created.Id;
@@ -281,7 +284,9 @@ public static class Admission
             Status = SubmissionStatus.Placed,
             Entry = placed.Id,
         }).ConfigureAwait(false);
-        await Generation.StartRunAsync(tx, conversationId, live, [admitted.Id]).ConfigureAwait(false);
+        // 空闲输入放置了它自己的条目：那就是运行的第一个条目。
+        await Generation.StartRunAsync(tx, conversationId, live, [admitted.Id], first: placed.Id)
+            .ConfigureAwait(false);
         return admitted.Id;
     }
 

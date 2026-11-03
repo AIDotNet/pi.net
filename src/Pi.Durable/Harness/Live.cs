@@ -208,15 +208,21 @@ public static class Live
     // ─── 运行控制 ───────────────────────────────────────────────────────────
 
     /// <summary>把 <c>run</c> 设为 <paramref name="taskId"/> 持有 <paramref name="inputs"/>。对应 TS <c>live.run = {…}</c>。</summary>
-    public static void SetRun(TxDocChange live, TaskId<object?> taskId, IReadOnlyList<SubmissionId> inputs)
-        => live.Set(RunPath, new Dictionary<string, object?>
+    public static void SetRun(
+        TxDocChange live, TaskId<object?> taskId, IReadOnlyList<SubmissionId> inputs, EntryId? first = null)
+    {
+        var run = new Dictionary<string, object?>
         {
             ["taskId"] = taskId.Value,
             // 必须显式构造 List<object?>：List<long> 因泛型不变性不被严格 JSON 容器判定接受（P56 修正）。
             ["inputs"] = inputs.Select(input => (object?)input.Value).ToList(),
             // 一次运行已走的工具轮数（AgentState.MaxTurns 按它计）。
             ["turns"] = 0L,
-        });
+        };
+        // 起它的边界放置的第一个条目；没有（例如 continue）就等第一个工具轮答案补上。
+        if (first is { } firstEntry) run["first"] = firstEntry.Value;
+        live.Set(RunPath, run);
+    }
 
     /// <summary>
     /// 最近一次没有回答就结束的运行及其原因，写进结束它的那个提交。对应 TS <c>live.runFailure</c>。
@@ -293,6 +299,29 @@ public static class Live
         {
             live.Set(RunPath, new Dictionary<string, object?>(run) { ["taskId"] = to.Value });
         }
+    }
+
+    /// <summary>运行第一个条目的记录：由它起的边界放置的第一个条目，或它第一个工具轮答案。对应 TS <c>live.run.first</c>。</summary>
+    public static EntryId? RunFirst(TxDocChange live)
+        => live.Draft.TryGetValue("run", out var value)
+            && value is IReadOnlyDictionary<string, object?> run
+            && run.TryGetValue("first", out var first)
+            && first is not null
+                ? EntryId.From(Convert.ToInt64(first))
+                : null;
+
+    /// <summary>尚未记录运行第一个条目时记下它（首个工具轮答案）。对应 TS <c>live.run.first ??= entry.id</c>。</summary>
+    public static void SetRunFirstIfUnset(TxDocChange live, EntryId first)
+    {
+        if (live.Draft.TryGetValue("run", out var value)
+            && value is IReadOnlyDictionary<string, object?> run
+            && run.ContainsKey("first")
+            && run["first"] is not null)
+        {
+            return;
+        }
+
+        if (value is IReadOnlyDictionary<string, object?>) live.Set(RunPath.Append(Seg.Key("first")), first.Value);
     }
 
     /// <summary>运行当前的输入提交。对应 TS <c>live.run.inputs</c>。</summary>

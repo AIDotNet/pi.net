@@ -52,10 +52,13 @@ public class HarnessAfterRunTests
             // 输入在答案提交时就结算 done；对话仍忙到 afterRun 的任务终态为止。
             await harness.WaitForIdleAsync(Ctx);
 
-            // 钩子被问了一次，拿到的是已回答的运行。
+            // 钩子被问了一次，拿到的是已回答的运行：first 是运行第一个条目（这次是放置的用户条目），不是答案。
             var run = Assert.Single(asked);
             Assert.Equal("answer", run.Reason);
             Assert.Equal(record.Answer, run.Answer);
+            var userEntry = (await HarnessTestSupport.AllEntriesAsync(root)).First(entry => entry.Kind == "pi.user");
+            Assert.Equal(userEntry.Id, run.First);
+            Assert.NotEqual(run.Answer, run.First);
 
             // 它要的任务确实被创建（属于生成）并跑完了。
             var tasks = await root.CommitAsync(

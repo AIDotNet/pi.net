@@ -68,8 +68,11 @@ public static class Inbox
             && entryJson.TryGetValue("head", out var headValue)
             && headValue is "self");
 
-    /// <summary>被选中的用户项（按 ID 序），以及是否放置了 <c>head: "self"</c> 写入（一次重置）。对应 TS <c>BoundaryResult</c>。</summary>
-    public sealed record BoundaryResult(IReadOnlyList<SubmissionId> Users, bool Reset);
+    /// <summary>
+    /// 被选中的用户项（按 ID 序）、是否放置了 <c>head: "self"</c> 写入（一次重置），以及本次放置的第一个条目——
+    /// 由它起的运行以它为自己的第一个条目。对应 TS <c>BoundaryResult</c>。
+    /// </summary>
+    public sealed record BoundaryResult(IReadOnlyList<SubmissionId> Users, bool Reset, EntryId? First = null);
 
     /// <summary>
     /// 读取一个边界需要的内容。表读必须先于提交的首次表写，因此调用方在其提交开始处准备边界。
@@ -128,6 +131,7 @@ public static class Inbox
         users.Sort();
 
         // appendEntry() 拷贝草稿的值；项只在其后移除。
+        EntryId? first = null;
         foreach (var index in writes)
         {
             var item = items[index];
@@ -139,6 +143,7 @@ public static class Inbox
             }
 
             var entry = await tx.AppendEntryAsync(boundary.ConversationId, draft).ConfigureAwait(false);
+            first ??= entry.Id;
             if (draft.HeadIsSelf) boundary.Head = entry.Id;
             else if (draft.Head is { } head) boundary.Head = head;
             tx.PlaceSubmission(IdOf(item), entry.Id);
@@ -154,13 +159,14 @@ public static class Inbox
                 boundary.ConversationId,
                 new TypedEntryDraft<object?> { Model = [new Pi.Ai.Types.UserMessage(content, now)] })
                 .ConfigureAwait(false);
+            first ??= entry.Id;
             tx.PlaceSubmission(IdOf(item), entry.Id);
             placed.Add(IdOf(item));
         }
 
         var removed = writes.Concat(users).OrderByDescending(index => index);
         foreach (var index in removed) boundary.Inbox.Splice(ItemsPath, index, 1, []);
-        return new BoundaryResult(placed, reset);
+        return new BoundaryResult(placed, reset, first);
     }
 
     /// <summary>head 写入是否指向活动范围之前的条目（放置它会带回已剪除的历史）。对应 TS <c>isStale()</c>。</summary>

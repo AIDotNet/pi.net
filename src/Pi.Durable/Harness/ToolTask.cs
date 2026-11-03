@@ -230,9 +230,17 @@ public static partial class ToolTask
         var (code, message) = input.Unoffered == true
             ? ("tool_unavailable", $"Tool {call.Name} is not available")
             : ("aborted", $"Tool {call.Name} was aborted");
+        // 上游只在剩余重启额度还够时跑钩子：连续打断到这个任务的最后一次尝试，可能正是钩子本身在把它打断，
+        // 这一次跳过钩子（否则一个改写结果的钩子能让工具永远跑不完）。
+        IToolRegistration? forHooks = null;
+        if (input.Unoffered != true && (task.Restarts ?? 0) < runtime.Settings.RestartLimit - 1)
+        {
+            forHooks = agent.Tools.FirstOrDefault(each => each.Name == call.Name);
+        }
+
         await SettleFromSlotAsync(
-            runtime, call, agent.Tools.FirstOrDefault(each => each.Name == call.Name),
-            new Ending(TaskOutcomeStatus.Aborted), "aborted", message, context).ConfigureAwait(false);
+            runtime, call, forHooks,
+            new Ending(TaskOutcomeStatus.Aborted), code, message, context).ConfigureAwait(false);
     }
 
     // ─── 调用与参数 ─────────────────────────────────────────────────────────

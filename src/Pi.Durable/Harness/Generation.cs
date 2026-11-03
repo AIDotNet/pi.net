@@ -1111,7 +1111,8 @@ public static partial class Generation
             Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Done(entry.Id));
             if (applied.Users.Count > 0)
             {
-                await StartRunAsync(tx, conversationId, live, applied.Users).ConfigureAwait(false);
+                await StartRunAsync(tx, conversationId, live, applied.Users, first: applied.First)
+                    .ConfigureAwait(false);
             }
 
             return result;
@@ -1160,8 +1161,8 @@ public static partial class Generation
         {
             Reason = reason,
             Answer = answer,
-            // 端口尚未记录 run.first：以答案代第一个条目（只有把区间裁到「运行内」的钩子会看出差别）。
-            First = answer,
+            // 由边界起的运行有自己的第一个条目；没有记录时以答案代替。
+            First = Live.RunFirst(live) ?? answer,
             Last = last,
         };
         return new TaskState
@@ -1287,7 +1288,8 @@ public static partial class Generation
             Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Done(answer));
             if (applied.Users.Count > 0)
             {
-                await StartRunAsync(tx, conversationId, live, applied.Users).ConfigureAwait(false);
+                await StartRunAsync(tx, conversationId, live, applied.Users, first: applied.First)
+                    .ConfigureAwait(false);
             }
 
             return new TaskState
@@ -1365,6 +1367,8 @@ public static partial class Generation
             if (Live.RunTaskId(live) == runtime.TaskId)
             {
                 Live.SetRunTurns(live, Live.RunTurns(live, runtime.TaskId) + 1);
+                // 没有边界条目可依的运行（例如回答之后的 continue）以它第一个工具轮答案作为第一个条目。
+                Live.SetRunFirstIfUnset(live, entry.Id);
             }
 
             return new TaskState
@@ -1466,7 +1470,8 @@ public static partial class Generation
                 Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Done(assistant));
                 if (final.Users.Count > 0)
                 {
-                    await StartRunAsync(tx, conversationId, live, final.Users).ConfigureAwait(false);
+                    await StartRunAsync(tx, conversationId, live, final.Users, first: final.First)
+                        .ConfigureAwait(false);
                 }
             }
             else if (maxTurns is { } limit && turns >= limit)
@@ -1528,9 +1533,9 @@ public static partial class Generation
     /// </summary>
     public static async Task StartRunAsync(
         Transaction tx, ConversationId conversationId, TxDocChange live, IReadOnlyList<SubmissionId> inputs,
-        bool keepFailure = false)
+        bool keepFailure = false, EntryId? first = null)
     {
-        Live.SetRun(live, await CreateGenerationAsync(tx, conversationId).ConfigureAwait(false), inputs);
+        Live.SetRun(live, await CreateGenerationAsync(tx, conversationId).ConfigureAwait(false), inputs, first);
         if (!keepFailure) Live.DeleteRunFailure(live);
     }
 
