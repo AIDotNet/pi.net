@@ -160,7 +160,7 @@
 | `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | 🔧 P6 |
 | `6a2825113` | `whenIdle` 拒绝空闲会话的输入 | ✅ 本批 |
 | `1c6928b30` | 未提供的工具调用按 tool task 跑 | 🔧 P6 |
-| `87eff524f` | `afterTool` 在每个 tool task 结果上跑 | 🔧 P6 |
+| `87eff524f` | `afterTool` 在每个 tool task 结果上跑 | ✅ 本批 |
 | `d280e1ffa` | `beforeProviderRequest` 生成钩子 | ✅ 本批（端口原有 `BeforeRequest` 是消息层，这是请求体层，两者并存） |
 | `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | 🟡 `runFailure` 已落地（`15d315f`，见 §4.11）；窗口化视图、`ConversationTranscript`、删 `watchEvents` 未做 |
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
@@ -541,3 +541,13 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 **仍未做**（同一上游提交）：`ConversationHandle.submit()` 放开为任意 `SubmissionDraft`（端口目前仍只收
 输入草稿——子代理对话用 continue 属可用性改进，不影响内核语义）；`afterFailedRun` 的文档里补
 `nothing_to_answer` 这一失败原因（端口文档已按同一语义描述）。
+
+### 4.13 P6 第七批：afterTool 覆盖全部结算路径（提交见 git log）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| call 阶段的拒绝（tool_unavailable / 参数无效 / beforeTool 拦截）先过 afterTool 再结算；被打断与中止的槽结果同样过钩子并按工具上限有界化 | `87eff524f` | `ToolTask.RejectAsync` / `SettleFromSlotAsync` / `AfterHarnessResultAsync` / `LimitsOf`，`FromSlot` 改为单独返回截断诊断 | `ToolTaskTests` 16 例 |
+
+**端口差异**：上游在 abort 时按 `restarts < restartLimit - 1` 豁免钩子（防「钩子就是打断元凶」的
+死循环）；端口的工具重启计数（`b3a29f111`）尚未移植，钩子总是跑——移植重启计数时必须补上这条豁免，
+否则一个改写结果的钩子可能让工具永远跑不完。
