@@ -21,6 +21,7 @@ public static class Overflow
         new(@"exceeds the context window", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // OpenAI
         new(@"exceeds (?:the )?(?:model'?s )?maximum context length(?: of [\d,]+ tokens?|\s*\([\d,]+\))",
             RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // OpenAI 兼容代理（LiteLLM）
+        new(@"context window exceeded", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // LiteLLM 预检（ContextWindowExceededError）
         new(@"input token count.*exceeds the maximum", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // Google
         new(@"maximum prompt length is \d+", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // xAI
         new(@"reduce the length of the messages", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)), // Groq

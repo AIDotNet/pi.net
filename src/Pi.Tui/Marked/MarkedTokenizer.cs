@@ -1143,6 +1143,33 @@ public sealed class MarkedTokenizer
 
     public MarkedToken? Url(string src)
     {
+        var token = UrlCore(src);
+        if (token is null)
+        {
+            return null;
+        }
+
+        // 裸 URL 在 CJK 标点处截断；显式链接与尖括号自动链接走别的分词器，仍可包含这些字符。
+        var punctuationIndex = IndexOfCjkPunctuation(token.Raw);
+        return punctuationIndex < 0 ? token : UrlCore(token.Raw[..punctuationIndex]);
+    }
+
+    /// <summary>第一个 CJK 标点的 UTF-16 下标，没有则为 -1。对应 TS <c>raw.search(cjkPunctuationRegex)</c>。</summary>
+    private static int IndexOfCjkPunctuation(string value)
+    {
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (JsCjk.IsCjkPunctuation(value[index]))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private MarkedToken? UrlCore(string src)
+    {
         var match = Rules.Inline.Url.Match(src);
         if (!match.Success)
         {

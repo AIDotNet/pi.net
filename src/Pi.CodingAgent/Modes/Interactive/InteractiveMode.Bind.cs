@@ -276,7 +276,7 @@ public partial class InteractiveMode
             if (skillDiagnostics.Count > 0)
             {
                 _loadedResourcesContainer.AddChild(new ThemedText(
-                    () => $"{ThemeRuntime.Current.Fg("warning", "[Skill conflicts]")}\n{InteractiveModeFormatting.FormatDiagnostics(skillDiagnostics, sourceInfos, home)}",
+                    () => $"{ThemeRuntime.Current.Fg("warning", "[Skill warnings]")}\n{InteractiveModeFormatting.FormatDiagnostics(skillDiagnostics, sourceInfos, home)}",
                     0,
                     0));
                 _loadedResourcesContainer.AddChild(new Spacer(1));

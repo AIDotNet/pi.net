@@ -191,7 +191,11 @@ public partial class InteractiveMode
 
     // ---------------------------------------------------------------- messages (L3847-3968)
 
-    internal void AddMessageToChat(ChatMessage message, bool populateHistory = false)
+    internal void AddMessageToChat(
+        ChatMessage message,
+        bool populateHistory = false,
+        string? messageId = null,
+        string? timestamp = null)
     {
         switch (message)
         {
@@ -287,7 +291,9 @@ public partial class InteractiveMode
                                 skillBlock.UserMessage,
                                 GetMarkdownThemeWithSettings(),
                                 _outputPad,
-                                GetMarkdownTransformers());
+                                GetMarkdownTransformers(),
+                                messageId,
+                                timestamp);
                             _chatContainer.AddChild(userComponent);
                         }
                     }
@@ -297,7 +303,9 @@ public partial class InteractiveMode
                             textContent,
                             GetMarkdownThemeWithSettings(),
                             _outputPad,
-                            GetMarkdownTransformers());
+                            GetMarkdownTransformers(),
+                            messageId,
+                            timestamp);
                         _chatContainer.AddChild(userComponent);
                     }
 
@@ -318,7 +326,9 @@ public partial class InteractiveMode
                     GetMarkdownThemeWithSettings(),
                     _hiddenThinkingLabel,
                     _outputPad,
-                    GetMarkdownTransformers());
+                    GetMarkdownTransformers(),
+                    messageId,
+                    timestamp);
                 _chatContainer.AddChild(assistantComponent);
                 break;
             }
@@ -338,7 +348,8 @@ public partial class InteractiveMode
 
         internal sealed record UsageItem(UsageEntry Entry) : RenderSessionItem;
 
-        internal sealed record MessageItem(ChatMessage Message) : RenderSessionItem;
+        internal sealed record MessageItem(ChatMessage Message, string? MessageId = null, string? Timestamp = null)
+            : RenderSessionItem;
 
         internal sealed record CompactionCostItem(CompactionCostNotice Notice) : RenderSessionItem;
     }
@@ -367,7 +378,8 @@ public partial class InteractiveMode
             var hasUsage = entry is CompactionEntry compaction ? compaction.UsageStats is not null
                 : entry is BranchSummaryEntry branch ? branch.UsageStats is not null
                 : false;
-            items.AddRange(messages.Select(m => (RenderSessionItem)new RenderSessionItem.MessageItem(m)));
+            items.AddRange(messages.Select(m =>
+                (RenderSessionItem)new RenderSessionItem.MessageItem(m, entry.Id, entry.Timestamp)));
             if (InteractiveModeRender.ShouldAppendCompactionCost(entryType, hasUsage, messages.Count))
             {
                 var usage = entry is CompactionEntry c ? c.UsageStats! : ((BranchSummaryEntry)entry).UsageStats!;
@@ -441,11 +453,12 @@ public partial class InteractiveMode
                     continue;
             }
 
-            var message = ((RenderSessionItem.MessageItem)item).Message;
+            var messageItem = (RenderSessionItem.MessageItem)item;
+            var message = messageItem.Message;
             // Assistant messages need special handling for tool calls
             if (message is AssistantMessage assistant)
             {
-                AddMessageToChat(assistant);
+                AddMessageToChat(assistant, messageId: messageItem.MessageId, timestamp: messageItem.Timestamp);
                 // Render tool call components
                 foreach (var content in assistant.Content)
                 {
@@ -487,7 +500,8 @@ public partial class InteractiveMode
             else
             {
                 // All other messages use standard rendering
-                AddMessageToChat(message, populateHistory);
+                AddMessageToChat(
+                    message, populateHistory, messageItem.MessageId, messageItem.Timestamp);
             }
         }
 

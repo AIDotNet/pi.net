@@ -67,6 +67,22 @@ public class MarkdownCjkTests
         Assert.Equal(["**end.**Then next"], Render("**end.**Then next"));
     }
 
+    /// <summary>
+    /// 裸 URL 在 CJK 标点处截断（上游 #10934）；显式链接与尖括号自动链接走别的分词器，仍可包含这些字符。
+    /// </summary>
+    [Fact]
+    public void BareUrlsStopAtCjkPunctuation()
+    {
+        var tokens = MarkedLexer.LexInline("见 https://example.com/a。后面", new MarkedOptions());
+        Assert.Equal(["text", "link", "text"], tokens.Select(token => token.Type).ToArray());
+        Assert.Equal("https://example.com/a", tokens[1].Raw);
+        Assert.Equal("https://example.com/a", tokens[1].Href);
+        Assert.Equal("。后面", tokens[2].Raw);
+
+        var explicitLink = MarkedLexer.LexInline("[x](https://example.com/a。b)", new MarkedOptions());
+        Assert.Equal("https://example.com/a。b", explicitLink.Single(token => token.Type == "link").Href);
+    }
+
     [Fact]
     public void TokenTreesMatchTheReferenceExtension()
     {

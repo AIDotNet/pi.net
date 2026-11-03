@@ -103,17 +103,16 @@ public sealed record NormalizedBuildSystemPromptOptions
 public static class SystemPrompt
 {
     private const string DefaultPreamble =
-        "You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.";
+        "You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.";
 
     private const string DocsSection = """
-        Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):
+        Pi documentation (read only when the user asks about the harness itself, its SDK, extensions, themes, skills, or TUI):
         - Main documentation: {0}
         - Additional docs: {1}
         - Examples: {2} (extensions, custom tools, SDK)
         - When reading pi docs or examples, resolve docs/... under Additional docs and examples/... under Examples, not the current working directory
-        - When asked about: extensions (docs/extensions.md, docs/dotnet-extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), pi packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)
-        - When working on pi topics, read the docs and examples, and follow .md cross-references before implementing
-        - Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)
+        - When asked about: extensions (docs/extensions.md, docs/dotnet-extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), packages (docs/packages.md), environment variables (docs/environment-variables.md), MCP servers (docs/mcp.md), codemode scripts and non-LLM models such as classifiers and image models (docs/codemode.md)
+        - Before implementing harness changes, read the relevant docs and examples in full, following related cross-references.
         """;
 
     private static readonly System.Text.RegularExpressions.Regex SectionNamePattern =
@@ -316,7 +315,7 @@ public static class SystemPrompt
                 ? string.Join("\n", visibleTools.Select(name => $"- {name}: {options.ToolSnippets[name]}"))
                 : "(none)";
             promptSections["tools"] =
-                $"{tools}\n\nIn addition to the tools above, you may have access to other custom tools depending on the project.";
+                $"{tools}\n\nAdditional tools may be available.";
             promptSections["rules"] = BuildRules(declaredTools, options.ToolGuidelines, options.PromptGuidelines);
             promptSections["docs"] = string.Format(
                 System.Globalization.CultureInfo.InvariantCulture,

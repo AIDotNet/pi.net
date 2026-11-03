@@ -80,6 +80,16 @@ public class RetryTests
     }
 
     [Fact]
+    public void RetryableClassificationMatchesUpstream1_5_0()
+    {
+        // #11537：Zhipu/Z.ai 用量上限错误码 1308 以 429 返回，重试无意义（数小时后才重置）。
+        Assert.False(Retry.IsRetryableAssistantError(Message(StopReason.Error,
+            "429 {\"code\":\"1308\",\"message\":\"已达到 5 小时的使用上限。\"}")));
+        // 只匹配 JSON 的 code 字段：请求 id / 字节数里的 1308 不算限额信号。
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "request req_1308 failed with 503")));
+    }
+
+    [Fact]
     public async Task RetriesUntilSuccessAndReportsCallbacks()
     {
         var attempts = 0;
@@ -177,6 +187,15 @@ public class OverflowTests
         // 正文里提到的状态码不算：只有开头的 413 或 provider 前缀算。
         Assert.False(Overflow.IsContextOverflow(Message(StopReason.Error,
             "some unrelated failure: upstream returned 413 after retry")));
+    }
+
+    [Fact]
+    public void DetectsLiteLlmPreCallContextOverflow()
+    {
+        // #11492：LiteLLM 预检直接抛 ContextWindowExceededError，文案里没有 "maximum context length"。
+        Assert.True(Overflow.IsContextOverflow(Message(StopReason.Error,
+            "litellm.ContextWindowExceededError: litellm.BadRequestError: litellm._pre_call_checks: " +
+            "Context Window exceeded for given call. Max Input Tokens=262144, Got=265262")));
     }
 
     [Fact]

@@ -15,13 +15,15 @@ namespace Pi.CodingAgent.Modes.Interactive.Components;
 public static class MarkdownTransform
 {
     /// <summary>
-    /// TS <c>createMarkdownTransform(messageType, isStreaming, transformers)</c>. Returns the
-    /// transform callback passed to <see cref="Pi.Tui.Components.MarkdownOptions.Transform"/>.
+    /// TS <c>createMarkdownTransform(messageType, isStreaming, transformers, messageId?, timestamp?)</c>.
+    /// Returns the transform callback passed to <see cref="Pi.Tui.Components.MarkdownOptions.Transform"/>.
     /// </summary>
     public static Func<string, int, string> Create(
         string messageType,
         bool isStreaming,
-        IReadOnlyList<MarkdownTransformer> transformers) =>
+        IReadOnlyList<MarkdownTransformer> transformers,
+        string? messageId = null,
+        string? timestamp = null) =>
         (markdown, availableWidth) => Apply(
             markdown,
             new MarkdownTransformContext
@@ -29,6 +31,8 @@ public static class MarkdownTransform
                 MessageType = messageType,
                 IsStreaming = isStreaming,
                 AvailableWidth = availableWidth,
+                MessageId = messageId,
+                Timestamp = timestamp,
             },
             transformers);
 

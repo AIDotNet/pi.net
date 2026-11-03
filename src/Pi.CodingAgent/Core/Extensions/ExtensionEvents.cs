@@ -1157,6 +1157,18 @@ public sealed record MarkdownTransformContext
     public bool IsStreaming { get; init; }
 
     public int AvailableWidth { get; init; }
+
+    /// <summary>
+    /// 持久化会话条目的 id；实时消息/实时渲染时为 <c>null</c>，从会话条目回放渲染时才有值。
+    /// 对应 TS <c>messageId?</c>。
+    /// </summary>
+    public string? MessageId { get; init; }
+
+    /// <summary>
+    /// 持久化会话条目的 ISO 时间戳；实时消息/实时渲染时为 <c>null</c>，从会话条目回放渲染时才有值。
+    /// 对应 TS <c>timestamp?</c>。
+    /// </summary>
+    public string? Timestamp { get; init; }
 }
 
 /// <summary>TS <c>MarkdownTransformer</c>.</summary>

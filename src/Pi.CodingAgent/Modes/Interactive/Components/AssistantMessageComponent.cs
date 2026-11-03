@@ -35,6 +35,8 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
     private AssistantMessage? _lastMessage;
     private bool _hasToolCalls;
     private bool _isStreaming;
+    private readonly string? _messageId;
+    private readonly string? _timestamp;
 
     /// <summary>Per-thinking-run visibility overrides, keyed by run index (0-based).</summary>
     private readonly Dictionary<int, bool> _thinkingVisibilityOverrides = new();
@@ -45,13 +47,17 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
         MarkdownTheme? markdownTheme = null,
         string hiddenThinkingLabel = "Thinking...",
         int outputPad = 1,
-        IReadOnlyList<MarkdownTransformer>? markdownTransformers = null)
+        IReadOnlyList<MarkdownTransformer>? markdownTransformers = null,
+        string? messageId = null,
+        string? timestamp = null)
     {
         _hideThinkingBlock = hideThinkingBlock;
         _markdownTheme = markdownTheme ?? ThemeHelpers.GetMarkdownTheme();
         _hiddenThinkingLabel = hiddenThinkingLabel;
         _outputPad = outputPad;
         _markdownTransformers = markdownTransformers ?? [];
+        _messageId = messageId;
+        _timestamp = timestamp;
 
         _contentContainer = new Container();
         AddChild(_contentContainer);
@@ -157,7 +163,8 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
                     defaultTextStyle: null,
                     new MarkdownOptions
                     {
-                        Transform = MarkdownTransform.Create("assistant", isStreaming, _markdownTransformers),
+                        Transform = MarkdownTransform.Create(
+                            "assistant", isStreaming, _markdownTransformers, _messageId, _timestamp),
                     }));
             }
             else if (content is ThinkingContent)
@@ -212,7 +219,8 @@ public sealed class AssistantMessageComponent : Container, IOutputPadSettable
                         },
                         new MarkdownOptions
                         {
-                            Transform = MarkdownTransform.Create("assistant-thinking", isStreaming, _markdownTransformers),
+                            Transform = MarkdownTransform.Create(
+                                "assistant-thinking", isStreaming, _markdownTransformers, _messageId, _timestamp),
                         });
                 AddVisibleChild(new MouseRegion(thinkingComponent, @event =>
                 {

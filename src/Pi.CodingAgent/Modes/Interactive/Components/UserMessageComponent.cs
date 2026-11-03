@@ -25,6 +25,8 @@ public sealed class UserMessageComponent : Container
 
     private readonly MarkdownTheme _markdownTheme;
     private readonly IReadOnlyList<MarkdownTransformer> _markdownTransformers;
+    private readonly string? _messageId;
+    private readonly string? _timestamp;
     private string _text;
     private int _outputPad;
 
@@ -32,12 +34,16 @@ public sealed class UserMessageComponent : Container
         string text,
         MarkdownTheme? markdownTheme = null,
         int outputPad = 1,
-        IReadOnlyList<MarkdownTransformer>? markdownTransformers = null)
+        IReadOnlyList<MarkdownTransformer>? markdownTransformers = null,
+        string? messageId = null,
+        string? timestamp = null)
     {
         _text = text;
         _markdownTheme = markdownTheme ?? ThemeHelpers.GetMarkdownTheme();
         _outputPad = outputPad;
         _markdownTransformers = markdownTransformers ?? [];
+        _messageId = messageId;
+        _timestamp = timestamp;
         Rebuild();
     }
 
@@ -64,7 +70,8 @@ public sealed class UserMessageComponent : Container
             {
                 PreserveOrderedListMarkers = true,
                 PreserveBackslashEscapes = true,
-                Transform = MarkdownTransform.Create("user", false, _markdownTransformers),
+                Transform = MarkdownTransform.Create(
+                    "user", false, _markdownTransformers, _messageId, _timestamp),
             }));
     }
 

@@ -377,6 +377,51 @@ public sealed class MessageComponentsTests : IDisposable
         Assert.Equal(["formula", "suffix"], calls);
     }
 
+    /// <summary>
+    /// 1.5.0：从会话条目回放渲染时，变换上下文带条目 id 与 ISO 时间戳；实时消息没有这两项。
+    /// </summary>
+    [Fact]
+    public void MessageComponents_PassPersistedEntryMetadataToTransformers()
+    {
+        MarkdownTransformContext? assistantContext = null;
+        var assistant = new AssistantMessageComponent(
+            CreateAssistantMessage([new TextContent("hello")]),
+            false,
+            null,
+            "Thinking...",
+            1,
+            [(markdown, context) =>
+            {
+                assistantContext = context;
+                return markdown;
+            }],
+            "entry-42",
+            "2026-11-02T09:00:00.000Z");
+        Text(assistant, 80);
+
+        Assert.NotNull(assistantContext);
+        Assert.Equal("entry-42", assistantContext!.MessageId);
+        Assert.Equal("2026-11-02T09:00:00.000Z", assistantContext.Timestamp);
+
+        MarkdownTransformContext? userContext = null;
+        var user = new UserMessageComponent(
+            "hi",
+            null,
+            1,
+            [(markdown, context) =>
+            {
+                userContext = context;
+                return markdown;
+            }],
+            "entry-7",
+            "2026-11-02T08:59:00.000Z");
+        Text(user, 80);
+
+        Assert.NotNull(userContext);
+        Assert.Equal("entry-7", userContext!.MessageId);
+        Assert.Equal("2026-11-02T08:59:00.000Z", userContext.Timestamp);
+    }
+
     [Fact]
     public void UserMessage_ReappliesTransformersWhenInvalidated()
     {

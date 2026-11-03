@@ -83,6 +83,11 @@ public static class Retry
         "subscription_sharing_usage_limit_exceeded",
         // Sign in with ChatGPT Business：工作区管理员设置的用量限额，只有管理员能提高（上游 1.4.0）。
         "subscription_sharing_workplace_individual_usage_limit_exceeded",
+
+        // Zhipu/Z.ai（open.bigmodel.cn）错误码 1308：套餐用量上限，以 HTTP 429 返回，
+        // 数小时后才重置，不是瞬时限流（上游 #11537）。只匹配 JSON 的 code 字段，
+        // 避免请求 id 或字节数里的 1308 误命中。
+        "\"code\"\\s*:\\s*\"?1308(?![0-9])",
     ]);
 
     /// <summary>
