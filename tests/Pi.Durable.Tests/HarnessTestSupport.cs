@@ -250,19 +250,29 @@ internal static class HarnessTestSupport
     internal static async Task<(HarnessImpl Harness, IConversation Root)> OpenChatAsync(
         IStorage storage, ChatSetup setup)
     {
-        var harness = await DurableHarness.OpenAsync(storage, new HarnessOptions
+        var harness = await OpenHarnessAsync(storage, setup).ConfigureAwait(false);
+        var root = await harness.RootAsync(
+            Ctx, new AgentChange { Model = new ModelRef(setup.Provider.Id, setup.ModelId) })
+            .ConfigureAwait(false);
+        return (harness, root);
+    }
+
+    /// <summary>
+    /// 只打开 Harness、不建 root（<c>readOnly</c> 下建 root 会写盘，需要单独断言）。对应 TS
+    /// <c>Harness.open(...)</c>。
+    /// </summary>
+    internal static Task<HarnessImpl> OpenHarnessAsync(
+        IStorage storage, ChatSetup setup, bool readOnly = false, Action<Wake>? onWake = null)
+        => DurableHarness.OpenAsync(storage, new HarnessOptions
         {
             Models = setup.Models,
             Registry = setup.Registry,
             SettingsSource = () => setup.Settings,
             Now = () => setup.Now(),
             OnReport = (error, _) => setup.Reports.Add(error),
-        }, Ctx).ConfigureAwait(false);
-        var root = await harness.RootAsync(
-            Ctx, new AgentChange { Model = new ModelRef(setup.Provider.Id, setup.ModelId) })
-            .ConfigureAwait(false);
-        return (harness, root);
-    }
+            ReadOnly = readOnly,
+            OnWake = onWake,
+        }, Ctx);
 
     /// <summary>按脚本化 provider 构造一个 chat 夹具。对应 TS <c>chatSetup()</c>。</summary>
     internal static ChatSetup NewScriptedChatSetup(ScriptedProvider provider) => NewChatSetup(provider);
@@ -606,6 +616,14 @@ internal static class HarnessTestSupport
         public Task<(IReadOnlyList<ChatMessage> Messages, bool Used)?> BeforeRequest(
             IReadOnlyList<ChatMessage> messages, IHookApi api, Context context)
             => Task.FromResult<(IReadOnlyList<ChatMessage>, bool)?>(null);
+
+        /// <summary>对应 TS <c>hook(GenerationTask, { beforeProviderRequest })</c>。</summary>
+        public Func<ModelSpec, System.Text.Json.Nodes.JsonObject, System.Text.Json.Nodes.JsonObject?>?
+            BeforeProviderRequestHandler { get; init; }
+
+        public Task<System.Text.Json.Nodes.JsonObject?> BeforeProviderRequest(
+            ModelSpec model, System.Text.Json.Nodes.JsonObject payload, IHookApi api, Context context)
+            => Task.FromResult(BeforeProviderRequestHandler?.Invoke(model, payload));
 
         public Task AfterResponse(AssistantMessage message, IHookApi api, Context context) => Task.CompletedTask;
 

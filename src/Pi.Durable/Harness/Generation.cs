@@ -347,6 +347,9 @@ public static partial class Generation
         }).ConfigureAwait(false);
         var options = await Provider.RequestOptionsAsync(
             runtime, checkpoint.StreamOptions, checkpoint.ThinkingLevel).ConfigureAwait(false);
+        // 让 beforeProviderRequest 能在请求体发出去之前替换它。
+        options["onPayload"] = new Func<System.Text.Json.Nodes.JsonObject, ModelSpec, Task<System.Text.Json.Nodes.JsonObject?>>(
+            (payload, requestModel) => ProviderPayloadAsync(runtime, requestModel, payload, context));
         var message = await StreamResponseAsync(runtime, model, messages, options, checkpoint.Attempt, context)
             .ConfigureAwait(false);
         var request = new RequestInfo(
@@ -802,6 +805,23 @@ public static partial class Generation
 
             if (inFlight is not null) await inFlight.ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// 一次 provider 请求体上的 <c>beforeProviderRequest</c> 替换链：每个钩子拿到上一个钩子的结果，返回非 null 即替换。
+    /// 对应 TS <c>providerPayload()</c>。
+    /// </summary>
+    private static async Task<System.Text.Json.Nodes.JsonObject?> ProviderPayloadAsync(
+        ITaskRuntime runtime, ModelSpec model, System.Text.Json.Nodes.JsonObject payload, Context context)
+    {
+        var current = payload;
+        await runtime.Hooks.EachAsync("beforeProviderRequest", async handler =>
+        {
+            if (handler is not IGenerationHooks hooks) return;
+            var replaced = await hooks.BeforeProviderRequest(model, current, runtime, context).ConfigureAwait(false);
+            if (replaced is not null) current = replaced;
+        }).ConfigureAwait(false);
+        return current;
     }
 
     /// <summary>在也清除 partial 的同一提交里分类一个终态 provider 消息。对应 TS <c>classify()</c>。</summary>

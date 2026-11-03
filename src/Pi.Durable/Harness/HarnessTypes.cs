@@ -1004,6 +1004,14 @@ public sealed record HarnessOptions
     /// 对应 TS <c>HarnessOptions.onReport</c>。
     /// </summary>
     public Action<Exception, ReportInfo>? OnReport { get; init; }
+
+    /// <summary>
+    /// 只读打开：把本 Session 当作另一个进程在驱动的副本来看，例如只做展示的同步副本。打开时不恢复任何东西——
+    /// <c>running</c> 任务保持已提交的样子；任何带写的提交在到达 Storage 之前以 <see cref="ReadOnlySession"/> 拒绝，
+    /// <c>Resume()</c> 与所有会启用调度的调用同样拒绝，而读取与 watch 仍可用；<c>Wake()</c> 恒为非活跃，
+    /// <c>OnWake</c> 从不被调用。要写就以不带该开关的方式重开。对应 TS <c>HarnessOptions.readOnly</c>。
+    /// </summary>
+    public bool ReadOnly { get; init; }
 }
 
 /// <summary>
@@ -1221,6 +1229,14 @@ public interface IGenerationHooks
     /// <summary>每次请求尝试之前（含恢复）；结果只用于该请求。</summary>
     Task<(IReadOnlyList<ChatMessage> Messages, bool Used)?> BeforeRequest(
         IReadOnlyList<ChatMessage> messages, IHookApi api, Context context);
+
+    /// <summary>
+    /// pi-ai 构建出请求体之后、发送之前调用；返回的对象替换该次请求的请求体（null 表示不变）。pi-ai 每次重建请求体都会
+    /// 再跑一遍，例如同一次尝试内的重试。请求体是 provider API 自己的格式（<c>Model.Api</c>），所以钩子要先判断 API。
+    /// 对应 TS <c>beforeProviderRequest</c>。
+    /// </summary>
+    Task<System.Text.Json.Nodes.JsonObject?> BeforeProviderRequest(
+        ModelSpec model, System.Text.Json.Nodes.JsonObject payload, IHookApi api, Context context);
 
     /// <summary>每个终态 provider 消息，分类之前。</summary>
     Task AfterResponse(AssistantMessage message, IHookApi api, Context context);

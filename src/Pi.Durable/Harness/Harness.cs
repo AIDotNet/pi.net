@@ -169,7 +169,8 @@ public sealed class HarnessImpl : DurableSession, IHarness
         : base(storage,
             options.Now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
             // 每次使用时读设置（所有设置都如此），但只读这一个字段：它每次提交都要读一次。
-            () => options.Settings?.DocumentRetentionMs)
+            () => options.Settings?.DocumentRetentionMs,
+            options.ReadOnly)
     {
         _storage = storage;
         _options = options;
@@ -207,6 +208,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
             Env = (id, callContext) => BuildEnvAsync(id, callContext),
             Now = now,
             OnWake = options.OnWake,
+            ReadOnly = options.ReadOnly,
             Timers = HostTimers.Create(options.SetTimer, reportSetTimer),
             Report = _report,
             SettleOutcome = LiveSettle.SettleSchedulerOutcomeAsync,

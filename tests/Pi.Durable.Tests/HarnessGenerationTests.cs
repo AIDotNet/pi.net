@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Durable.Harness;
@@ -124,6 +125,68 @@ public sealed class HarnessGenerationTests
             var message = Assert.IsType<AssistantMessage>(answer.Model?.FirstOrDefault());
             // 记的是**请求**的档位，与 pi-agent-core 的 agent loop 一致。
             Assert.Equal(ThinkingLevel.High, message.ThinkingLevel);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    // ─── 1c. beforeProviderRequest：请求体在发出去之前可被替换（d280e1ffa） ──
+
+    [Fact]
+    public async Task BeforeProviderRequestHookReplacesTheRequestBody()
+    {
+        var provider = new FakeProvider("faux", _ => HarnessTestSupport.AssistantReply("ok"));
+        var setup = HarnessTestSupport.NewChatSetup(provider);
+        HarnessTestSupport.AddHooks(setup.Registry, "pi.generation", new HarnessTestSupport.GenerationHooksImpl
+        {
+            BeforeProviderRequestHandler = (model, payload) =>
+            {
+                // 请求体是 provider API 自己的格式，钩子先判断 API。
+                Assert.Equal("openai-completions", model.Api);
+                var replaced = (JsonObject)payload.DeepClone();
+                replaced["marker"] = "replaced";
+                return replaced;
+            },
+        });
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            var submission = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("hi")] }, Ctx);
+            await submission.WaitAsync(Ctx);
+            Assert.Equal("replaced", (string?)provider.SentPayload!["marker"]);
+            // 选项字典里确实挂了 onPayload（真实 API 就是靠它回调的）。
+            Assert.True(provider.LastOptions!.ContainsKey("onPayload"));
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    [Fact]
+    public async Task BeforeProviderRequestHookLeavesTheBodyAloneWhenItReturnsNull()
+    {
+        var provider = new FakeProvider("faux", _ => HarnessTestSupport.AssistantReply("ok"));
+        var setup = HarnessTestSupport.NewChatSetup(provider);
+        var seen = 0;
+        HarnessTestSupport.AddHooks(setup.Registry, "pi.generation", new HarnessTestSupport.GenerationHooksImpl
+        {
+            BeforeProviderRequestHandler = (_, _) =>
+            {
+                seen++;
+                return null;
+            },
+        });
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            await (await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("hi")] }, Ctx)).WaitAsync(Ctx);
+            Assert.Equal(1, seen);
+            Assert.Equal("built", (string?)provider.SentPayload!["marker"]);
         }
         finally
         {

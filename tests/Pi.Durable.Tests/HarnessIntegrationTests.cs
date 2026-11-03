@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
 using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Chord.Context;
@@ -65,7 +66,24 @@ internal sealed class FakeProvider : IProvider
 
     public IAssistantMessageEventStream StreamSimple(
         ModelSpec model, IReadOnlyList<ChatMessage> context, JsonDict? options = null)
-        => new FakeStream(_respond(context), _block, _reached);
+    {
+        LastOptions = options;
+        // 真实 API 在拼好请求体之后调用 onPayload；这里用一个固定的请求体模拟，供 beforeProviderRequest 钩子改写。
+        if (options is not null
+            && options.TryGetValue("onPayload", out var hook)
+            && hook is Func<JsonObject, ModelSpec, Task<JsonObject?>> onPayload)
+        {
+            SentPayload = onPayload(new JsonObject { ["marker"] = "built" }, model).GetAwaiter().GetResult();
+        }
+
+        return new FakeStream(_respond(context), _block, _reached);
+    }
+
+    /// <summary>最近一次请求收到的选项字典（含 <c>onPayload</c>）。</summary>
+    public JsonDict? LastOptions { get; private set; }
+
+    /// <summary><c>onPayload</c> 返回的请求体：钩子改过就是改后的，没改就是 <c>{"marker":"built"}</c>。</summary>
+    public JsonObject? SentPayload { get; private set; }
 
     /// <summary>一次请求的确定性流：start → text_delta… → done；<c>block</c> 时不发 done 直到取消。</summary>
     private sealed class FakeStream(AssistantMessage final, bool block, TaskCompletionSource reached)

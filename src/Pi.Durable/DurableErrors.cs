@@ -24,6 +24,18 @@ public sealed class StorageRejected : Exception
 }
 
 /// <summary>
+/// Harness 以只读方式打开（<see cref="Harness.HarnessOptions.ReadOnly"/>）：带写的提交、或会运行任务的调用被拒。
+/// 什么都没写，Harness 仍可读取与观察。对应 TS <c>ReadOnlySession</c>。
+/// </summary>
+public sealed class ReadOnlySession : Exception
+{
+    public ReadOnlySession(string what)
+        : base($"Read-only Harness: {what} refused")
+    {
+    }
+}
+
+/// <summary>
 /// 带 <c>whenIdle: "reject"</c> 的输入到达空闲对话且未被受理：在任何写之前就拒绝，因此它从不启动一次运行。
 /// 对应 TS <c>ConversationIdle</c>。
 /// </summary>

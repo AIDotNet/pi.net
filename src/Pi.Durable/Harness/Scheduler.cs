@@ -47,6 +47,12 @@ public sealed record TaskSchedulerOptions
     /// <summary><c>HarnessOptions.onWake</c>：替代睡眠任务的定时器。</summary>
     public Action<Wake>? OnWake { get; init; }
 
+    /// <summary>
+    /// <c>HarnessOptions.readOnly</c>：打开时把 <c>running</c> 任务按已提交的样子加载（含 <c>running</c>），
+    /// 此后调度器从不提交、从不运行任何东西、也从不请求唤醒。对应 TS <c>TaskSchedulerOptions.readOnly</c>。
+    /// </summary>
+    public bool ReadOnly { get; init; }
+
     /// <summary>宿主的定时器（<c>HarnessOptions.setTimer</c>）。</summary>
     public required Timers Timers { get; init; }
 
@@ -215,7 +221,11 @@ public sealed class TaskScheduler
         _withdrawInputs = options.WithdrawInputs;
         _conversation = options.Conversation;
         _context = options.Context;
+        _readOnly = options.ReadOnly;
     }
+
+    /// <summary>只读：不恢复、不运行、不唤醒。</summary>
+    private readonly bool _readOnly;
 
     // ─── 生命周期 ───────────────────────────────────────────────────────────
 
@@ -246,6 +256,8 @@ public sealed class TaskScheduler
                 foreach (var record in records)
                 {
                     _live[record.Id] = record;
+                    // 只读：running 任务保持已提交的样子（它在另一个进程里跑），不恢复也不计数。
+                    if (_readOnly) continue;
                     if (record.AbandonOnRestart) _abandoned.Add(record.Id);
                     if (record.State.Status == TaskStatus.Running)
                     {
@@ -280,15 +292,20 @@ public sealed class TaskScheduler
                 new ReportInfo.TaskParked(ReportTaskOf(record), InstallerOf(record)));
         }
 
+        if (_readOnly) return;
         // 补派崩溃遗留的、低于已取消属主的 abort 标记，并终结保持的结果。
         _cascadePending = true;
         ScheduleReconcile();
         ScheduleWake();
     }
 
-    /// <summary>启用调度，并让到点的睡眠任务可运行：宿主唤醒（如 alarm）调用它。幂等；关闭后 kick 无效。</summary>
+    /// <summary>
+    /// 启用调度，并让到点的睡眠任务可运行：宿主唤醒（如 alarm）调用它。幂等；关闭后 kick 无效；
+    /// 只读 Harness 以 <see cref="ReadOnlySession"/> 拒绝。
+    /// </summary>
     public void Resume()
     {
+        if (_readOnly) throw new ReadOnlySession("running tasks");
         _enabled = true;
         WakeDue();
         Kick();
@@ -300,6 +317,8 @@ public sealed class TaskScheduler
     /// </summary>
     public Wake Wake()
     {
+        // 只读 Harness 什么都不跑，因此永远不需要进程。
+        if (_readOnly) return new Wake { Active = false };
         try
         {
             return new Wake { Active = ComputeActive(), At = ComputeEarliestSleep() };
@@ -789,7 +808,8 @@ public sealed class TaskScheduler
 
     private void ScheduleReconcile()
     {
-        if (_reconcileScheduled || _closing) return;
+        // 只读的 reconcile 只会失败：它写的东西会被拒，且它自己的提交会让 Session 失败。
+        if (_reconcileScheduled || _closing || _readOnly) return;
         _reconcileScheduled = true;
         _ = Task.Run(ReconcileAsync);
     }
@@ -1301,7 +1321,7 @@ public sealed class TaskScheduler
     /// <summary>在线外重算唤醒：布设内建定时器，或把变化告知 <c>onWake</c>。对应 TS <c>#scheduleWake</c>。</summary>
     private void ScheduleWake()
     {
-        if (_wakeScheduled || _closing) return;
+        if (_wakeScheduled || _closing || _readOnly) return;
         _wakeScheduled = true;
         _ = Task.Run(() =>
         {

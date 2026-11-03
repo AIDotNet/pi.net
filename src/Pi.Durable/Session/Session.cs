@@ -65,9 +65,11 @@ public class DurableSession : ISession
     /// <c>DateTimeOffset.UtcNow</c>）；<paramref name="documentRetentionMs"/> 每次使用时读取，使设置可以随时改。
     /// </summary>
     public DurableSession(
-        IStorage storage, Func<long>? now = null, Func<double?>? documentRetentionMs = null)
+        IStorage storage, Func<long>? now = null, Func<double?>? documentRetentionMs = null,
+        bool readOnly = false)
     {
         _storage = storage;
+        _readOnly = readOnly;
         // 缓存记账绝不能改变它所跟随的操作的结果：时钟或设置抛出时按「现在」与缺省值处理。
         _clock = () =>
         {
@@ -93,6 +95,9 @@ public class DurableSession : ISession
         };
         _host = new SessionHost(this);
     }
+
+    /// <summary>拒绝每个带写的提交（<see cref="Harness.HarnessOptions.ReadOnly"/>）。</summary>
+    private readonly bool _readOnly;
 
     private sealed record IdleDocument(string AddressId, double Since);
 
@@ -684,6 +689,13 @@ public class DurableSession : ISession
             tx.Discard();
             SweepDocuments();
             return result;
+        }
+        if (_readOnly)
+        {
+            // 在到达 Storage 之前拒绝：Session 保持健康，调用方看到原因。
+            tx.Discard();
+            SweepDocuments();
+            throw new ReadOnlySession("a commit with writes");
         }
         // Storage 在批次持久后同步采纳（早于它的下一次提交）；这里不能让异常穿到 Storage，
         // 所以回调自己留住错误，等提交解析后再决定如何失败。
