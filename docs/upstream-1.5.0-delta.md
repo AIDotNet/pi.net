@@ -78,11 +78,10 @@
 | `f3fa8bd92` | faux 缓存写入不再重复计入 input | 已有 | ✅ |
 | `14c811841` | pi-messages 终端事件带 `responseModel` | 已有 | ✅ |
 
-> **P2 剩余部分的实际形状**：8 行里有 6 行是**目录数据**（`generate-models.ts` 的产物），
-> 端口这边是 42 个 `src/Pi.Ai/ModelData/*.json` 快照。要么移植生成器（上游用 models.dev v2 +
-> 一堆 provider 特例表），要么按上游 1.5.0 的生成结果重新导出这 42 个文件。
-> 真正要写代码的两行（`842c73170` Bedrock strict 回退、`89c921d8b` 加固）都已落地，
-> **P2 只剩目录数据子批**。
+> **P2 全部落地**。8 行里 6 行是**目录数据**（`generate-models.ts` 的产物），端口这边是
+> 42 个 `src/Pi.Ai/ModelData/*.json` 快照——本轮用 `tools/catalog-export.mjs` 直接跑上游
+> 生成器重导（见 §4.3），不移植生成器代码。另外两行是代码（`842c73170` Bedrock strict 回退、
+> `89c921d8b` 加固），也已落地。
 
 ### 2.3 coding-agent（P3）
 
@@ -205,7 +204,7 @@
 | --- | --- | --- | --- |
 | **P0** | pi-schema 校验/转换/文案对齐（`Validation.cs` 重写 + 编译缓存 + 悬空 `$ref`） | ~1,500 行 | 已过：368 条上游语料差分全绿（见 §4.2） |
 | **P1** | 本轮已落地的小修集（见 §4） | ~80 行 | 已过 |
-| **P2** | ai wire 层：Gemini const、Bedrock strict 回退、加固；目录数据另立子批 | ~1,200 行 | 三项代码已过（见 §4.3）；**只剩目录数据子批** |
+| **P2** | ai wire 层：Gemini const、Bedrock strict 回退、加固、目录数据重导 | ~1,200 行 + 42 份数据 | **已完成**：代码三项 + 数据子批（见 §4.3） |
 | **P3** | coding-agent：扩展 changelog、自更新命令、device-code 确认、`blocked`、`keyHint` 注入、trust/路径大小写/写盘一致性/分支摘要/启动容错等 ~18 项 | ~900 行 | `InteractiveModeTests` + 新增定向用例；全量 0 失败 |
 | **P4** | tui：翻页键与 `capturesViewportInput`、换行/删除线、Kitty F 键、OSC 133、块级渲染缓存、LaTeX 回退、图片裁剪、双击词字符、Orca | ~700 行 | `Pi.Tui.Tests` 全量 + 上游用例照抄 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序/CJK 分词 | ~500 行 | `Pi.Env.Tests` / `Pi.Mcp.Tests` / 搜索排序向量 |
@@ -295,14 +294,28 @@
 | `e6d4c4d` | Gemini 工具声明把字符串/数字 `const` 改写成单值 `enum`；只下钻含子 schema 的关键字，名字映射的键不当关键字，`default`/`examples`/`enum` 里的字面量原样保留 | `7314819f0` + `a7b94a03f` | `GoogleConvertToolsTests` 15 例 |
 | `c71cd41` | Bedrock strict 工具超限时降级重发一次：两个助手抽到 `ConstrainedSampling`，`ConvertToolConfig` 回报 `HasPreferredStrictTools`，主流程重试循环 + `bedrock_strict_tools_fallback` 诊断 | `842c73170` | `BedrockStrictToolFallbackTests` 17 例 |
 | `1ca2e05` | `OAuthHttp.TrustedHttpUrl` 成为唯一实现（Copilot/Kimi/Meta 三处私有副本删除）；`Cli.SaveAuth` 写 `auth.json` 用 0600 并先收紧旧文件；`contentIndex` 的 JSON `null` 也判非法 | `89c921d8b`（ai 侧） | 4 例 + 3 例 |
+| `a8db1eb` | 重导 42 个 `ModelData/*.json` + `.manifest.json`：净 +69 / −67 条，总计 1716 → 1718 | `catalog/` 全量 | `ModelCatalogTests` 8 例（三处计数守卫更新） |
+
+**目录数据是怎么重导的**（不移植生成器）：上游把内部数据写在
+`packages/ai/src/providers/data/*.json`，但那是生成物、不入库，所以只能现跑。
+`tools/catalog-export.mjs`（gitignored）直接 import 上游的 `catalog/build.ts`、
+`catalog/providers/index.ts`、`scripts/model-data.ts`，走**同一套**
+`buildCatalog` / `groupProviderModelData` / `createModelDataManifest`，把产物写到端口目录：
+
+```bash
+node tools/catalog-export.mjs tools/catalog-out
+cp tools/catalog-out/*.json tools/catalog-out/.manifest.json src/Pi.Ai/ModelData/
+```
+
+字段与分组结构零转换（端口的 `ModelCatalog.Load` 读的就是这个形状）。
+**注意**：`catalog/sources/*` 是线上拉取的（models.dev / OpenRouter / Vercel AI Gateway /
+NVIDIA NIM），所以产物反映「跑这一下的时刻」，不是某个 tag 的冻结快照；重跑会得到不同的
+`generatedAt` 与可能不同的模型集合。
 
 **顺带修掉的端口缺陷**：`PiMessages.Stream` 在终态事件后只 `Push` 不 `End`。TS 的
 `EventStream.push` 收到 `done`/`error` 会自己收尾，端口的 `Push` 不会——成功的
 pi-messages 请求会让消费方**永远等下去**。此前没有任何 `PiMessages` 测试，所以一直没暴露；
 写 `PiMessagesContentIndexTests` 时正控用例直接挂死才发现。现在终态后显式 `End(message)`。
-
-**目录数据子批仍未做**：`generate-models.ts` 的产物（42 个 `ModelData/*.json`）。两条路——
-移植生成器（models.dev v2 + provider 特例表），或按 1.5.0 的生成结果重新导出。本轮未动。
 
 **`Pi.Ai.Tests` 的间歇性失败**：8 个用 `HttpListener` 起本地端点的用例文件在并行下会随机
 1–2 例失败（每次成员不同，单跑全绿）。本轮把新增的 Bedrock 用例改成注入
