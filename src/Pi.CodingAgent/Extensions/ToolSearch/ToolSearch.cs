@@ -13,7 +13,13 @@ namespace Pi.CodingAgent.Extensions.ToolSearch;
 // ============================================================================
 
 /// <summary>Port of the TS <c>ToolSearchDocument</c>.</summary>
-public sealed record ToolSearchDocument(string Name, string Text);
+/// <param name="Name">The tool name, which the ranker weighs separately.</param>
+/// <param name="Text">Description, schema descriptions, and property names.</param>
+/// <param name="NamespaceText">
+/// Name, description, and instructions of the tool's namespace; the empty string when the tool has no
+/// namespace (TS builds it the same way, so it is never <see langword="null"/> for a built document).
+/// </param>
+public sealed record ToolSearchDocument(string Name, string Text, string NamespaceText = "");
 
 /// <summary>Port of the TS <c>ToolSearchMatch</c>.</summary>
 public sealed record ToolSearchMatch(string Name, double Score);
@@ -119,7 +125,8 @@ public static partial class ToolSearch
     [GeneratedRegex("([A-Z]+)([A-Z][a-z])")]
     private static partial Regex CamelUpperUpperLower();
 
-    [GeneratedRegex("[^a-z0-9]+")]
+    /// <summary>TS <c>/[^\p{L}\p{M}\p{N}]+/gu</c>: every script's letters and digits survive.</summary>
+    [GeneratedRegex(@"[^\p{L}\p{M}\p{N}]+")]
     private static partial Regex NonAlphanumeric();
 
     [GeneratedRegex("(ches|shes|sses|xes|zes)$")]
@@ -153,16 +160,83 @@ public static partial class ToolSearch
     /// Lowercase terms, split at camelCase boundaries and non-alphanumerics, without stop words.
     /// Port of the TS <c>tokenize</c>.
     /// </summary>
+    /// <remarks>
+    /// TS segments with <c>Intl.Segmenter</c>, whose dictionary segmentation has no .NET equivalent.
+    /// The port keeps ASCII on the fast path, splits other spaced scripts into whole words, and turns
+    /// runs of no-space CJK into overlapping bigrams — the standard CJK IR substitute. A one-character
+    /// run stays a single term. Difference C391.
+    /// </remarks>
     public static IReadOnlyList<string> Tokenize(string text)
     {
-        var spaced = CamelLowerUpper().Replace(text, "$1 $2");
+        var spaced = CamelLowerUpper().Replace(text.Normalize(System.Text.NormalizationForm.FormC), "$1 $2");
         spaced = CamelUpperUpperLower().Replace(spaced, "$1 $2");
         var lower = spaced.ToLowerInvariant();
-        return NonAlphanumeric()
-            .Split(lower)
-            .Where(term => term.Length > 0 && !StopWords.Contains(term))
-            .Select(Stem)
-            .ToList();
+        var terms = new List<string>();
+        foreach (var word in NonAlphanumeric().Split(lower))
+        {
+            if (word.Length == 0)
+            {
+                continue;
+            }
+
+            if (ContainsNoSpaceScript(word))
+            {
+                terms.AddRange(SegmentNoSpaceScript(word));
+                continue;
+            }
+
+            if (!StopWords.Contains(word))
+            {
+                // TS stems only pure ASCII words: `(/^[a-z0-9]+$/.test(word) ? stem(word) : word)`.
+                terms.Add(IsAsciiWord(word) ? Stem(word) : word);
+            }
+        }
+
+        return terms;
+    }
+
+    private static bool IsAsciiWord(string word)
+    {
+        foreach (var c in word)
+        {
+            if (c is not ((>= 'a' and <= 'z') or (>= '0' and <= '9')))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Han, kana, and Hangul: scripts written without spaces between words.</summary>
+    private static bool ContainsNoSpaceScript(string word)
+    {
+        foreach (var c in word)
+        {
+            if (c is (>= '\u3040' and <= '\u30ff') or (>= '\u3400' and <= '\u4dbf') or (>= '\u4e00' and <= '\u9fff')
+                or (>= '\uf900' and <= '\ufaff') or (>= '\uac00' and <= '\ud7af'))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> SegmentNoSpaceScript(string word)
+    {
+        if (word.Length == 1)
+        {
+            return [word];
+        }
+
+        var bigrams = new List<string>(word.Length - 1);
+        for (var i = 0; i + 1 < word.Length; i++)
+        {
+            bigrams.Add(word.Substring(i, 2));
+        }
+
+        return bigrams;
     }
 
     /// <summary>The TS <c>isObject</c>: a JSON object, not null, not an array.</summary>
@@ -244,16 +318,18 @@ public static partial class ToolSearch
     public static ToolSearchDocument CreateToolSearchDocument(
         string name, string description, ToolSchema parameters, ToolNamespace? ns = null)
     {
-        var parts = new List<string> { name, name.Replace("_", " "), description };
+        // The ranker reads the name from Name and the namespace from NamespaceText; only the
+        // description and the schema go into Text (TS `cc44fa216`).
+        var parts = new List<string> { description };
         SchemaText(parameters.JsonSchema, parts);
-        if (ns is not null)
-        {
-            parts.Add(ns.Name);
-            parts.Add(ns.Description ?? "");
-            parts.Add(ns.Instructions ?? "");
-        }
+        // TS joins the three namespace parts unconditionally, so a namespace without description or
+        // instructions still yields the name plus two spaces.
+        var namespaceText = ns is null ? "" : $"{ns.Name} {ns.Description ?? ""} {ns.Instructions ?? ""}";
 
-        return new ToolSearchDocument(name, string.Join(" ", parts.Where(part => part.Trim().Length > 0)));
+        return new ToolSearchDocument(
+            name,
+            string.Join(" ", parts.Where(part => part.Trim().Length > 0)),
+            namespaceText);
     }
 
     /// <summary>Whether <c>tool_search</c> can load a tool with this exposure.</summary>
@@ -403,26 +479,72 @@ public static partial class ToolSearch
             return normalized == normalizedQuery || normalized.EndsWith($"__{normalizedQuery}", StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// A query term in the name counts this many times its IDF. The text part of a term is at most
+        /// <c>k1 + 1</c> (2.2) times its IDF and about 1 for a single mention, so a name match beats any
+        /// number of mentions in the description.
+        /// </summary>
+        private const double NameWeight = 3;
+
+        /// <summary>
+        /// A query term in the namespace name, description, or instructions counts this many times its
+        /// IDF. They are shared by every tool of the server, so they help find the server but not the
+        /// tool in it.
+        /// </summary>
+        private const double NamespaceWeight = 0.5;
+
+        /// <summary>A document split into the fields the ranker weighs differently.</summary>
+        private sealed record IndexedDocument(
+            string Name,
+            IReadOnlySet<string> NameTerms,
+            IReadOnlyList<string> LocalNameTerms,
+            IReadOnlyDictionary<string, int> TextCounts,
+            int TextLength,
+            IReadOnlySet<string> NamespaceTerms);
+
+        private static IndexedDocument IndexDocument(ToolSearchDocument document)
+        {
+            var textCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var term in Tokenize(document.Text))
+            {
+                textCounts[term] = textCounts.GetValueOrDefault(term) + 1;
+            }
+
+            var segments = document.Name.Split("__");
+            var localTerms = Tokenize(segments[^1]).Distinct(StringComparer.Ordinal).ToList();
+            return new IndexedDocument(
+                document.Name,
+                Tokenize(document.Name).ToHashSet(StringComparer.Ordinal),
+                localTerms,
+                textCounts,
+                textCounts.Values.Sum(),
+                Tokenize(document.NamespaceText).ToHashSet(StringComparer.Ordinal));
+        }
+
+        /// <summary>
+        /// Okapi BM25 over the description, with the name and the namespace as separate fields
+        /// (TS <c>cc44fa216</c> / <c>e033f255f</c> / <c>ae823bc0b</c>):
+        /// <list type="bullet">
+        /// <item>a tool that matches more of the query's terms, in any field, ranks above one that matches
+        /// fewer, whatever their scores;</item>
+        /// <item>a query term in the name scores more than any number of mentions in the description;</item>
+        /// <item>a tool whose whole local name is in the query gets a bonus worth one more match of every
+        /// query term;</item>
+        /// <item>a query that is exactly a tool's name ranks that tool first, before coverage.</item>
+        /// </list>
+        /// The description alone is length normalized, so a long name or long namespace instructions do
+        /// not lower a tool's score. Ties keep document order.
+        /// </summary>
         public IReadOnlyList<ToolSearchMatch> Rank(string query, IReadOnlyList<ToolSearchDocument> documents, int limit)
-        {            var queryTerms = Tokenize(query).Distinct().ToList();
+        {
+            var queryTerms = Tokenize(query).ToHashSet(StringComparer.Ordinal);
             if (queryTerms.Count == 0 || documents.Count == 0 || limit <= 0)
             {
                 return [];
             }
 
-            var termCounts = documents.Select(document =>
-            {
-                var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-                foreach (var term in Tokenize(document.Text))
-                {
-                    counts[term] = counts.GetValueOrDefault(term) + 1;
-                }
-
-                return counts;
-            }).ToList();
-
-            var lengths = termCounts.Select(counts => counts.Values.Sum()).ToList();
-            var averageLength = (double)lengths.Sum() / documents.Count;
+            var indexed = documents.Select(IndexDocument).ToList();
+            var averageLength = (double)indexed.Sum(document => document.TextLength) / indexed.Count;
             if (averageLength == 0)
             {
                 averageLength = 1;
@@ -431,41 +553,60 @@ public static partial class ToolSearch
             var idf = new Dictionary<string, double>(StringComparer.Ordinal);
             foreach (var term in queryTerms)
             {
-                var frequency = termCounts.Count(counts => counts.ContainsKey(term));
-                idf[term] = Math.Log(1 + (documents.Count - frequency + 0.5) / (frequency + 0.5));
+                var frequency = indexed.Count(document =>
+                    document.NameTerms.Contains(term)
+                    || document.TextCounts.ContainsKey(term)
+                    || document.NamespaceTerms.Contains(term));
+                idf[term] = Math.Log(1 + (indexed.Count - frequency + 0.5) / (frequency + 0.5));
             }
 
-            var matches = new List<(ToolSearchMatch Match, bool Named)>();
-            var nameQuery = NormalizeName(query);
-            for (var index = 0; index < documents.Count; index++)
+            var fullNameBonus = idf.Values.Sum();
+            var exactQuery = NormalizeName(query);
+            var matches = new List<(ToolSearchMatch Match, int Covered, bool Exact)>();
+            foreach (var document in indexed)
             {
+                var norm = _k1 * (1 - _b + (_b * document.TextLength) / averageLength);
                 double score = 0;
+                var covered = 0;
                 foreach (var term in queryTerms)
                 {
-                    if (!termCounts[index].TryGetValue(term, out var count) || count == 0)
+                    var count = document.TextCounts.GetValueOrDefault(term);
+                    var weight = (document.NameTerms.Contains(term) ? NameWeight : 0)
+                                 + (document.NamespaceTerms.Contains(term) ? NamespaceWeight : 0)
+                                 + (count * (_k1 + 1)) / (count + norm);
+                    if (weight > 0)
                     {
-                        continue;
+                        covered++;
                     }
 
-                    var norm = _k1 * (1 - _b + (_b * lengths[index]) / averageLength);
-                    score += idf[term] * ((count * (_k1 + 1)) / (count + norm));
+                    score += idf.GetValueOrDefault(term) * weight;
                 }
 
-                if (score > 0)
+                if (score == 0)
                 {
-                    matches.Add((
-                        new ToolSearchMatch(documents[index].Name, score),
-                        IsNameQuery(nameQuery, documents[index].Name)));
+                    continue;
                 }
+
+                var local = document.LocalNameTerms;
+                if (local.Count > 0 && local.All(queryTerms.Contains))
+                {
+                    score += fullNameBonus;
+                }
+
+                matches.Add((
+                    new ToolSearchMatch(document.Name, score),
+                    covered,
+                    IsNameQuery(exactQuery, document.Name)));
             }
 
-            // 点名查询优先：长度归一化会把「描述里恰好含这些词」的短文档排到前面，这里直接压过去。
-            // JS Array.prototype.sort 稳定（ES2019）；LINQ 的 OrderBy 同样稳定，所以同分保持文档顺序。
+            // 点名查询优先，其次命中词数，最后分数。JS Array.prototype.sort 稳定（ES2019）；LINQ 的
+            // OrderBy 同样稳定，所以同分保持文档顺序。
             return matches
-                .OrderByDescending(match => match.Named)
-                .ThenByDescending(match => match.Match.Score)
+                .OrderByDescending(entry => entry.Exact)
+                .ThenByDescending(entry => entry.Covered)
+                .ThenByDescending(entry => entry.Match.Score)
                 .Take(limit)
-                .Select(match => match.Match)
+                .Select(entry => entry.Match)
                 .ToList();
         }
     }

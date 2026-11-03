@@ -29,10 +29,16 @@ namespace Pi.CodingAgent.Extensions.Mcp;
 /// <summary>How an OAuth client is identified: dynamic client registration or a Client ID Metadata Document.</summary>
 public enum McpClientRegistration
 {
+    /// <summary>
+    /// The default: the Client ID Metadata Document when the authorization server supports it for public
+    /// clients, otherwise dynamic client registration.
+    /// </summary>
+    Auto,
+
     /// <summary>Dynamic client registration (RFC 7591).</summary>
     Dcr,
 
-    /// <summary>Client ID Metadata Document.</summary>
+    /// <summary>Client ID Metadata Document, and sign-in fails without support.</summary>
     Cimd,
 }
 
@@ -260,18 +266,37 @@ public static class McpOAuth
         => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     /// <summary>
-    /// pi's Client ID Metadata Document, for <see cref="McpClientRegistration.Cimd"/>, chosen like Codex chooses its own.
+    /// Whether sign-in may identify with pi's Client ID Metadata Document instead of registering.
+    /// <c>auto</c> registers when the user asked for a client name, the redirect URI is not one the
+    /// documents list, or a rebranded build would show up as pi. Port of <c>offersClientMetadataDocument</c>.
+    /// </summary>
+    internal static bool OffersClientMetadataDocument(McpOAuthSettings settings)
+    {
+        var registration = settings.ClientRegistration ?? McpClientRegistration.Auto;
+        if (registration != McpClientRegistration.Auto) return registration == McpClientRegistration.Cimd;
+        if (!string.IsNullOrEmpty(settings.ClientId)
+            || !string.IsNullOrEmpty(settings.ClientName)
+            || Config.AppName != "pi")
+        {
+            return false;
+        }
+
+        return McpServers.IsClientMetadataDocumentCallback(settings.CallbackUrl);
+    }
+
+    /// <summary>
+    /// pi's Client ID Metadata Document, chosen like Codex chooses its own, or <see langword="null"/> when
+    /// the authorization server does not support documents for public clients.
     /// Port of <c>clientMetadataDocument</c>.
     /// </summary>
-    internal static OAuthFlow.ClientMetadataDocument ClientMetadataDocumentFor(
+    internal static OAuthFlow.ClientMetadataDocument? ClientMetadataDocumentFor(
         string serverUrl, string redirectUrl, OAuthTypes.AuthorizationServerMetadata? metadata)
     {
         if (metadata is null
             || metadata.ClientIdMetadataDocumentSupported is not true
             || metadata.TokenEndpointAuthMethodsSupported?.Contains("none") is not true)
         {
-            throw new InvalidOperationException(
-                "The authorization server does not support Client ID Metadata Documents for public clients; remove oauth.clientRegistration \"cimd\"");
+            return null;
         }
 
         if (metadata.AuthorizationResponseIssParameterSupported is true)
@@ -350,14 +375,17 @@ public static class McpOAuth
     /// with CIMD, any stored client) is dropped together with its tokens.
     /// </summary>
     internal static McpOAuthState? PrepareStoredStateForSignIn(
-        McpOAuthState? stored, McpOAuthSettings settings, string redirectUrl, bool cimd)
+        McpOAuthState? stored, McpOAuthSettings settings, string redirectUrl, bool offersDocument)
     {
         if (stored is null) return null;
         var next = stored with { OAuthState = null };
+        // `cimd` replaces a registered client; `auto` keeps one whose redirect URI still matches. A Client
+        // ID Metadata Document is not stored, so tokens without a stored client belong to the document.
         var keepClient = !string.IsNullOrEmpty(settings.ClientId)
-            || (cimd
-                ? next.ClientInformation is null
-                : RegisteredRedirectUrls(next.ClientInformation).Contains(redirectUrl));
+            || (next.ClientInformation is not null
+                ? settings.ClientRegistration != McpClientRegistration.Cimd
+                    && RegisteredRedirectUrls(next.ClientInformation).Contains(redirectUrl)
+                : offersDocument);
         if (!keepClient) next = next with { ClientInformation = null, Tokens = null, TokensExpireAt = null };
         return next;
     }
@@ -521,8 +549,18 @@ public static class McpOAuth
             clientId: settings.ClientId,
             clientSecret: settings.ClientSecret,
             store: store,
-            clientMetadataDocument: settings.ClientRegistration == McpClientRegistration.Cimd
-                ? metadata => ClientMetadataDocumentFor(serverUrl, redirectUrl, metadata)
+            clientMetadataDocument: OffersClientMetadataDocument(settings)
+                ? metadata =>
+                {
+                    var document = ClientMetadataDocumentFor(serverUrl, redirectUrl, metadata);
+                    if (document is null && settings.ClientRegistration == McpClientRegistration.Cimd)
+                    {
+                        throw new InvalidOperationException(
+                            "The authorization server does not support Client ID Metadata Documents for public clients; remove oauth.clientRegistration \"cimd\"");
+                    }
+
+                    return document;
+                }
                 : null);
 
     /// <summary>
@@ -697,8 +735,8 @@ public static class McpOAuth
         var registered = RegisteredRedirectUrls(stored?.ClientInformation);
         var preferredPort = callbackOptions.Port
             ?? (registered.Count > 0 ? JsUrlPort(registered[0]) : null);
-        var cimd = settings.ClientRegistration == McpClientRegistration.Cimd;
-        IReadOnlyList<string> extraPaths = cimd
+        var offersDocument = OffersClientMetadataDocument(settings);
+        IReadOnlyList<string> extraPaths = offersDocument
             ? [$"{CallbackPath}/{CallbackId(serverUrl)}"]
             : [];
         var callback = await ListenForCallbackAsync(
@@ -707,7 +745,7 @@ public static class McpOAuth
         var redirectUrl = callbackOptions.FixedRedirectUrl ?? callback.RedirectUrl;
         try
         {
-            var prepared = PrepareStoredStateForSignIn(stored, settings, redirectUrl, cimd);
+            var prepared = PrepareStoredStateForSignIn(stored, settings, redirectUrl, offersDocument);
             if (prepared is not null) await store.SaveAsync(prepared, cancellationToken).ConfigureAwait(false);
 
             Uri? authorizationUrl = null;

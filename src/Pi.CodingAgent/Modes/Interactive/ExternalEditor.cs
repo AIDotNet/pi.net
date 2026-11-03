@@ -27,7 +27,12 @@ public abstract record ExternalEditorResult
 {
     public sealed record Complete(string Content) : ExternalEditorResult;
 
-    public sealed record Failed : ExternalEditorResult;
+    /// <summary>
+    /// The editor could not be launched, or exited nonzero. <see cref="Message"/> goes to the user:
+    /// TS <c>6454d07ec</c> added it so a broken command, or a cwd too long for the editor, is reported
+    /// instead of silently leaving the prompt unchanged.
+    /// </summary>
+    public sealed record Failed(string Message) : ExternalEditorResult;
 }
 
 /// <summary>Port of <c>editInExternalEditor</c>.</summary>
@@ -68,10 +73,17 @@ public static class ExternalEditor
                 ? await spawn(editor, editorArgs, filePath).ConfigureAwait(false)
                 : await SpawnAsync(editor, editorArgs, filePath).ConfigureAwait(false);
 
-            // TS: `exitCode !== 0` — a spawn error resolves null, which also counts as failure.
+            // A spawn error resolves null, which is reported differently from a nonzero exit.
+            if (exitCode is null)
+            {
+                return new ExternalEditorResult.Failed(
+                    $"Failed to launch external editor: {options.Command}");
+            }
+
             if (exitCode != 0)
             {
-                return new ExternalEditorResult.Failed();
+                return new ExternalEditorResult.Failed(
+                    $"External editor exited with code {exitCode}; prompt unchanged");
             }
 
             var text = Text.StripBom(File.ReadAllText(filePath, Encoding.UTF8));

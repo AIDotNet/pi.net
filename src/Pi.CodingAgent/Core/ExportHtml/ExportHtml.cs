@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Pi.CodingAgent.Core.Extensions;
 using Pi.CodingAgent.Utils;
 
 namespace Pi.CodingAgent.Core;
@@ -36,6 +37,18 @@ public sealed record ExportHtmlOptions
 
     public IToolHtmlRenderer? ToolRenderer { get; init; }
 
+    /// <summary>
+    /// The session's system prompt, shown in the exported transcript. TS <c>SystemData.systemPrompt</c>
+    /// (<c>state?.systemPrompt</c>); the file-only export leaves it null.
+    /// </summary>
+    public string? SystemPrompt { get; init; }
+
+    /// <summary>
+    /// The declared tools, shown in the exported transcript. TS <c>SystemData.tools</c>; the file-only
+    /// export leaves it null.
+    /// </summary>
+    public IReadOnlyList<ToolInfo>? Tools { get; init; }
+
     internal ConfigSeams? Seams { get; init; }
 }
 
@@ -56,7 +69,9 @@ public static partial class ExportHtml
         SessionManager session,
         string? themeName = null,
         IToolHtmlRenderer? toolRenderer = null,
-        string? templateDir = null)
+        string? templateDir = null,
+        string? systemPrompt = null,
+        IReadOnlyList<ToolInfo>? tools = null)
     {
         _ = themeName;
         _ = toolRenderer;
@@ -76,6 +91,15 @@ public static partial class ExportHtml
             leafId = session.GetLeafId(),
             sessionId = session.GetSessionId(),
             cwd = session.GetCwd(),
+            // TS `9359adf0c`: the template renders system messages when they are present. The tool list
+            // is trimmed to what the template reads, like `tools.map((t) => ({ name, description, parameters }))`.
+            systemPrompt,
+            tools = tools?.Select(tool => new
+            {
+                name = tool.Name,
+                description = tool.Description,
+                parameters = tool.Parameters,
+            }).ToList(),
         };
         var json = JsonSerializer.Serialize(payload, JsonOptions);
 
@@ -98,7 +122,13 @@ public static partial class ExportHtml
     public static string ExportSessionToHtml(SessionManager session, ExportHtmlOptions? options = null)
     {
         options ??= new ExportHtmlOptions();
-        var html = GenerateHtml(session, options.ThemeName, options.ToolRenderer, options.Seams is null ? null : Config.GetExportTemplateDir(options.Seams));
+        var html = GenerateHtml(
+            session,
+            options.ThemeName,
+            options.ToolRenderer,
+            options.Seams is null ? null : Config.GetExportTemplateDir(options.Seams),
+            options.SystemPrompt,
+            options.Tools);
         var outputPath = options.OutputPath;
         if (string.IsNullOrEmpty(outputPath))
         {

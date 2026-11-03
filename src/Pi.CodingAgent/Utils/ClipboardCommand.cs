@@ -46,8 +46,12 @@ public static class ClipboardCommand
         // Clipboard writers can daemonize, so they must not be given output pipes to retain.
         // Detach on POSIX so the daemon leaves pi's process group and Ctrl+Z suspend
         // (SIGTSTP to the group) does not stop the clipboard owner (#11179).
+        // Run from the current drive root: clipboard tools ignore the cwd, and WSL cannot start
+        // Windows executables when the cwd's \\wsl.localhost\... path exceeds MAX_PATH (#11592).
+        // It also keeps daemons from pinning pi's cwd. TS `6454d07ec`.
         var child = ChildProcess.SpawnProcess(command, args, new SpawnOptions
         {
+            Cwd = NodePath.IsWindows ? "\\" : "/",
             Stdio = [StdioMode.Pipe, captureStdout ? StdioMode.Pipe : StdioMode.Ignore, StdioMode.Ignore],
             Detached = !OperatingSystem.IsWindows(),
             WindowsHide = true,

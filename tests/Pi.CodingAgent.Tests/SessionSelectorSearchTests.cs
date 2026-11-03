@@ -86,27 +86,34 @@ public class SessionSelectorSearchTests
     }
 
     [Fact]
-    public void RelevanceSortOrdersByScoreAndTieBreaksByModifiedDesc()
+    public void RelevanceSortPutsNameHitsAboveMessageHits()
     {
+        // TS `8c03fef4d`: tiers dominate, so a name hit beats a message hit regardless of position.
         var sessions = new[]
         {
             MakeSession("late", Utc(2026, 1, 3), "xxxx brave"),
             MakeSession("early", Utc(2026, 1, 1), "brave xxxx"),
+            MakeSession("named", Utc(2026, 1, 2), "nothing here", name: "brave rewrite"),
         };
 
-        var result1 = SessionSelectorSearch.FilterAndSortSessions(sessions, "\"brave\"", SortMode.Relevance);
+        var result = SessionSelectorSearch.FilterAndSortSessions(sessions, "\"brave\"", SortMode.Relevance);
 
-        Assert.Equal(new[] { "early", "late" }, result1.Select(s => s.Id).ToArray());
+        Assert.Equal(new[] { "named", "late", "early" }, result.Select(s => s.Id).ToArray());
+    }
 
+    [Fact]
+    public void RelevanceSortTieBreaksByModifiedDescending()
+    {
+        // Both sessions match in the messages tier with no positional term, so the tie-break decides.
         var tieSessions = new[]
         {
             MakeSession("newer", Utc(2026, 1, 3), "brave"),
             MakeSession("older", Utc(2026, 1, 1), "brave"),
         };
 
-        var result2 = SessionSelectorSearch.FilterAndSortSessions(tieSessions, "\"brave\"", SortMode.Relevance);
+        var result = SessionSelectorSearch.FilterAndSortSessions(tieSessions, "\"brave\"", SortMode.Relevance);
 
-        Assert.Equal(new[] { "newer", "older" }, result2.Select(s => s.Id).ToArray());
+        Assert.Equal(new[] { "newer", "older" }, result.Select(s => s.Id).ToArray());
     }
 
     /// <summary>
@@ -120,11 +127,27 @@ public class SessionSelectorSearchTests
         {
             MakeSession("late", Utc(2026, 1, 3), "xxxx brave"),
             MakeSession("early", Utc(2026, 1, 1), "brave xxxx"),
+            MakeSession("named", Utc(2026, 1, 2), "nothing here", name: "brave rewrite"),
         };
 
         var result = SessionSelectorSearch.FilterAndSortSessions(sessions, "\"brave\"", SortMode.Threaded);
 
-        Assert.Equal(new[] { "early", "late" }, result.Select(s => s.Id).ToArray());
+        Assert.Equal(new[] { "named", "late", "early" }, result.Select(s => s.Id).ToArray());
+    }
+
+    [Fact]
+    public void FuzzyTokenMatchesNameAndCwdButNotScatteredMessageText()
+    {
+        // Exact hits in id/messages/cwd are the text tier; scattered matches only count for name and cwd.
+        var sessions = new[]
+        {
+            MakeSession("id-hit", Utc(2026, 1, 1), "nothing", cwd: "/work/brave-project"),
+            MakeSession("scattered-msg", Utc(2026, 1, 2), "b-r-a-v-e s c a t t e r e d"),
+        };
+
+        var result = SessionSelectorSearch.FilterAndSortSessions(sessions, "brave", SortMode.Recent);
+
+        Assert.Equal(new[] { "id-hit" }, result.Select(s => s.Id).ToArray());
     }
 
     [Fact]
@@ -318,16 +341,21 @@ public class SessionSelectorSearchTests
     // --------------------------------------------------------------- matchSession
 
     [Fact]
-    public void MatchSessionScoresRegexHitsByMatchIndex()
+    public void MatchSessionScoresRegexHitsByTier()
     {
-        // The haystack is "<id> <name> <allMessagesText> <cwd>", so "brave" lands at index 9.
-        var session = MakeSession("id", Utc(2026, 1, 1), "xxxx brave");
-        var parsed = SessionSelectorSearch.ParseSearchQuery("re:brave");
+        // TS `8c03fef4d` dropped the match-index term: a regex hit in the messages is the text tier
+        // (1_000_000), a hit in the name is the name tier (0).
+        var inMessages = SessionSelectorSearch.MatchSession(
+            MakeSession("id", Utc(2026, 1, 1), "xxxx brave"),
+            SessionSelectorSearch.ParseSearchQuery("re:brave"));
+        Assert.True(inMessages.Matches);
+        Assert.Equal(1_000_000, inMessages.Score, 6);
 
-        var result = SessionSelectorSearch.MatchSession(session, parsed);
-
-        Assert.True(result.Matches);
-        Assert.Equal(9 * 0.1, result.Score, 6);
+        var inName = SessionSelectorSearch.MatchSession(
+            MakeSession("id", Utc(2026, 1, 1), "nothing", name: "brave"),
+            SessionSelectorSearch.ParseSearchQuery("re:brave"));
+        Assert.True(inName.Matches);
+        Assert.Equal(0, inName.Score, 6);
     }
 
     [Fact]

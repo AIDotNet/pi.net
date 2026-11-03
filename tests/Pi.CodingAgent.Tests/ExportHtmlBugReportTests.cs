@@ -1,5 +1,7 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using Pi.Ai.Types;
 using Pi.CodingAgent;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
@@ -155,6 +157,57 @@ public sealed class ExportHtmlBugReportTests
         Assert.DoesNotContain("{{MARKED_CJK_FRIENDLY_JS}}", html);
         Assert.Contains("markedCjkFriendly", html, StringComparison.Ordinal);
         Assert.Contains("<html", html, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GenerateHtml_EmbedsTheSystemPromptAndTools()
+    {
+        // TS `9359adf0c`: the template renders system messages from the payload.
+        var session = SessionManager.InMemory("/tmp");
+        var tool = new ToolInfo
+        {
+            Name = "read",
+            Description = "Read a file",
+            Parameters = new ToolSchema(new Dictionary<string, object?>()),
+            Exposure = ToolExposure.Direct,
+            SourceInfo = SourceInfos.CreateSynthetic("builtin:read", "builtin"),
+        };
+
+        var html = ExportHtml.GenerateHtml(
+            session,
+            templateDir: TemplateDir(),
+            systemPrompt: "You are pi.",
+            tools: [tool]);
+
+        var payload = ExtractSessionData(html);
+        Assert.Equal("You are pi.", payload["systemPrompt"]!.GetValue<string>());
+        var tools = payload["tools"]!.AsArray();
+        var entry = Assert.Single(tools)!.AsObject();
+        Assert.Equal("read", entry["name"]!.GetValue<string>());
+        Assert.Equal("Read a file", entry["description"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void GenerateHtml_LeavesSystemDataOutForFileOnlyExports()
+    {
+        var session = SessionManager.InMemory("/tmp");
+        var payload = ExtractSessionData(ExportHtml.GenerateHtml(session, templateDir: TemplateDir()));
+
+        // Serialized as JSON null: the payload always carries the fields, the template checks truthiness.
+        var systemPrompt = payload["systemPrompt"];
+        Assert.True(systemPrompt is null || systemPrompt.GetValueKind() == JsonValueKind.Null);
+        Assert.True(payload["tools"] is null || payload["tools"]!.GetValueKind() == JsonValueKind.Null);
+    }
+
+    /// <summary>Read the <c>{{SESSION_DATA}}</c> payload back out of the generated HTML.</summary>
+    private static JsonObject ExtractSessionData(string html)
+    {
+        var match = Regex.Match(
+            html,
+            """<script[^>]*id=["']session-data["'][^>]*>(.*?)</script>""",
+            RegexOptions.Singleline);
+        Assert.True(match.Success, "session-data script not found");
+        return JsonNode.Parse(match.Groups[1].Value)!.AsObject();
     }
 
     // ---- bug-report redaction ---------------------------------------------

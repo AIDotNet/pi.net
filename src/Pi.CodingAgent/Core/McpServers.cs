@@ -111,6 +111,18 @@ public static partial class McpServers
             && url.Hash.Length == 0;
     }
 
+    /// <summary>
+    /// Whether pi's Client ID Metadata Documents list a redirect URI for the loopback
+    /// <c>callbackUrl</c>: they list <c>/callback</c> on localhost and 127.0.0.1, on any port. Without
+    /// <c>callbackUrl</c>, pi uses such a URI. Port of <c>isClientMetadataDocumentCallback</c>.
+    /// </summary>
+    public static bool IsClientMetadataDocumentCallback(string? callbackUrl)
+    {
+        if (callbackUrl is null) return true;
+        if (JsUrl.TryParse(callbackUrl) is not { } url) return false;
+        return Hostname(url) != "[::1]" && url.Pathname == "/callback";
+    }
+
     /// <summary>JS <c>url.hostname</c> keeps the brackets of an IPv6 literal; <see cref="JsUrlValue"/> does not.</summary>
     private static string Hostname(JsUrlValue url) => url.IsIpv6 ? $"[{url.Hostname}]" : url.Hostname;
 
@@ -323,16 +335,20 @@ public static partial class McpServers
         }
 
         var clientRegistration = ReadString(oauth, "clientRegistration");
-        if (oauth.ContainsKey("clientRegistration") && clientRegistration != "dcr")
+        if (oauth.ContainsKey("clientRegistration")
+            && clientRegistration is not "auto" and not "dcr" and not "cimd")
         {
-            if (clientRegistration != "cimd") return "oauth.clientRegistration must be \"dcr\" or \"cimd\"";
+            return "oauth.clientRegistration must be \"auto\", \"dcr\", or \"cimd\"";
+        }
+
+        if (clientRegistration == "cimd")
+        {
             if (oauth.ContainsKey("clientId") || oauth.ContainsKey("clientName"))
             {
                 return "oauth.clientRegistration \"cimd\" cannot be combined with oauth.clientId or oauth.clientName";
             }
 
-            var callback = callbackUrl is not null ? JsUrl.TryParse(callbackUrl) : null;
-            if (callback is not null && (Hostname(callback) == "[::1]" || callback.Pathname != "/callback"))
+            if (!IsClientMetadataDocumentCallback(callbackUrl))
             {
                 return "oauth.clientRegistration \"cimd\" requires oauth.callbackUrl on localhost or 127.0.0.1 with path /callback";
             }

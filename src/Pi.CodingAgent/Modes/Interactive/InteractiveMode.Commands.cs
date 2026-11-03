@@ -407,6 +407,9 @@ public partial class InteractiveMode
                 {
                     OutputPath = outputPath,
                     ThemeName = ThemeRuntime.Current.Name,
+                    // TS `9359adf0c`: the export renders the system prompt and the declared tools.
+                    SystemPrompt = Session.SystemPrompt,
+                    Tools = Session.GetAllTools(),
                 });
                 ShowStatus($"Session exported to: {filePath}");
             }

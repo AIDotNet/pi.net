@@ -42,6 +42,9 @@ public sealed class ExtensionEditorComponent : Container, IFocusable
     private readonly CoreKeybindingsManager _keybindings;
     private readonly string _externalEditorCommand;
 
+    /// <summary>Shows external editor failures; renders nothing while empty. TS <c>externalEditorStatus</c>.</summary>
+    private readonly Text _externalEditorStatus = new("", 1, 0);
+
     private bool _focused;
 
     public ExtensionEditorComponent(
@@ -87,6 +90,7 @@ public sealed class ExtensionEditorComponent : Container, IFocusable
         // Wire up Enter to submit (Shift+Enter for newlines, like the main editor)
         _editor.OnSubmit = text => _onSubmitCallback(text);
         AddChild(_editor);
+        AddChild(_externalEditorStatus);
 
         AddChild(new Spacer(1));
 
@@ -170,6 +174,11 @@ public sealed class ExtensionEditorComponent : Container, IFocusable
             if (result is ExternalEditorResult.Complete complete)
             {
                 _editor.SetText(complete.Content);
+            }
+            else if (result is ExternalEditorResult.Failed failed)
+            {
+                // TS `6454d07ec`: report instead of silently leaving the prompt unchanged.
+                _externalEditorStatus.SetText(ThemeRuntime.Current.Fg("warning", failed.Message));
             }
         }
         finally

@@ -39,7 +39,14 @@ public static class OpenBrowser
         {
             // Browser launch is best-effort: callers still present the target to the user, so a launcher
             // failure (for example, missing xdg-open) must not become a process crash.
-            var startInfo = new ProcessStartInfo(command) { UseShellExecute = false };
+            // On WSL, xdg-open launches a Windows handler, which fails when the cwd's
+            // \\wsl.localhost\... path exceeds MAX_PATH (#11592). The target is a URL, so no
+            // launcher needs pi's cwd. TS `6454d07ec`.
+            var startInfo = new ProcessStartInfo(command)
+            {
+                UseShellExecute = false,
+                WorkingDirectory = Pi.Durable.Env.NodePath.IsWindows ? "\\" : "/",
+            };
             foreach (var arg in args)
             {
                 startInfo.ArgumentList.Add(arg);

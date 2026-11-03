@@ -655,26 +655,29 @@ public sealed partial class DefaultPackageManager
         string markerPath,
         CancellationToken cancellationToken)
     {
+        // Clean untracked files (extensions should be pristine). On Windows, files loaded by another
+        // process (for example a native module of this extension in another pi session) cannot be
+        // deleted, so `git clean` fails. Still install dependencies for the new commit, but keep the
+        // marker so the next update retries the clean. TS `e3da248ea`.
+        var cleaned = true;
         try
         {
             await RunCommandAsync("git", ["clean", "-fdx"], targetDir, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch
+        catch (OperationCanceledException)
         {
-            try
-            {
-                await RepairMissingGitDependenciesAsync(targetDir, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch
-            {
-            }
-
             throw;
+        }
+        catch (Exception error)
+        {
+            cleaned = false;
+            _progress?.Invoke(new PackageProgressEvent(
+                "progress",
+                "update",
+                targetDir,
+                $"Could not remove all untracked files in {targetDir} ({error.Message}). "
+                + "Files may be in use by another pi session; close it and run the update again."));
         }
 
         if (File.Exists(NodePath.Join(targetDir, "package.json")))
@@ -685,7 +688,10 @@ public sealed partial class DefaultPackageManager
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
-        File.Delete(markerPath);
+        if (cleaned)
+        {
+            File.Delete(markerPath);
+        }
     }
 
     private async Task RepairMissingGitDependenciesAsync(string targetDir, CancellationToken cancellationToken)

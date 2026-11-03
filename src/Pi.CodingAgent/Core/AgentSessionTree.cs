@@ -330,6 +330,9 @@ public partial class AgentSession
             OutputPath = outputPath,
             ThemeName = resolvedTheme,
             ToolRenderer = toolRenderer,
+            // TS `9359adf0c`: the export renders the system prompt and the declared tools.
+            SystemPrompt = SystemPrompt,
+            Tools = GetAllTools(),
         }));
     }
 }

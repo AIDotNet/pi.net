@@ -154,6 +154,7 @@ public class McpOAuthTests : IDisposable
             ClientIdMetadataDocumentSupported: true,
             AuthorizationResponseIssParameterSupported: true);
         var document = McpOAuth.ClientMetadataDocumentFor(ServerUrl, Redirect, metadata);
+        Assert.NotNull(document);
         Assert.Equal("https://pi.dev/oauth/client.json", document.Url);
         Assert.Equal(Redirect, document.RedirectUrl);
     }
@@ -169,33 +170,31 @@ public class McpOAuthTests : IDisposable
             ClientIdMetadataDocumentSupported: true);
         var id = McpOAuth.CallbackId(ServerUrl);
         var document = McpOAuth.ClientMetadataDocumentFor(ServerUrl, Redirect, metadata);
+        Assert.NotNull(document);
         Assert.Equal($"https://pi.dev/oauth/{id}/client.json", document.Url);
         Assert.Equal($"{Redirect}/{id}", document.RedirectUrl);
     }
 
     [Fact]
-    public void ClientMetadataDocument_UnsupportedServers_Throw()
+    public void ClientMetadataDocument_UnsupportedServers_ReturnNull()
     {
+        // TS `908aa7b74` made this a null result; only an explicit `clientRegistration: "cimd"` turns it
+        // into the error, so the throwing path lives in the provider factory (see
+        // McpClientRegistrationTests.DocumentIsNotClaimedWithoutServerSupport).
         var withoutCimd = new OAuthTypes.AuthorizationServerMetadata(
             "https://auth.example.com",
             "https://auth.example.com/authorize",
             "https://auth.example.com/token",
             TokenEndpointAuthMethodsSupported: ["none"]);
-        var error = Assert.Throws<InvalidOperationException>(
-            () => McpOAuth.ClientMetadataDocumentFor(ServerUrl, Redirect, withoutCimd));
-        Assert.Equal(
-            "The authorization server does not support Client ID Metadata Documents for public clients; remove oauth.clientRegistration \"cimd\"",
-            error.Message);
+        Assert.Null(McpOAuth.ClientMetadataDocumentFor(ServerUrl, Redirect, withoutCimd));
         var withoutNone = new OAuthTypes.AuthorizationServerMetadata(
             "https://auth.example.com",
             "https://auth.example.com/authorize",
             "https://auth.example.com/token",
             TokenEndpointAuthMethodsSupported: ["client_secret_basic"],
             ClientIdMetadataDocumentSupported: true);
-        Assert.Throws<InvalidOperationException>(
-            () => McpOAuth.ClientMetadataDocumentFor(ServerUrl, Redirect, withoutNone));
-        Assert.Throws<InvalidOperationException>(
-            () => McpOAuth.ClientMetadataDocumentFor(ServerUrl, Redirect, metadata: null));
+        Assert.Null(McpOAuth.ClientMetadataDocumentFor(ServerUrl, Redirect, withoutNone));
+        Assert.Null(McpOAuth.ClientMetadataDocumentFor(ServerUrl, Redirect, metadata: null));
     }
 
     // ─── responseFromRedirectUrl ─────────────────────────────────────────────
@@ -382,7 +381,7 @@ public class McpOAuthTests : IDisposable
             OAuthState = "stale",
         };
         var prepared = McpOAuth.PrepareStoredStateForSignIn(
-            stored, new McpOAuthSettings(), "http://127.0.0.1:5000/callback", cimd: false);
+            stored, new McpOAuthSettings(), "http://127.0.0.1:5000/callback", offersDocument: false);
         Assert.NotNull(prepared!.ClientInformation);
         Assert.Equal("tok", prepared.Tokens!.AccessToken);
         // The expiry is carried over untouched; compare against the stored value directly so a
@@ -404,7 +403,7 @@ public class McpOAuthTests : IDisposable
             TokensExpireAt = NowMs() + 1_000,
         };
         var prepared = McpOAuth.PrepareStoredStateForSignIn(
-            stored, new McpOAuthSettings(), "http://127.0.0.1:5001/callback", cimd: false);
+            stored, new McpOAuthSettings(), "http://127.0.0.1:5001/callback", offersDocument: false);
         Assert.Null(prepared!.ClientInformation);
         Assert.Null(prepared.Tokens);
         Assert.Null(prepared.TokensExpireAt);
@@ -420,13 +419,13 @@ public class McpOAuthTests : IDisposable
             Tokens = new OAuthTypes.OAuthTokens("tok", "Bearer"),
         };
         var cimd = McpOAuth.PrepareStoredStateForSignIn(
-            stored, new McpOAuthSettings { ClientRegistration = McpClientRegistration.Cimd }, Redirect, cimd: true);
+            stored, new McpOAuthSettings { ClientRegistration = McpClientRegistration.Cimd }, Redirect, offersDocument: true);
         Assert.Null(cimd!.ClientInformation);
         Assert.Null(cimd.Tokens);
         var withId = McpOAuth.PrepareStoredStateForSignIn(
-            stored, new McpOAuthSettings { ClientId = "cfg" }, "http://localhost:1234/cb", cimd: false);
+            stored, new McpOAuthSettings { ClientId = "cfg" }, "http://localhost:1234/cb", offersDocument: false);
         Assert.NotNull(withId!.ClientInformation);
-        Assert.Null(McpOAuth.PrepareStoredStateForSignIn(null, new McpOAuthSettings(), Redirect, cimd: false));
+        Assert.Null(McpOAuth.PrepareStoredStateForSignIn(null, new McpOAuthSettings(), Redirect, offersDocument: false));
     }
 
     // ─── auth provider ───────────────────────────────────────────────────────

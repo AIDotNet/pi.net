@@ -1936,6 +1936,11 @@ public partial class InteractiveMode
             {
                 _editor.SetText(complete.Content);
             }
+            else if (result is ExternalEditorResult.Failed failed)
+            {
+                // TS `6454d07ec`: surface the launcher/exit failure in the status line.
+                ShowStatus(failed.Message);
+            }
         }
         finally
         {

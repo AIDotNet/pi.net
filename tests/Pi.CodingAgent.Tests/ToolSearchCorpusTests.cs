@@ -89,6 +89,7 @@ public class ToolSearchCorpusTests
 
         Assert.Equal(expected.GetProperty("name").GetString(), document.Name);
         Assert.Equal(expected.GetProperty("text").GetString(), document.Text);
+        Assert.Equal(expected.GetProperty("namespaceText").GetString(), document.NamespaceText);
     }
 
     public static IEnumerable<object[]> DocumentKeys() =>
@@ -104,13 +105,6 @@ public class ToolSearchCorpusTests
         {
             var documents = ReadDocuments(vector.GetProperty("documents"));
             var query = vector.GetProperty("query").GetString()!;
-            // 语料取自「点名优先」规则（上游 ae823bc）之前的实现：点名查询的期望顺序会变，
-            // 这里跳过，命名规则由 Bm25Ranker_PrefersTheToolTheQueryNames 单独钉住。
-            if (QueryNamesADocument(query, documents))
-            {
-                continue;
-            }
-
             var matches = new ToolSearch.Bm25Ranker().Rank(
                 query,
                 documents,
@@ -168,11 +162,6 @@ public class ToolSearchCorpusTests
             var b = vector.GetProperty("b").ValueKind == JsonValueKind.Null ? (double?)null : vector.GetProperty("b").GetDouble();
             var documents = ReadDocuments(vector.GetProperty("documents"));
             var query = vector.GetProperty("query").GetString()!;
-            if (QueryNamesADocument(query, documents))
-            {
-                continue;
-            }
-
             var matches = new ToolSearch.Bm25Ranker(k1, b).Rank(
                 query,
                 documents,
@@ -189,7 +178,18 @@ public class ToolSearchCorpusTests
         for (var index = 0; index < expectedMatches.Count; index++)
         {
             Assert.Equal(expectedMatches[index].GetProperty("name").GetString(), actual[index].Name);
-            var expectedScore = expectedMatches[index].GetProperty("score").GetDouble();
+            var scoreElement = expectedMatches[index].GetProperty("score");
+            if (scoreElement.ValueKind == JsonValueKind.Null)
+            {
+                // JSON.stringify turns NaN into null: the degenerate k1/b vectors make BM25 divide 0/0,
+                // and upstream keeps the NaN score rather than dropping the document.
+                Assert.True(
+                    double.IsNaN(actual[index].Score),
+                    $"{label} #{index}: expected NaN, got {actual[index].Score}");
+                continue;
+            }
+
+            var expectedScore = scoreElement.GetDouble();
             Assert.True(
                 Math.Abs(expectedScore - actual[index].Score) < 1e-9,
                 $"{label} #{index}: expected score {expectedScore}, got {actual[index].Score}");

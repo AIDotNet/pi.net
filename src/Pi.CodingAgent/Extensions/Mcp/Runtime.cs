@@ -193,6 +193,7 @@ public sealed class McpServerConnection : IMcpToolCaller, McpResourceServer
             ClientName = (oauth["clientName"] as JsonValue)?.GetValue<string>(),
             ClientRegistration = (oauth["clientRegistration"] as JsonValue)?.GetValue<string>() switch
             {
+                "auto" => McpClientRegistration.Auto,
                 "dcr" => McpClientRegistration.Dcr,
                 "cimd" => McpClientRegistration.Cimd,
                 _ => null,
