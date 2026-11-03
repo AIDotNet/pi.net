@@ -24,7 +24,7 @@
 **三条关键判断**
 
 1. **`pi-schema` 不需要新工程**。端口的工具参数本来就是明文 JSON Schema（`ToolSchema(IReadOnlyDictionary<string, object?> JsonSchema)`），不依赖 TypeBox 构造器，所以上游 `pi-ai-schemas.ts` / `schema-builders.ts`（构造器）在 C# 侧没有对应物。真正要跟的只有 **校验 + 强制转换 + 错误文案**，落点集中在 `src/Pi.Ai/Utils/Validation.cs`（现 499 行，TypeBox 语义）。
-2. **chord v2 不跟**。`packages/chord/src/next/*` 是实验实现，`package.json` 的 `exports` 未导出（v1 仍是 `index/context/delta/json/watch/output/sqlite/...`）。v1 只需跟 `pi-schema` 切换与 3 个运行时修复。
+2. **chord v2 不跟**。`packages/chord/src/next/*` 是实验实现，`package.json` 的 `exports` 未导出（v1 仍是 `index/context/delta/json/watch/output/sqlite/...`）。v1 要跟的不是「3 个运行时修复」——真正的大头是 **watch 家族**（`watch.ts` 492 行 + `delta/pending.ts` 173 行，把 durable 的 `CommittedWatch` 收进 chord 并改了调用形状），见 §4.7；`pi-schema` 切换在端口没有对应物（v1 的声明层未移植），SQLite 门面也未移植。
 3. **`durable` 是 1.5.0 第二大块**，且是**对外可见的 API 扩展**（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化会话视图），不是内部重构，必须单独立批。
 
 ## 1. 处置标记
@@ -189,14 +189,14 @@
 | 上游提交 | 变更 | 处置 |
 | --- | --- | --- |
 | `93029a0f1` 等 ~140 个 | Chord v2（`src/next`，实验、未导出） | ⏸ 不跟 |
-| `be039fb31` | Chord v1 与 v2 切到 pi-schema，删 TypeBox | 🔧 P7（仅 v1 的 schema 构造点） |
-| `50d9f823e` | 工具输出里整段 ANSI 序列要删干净 | 🔧 P7 |
-| `c09c98d7d` | relay 消失后仍接纳已路由的 host | 🔧 P7 |
-| `db14038bd` | Node SQLite 驱动预编译语句缓存加上界 | 🔧 P7 |
-| `8025c414d` | `SqliteExecutor.runCounted` 返回影响行数 | 🔧 P7 |
-| `d0aa218cb` | Delta tracker 容器拷贝降本 | 🔧 P7 |
-| `a2fd25f56` / `5e106ab1c` / `42cb822f1` | `Watchable` / `NativeWatchable` / 共享 watch handle | 🔧 P7 |
-| `8b0caefc2` / `d8d99950a` / `da412b039` | 采纳时发布提交、按地址跟随的 watch、同步 observer、`PendingOps` | 🔧 P7 |
+| `be039fb31` | Chord v1 与 v2 切到 pi-schema，删 TypeBox | ➖ 端口无 TypeBox 构造面（v1 的 `method()`/`remote()`/`local()` 声明层未移植，见 §4.7） |
+| `50d9f823e` | 工具输出里整段 ANSI 序列要删干净 | ✅ `a0da1ea`（落 `Pi.Durable/Harness/ToolOutput.cs`） |
+| `c09c98d7d` | relay 消失后仍接纳已路由的 host | ➖ chord v2 的 route/relay 层未移植 |
+| `db14038bd` | Node SQLite 驱动预编译语句缓存加上界 | ➖ 端口无 chord SQLite 门面，`Microsoft.Data.Sqlite` 无该缓存 |
+| `8025c414d` | `SqliteExecutor.runCounted` 返回影响行数 | ➖ 同上（`ExecuteNonQueryAsync` 本就返回影响行数，端口无消费方） |
+| `d0aa218cb` | Delta tracker 容器拷贝降本 | ➖ JS 对象拷贝与 V8 子串驻留专有 |
+| `a2fd25f56` / `5e106ab1c` / `42cb822f1` | `Watchable` / `NativeWatchable` / 共享 watch handle | ✅ 本批（`Pi.Chord/Services/Watch.cs`） |
+| `8b0caefc2` / `d8d99950a` / `da412b039` | 采纳时发布提交、按地址跟随的 watch、同步 observer、`PendingOps` | 🟡 `PendingOps` 与 watch 调用形状已落地；采纳时发布、按地址跟随与同步 observer 归入 P6 |
 
 ## 3. 批次计划
 
@@ -209,7 +209,7 @@
 | **P4** | tui：翻页键与 `capturesViewportInput`、换行/删除线、Kitty F 键、OSC 133、块级渲染缓存、LaTeX 回退、图片裁剪、双击词字符、Orca | ~700 行 | `Pi.Tui.Tests` 全量 + 上游用例照抄 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序/CJK 分词 | ~500 行 | `Pi.Env.Tests` / `Pi.Mcp.Tests` / 搜索排序向量 |
 | **P6** | durable：turn limit、continue、afterRun、entry reads、submit(tx)、whenIdle、tool task、窗口化视图、只读 Harness、分组提交 | ~2,000 行 | `Pi.Durable.Tests` 全量 + 新 API 契约用例 |
-| **P7** | chord v1：pi-schema 构造点、ANSI 清理、watch 家族 | ~600 行 | `Pi.Chord.Tests` 全量 |
+| **P7** | chord v1：pi-schema 构造点、ANSI 清理、watch 家族 | ~600 行 | `Pi.Chord.Tests` 全量（首批已过：135 例，见 §4.7） |
 
 依赖：P0 先于 P2（ai 的工具校验在 P0 里换语义）；P3/P4 互不依赖；P6 与 P0 无耦合，可并行。
 
@@ -422,3 +422,44 @@ P5 余下的两项：
 直接复用 coding-agent 的文档构造与排名器，因此 `c7372af42`（durable 与 coding-agent 对齐）由共用实现覆盖。
 
 **判定不适用**：`8bc94b19f`（`PI_SELF_UPDATE_COMMAND`，端口无自更新执行路径）与本批三处 Rust 守护进程改动。
+
+### 4.7 P7 首批已落地：watch 家族与工具输出 ANSI 清理（`a0da1ea`）
+
+**watch 家族**（`a2fd25f56` + `5e106ab1c` + `42cb822f1` + `d8d99950a` 的 chord 侧）。上游把
+`packages/durable/src/harness/observation.ts` 的 `CommittedWatch` 删掉，改成 chord 里一套共享实现；
+端口的对应物是 `src/Pi.Chord/Services/Watch.cs`：
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 监听器收「一次调用」而不是「值 + 增量」：`WatchCall<T>`（`Value(value, ops, retired)` / `Failure(error)`）、`NativeWatchCall<T>` | `8b0caefc2` | `Watch.cs` 的 `WatchCall<T>` / `NativeWatchCall<T>` | `WatchTests` 16 例 |
+| `WatchEnd` 端点收敛：`retired` 取消（改为调用的 `retired` 标记）、`cancelled` 更名 `aborted` | `8b0caefc2` | `Watch.cs` 的 `WatchEnd` | `SessionTests` 退休/取消 3 例改写 |
+| `WatchLifecycle<T,TCall>` 共享生命周期：串行投递、`endAfterDelivery()`、终止即脱钩并丢弃指向源的引用 | `42cb822f1` | `Watch.cs` 的 `WatchLifecycle` | `WatchTests.EndAfterDelivery*` / `FramesAfterTerminationAreIgnored` |
+| `Watchable<T>` / `NativeWatchable<T>` 公共接口面 | `a2fd25f56` / `5e106ab1c` | `Watch.cs` 的 `IWatchable<T>` / `INativeWatchable<T>` | 编译期契约 |
+| `Watch<T>`：待发帧折叠成一次调用，单帧原样透传，失败后的首个值是根替换 | `d8d99950a` | `Watch.cs` 的 `Watch<T>` | `WatchTests.ATightSequenceOfFramesArrivesAsOneCallWithTheFoldedOps` 等 |
+| `NativeWatch<T>`：每个值各自一帧，超 100 个待发值折叠成一个（`replace` 缺省取最新值） | `d8d99950a` | `Watch.cs` 的 `NativeWatch<T>` | `WatchTests.NativeWatch*` 3 例 |
+| `PendingOps`：慢消费者的待发 op 折叠队列（同路径叶子 op 合并、`r` 丢弃此前、超 10,000 只留替换） | `d8d99950a` | `Pi.Chord/Delta/PendingOps.cs` | `PendingOpsTests` 13 例（含 Tracker 随机游走的不变量校验） |
+| 事件批次改走原生 watch（每批各自一次调用，超 100 批折叠成最新快照），状态类 watch 才折叠 ops | `d8d99950a` | `Harness/Events.cs` | `HarnessEventsTests` 全绿 |
+| durable 侧 `CommittedWatch<T>` 变成 `Watch<T>` 的薄适配（值 + ops + 上下文的动词、`Retire` 投递退休帧后 `endAfterDelivery`） | `42cb822f1` / `8b0caefc2` | `Pi.Durable/Session/Observation.cs` | `SessionTests` / `HarnessViewTests` / `HarnessTaskGraphTests` |
+
+**两个端口专有的取舍**（都写进了代码注释）：
+
+1. **投递时机**：TS 用 `queueMicrotask`，端口用 `Task.Run`。因此「一个忙碌周期一次调用」在紧邻提交的
+   循环里等价于「一次调用覆盖这些提交」，而不是 TS 那样恰好一提交一帧。受影响的三个用例改成逐次冲刷
+   （`HarnessViewTests` 的 head 标记用例、`SessionTests` 的非退休帧用例）或改成断言折叠语义
+   （`HarnessViewTests.FoldsUndeliveredCommitsIntoOneCallWhoseOpsReachTheNewestView`）。
+2. **`Watch<T>` 多一个可选 `replace` 参数**：TS 溢出时用最新待发帧的值做根替换，端口允许源给出「当前值」，
+   与 `NativeWatch` 的 `replace()` 对齐；缺省行为与 TS 一致。
+
+**同批落地**：`50d9f823e` 的整段 ANSI 序列清理落在 `Pi.Durable/Harness/ToolOutput.SanitizeOutput`
+（上游把该文件从 durable 搬到了 chord，端口按 1.4.0 的决定保持分开放），先删 7 位转义序列
+（CSI / OSC·DCS·APC·PM·SOS 到 BEL 或 ST / `ESC x` 短形式）再删单个控制字符。
+
+**判定不适用**：`be039fb31`（端口没有 v1 的 `method()`/`remote()`/`local()` 声明层，也就没有 TypeBox
+可删）、`c09c98d7d`（chord v2 的 route/relay 层未移植）、`db14038bd` 与 `8025c414d`（端口无 chord
+SQLite 门面：`SqliteCommandExecutor` 每条 SQL 现建命令、不缓存预编译语句，且没有消费影响行数的调用方）、
+`d0aa218cb`（JS 的属性逐键拷贝与 V8 子串驻留都是引擎专有；端口的 `DeltaApply` 已按路径拷贝容器）。
+
+**仍归 P6**：`8b0caefc2` 的「采纳时发布提交」（`Storage.commit(writes, adopt, context)`）、「按地址跟随的
+watch」（退休后同一地址的新化身接续同一 watch）、以及 `observeDoc`/`observeConversation`/`observeTaskGraph`
+三个同步 observer——它们和分组提交、节流落盘是同一处 Session 线路改动，拆开做会两次改动同一批方法。
+`da412b039` 的 `appendText` 在端口已是既有能力（`Tracker.Change.Append` 直接记 `a` 而不比对整串）。

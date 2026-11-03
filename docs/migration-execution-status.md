@@ -11,7 +11,8 @@
 - **参照检出：`9c9ce854`（`v1.5.0+49`）**。`v1.5.0..HEAD` 的 49 个未发布提交按既有策略先不跟。
   动工前用 `git -C D:\AI\参考项目\pi log -1` 复核——基线会漂移。
 - **端口发布版本：`1.4.1`**（尚未按 1.5.0 发版）。
-- **进度**：P0–P3、P5 完成；P4（tui，前置：恢复语料生成链）、P6（durable）、P7（chord v1）未开始。
+- **进度**：P0–P3、P5 完成，P7 首批（watch 家族 + ANSI 清理）完成；P4（tui，前置：恢复语料生成链）、
+  P6（durable）、P7 余项（采纳时发布 / 按地址跟随的 watch / 同步 observer，已并入 P6 口径）未开始。
 
 ### 1.5.0 同步进度
 
@@ -24,16 +25,22 @@
 | **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | ⏳ 未开始 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | ✅ `4afb050` + `2ac34ad`（env 3 项判定不适用：Rust daemon；见 delta §4.5/§4.6） |
 | **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | ⏳ 未开始 |
-| **P7** | chord v1（pi-schema 构造点、ANSI 清理、watch 家族） | ⏳ 未开始 |
+| **P7** | chord v1（pi-schema 构造点、ANSI 清理、watch 家族） | 🟡 `a0da1ea` 首批：watch 家族 + ANSI 清理已落地；`be039fb31`/`c09c98d7d`/`db14038bd`/`8025c414d`/`d0aa218cb` 判定不适用；`8b0caefc2` 归入 P6（见 delta §4.7） |
 
 **P0/P2 顺带修掉的端口缺陷**：`PiMessages.Stream` 在终态事件后只 `Push` 不 `End`——TS 的
 `EventStream.push` 收到 `done`/`error` 会自己收尾，端口的 `Push` 不会，成功的 pi-messages 请求
 会让消费方永远等下去（此前没有任何 `PiMessages` 测试，一直没暴露）。见 `b247a0e`。
 
-**验证基线（2026-11-03 P3 收口后实测）**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；
-`Pi.Ai.Tests` **976**（1 跳过：Unix 权限位在 Windows 上无意义）；`Pi.CodingAgent.Tests`
-**5157** / 1 失败 / 3 跳过（`--filter-not-class "*PackageManagerTests*"`；那 1 例仍是既有的
-`UpstreamTypeScriptExampleTests` typebox 语料问题）；`Pi.Agent.Tests` **36** 全绿。
+**验证基线（2026-11-03 P7 首批后实测）**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；
+`Pi.CodingAgent.Tests` **5184** / 1 失败 / 3 跳过（`--filter-not-class "*PackageManagerTests*"`；
+那 1 例仍是既有的 `UpstreamTypeScriptExampleTests` typebox 语料问题）；`Pi.Durable.Tests`
+**516** 全绿；`Pi.Chord.Tests` **135** 全绿（本批新增 `PendingOpsTests` 13 + `WatchTests` 16）；
+`Pi.Env.Tests` 53（3 跳过）、`Pi.Codemode.Tests` 57、`Pi.Agent.Tests` **36** 全绿；
+`Pi.Ai.Tests` **976**（1 跳过：Unix 权限位在 Windows 上无意义）。
+
+**已知测试噪声**：`Pi.Durable.Tests` 里依赖进程/超时的一小批用例（`ToolsTests.Bash_*`、
+`HarnessGenerationRecoveryTests` 的 reopen 恢复）在并行满载时会随机 1 例超时，单跑全绿；
+`Pi.Ai.Tests` 里 8 个用 `HttpListener` 起本地端点的用例文件同样如此。新增用例一律不依赖墙钟。
 
 **已知测试噪声（非代码缺陷）**：`Pi.Ai.Tests` 里 8 个用 `HttpListener` 起本地端点的用例文件
 在并行下随机 1–2 例失败，失败成员每次不同、单跑全绿。新增用例一律注入
