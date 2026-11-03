@@ -170,7 +170,7 @@
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | 🔧 P5 |
 | `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
 | `38ff99177` | 工具交接后继续运行 | ✅ 本批 |
-| `b3a29f111` | 重启循环可见地结束；宿主死亡计入一次 generation 尝试 | 🔧 P6 |
+| `b3a29f111` | 重启循环可见地结束；宿主死亡计入一次 generation 尝试 | ✅ 本批（见 §4.19） |
 
 ### 2.6 env / mcp / telemetry / evals（P5）
 
@@ -593,9 +593,9 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
    C# 的接口成员无法「未声明」，若放进 `IGenerationHooks` 则每个生成钩子都会被当成声明了 afterRun——每次
    回答都会多一次 hold + finish 提交。独立接口让「声明」保持可选。
 2. **`run.first` 已补**（本轮）：`BoundaryResult.First` 把「边界放置的第一个条目」交给它起的运行，
-   没有边界条目可依的运行以第一个工具轮答案补；`RunSummary.First` 因此是真正的第一个条目。仍未做的是
-   `runFailure.first`（失败运行的历史起点，供 continue 的钩子用）与 `endAnsweredCutOff`（`finish`/`drain`
-   被重启上限打断时以 completed 收场并标 `task_interrupted`）——后者依赖 `b3a29f111` 的 `endedByCrashes`。
+   没有边界条目可依的运行以第一个工具轮答案补；`RunSummary.First` 因此是真正的第一个条目。随后 §4.19 的
+   重启收场已经把 `finish` / `drain` 也纳进上限检查；仍未做的是 `runFailure.first`（失败运行的历史起点，
+   供 continue 的钩子用）。
 
 ### 4.18 自查记录（全仓验证与遗漏核对）
 
@@ -612,10 +612,43 @@ checkpoint 固定在定义里）。已改为固定 checkpoint 创建。
 `IRunEndHooks`、`FinishPhaseAsync`、`TakesContinuation` 均在预期文件；`src/Pi.Durable` 无 TODO/FIXME 残留。
 
 **已知未做**（文档已标 🟡/🔧，不是遗漏）：`f3255de76` 的窗口化视图 / `ConversationTranscript` / 删
-`watchEvents`；`e5c6182ba` / `6c2fd73b0` 分组提交与节流落盘 + 「采纳时发布」；`b3a29f111` 重启循环可见化
-（连带 `endAnsweredCutOff`、`run.first`、afterTool 的 abort 豁免）；`35dfa7573` 的 `idleOrder` 索引与
-`wake()` 睡眠集合；P4（tui）全部 13 项（等语料生成链）。
+`watchEvents`；`e5c6182ba` / `6c2fd73b0` 分组提交与节流落盘 + 「采纳时发布」；`b3a29f111` 只剩
+`runFailure.first`（§4.19 已做完主体）；`35dfa7573` 的 `idleOrder` 索引与 `wake()` 睡眠集合；
+P4（tui）全部 13 项（等语料生成链）。
 
 **已知测试噪声**：全量并行满载时，watch/reopen 与计时类用例（`SessionTests.Watch*`、`HarnessViewTests`、
 `HarnessSleepTests`、`HarnessTaskGraphTests`、`ToolsTests.Bash_*`）每轮随机 1–2 例超时，单跑全绿。
 判断回归要看「失败集合是否变化」，不能只看一跑。
+
+### 4.19 P6 第十二批：重启循环可见地结束（`b3a29f111`）
+
+上游这个提交把「停放」整套拿掉，改为「到限就结束，并且结束得看得见」。端口按同样语义重写：
+
+| 变更 | 上游落点 | 端口落点 |
+| --- | --- | --- |
+| 任务被切断 `restartLimit` 次后不再停放 | `scheduler.ts`：删 `#parked*` / `#unparkRaised` / `retry()`，`BlockedReason` 去掉 `restart_limit` | `Scheduler.cs`：删 `Parked` / `UnparkRaised` / `RetryAsync` / `_parkedTasks`，`BlockedReasonOf` 同步；`TaskSchedulerOptions.LimitsRestarts`（= `Live.LimitsRestarts.Contains`） |
+| 不由自己收场的种类到限 faulted | 保留遍里 `cutOff && (mode === "abort" \|\| !limitsRestarts(kind))` → `#terminate(faulted, {reason:"restart_limit"})` | `ReserveAsync` 同结构；`ReportInfo.TaskFaulted(..., ReportReasons.RestartLimit, extension)` |
+| 内建任务自己收场并报 `task_interrupted` | 任务提交包装里识别「终态 failed + detail.reason ∈ {restart_limit, interrupted}」→ 提交落地后上报 | `RuntimeImpl.CommitAsync` + `InterruptionOf`；`ReportInfo.TaskInterrupted(task, reason, restarts, extension)` |
+| 工具调用以错误结果收场 | `tool.ts endCutOff`（code `restart_limit`，不过 afterTool） | `ToolTask.EndCutOffAsync`；`Ending.Reason` 写进 failed 结局的 detail |
+| 压缩以 `compactionFailure` 收场 | `compaction.ts failCutOff` + `failCompactionStatus` | `Compaction.FailCutOffAsync`；本批同时补上端口一直缺的 `Live.compactionFailure`（`FailCompactionStatus` / `DeleteCompactionFailure`，摘要产出时清） |
+| 请求/轮询途中被切断 = 一次失败尝试 | `generation.ts interrupted()`：partial 转 aborted、按 `settings.retry` 退避、轮询把 handle 塞进 `retry.poll` 再轮询同一个 | `Generation.InterruptedAsync` + `GenerationCheckpoint.RetryPhase.Polling`（`PollRequest`）；`RetryPhaseAsync` 重建成 poll 或 prepare |
+| 请求之外到限才 `restart_limit` | `generation.ts endCutOff` + `salvageable()` | `Generation.EndCutOffAsync`（prepare/request/retry/poll/tools 五个阶段各一处检查） |
+| 延迟应答的取消集中 | `deferredOf()` / `cancelDeferred()` | `Generation.DeferredOf` / `CancelDeferredAsync`（abort 与收场共用） |
+| 被切断的运行以 `aborted` 收场 | `settleSchedulerOutcome`：cutOff 时不转换 partial、运行结算 `aborted` | `LiveSettle.SettleSchedulerOutcomeAsync` + `CutOffForRestartLimit` |
+
+**端口的取舍**：
+
+1. **`RetryPhase.Polling` 而不是 `Poll`**：`GenerationCheckpoint` 里已有嵌套记录 `Poll`（poll 阶段的检查点），
+   位置参数同名会被编译器当成类型引用；JSON 键仍是 `poll`，形状与上游一致。
+2. **`Live.LimitsRestarts` 用固定集合**（`pi.generation` / `pi.tool` / `pi.compaction`），由 `Harness` 注入
+   调度器；上游同样是内建三类。
+3. **`compactionFailure` 的 `trigger`** 用 `CompactionReason` 的小写名（`manual` / `threshold` / `overflow`），
+   与端口已有的 `pi.live.compactions[].reason` 写法一致。
+
+**用例**：新增 `HarnessRestartInterruptedTests` 5 例（记一次尝试后下一轮作答；无重试可用时 `interrupted`；
+请求之外到限 `restart_limit`；工具错误结果 + 其上报告；压缩 `compactionFailure`）。`HarnessRestartTests`
+改为新语义（扩展种类 faulted、上限上调仍在保留前生效、到限 faulted、上限之下仍跑 abort 处理器），
+`HarnessReportTests` 的 `task_parked` 用例换成 `task_faulted` + `restart_limit`。
+
+**调试踩到的两个坑**（写进记忆日志）：崩溃模拟必须逐次 `storage.Reopen()`（否则一直克隆最初那份，重启计数
+停在 1）；压缩要能出摘要得有两轮且 `keepRecentTokens` 足够小（一轮时切点是 0，等于没得压）。

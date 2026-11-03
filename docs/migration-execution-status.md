@@ -350,3 +350,31 @@ Stage 15 定向验证：`dotnet build .\tests\Pi.CodingAgent.Tests\Pi.CodingAgen
 - 方案 B（移除默认工具）和 C（子进程引擎）未采用：A 已满足默认可用且不增加外部运行时依赖。
 
 定向验证：`JintEngineTests` 10/10（工具调用/输出、globals、脚本与语法错误、永不 settle 的 promise、工具失败、store 写回、超时停止后可复用、递归保护、执行隔离），`SandboxTests` 中同步引擎延迟回复回归通过；`Pi.Codemode.Tests` 51/51。
+
+### P6 第十二批：重启循环可见地结束（2026-11-03）
+
+上游 `b3a29f111`。停放机制整体删除，改为「到限就结束，而且结束得看得见」：
+
+- **调度器**：删 `Parked` / `UnparkRaised` / `RetryAsync` / `_parkedTasks` 与 `task_parked` 上报；
+  `BlockedReasonOf` 不再返回 `restart_limit`；新增必需选项 `LimitsRestarts`（Harness 传
+  `Live.LimitsRestarts.Contains`），保留遍对「到限且（abort 处理器 或 非内建种类）」直接 faulted，
+  detail 记 `{ reason: "restart_limit" }`。
+- **`task_interrupted` 上报**：`RuntimeImpl.CommitAsync` 在提交里识别「终态 failed + detail.reason 为
+  `restart_limit` / `interrupted`」，提交落地后上报（带 `restarts` 与安装扩展）。
+- **生成**：`GenerationCheckpoint.RetryPhase` 增加 `Polling`（JSON 键 `poll`）；`request` / `poll` 阶段
+  见到 `Restarts` 非空即 `InterruptedAsync` 记一次失败尝试（partial 转 aborted、按 `settings.retry` 退避、
+  轮询型把 handle 带进 retry 再轮询同一个应答），无重试可用则 `interrupted`；`prepare` / `request` /
+  `retry` / `poll` / `tools` 各加一处 `Live.CutOffTooOften` → `EndCutOffAsync`（`restart_limit`，
+  `Live.Salvageable` 决定是否再做转换/取消延迟应答）；`DeferredOf` / `CancelDeferredAsync` 供 abort 与收场共用。
+- **工具**：`ToolTask.EndCutOffAsync`（由槽拼错误结果、诊断码 `restart_limit`、不过 afterTool）；
+  `Ending` 增加 `Reason`，failed 结局写 detail。
+- **压缩**：`select` / `summarize` / `retry` 各一处到限 → `FailCutOffAsync`；并补上端口此前缺失的
+  `pi.live.compactionFailure`（`Live.FailCompactionStatus` / `DeleteCompactionFailure`；摘要产出时清）。
+- **`LiveSettle`**：compaction 的 faulted 写 compactionFailure（被上限切断则只移除状态、不改写成失败）；
+  运行被切断时不再转换 partial，并以 `aborted` 结算。
+
+用例：新增 `HarnessRestartInterruptedTests` 5 例；`HarnessRestartTests`、`HarnessReportTests` 按新语义改写；
+`HarnessSchedulerTests` / `HarnessSleepTests` 的 `TaskSchedulerOptions` 字面量补 `LimitsRestarts`。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 543 例，本批相关 34 例全绿；
+全量并行时 `HarnessTaskGraphTests` / `HarnessViewTests` 各出现 1 例既有的旋转噪声，单跑通过。
