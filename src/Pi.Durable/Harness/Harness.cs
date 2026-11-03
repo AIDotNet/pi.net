@@ -85,6 +85,9 @@ internal sealed class ConversationImpl : IConversation
     public Task<ISubmission> SubmitAsync(SubmissionDraft submission, Context context)
         => _host.Submissions.SubmitAsync(Id, submission, context);
 
+    public Task<SubmissionId> SubmitAsync(ITx tx, SubmissionDraft submission)
+        => _host.Submissions.AdmitInCommitAsync(tx, Id, submission);
+
     public Task<TaskId<CompactionResult>> CompactAsync(string? instructions, Context context)
     {
         _host.Tasks.Resume();
@@ -554,6 +557,14 @@ internal static class BoundConversations
         TaskScheduler tasks) : IConversationHandle
     {
         public ConversationId Id => id;
+
+        public Task<SubmissionId> SubmitAsync(ITx tx, SubmissionDraft submission)
+        {
+            binding.Check();
+            // 调用方的提交带自己的上下文，所以本次调用的中止在这里直接检查。
+            binding.Signal.ThrowIfCancellationRequested();
+            return submissions.AdmitInCommitAsync(tx, id, submission);
+        }
 
         public async Task<ISubmission> SubmitAsync(SubmissionDraft.Input submission, Context context)
         {

@@ -285,6 +285,15 @@ public sealed class Transaction : ITx
     /// <summary>每个逻辑地址上的最新事务内化身或退役标记。</summary>
     private readonly Dictionary<string, DocumentEntry> _latestDocumentByAddress = [];
 
+    /// <summary>本事务所属提交的上下文。对应 TS <c>Tx.context</c>（内部）。</summary>
+    public Context Context => _context;
+
+    /// <summary>是否已暂存过表写：此后读表或受理提交都会抛 <see cref="ReadAfterWrite"/>。对应 TS <c>Tx.hasTableWrite</c>。</summary>
+    public bool HasTableWrite => _hasTableWrite;
+
+    /// <summary>本事务的宿主；用于确认它属于哪个 Session。对应 TS <c>Transaction.ownedBy()</c>。</summary>
+    internal ITransactionHost Host => _host;
+
     internal Transaction(ITransactionHost host, Context context, TransactionScope? scope)
     {
         _host = host;
@@ -1229,7 +1238,7 @@ public sealed class Transaction : ITx
         try
         {
             AssertOpen();
-            if (_hasTableWrite) throw new ReadAfterWrite(method);
+            if (_hasTableWrite) throw new ReadAfterWrite($"Tx.{method}()");
             return Track(read());
         }
         catch (Exception error)

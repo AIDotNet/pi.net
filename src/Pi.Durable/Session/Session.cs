@@ -969,6 +969,12 @@ public class DurableSession : ISession
     private static OperationCanceledException CancellationError(CancellationToken signal)
         => new(signal);
 
+    /// <summary>
+    /// <paramref name="tx"/> 是否是这个 Session 的某次提交的事务。品牌检查：被包装过的、或别的 Session 的并不是。
+    /// 对应 TS <c>ownsTransaction()</c>。
+    /// </summary>
+    internal bool OwnsTransaction(Transaction tx) => ReferenceEquals(tx.Host, _host);
+
     /// <summary>事务主机的默认实现，桥接到 Session 私有状态。</summary>
     private sealed class SessionHost(DurableSession session) : ITransactionHost
     {

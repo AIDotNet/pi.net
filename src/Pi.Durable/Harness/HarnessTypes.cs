@@ -128,6 +128,13 @@ public interface IConversationHandle
 
     Task<ISubmission> SubmitAsync(SubmissionDraft.Input submission, Context context);
 
+    /// <summary>
+    /// 在调用方（任务的 <c>runtime.CommitAsync</c>、工具的 <c>api.CommitAsync</c>）的提交内受理一次提交，规则同
+    /// <see cref="IConversation.SubmitAsync(ITx, SubmissionDraft)"/>；条目带上该任务的 <c>byTaskId</c>。
+    /// 调用已中止时拒绝。对应 TS <c>ConversationHandle.submit(tx, draft)</c>。
+    /// </summary>
+    Task<SubmissionId> SubmitAsync(ITx tx, SubmissionDraft submission);
+
     /// <summary><c>Conversation.abort()</c>：撤回排队输入、中止普通属主范围并等待其空闲。</summary>
     Task AbortAsync(Context context, ConversationAbortOptions? options = null);
 
@@ -1132,6 +1139,14 @@ public interface IConversation
     /// <c>whenBusy: "reject"</c> 以 <c>ConversationBusy</c> 拒绝且不写任何内容。
     /// </summary>
     Task<ISubmission> SubmitAsync(SubmissionDraft submission, Context context);
+
+    /// <summary>
+    /// 在调用方的提交 <paramref name="tx"/> 内受理一次提交（规则同 <see cref="SubmitAsync(SubmissionDraft, Context)"/>），
+    /// 返回它的 ID：受理随该提交一起存储，或者一起丢掉。必须在这次提交的首次表写之前调用，否则抛
+    /// <see cref="ReadAfterWrite"/>；文档在它前后读写都可以。别在回调里调 Harness 的读，它们会等这条线。
+    /// 对应 TS <c>Conversation.submit(tx, draft)</c>。
+    /// </summary>
+    Task<SubmissionId> SubmitAsync(ITx tx, SubmissionDraft submission);
 
     /// <summary>
     /// 受理开启新上下文的 <c>pi.reset</c> 条目写入；给定 handoff 时作为用户消息携带。

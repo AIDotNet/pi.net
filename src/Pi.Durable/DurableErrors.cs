@@ -1,10 +1,14 @@
 namespace Pi.Durable;
 
-/// <summary>事务在首次表写之后读表。对应 TS <c>ReadAfterWrite</c>。</summary>
+/// <summary>
+/// 事务在首次表写之后读表，或在它之后受理提交（<c>SubmitAsync(tx, draft)</c>）。要把需要的行与提交都读/受理在
+/// 首次写之前。对应 TS <c>ReadAfterWrite</c>。
+/// </summary>
 public sealed class ReadAfterWrite : Exception
 {
-    public ReadAfterWrite(string method)
-        : base($"Tx.{method}() cannot read tables after the first table write")
+    /// <param name="operation">这次调用的名字，如 <c>Tx.task()</c> 或 <c>submit(tx, draft)</c>。</param>
+    public ReadAfterWrite(string operation)
+        : base($"{operation} cannot read tables after the first table write")
     {
     }
 }

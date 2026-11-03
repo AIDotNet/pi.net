@@ -49,6 +49,31 @@ public sealed class Submissions
         return new SubmissionHandle(id, this);
     }
 
+    /// <summary>
+    /// 在调用方的提交 <paramref name="tx"/> 内受理一次提交，规则与 <see cref="SubmitAsync(ConversationId, SubmissionDraft, Context)"/>
+    /// 相同，返回它的 ID：这次受理随该提交一起存储，或者一起丢掉。必须在这次提交的首次表写（<c>AppendEntryAsync</c>、
+    /// 创建任务/提交、另一次受理）之前调用；任何路径上晚于它都会抛 <see cref="ReadAfterWrite"/>。文档在它前后读写都
+    /// 可以。拒绝（<see cref="ConversationBusy"/>、<see cref="ConversationIdle"/>）在写之前抛出，回调可以捕获。
+    /// 别在回调里调 <see cref="GetAsync"/> 等 Harness 读：它们会等持有这条线的提交。事务属于别的 Session 时抛错。
+    /// 对应 TS <c>Submissions.admit(tx, …)</c>。
+    /// </summary>
+    public async Task<SubmissionId> AdmitInCommitAsync(
+        ITx tx, ConversationId conversationId, SubmissionDraft draft)
+    {
+        // 品牌检查：只有本 Session 自己造的事务算数，别的 Session 的、或被包装过的都不是。
+        if (tx is not Transaction transaction || !_session.OwnsTransaction(transaction))
+        {
+            throw new InvalidOperationException("The transaction belongs to another Session");
+        }
+
+        // 每条路径都强制：受理只在部分路径读表（请求 ID、空闲边界、steer 的 trace）。
+        if (transaction.HasTableWrite) throw new ReadAfterWrite("submit(tx, draft)");
+        // 这次受理起的运行需要进程：与 submit() 一样请求进度（不读表，只让调度器下一遍看到它）。
+        _resume();
+        return await Admission.AdmitSubmissionAsync(
+            transaction, conversationId, draft, _now(), _steeringMode(), _followUpMode()).ConfigureAwait(false);
+    }
+
     /// <summary>既有提交的句柄；不存在为 null。</summary>
     public async Task<ISubmission?> GetAsync(SubmissionId id, Context context)
     {
