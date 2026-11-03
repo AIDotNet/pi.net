@@ -155,7 +155,7 @@
 | --- | --- | --- |
 | `f6a9db1d8` | 每会话 turn limit | ✅ 本批（持久化 `runFailure` 记录随 `f3255de76` 落地） |
 | `fb524dd2e` | continue 提交 | ✅ 本批 |
-| `7e15f9601` | run-end tasks + `afterRun` hook | 🔧 P6 |
+| `7e15f9601` | run-end tasks + `afterRun` hook | 🟡 核心已落地（`finish`/`drain` + `run.afterRun`，见 §4.17）；`run.first` 与重启上限中断未做 |
 | `65fba65b2` | hook/task 的 entry reads | ✅ 本批 |
 | `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | 🔧 P6 |
 | `6a2825113` | `whenIdle` 拒绝空闲会话的输入 | ✅ 本批 |
@@ -581,3 +581,19 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 
 **连锁的语义变化**（上游同批改写测试）：排队的 follow-up 不再随 handoff 落条目——它留在队列里，由
 继续运行的那个回答在 final 边界放置并接着跑；`pi.reset` 条目按调用序只写最后一个 handoff。
+
+### 4.17 P6 第十一批：afterRun 与运行结束任务（提交见 git log）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 运行回答后由 `afterRun` 钩子要持久任务；生成以 `finish` / `drain` 两阶段创建并等待，期间 `pi.live.run` 仍被持有（对话忙碌、排队输入等待、崩溃恢复后重问钩子） | `7e15f9601` | `IRunEndHooks.AfterRun` + `RunSummary` / `RunEndTaskRequest`、`GenerationCheckpoint.Finish` / `Drain`、`HoldRun` / `PrepareRunEndTasks` / `FinishPhaseAsync` / `DrainPhaseAsync` / `EndAnsweredRunAsync`、`Live.SetRunAfterRun` / `RunInputs` / `ClearRunInputs` | `HarnessAfterRunTests` 2 例 |
+
+**端口的两处取舍**：
+
+1. **`afterRun` 用独立接口 `IRunEndHooks` 表达**。TS 里 `afterRun` 是钩子对象上的可选属性（未声明即不问），
+   C# 的接口成员无法「未声明」，若放进 `IGenerationHooks` 则每个生成钩子都会被当成声明了 afterRun——每次
+   回答都会多一次 hold + finish 提交。独立接口让「声明」保持可选。
+2. **`RunSummary.First` 暂以答案代第一个条目**。上游为此新增了 `pi.live.run.first`（并在 `runFailure` 上也记
+   `first`，让失败的运行也有历史起点）；端口尚未记录运行第一个条目，只有把区间裁到「运行内」的钩子会看出
+   差别。同批的 `endAnsweredCutOff`（`finish`/`drain` 被重启上限打断时以 completed 收场并标记
+   `task_interrupted`）依赖 `b3a29f111` 的 `endedByCrashes`，也随那批补。

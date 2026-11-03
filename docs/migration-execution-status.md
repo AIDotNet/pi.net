@@ -24,7 +24,7 @@
 | **P3** | coding-agent 窗口项：扩展 changelog、device-code 确认、`ctx.ui.custom` 的 `blocked`、`keyText()`/`keyHint()` 注入、trust 优先级、路径大小写、写盘一致性、分支摘要、`pi.exec` 上限、git clean 容错、WSL 深目录、`/resume` 搜索分层、HTML 导出等 | ✅ `ed26895` + `2ac34ad`（`8bc94b19f` 判定不跟，见 delta §4.4/§4.6） |
 | **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | ⏳ 未开始 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | ✅ `4afb050` + `2ac34ad`（env 3 项判定不适用：Rust daemon；见 delta §4.5/§4.6） |
-| **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | 🟡 六批：`ae97b71`（思考档位 + `whenIdle`）、`d57852a`（只读 Harness + `beforeProviderRequest`）、`332da47`（钩子/任务条目读取）、`a8b05cb`（工具轮次上限）、`15d315f`（`runFailure`）、`79bfdae`（continue 提交）、afterTool 全路径、未提供调用按任务跑、空闲检查脏集合、handoff 后运行继续；`044148392` 判定不适用；`afterRun`/窗口化视图/分组提交/重启循环可见化仍待做 |
+| **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | 🟡 六批：`ae97b71`（思考档位 + `whenIdle`）、`d57852a`（只读 Harness + `beforeProviderRequest`）、`332da47`（钩子/任务条目读取）、`a8b05cb`（工具轮次上限）、`15d315f`（`runFailure`）、`79bfdae`（continue 提交）、afterTool 全路径、未提供调用按任务跑、空闲检查脏集合、handoff 后运行继续、afterRun 与运行结束任务；`044148392` 判定不适用；窗口化视图/分组提交/重启循环可见化仍待做 |
 | **P7** | chord v1（pi-schema 构造点、ANSI 清理、watch 家族） | 🟡 `a0da1ea` 首批：watch 家族 + ANSI 清理已落地；`be039fb31`/`c09c98d7d`/`db14038bd`/`8025c414d`/`d0aa218cb` 判定不适用；`8b0caefc2` 归入 P6（见 delta §4.7） |
 
 **P0/P2 顺带修掉的端口缺陷**：`PiMessages.Stream` 在终态事件后只 `Push` 不 `End`——TS 的
@@ -34,7 +34,7 @@
 **验证基线（2026-11-03 P7 首批后实测）**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；
 `Pi.CodingAgent.Tests` **5184** / 1 失败 / 3 跳过（`--filter-not-class "*PackageManagerTests*"`；
 那 1 例仍是既有的 `UpstreamTypeScriptExampleTests` typebox 语料问题）；`Pi.Durable.Tests`
-**536**（新增只读 4 / 钩子 2 / 条目读取 2 / 轮次上限 4 / continue 2 / afterTool 1 / 未提供调用 1 / 空闲检查 1 / handoff 1；并行满载时偶发 1 例超时，单跑全绿）；
+**538**（新增只读 4 / 钩子 2 / 条目读取 2 / 轮次上限 4 / continue 2 / afterTool 1 / 未提供调用 1 / 空闲检查 1 / handoff 1 / afterRun 2；并行满载时偶发 1 例超时，单跑全绿）；
 `Pi.Chord.Tests` **135** 全绿（`PendingOpsTests` 13 + `WatchTests` 16）；
 `Pi.Env.Tests` 53（3 跳过）、`Pi.Codemode.Tests` 57、`Pi.Agent.Tests` **36** 全绿；
 `Pi.Ai.Tests` **976**（1 跳过：Unix 权限位在 Windows 上无意义）。
