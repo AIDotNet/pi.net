@@ -1203,7 +1203,8 @@ public static partial class Generation
                     throw new InvalidOperationException($"Task {name} starts at an unknown phase");
                 }
 
-                prepared.Add(request);
+                // initial() 只跑一次：把校验出来的 checkpoint 固定在定义里，创建时直接用它的值。
+                prepared.Add(request with { Task = request.Task with { Initial = _ => checkpoint } });
             }
             catch (Exception error)
             {
