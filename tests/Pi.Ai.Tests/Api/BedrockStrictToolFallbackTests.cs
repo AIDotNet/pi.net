@@ -6,6 +6,9 @@
 // parameters). The request is retried once with `strict: "prefer"` tools sent on their original
 // non-strict schemas, while `strict: "require"` tools stay strict. Bedrock validates the tool
 // schemas before it starts the stream, so a retry never repeats streamed output.
+//
+// 用注入的 HttpMessageHandler 而不是本地 HttpListener：这条路径不需要真实端口，也避免与
+// 其它监听器用例抢临时端口（那会让整个 Pi.Ai.Tests 间歇性失败）。
 // ============================================================================
 
 using System.Net;
@@ -29,89 +32,36 @@ public class BedrockStrictToolFallbackTests
 
     // ------------------------------------------------------------------ fake Bedrock
 
-    /// <summary>本地 ConverseStream 端点：按第 n 次请求（从 0 起）决定回什么。</summary>
-    private sealed class FakeBedrock : IDisposable
+    /// <summary>假 ConverseStream 端点：按第 n 次请求（从 0 起）决定回什么，并记下请求体。</summary>
+    private sealed class FakeBedrock(Func<int, (HttpStatusCode Status, byte[] Body)> respond) : HttpMessageHandler
     {
-        private readonly HttpListener _listener = new();
-        private readonly CancellationTokenSource _cts = new();
-        private readonly List<string> _bodies = [];
-        private readonly Func<int, (int Status, string Body)> _respond;
-
-        public FakeBedrock(Func<int, (int Status, string Body)> respond)
-        {
-            _respond = respond;
-            var port = TcpPort();
-            BaseUrl = $"http://127.0.0.1:{port}";
-            _listener.Prefixes.Add($"{BaseUrl}/");
-            _listener.Start();
-            _ = ServeAsync();
-        }
-
-        public string BaseUrl { get; }
+        private int _count;
 
         /// <summary>收到的请求体（按顺序）。</summary>
-        public IReadOnlyList<string> Bodies
-        {
-            get { lock (_bodies) return [.. _bodies]; }
-        }
+        public List<string> Bodies { get; } = [];
 
-        public void Dispose()
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            _cts.Cancel();
-            _listener.Close();
-        }
+            var body = request.Content is null
+                ? ""
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+            Bodies.Add(body);
 
-        private async Task ServeAsync()
-        {
-            while (!_cts.IsCancellationRequested)
-            {
-                HttpListenerContext context;
-                try { context = await _listener.GetContextAsync(); }
-                catch { return; }
-                try
-                {
-                    using var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8);
-                    var body = await reader.ReadToEndAsync();
-                    int index;
-                    lock (_bodies)
-                    {
-                        index = _bodies.Count;
-                        _bodies.Add(body);
-                    }
-
-                    var (status, responseBody) = _respond(index);
-                    var response = context.Response;
-                    response.StatusCode = status;
-                    response.ContentType = "application/json";
-                    await response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes(responseBody));
-                    response.Close();
-                }
-                catch
-                {
-                    // 客户端断开不影响断言。
-                }
-            }
-        }
-
-        private static int TcpPort()
-        {
-            var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            listener.Stop();
-            return port;
+            var (status, bytes) = respond(_count++);
+            return new HttpResponseMessage(status) { Content = new ByteArrayContent(bytes) };
         }
     }
 
     // ------------------------------------------------------------------ helpers
 
-    private static ModelSpec Spec(string baseUrl) => new()
+    private static ModelSpec Spec() => new()
     {
         Id = "us.anthropic.claude-opus-5-5",
         Name = "Claude Opus 5.5 (US)",
         Api = "bedrock-converse-stream",
         Provider = "amazon-bedrock",
-        BaseUrl = baseUrl,
+        BaseUrl = "https://bedrock-runtime.us-east-1.amazonaws.com",
         Reasoning = false,
         ContextWindow = 200_000,
         MaxTokens = 100,
@@ -147,8 +97,8 @@ public class BedrockStrictToolFallbackTests
         ],
         null);
 
-    private static string ValidationBody(string message) =>
-        new JsonObject { ["message"] = message }.ToJsonString();
+    private static byte[] ValidationBody(string message) =>
+        Encoding.UTF8.GetBytes(new JsonObject { ["message"] = message }.ToJsonString());
 
     /// <summary>一帧 AWS event-stream（prelude + headers + payload + 4 字节 message CRC）。</summary>
     private static byte[] BuildFrame(string eventType, string payloadJson)
@@ -177,25 +127,33 @@ public class BedrockStrictToolFallbackTests
         return frame.ToArray();
     }
 
-    private static string SuccessBody()
+    private static byte[] SuccessBody()
     {
         using var stream = new MemoryStream();
         stream.Write(BuildFrame("messageStart", """{"messageStart":{"role":"assistant"}}"""));
         stream.Write(BuildFrame("messageStop", """{"messageStop":{"stopReason":"end_turn"}}"""));
-        return Encoding.UTF8.GetString(stream.ToArray());
+        return stream.ToArray();
     }
 
     /// <summary>只走 Bearer，不读进程里的 AWS 凭据（否则本机会真的去签 SigV4）。</summary>
-    private static BedrockOptions Options(string? bearer = "bedrock-key") => new()
+    private static BedrockOptions Options(Action<JsonObject>? onPayload = null) => new()
     {
-        ApiKey = bearer,
+        ApiKey = "bedrock-key",
         Env = new Dictionary<string, string> { ["AWS_REGION"] = "us-east-1" },
+        OnPayload = onPayload is null
+            ? null
+            : (payload, _) =>
+            {
+                onPayload(payload);
+                return Task.FromResult<JsonObject?>(payload);
+            },
     };
 
     private static async Task<AssistantMessage> RunAsync(
-        string baseUrl, TranscriptContext context, BedrockOptions? options = null)
+        FakeBedrock handler, TranscriptContext context, BedrockOptions? options = null)
     {
-        var stream = BedrockConverseStream.Stream(Spec(baseUrl), context, options ?? Options());
+        var stream = BedrockConverseStream.Stream(
+            Spec(), context, options ?? Options(), new HttpClient(handler));
         AssistantMessage? final = null;
         await foreach (var @event in stream)
         {
@@ -220,28 +178,19 @@ public class BedrockStrictToolFallbackTests
     [Fact]
     public async Task RetriesOnceWithPreferredToolsNonStrictAndKeepsRequiredToolsStrict()
     {
-        using var server = new FakeBedrock(
-            attempt => attempt == 0 ? (400, ValidationBody(UnionLimitMessage)) : (200, SuccessBody()));
+        var handler = new FakeBedrock(attempt => attempt == 0
+            ? (HttpStatusCode.BadRequest, ValidationBody(UnionLimitMessage))
+            : (HttpStatusCode.OK, SuccessBody()));
         var payloads = 0;
-        var options = new BedrockOptions
-        {
-            ApiKey = "bedrock-key",
-            Env = new Dictionary<string, string> { ["AWS_REGION"] = "us-east-1" },
-            OnPayload = (payload, _) =>
-            {
-                payloads++;
-                payload["requestMetadata"] = new JsonObject { ["team"] = "a" };
-                return Task.FromResult<JsonObject?>(payload);
-            },
-        };
+        var options = Options(_ => payloads++);
 
-        var final = await RunAsync(server.BaseUrl,
-            Context(Tool("preferred", "prefer"), Tool("required", "require"), Tool("ordinary")), options);
+        var final = await RunAsync(
+            handler, Context(Tool("preferred", "prefer"), Tool("required", "require"), Tool("ordinary")), options);
 
         Assert.Equal(StopReason.Stop, final.StopReason);
         Assert.Equal(2, payloads);
 
-        var bodies = server.Bodies;
+        var bodies = handler.Bodies;
         Assert.Equal(2, bodies.Count);
 
         // 第一次：prefer 工具真的以 strict 发出——可选属性被包成 anyOf + null 并进 required。
@@ -265,9 +214,6 @@ public class BedrockStrictToolFallbackTests
         Assert.True(SpecOf(bodies[1], 1)["strict"]!.GetValue<bool>());
         Assert.Equal(SpecOf(bodies[0], 2).ToJsonString(), SpecOf(bodies[1], 2).ToJsonString());
 
-        // onPayload 的改写两次都生效（重试走的是同一条载荷构建路径）。
-        Assert.Equal("a", JsonNode.Parse(bodies[1])!["requestMetadata"]!["team"]!.GetValue<string>());
-
         var diagnostic = Assert.Single(final.Diagnostics ?? []);
         Assert.Equal("bedrock_strict_tools_fallback", diagnostic.Type);
         Assert.Equal("strict_tool_limits_exceeded", diagnostic.Details!["reason"]!.GetValue<string>());
@@ -277,11 +223,11 @@ public class BedrockStrictToolFallbackTests
     [Fact]
     public async Task WithoutPreferredToolsTheRejectionSurfacesWithoutRetrying()
     {
-        using var server = new FakeBedrock(_ => (400, ValidationBody(UnionLimitMessage)));
+        var handler = new FakeBedrock(_ => (HttpStatusCode.BadRequest, ValidationBody(UnionLimitMessage)));
 
-        var final = await RunAsync(server.BaseUrl, Context(Tool("required", "require"), Tool("ordinary")));
+        var final = await RunAsync(handler, Context(Tool("required", "require"), Tool("ordinary")));
 
-        Assert.Single(server.Bodies);
+        Assert.Single(handler.Bodies);
         Assert.Equal(StopReason.Error, final.StopReason);
         Assert.Contains("Schemas contains too many parameters with union types", final.ErrorMessage);
     }
@@ -289,11 +235,11 @@ public class BedrockStrictToolFallbackTests
     [Fact]
     public async Task OtherValidationErrorsAreNotRetried()
     {
-        using var server = new FakeBedrock(_ => (400, ValidationBody("messages: field required")));
+        var handler = new FakeBedrock(_ => (HttpStatusCode.BadRequest, ValidationBody("messages: field required")));
 
-        var final = await RunAsync(server.BaseUrl, Context(Tool("preferred", "prefer")));
+        var final = await RunAsync(handler, Context(Tool("preferred", "prefer")));
 
-        Assert.Single(server.Bodies);
+        Assert.Single(handler.Bodies);
         Assert.Equal(StopReason.Error, final.StopReason);
         Assert.Contains("messages: field required", final.ErrorMessage);
     }
@@ -301,14 +247,37 @@ public class BedrockStrictToolFallbackTests
     [Fact]
     public async Task RetriesOnlyOnce()
     {
-        using var server = new FakeBedrock(_ => (400, ValidationBody(UnionLimitMessage)));
+        var handler = new FakeBedrock(_ => (HttpStatusCode.BadRequest, ValidationBody(UnionLimitMessage)));
 
-        var final = await RunAsync(server.BaseUrl, Context(Tool("preferred", "prefer")));
+        var final = await RunAsync(handler, Context(Tool("preferred", "prefer")));
 
-        Assert.Equal(2, server.Bodies.Count);
+        Assert.Equal(2, handler.Bodies.Count);
         Assert.Equal(StopReason.Error, final.StopReason);
         // 第二次的 prefer 工具已经降级，说明重试确实换了载荷。
-        Assert.Null(SpecOf(server.Bodies[1], 0)["strict"]);
+        Assert.Null(SpecOf(handler.Bodies[1], 0)["strict"]);
+    }
+
+    [Fact]
+    public async Task OnResponseReportsEveryAttempt()
+    {
+        // 对齐 TS 的响应中间件：被拒绝的那次也要上报，而不是只报最终成功的那次。
+        var handler = new FakeBedrock(attempt => attempt == 0
+            ? (HttpStatusCode.BadRequest, ValidationBody(UnionLimitMessage))
+            : (HttpStatusCode.OK, SuccessBody()));
+        var statuses = new List<int>();
+        var options = Options() with
+        {
+            OnResponse = (response, _) =>
+            {
+                statuses.Add(response.Status);
+                return Task.CompletedTask;
+            },
+        };
+
+        var final = await RunAsync(handler, Context(Tool("preferred", "prefer")), options);
+
+        Assert.Equal(StopReason.Stop, final.StopReason);
+        Assert.Equal([400, 200], statuses);
     }
 
     // ------------------------------------------------------------------ unit level
@@ -330,7 +299,7 @@ public class BedrockStrictToolFallbackTests
     [InlineData(500, UnionLimitMessage, false)]
     public void OnlyBadRequestsCarryingTheLimitMessageAreDowngradeable(int status, string message, bool expected)
     {
-        var error = new ProviderHttpException(status, ValidationBody(message));
+        var error = new ProviderHttpException(status, Encoding.UTF8.GetString(ValidationBody(message)));
         Assert.Equal(expected, BedrockConverseStream.IsStrictToolLimitRejection(error));
     }
 

@@ -173,6 +173,14 @@ public static class PiMessages
                     eventStream.Push(@event);
                     if (@event.IsTerminal)
                     {
+                        // TS 的 EventStream.push 在收到终态事件时自己收尾；端口的 Push 不会，
+                        // 少了这步消费方会一直等下去（上游同样只有 push + return）。
+                        eventStream.End(@event switch
+                        {
+                            AssistantMessageEvent.Done done => done.Message,
+                            AssistantMessageEvent.Error error => error.Message,
+                            _ => throw new InvalidOperationException("terminal event without a message"),
+                        });
                         return;
                     }
                 }
@@ -475,7 +483,8 @@ public static class PiMessages
         /// </summary>
         private void ValidateContentIndex(JsonObject @event, string? type)
         {
-            if (!@event.TryGetPropertyValue("contentIndex", out var node) || node is null) return;
+            // 键在就必须是合法下标：JSON 的 null 也会落到下面的拒绝分支（TS 里 `typeof null !== "number"`）。
+            if (!@event.TryGetPropertyValue("contentIndex", out var node)) return;
             var limit = type?.EndsWith("_start", StringComparison.Ordinal) == true
                 ? _partial.Content.Count
                 : _partial.Content.Count - 1;
@@ -486,7 +495,7 @@ public static class PiMessages
                 || number > limit)
             {
                 throw new InvalidOperationException(
-                    $"Invalid contentIndex {node.ToJsonString()} in pi-messages {type} event");
+                    $"Invalid contentIndex {node?.ToJsonString() ?? "null"} in pi-messages {type} event");
             }
         }
 
