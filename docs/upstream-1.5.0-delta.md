@@ -394,3 +394,31 @@ typebox 语料问题），较基线 5118 增 39 例。
 
 > env 三项的判定依据：`docs/env-package-migration.md` 已明确「守护进程（`daemon/src/*.rs`）不移植，
 > 按原生产物处理」。这三条是守护进程内部行为，端口侧没有对应代码路径；升级原生 `pi-env` 即得修复。
+
+### 4.6 P3 收尾 + P5 收尾（`2ac34ad`）
+
+P3 余下的四项全部落地：
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| Windows 上 `git clean` 失败仍继续装依赖，保留 marker 下次重试，并给出 progress 提示 | `e3da248ea` | `PackageManager.Updates.CleanAndInstallGitDependenciesAsync` | 全量回归 |
+| 剪贴板命令与浏览器启动器从盘根启动（WSL 深目录超 `MAX_PATH`）；外部编辑器失败带消息并显示 | `6454d07ec` | `Utils/ClipboardCommand`、`Utils/OpenBrowser`、`ExternalEditorResult.Failed(Message)`、`InteractiveMode.HandleOpenExternalEditor`、`ExtensionEditor` 状态行 | 全量回归 |
+| `/resume` 搜索分层：名称 / ID·正文·目录 / 模糊三档，消息文本按会话缓存小写副本 | `8c03fef4d` | `SessionSelectorSearch`（`MatchLiteralToken` / `MatchFuzzyToken` / `MatchPhraseToken` / `MatchRegex` + `ConditionalWeakTable` 缓存） | `SessionSelectorSearchTests` 51 例（含新增分层用例） |
+| HTML 导出：模板升到 1.5.0（迭代式树排序、系统消息样式），payload 带 `systemPrompt` 与 `tools` | `1c720d285` / `9359adf0c` | `Assets/export-html/{template.js,template.css}`、`ExportHtml.GenerateHtml`、`AgentSessionTree`、`InteractiveMode.Commands` | `ExportHtmlBugReportTests` 新增 2 例 |
+
+P5 余下的两项：
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 工具搜索：名称/命名空间/描述三段加权、命中词数优先、全名加分、查询即名称置顶、Unicode 分词与 CJK | `cc44fa216` / `e033f255f` / `ae823bc0b` / `79006f061` / `c7372af42` | `Extensions/ToolSearch/ToolSearch.cs`（`NameWeight`/`NamespaceWeight`/`IndexDocument`/`Rank`、Unicode `Tokenize`、`ToolSearchDocument.NamespaceText`） | `ToolSearchCorpusTests` 73 例（语料重新生成）+ `ToolSearchRankingTests` 7 例 |
+| MCP OAuth `clientRegistration` 默认 `auto`：支持 CIMD 就用文档，否则动态注册；显式 `cimd` 才报错 | `908aa7b74` | `McpClientRegistration.Auto`、`McpOAuth.OffersClientMetadataDocument`、`ClientMetadataDocumentFor` 改可空、`McpServers.IsClientMetadataDocumentCallback` | `McpClientRegistrationTests` 10 例 |
+
+**工具搜索语料的重生成**：差分语料来自上游 TS，`tools/gen-coding-agent-tool-search-corpus.mjs`
+（该目录按仓库惯例不入库）把 `tool.ts` 的排名段原样取出、在 Node 类型擦除下运行并重算
+`stem`/`tokenize`/`documents`/`rank`/`rankCustom` 的期望值。退化参数（`k1=0,b=0`）会让 BM25 算出
+`NaN`，`JSON.stringify` 写成 `null`；测试按 `double.IsNaN` 比较，保留上游「不丢弃该文档」的行为。
+
+**durable 侧无独立实现**：端口没有 `durable/src/search.ts` 的对应物——codemode 的 `searchTools()`
+直接复用 coding-agent 的文档构造与排名器，因此 `c7372af42`（durable 与 coding-agent 对齐）由共用实现覆盖。
+
+**判定不适用**：`8bc94b19f`（`PI_SELF_UPDATE_COMMAND`，端口无自更新执行路径）与本批三处 Rust 守护进程改动。
