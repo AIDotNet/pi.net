@@ -169,7 +169,7 @@
 | `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | 🟡 脏集合 + 全量回退已落地（见 §4.15）；`idleOrder` 索引与 `wake()` 睡眠集合未做（端口热点本就不在那两处） |
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | 🔧 P5 |
 | `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
-| `38ff99177` | 工具交接后继续运行 | 🔧 P6 |
+| `38ff99177` | 工具交接后继续运行 | ✅ 本批 |
 | `b3a29f111` | 重启循环可见地结束；宿主死亡计入一次 generation 尝试 | 🔧 P6 |
 
 ### 2.6 env / mcp / telemetry / evals（P5）
@@ -572,3 +572,12 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 端口的 `ScheduleContextExpiryLocked` 仍对保留上下文取 min——只是字典迭代，没有逐对话的子树行走；
 上游 `wake()` 从 `_sleeping` 集合取最早睡眠，端口 `ComputeEarliestSleep` 仍扫存活任务，而端口的
 `ComputeActive` 已在「有调用在跑」时提前返回，等价于上游「只在无调用时扫描」的约束。
+
+### 4.16 P6 第十批：工具交接后运行继续（提交见 git log）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| handoff 的重置条目总是先于排队项写入；只有 terminate 才结束运行，否则在 handoff 的新上下文里继续（turn_limit / 排队重置 / 交接给下一个生成的分支保持原序） | `38ff99177` | `Generation.FinishToolRoundAsync`（terminate 与 handoff 解耦） | `HarnessHandoffTests` 1 例 + `HarnessInboxTests` 2 例改写 |
+
+**连锁的语义变化**（上游同批改写测试）：排队的 follow-up 不再随 handoff 落条目——它留在队列里，由
+继续运行的那个回答在 final 边界放置并接着跑；`pi.reset` 条目按调用序只写最后一个 handoff。
