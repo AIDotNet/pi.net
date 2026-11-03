@@ -159,7 +159,7 @@
 | `65fba65b2` | hook/task 的 entry reads | ✅ 本批 |
 | `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | 🔧 P6 |
 | `6a2825113` | `whenIdle` 拒绝空闲会话的输入 | ✅ 本批 |
-| `1c6928b30` | 未提供的工具调用按 tool task 跑 | 🔧 P6 |
+| `1c6928b30` | 未提供的工具调用按 tool task 跑 | ✅ 本批 |
 | `87eff524f` | `afterTool` 在每个 tool task 结果上跑 | ✅ 本批 |
 | `d280e1ffa` | `beforeProviderRequest` 生成钩子 | ✅ 本批（端口原有 `BeforeRequest` 是消息层，这是请求体层，两者并存） |
 | `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | 🟡 `runFailure` 已落地（`15d315f`，见 §4.11）；窗口化视图、`ConversationTranscript`、删 `watchEvents` 未做 |
@@ -551,3 +551,13 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 **端口差异**：上游在 abort 时按 `restarts < restartLimit - 1` 豁免钩子（防「钩子就是打断元凶」的
 死循环）；端口的工具重启计数（`b3a29f111`）尚未移植，钩子总是跑——移植重启计数时必须补上这条豁免，
 否则一个改写结果的钩子可能让工具永远跑不完。
+
+### 4.14 P6 第八批：未提供的工具调用按工具任务跑（提交见 git log）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 未提供的调用进轮：并行轮直接起任务、顺序轮按序进 pending，槽标 `unoffered`；由工具任务结算 `tool_unavailable`（过 afterTool），abort 时同因 | `1c6928b30` | `ToolTaskInput.Unoffered` / `ToolSlot.Unoffered`（JSON 往返兼容旧形状）、`CreateToolTaskAsync`、`StartToolRoundAsync`、`ToolsPhaseAsync`、`ToolTask.CallPhaseAsync` / `AbortAsync`；`pi.tool` 1→3、`pi.generation` 1→2 + 透传 Migrate | `HarnessUnofferedToolTests` 1 例 |
+
+**顺带修正的一处行为差**：旧端口在轮启动提交里直接给未提供的调用落结果，这既绕过 afterTool，也让 abort
+把「无论如何都不可能跑过的调用」说成 aborted。上游特意让它们进任务——两条路径（结果、abort）都说
+`tool_unavailable`。
