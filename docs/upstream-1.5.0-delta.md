@@ -153,7 +153,7 @@
 
 | 上游提交 | 变更 | 处置 |
 | --- | --- | --- |
-| `f6a9db1d8` | 每会话 turn limit | 🔧 P6 |
+| `f6a9db1d8` | 每会话 turn limit | ✅ 本批（持久化 `runFailure` 记录随 `f3255de76` 落地） |
 | `fb524dd2e` | continue 提交 | 🔧 P6 |
 | `7e15f9601` | run-end tasks + `afterRun` hook | 🔧 P6 |
 | `65fba65b2` | hook/task 的 entry reads | ✅ 本批 |
@@ -494,3 +494,19 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
    `Omit<EntryQuery, "conversationId">` 表达「对话已由调用方确定」，C# 没有 `Omit`，用一个不含对话的
    record 更直白：调用方不可能选错对话，`HarnessUtil.ConversationEntries` 负责补上任务自己的对话。
    顺带修掉 `Conversation.EntriesAsync` 的一处小缺陷：旧的内联收敛漏了 `Order`，调用方传升序会被丢掉。
+
+### 4.10 P6 第四批：每会话工具轮次上限（`a8b05cb`）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| `AgentState.maxTurns` 只数工具轮；达到上限的运行像失败一样结束（`afterFailedRun` 决定排队项，continue 在轮结果上续跑），且不再请求模型 | `f6a9db1d8` | `AgentState`/`AgentChange`/`Agent` 三处字段 + `AgentDocs.ApplyChange` 的 ≥1 校验、`Live` 的 `run.turns`（`SetRun`/`RunTurns`/`SetRunTurns`）、`Generation`（工具轮自增、`finishToolRound` 的 `turn_limit` 分支、`AnswerAsync` 的 `TakesContinuation`） | `HarnessTurnLimitTests` 3 例 |
+
+**顺带对齐的一处语义**：`AnswerAsync` 的 `onYield` 续延判定前置到 final 边界放置任何东西之前——
+只看队列里有没有会被选中的 steer/follow-up、有没有会先跑的重置（`Inbox.QueuedItems` +
+`Inbox.HasQueuedReset`，后者从 `ApplyBoundaryAsync` 的内联判定提取）。旧写法在 `ApplyBoundaryAsync`
+之后才判断，判断依据是「放置结果」，两者在重置与用户项同时排队时的先后语义不同。
+
+**依赖缺口**：上游该用例还断言 `live.runFailure` 的持久记录（`reason: "turn_limit"`、`inputs`），
+而端口的 `runFailure` 属于 `f3255de76`（窗口化会话视图 + `ConversationTranscript`）那一批，
+尚未落地。本批只验证「运行已结束、提交以 `turn_limit` 结算、不再请求模型」，`runFailure` 的断言
+随那批补。
