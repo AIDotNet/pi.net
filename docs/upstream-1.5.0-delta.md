@@ -238,7 +238,7 @@
 - `Pi.Ai.Tests` 的 `AnthropicFederationWireTests` / `OpenAiCompletionsTests` 与 `Pi.Tui.Tests` 的
   `AltScreenCorpusTests` 在**三个套件并行**时偶发失败（SSE 时序、StringBuilder 容量），单跑全绿。
 
-### 4.2 P0 已落地：pi-schema 校验语义
+### 4.2 P0 已落地：pi-schema 校验语义（`367ae68`）
 
 **新增（`src/Pi.Ai/Utils/Schema/`，约 1,500 行）**
 
