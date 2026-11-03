@@ -151,7 +151,7 @@
 | `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 | 未核 | 🔧 P4 |
 | `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） | ✅ 本批（`TerminalWordSelectionJoiners` 加上 `+ \ ~ _ .`；端到端用例未移植，见 §4.28） |
 | `f09d01b85` | Orca 终端识别（truecolor / hyperlink / `ORCA_IMAGE_PROTOCOL=kitty`） | ✅ 本批（`DetectCapabilitiesFromEnvironment` 的 Orca 分支：`TERM_PROGRAM=Orca` 且 `ORCA_IMAGE_PROTOCOL=kitty` 才给 Kitty，否则文本回退；见 §4.26） |
-| `89c921d8b` | 终端标题/控制序列注入加固；`stripAnsi` 去掉带 `<=>` 前缀的私有 CSI | 部分 | 🔧 P4 |
+| `89c921d8b` | 终端标题/控制序列注入加固；`stripAnsi` 去掉带 `<=>` 前缀的私有 CSI | ✅ 核对完毕（§4.29）：tui 侧 `Ansi.ReplaceControlCharacters` 已用于两处 `SetTitle`、`ProgramStatus` 的 `msg` 与 `LoginDialog` 的 URL；durable 的 `__proto__` 那条是 JS 原型污染，C# 无对应物 |
 | `1c8cb1781` | 图片行搜索按最高注册图片限界 | ✅ 本批（`TerminalImage.MaxKittyImageRows` 给 `Layout.PaintBox` 的倒序搜索定界，并跳过非图像行；见 §4.26） |
 
 ### 2.5 durable（P6）
@@ -862,3 +862,14 @@ O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/strea
 
 语料是 1.4.x 的 TS 跑出来的，那时 F13+ 确实会被当成文本插进编辑器（正是这次要修的 bug）。所以这项**不是实现问题，
 是语料版本问题**：必须先用 1.5.0 的 TS 重算 `editor-corpus.json` 才能落地。已整体回退，代码库保持全绿。
+
+### 4.29 `89c921d8b` 的 tui 侧核对：已落地
+
+| 上游要求 | 端口落点 |
+| --- | --- |
+| `setTitle()` 先替换控制字符（标题里的 BEL/ESC 会提前结束 OSC 0，剩下的字节被当成转义指令执行） | `Ansi.ReplaceControlCharacters`（`[\u0000-\u001f\u007f-\u009f]+` → 一个空格），`ProcessTerminal.SetTitle` 与 `StringTerminal.SetTitle` 都用它 |
+| 导出的 `replaceControlCharacters()` 供状态与对话框复用 | 同一份 `Ansi.ReplaceControlCharacters`：`ProgramStatus.FormatProgramStatus` 的 `msg`、`LoginDialog` 的 URL 展示都用它 |
+| durable：partial 提交不再把新的 `__proto__` 成员并进 `Object.prototype` | ➖ C# 没有原型链，`Dictionary<string, object?>` 里的 `__proto__` 只是普通键 |
+| ai 侧（可信 URL、contentIndex 校验、auth.json 0600） | ✅ P2 已收口（见 §2.2 的 `89c921d8b` 行） |
+
+台账里这行长期写着「部分」是没核对：tui 三处都在，durable 那条本就不适用。
