@@ -189,7 +189,10 @@ public static partial class Generation
         new TaskDefinition<JsonDict, JsonDict, JsonDict>
         {
             Name = TaskName,
-            Version = 1,
+            // Version 2 把「请求未提供的调用」留在顺序轮的 pending 里并在槽上标 unoffered；旧版本 checkpoint
+            // 没有这样的调用，原样迁移。
+            Version = 2,
+            Migrate = new ErasedMigrate((input, checkpoint, _) => (input, checkpoint)),
             Initial = _ => new GenerationCheckpoint.Prepare(1, null, null).ToJson(),
             Phases = new Dictionary<string, object?>
             {
@@ -428,9 +431,10 @@ public static partial class Generation
         await runtime.CommitAsync(async (tx, _) =>
         {
             var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
-            var taskId = await CreateToolTaskAsync(tx, runtime, checkpoint.Assistant, next).ConfigureAwait(false);
             var slot = Live.ToolSlotsOf(live).FirstOrDefault(
                 candidate => candidate.CallId == next && candidate.TaskId is null);
+            var taskId = await CreateToolTaskAsync(
+                tx, runtime, checkpoint.Assistant, next, slot?.Unoffered).ConfigureAwait(false);
             if (slot is not null) Live.ReplaceSlot(live, slot with { TaskId = taskId });
             return new TaskState
             {
@@ -509,11 +513,12 @@ public static partial class Generation
 
     /// <summary>调用 <paramref name="callId"/> 的工具任务，由生成拥有。对应 TS <c>createToolTask()</c>。</summary>
     private static async Task<TaskId<object?>> CreateToolTaskAsync(
-        Transaction tx, ITaskRuntime runtime, EntryId assistant, string callId)
+        Transaction tx, ITaskRuntime runtime, EntryId assistant, string callId, bool? unoffered = null)
     {
+        var input = new ToolTaskInput(assistant, callId, unoffered).ToJson();
         var taskId = await tx.CreateTaskAsync(
             ToolTask.Instance,
-            new Dictionary<string, object?> { ["assistant"] = assistant.Value, ["callId"] = callId },
+            input,
             new TaskOptions
             {
                 Ownership = new TaskOwnership.TaskOwner(runtime.TaskId),
@@ -1104,15 +1109,9 @@ public static partial class Generation
             var pending = new List<string>();
             foreach (var call in calls)
             {
-                if (!offered.Contains(call.Name))
-                {
-                    var unavailable = ToolTask.HarnessError("tool_unavailable", $"Tool {call.Name} is not available");
-                    var result = await ToolTask.AppendToolResultAsync(
-                        tx, conversationId, call, unavailable, runtime.Now()).ConfigureAwait(false);
-                    slots.Add(new ToolSlot { CallId = call.Id, Name = call.Name, Status = "done", Entry = result.Id });
-                    continue;
-                }
-
+                // 对请求未提供的工具的调用也进轮：由其工具任务结算 tool_unavailable（并跑 afterTool）。
+                // 顺序轮不豁免它们：上游同样把未提供的调用排在队列里。
+                var unoffered = !offered.Contains(call.Name);
                 if (sequential && toolTasks.Count > 0)
                 {
                     pending.Add(call.Id);
@@ -1120,11 +1119,11 @@ public static partial class Generation
                     continue;
                 }
 
-                var taskId = await CreateToolTaskAsync(tx, runtime, entry.Id, call.Id).ConfigureAwait(false);
+                var taskId = await CreateToolTaskAsync(tx, runtime, entry.Id, call.Id, unoffered).ConfigureAwait(false);
                 toolTasks.Add(taskId);
                 slots.Add(new ToolSlot
                 {
-                    CallId = call.Id, Name = call.Name, TaskId = taskId, Status = "pending",
+                    CallId = call.Id, Name = call.Name, TaskId = taskId, Status = "pending", Unoffered = unoffered,
                 });
             }
 

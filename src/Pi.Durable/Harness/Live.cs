@@ -39,6 +39,9 @@ public sealed record ToolSlot
     /// <summary>完成后为结果条目；工具任务 faulted 或 orphaned 时缺省。</summary>
     public EntryId? Entry { get; init; }
 
+    /// <summary>一次对其请求未提供的工具的调用：结算 <c>tool_unavailable</c>，不解析名字。对应 TS <c>unoffered</c>。</summary>
+    public bool? Unoffered { get; init; }
+
     public Dictionary<string, object?> ToJson()
     {
         var json = new Dictionary<string, object?>
@@ -63,6 +66,7 @@ public sealed record ToolSlot
         }
 
         if (Entry is { } entry) json["entry"] = entry.Value;
+        if (Unoffered == true) json["unoffered"] = true;
         return json;
     }
 
@@ -100,6 +104,7 @@ public sealed record ToolSlot
             Entry = json.TryGetValue("entry", out var entry) && entry is not null
                 ? EntryId.From(Convert.ToInt64(entry))
                 : null,
+            Unoffered = json.TryGetValue("unoffered", out var unoffered) && unoffered is true,
         };
     }
 }

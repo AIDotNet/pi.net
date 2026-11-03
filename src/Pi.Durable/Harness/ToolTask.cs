@@ -15,16 +15,23 @@ using TaskStatus = Pi.Durable.Types.TaskStatus;
 using TxDocChange = Pi.Chord.Delta.Tracker<IReadOnlyDictionary<string, object?>>.Change;
 
 /// <summary>pi.tool 任务的持久化输入：<c>{ assistant: EntryId, callId: string }</c>。对应 TS <c>ToolTaskInput</c>。</summary>
-public sealed record ToolTaskInput(EntryId Assistant, string CallId)
+public sealed record ToolTaskInput(EntryId Assistant, string CallId, bool? Unoffered = null)
 {
-    public JsonDict ToJson() => new Dictionary<string, object?>
+    public JsonDict ToJson()
     {
-        ["assistant"] = Assistant.Value,
-        ["callId"] = CallId,
-    };
+        var json = new Dictionary<string, object?>
+        {
+            ["assistant"] = Assistant.Value,
+            ["callId"] = CallId,
+        };
+        if (Unoffered == true) json["unoffered"] = true;
+        return json;
+    }
 
-    public static ToolTaskInput FromJson(JsonDict json) =>
-        new(EntryId.From(Convert.ToInt64(json["assistant"]!)), (string)json["callId"]!);
+    public static ToolTaskInput FromJson(JsonDict json) => new(
+        EntryId.From(Convert.ToInt64(json["assistant"]!)),
+        (string)json["callId"]!,
+        json.TryGetValue("unoffered", out var unoffered) && unoffered is true);
 }
 
 /// <summary>
@@ -98,7 +105,9 @@ public static partial class ToolTask
         new TaskDefinition<JsonDict, JsonDict, JsonDict>
         {
             Name = TaskName,
-            Version = 1,
+            // Version 3 给「请求未提供的调用」的输入带 unoffered；旧版本输入没有该字段，原样迁移。
+            Version = 3,
+            Migrate = new ErasedMigrate((input, checkpoint, _) => (input, checkpoint)),
             Initial = _ => new ToolTaskCheckpoint.Call().ToJson(),
             Phases = new Dictionary<string, object?>
             {
@@ -113,8 +122,11 @@ public static partial class ToolTask
     private static async Task CallPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var call = await ReadCallAsync(runtime, task, context).ConfigureAwait(false);
+        var input = ToolTaskInput.FromJson(
+            task.Input as JsonDict ?? throw new InvalidOperationException("pi.tool input must be a JSON object"));
         var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
-        var tool = agent.Tools.FirstOrDefault(each => each.Name == call.Name);
+        // 未提供的调用不解析名字：它请求里就没有，结算 tool_unavailable。
+        var tool = input.Unoffered == true ? null : agent.Tools.FirstOrDefault(each => each.Name == call.Name);
         if (tool is null)
         {
             var error = HarnessError("tool_unavailable", $"Tool {call.Name} is not available");
@@ -211,8 +223,13 @@ public static partial class ToolTask
     private static async Task AbortAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var call = await ReadCallAsync(runtime, task, context).ConfigureAwait(false);
+        var input = ToolTaskInput.FromJson(
+            task.Input as JsonDict ?? throw new InvalidOperationException("pi.tool input must be a JSON object"));
         var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
-        var message = $"Tool {call.Name} was aborted";
+        // 未提供的调用无论如何都不可能跑过，其结果说明这一点。
+        var (code, message) = input.Unoffered == true
+            ? ("tool_unavailable", $"Tool {call.Name} is not available")
+            : ("aborted", $"Tool {call.Name} was aborted");
         await SettleFromSlotAsync(
             runtime, call, agent.Tools.FirstOrDefault(each => each.Name == call.Name),
             new Ending(TaskOutcomeStatus.Aborted), "aborted", message, context).ConfigureAwait(false);
