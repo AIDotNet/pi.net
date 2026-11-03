@@ -157,7 +157,7 @@
 | `fb524dd2e` | continue 提交 | ✅ 本批 |
 | `7e15f9601` | run-end tasks + `afterRun` hook | ✅ `finish`/`drain` + `run.afterRun`（§4.17）；`run.first` 与重启越限收场已补（§4.19） |
 | `65fba65b2` | hook/task 的 entry reads | ✅ 本批 |
-| `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | 🔧 P6 |
+| `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | ✅ 本批（`Session.OwnsTransaction` 品牌检查、`AdmitInCommitAsync`、两个 `SubmitAsync(ITx, …)`；见 §4.25） |
 | `6a2825113` | `whenIdle` 拒绝空闲会话的输入 | ✅ 本批 |
 | `1c6928b30` | 未提供的工具调用按 tool task 跑 | ✅ 本批 |
 | `87eff524f` | `afterTool` 在每个 tool task 结果上跑 | ✅ 本批 |
@@ -763,3 +763,25 @@ P4（tui）全部 13 项（等语料生成链）。
 
 回归用例也已在：`ToolSearchRankingTests`（`screenshot window`、`peekaboo app`、精确名等上游 ranker 用例）与
 `ToolSearchCorpusTests`，两组合计 **73** 例通过。
+
+### 4.25 在调用方的提交内受理提交（`cc9c52310`，P6 第十五批）
+
+上游把「宿主自己的检查/写入 + 一次用户提交」放进同一次存储提交（#11149）：`Conversation.submit(tx, draft)`
+与 `ConversationHandle.submit(tx, draft)` 重载。端口动作：
+
+| 上游要求 | 端口落点 |
+| --- | --- |
+| 事务必须属于本 Session（别的 Session 的、`Proxy` 包装的、手搓的对象都拒绝） | `DurableSession.OwnsTransaction(tx)` 比对 `Transaction.Host`；失败抛 `InvalidOperationException`「The transaction belongs to another Session」 |
+| 受理随调用方的提交存储或丢弃；必须在首次表写前 | `Submissions.AdmitInCommitAsync`：`Transaction.HasTableWrite` 为真即抛 `ReadAfterWrite("submit(tx, draft)")` |
+| 受理本身算一次表写（同一次提交的第二次受理也被拒） | 同上（首次受理后 `_hasTableWrite` 已置位），用例 `RefusesASecondAdmissionInTheSameCommit` |
+| 拒绝（`ConversationBusy` / `ConversationIdle`）在写之前抛出，回调可捕获 | 保持原受理顺序：去重 → 忙碌/空闲判定 → 写；用例 `RejectsABusyConversationsContinueBeforeAnyWrite…` |
+| `ReadAfterWrite` 的消息按操作命名 | `ReadAfterWrite(string operation)`：事务读表传 `Tx.<method>()`，受理传 `submit(tx, draft)` |
+| 句柄版先查本次调用是否结束、是否已中止 | `BoundConversations.Handle.SubmitAsync(ITx, …)`：`binding.Check()` + `binding.Signal.ThrowIfCancellationRequested()`（调用方的提交自带上下文，中止只能在这里查） |
+| 受理自己索取进度（不 `resume()` 也能起空闲输入的那一轮） | `AdmitInCommitAsync` 内 `_resume()`，与 `submit()` 相同 |
+
+用例：`tests/Pi.Durable.Tests/HarnessSubmitInCommitTests.cs` 共 **11** 例（宿主文档写与受理同一次提交、回调
+抛错回滚、存储拒绝提交后重开无残留、请求 ID 去重、第二次受理、失败运行的 `continue` 早晚两次、工具提交内
+经句柄受理并核对 placed 输入的 `byTaskId`、调用结束后的句柄拒绝、别的 Session 的事务）。
+
+未移植：上游这些用例里的 telemetry span 断言（`pi.durable.submit` 的 trace carrier / 链接到运行 trace）——
+端口 `Submissions` 本就没有 telemetry 面，与 §4.1 的记法一致；批内其余语义已全部对齐。

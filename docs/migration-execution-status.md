@@ -24,7 +24,7 @@
 | **P3** | coding-agent 窗口项：扩展 changelog、device-code 确认、`ctx.ui.custom` 的 `blocked`、`keyText()`/`keyHint()` 注入、trust 优先级、路径大小写、写盘一致性、分支摘要、`pi.exec` 上限、git clean 容错、WSL 深目录、`/resume` 搜索分层、HTML 导出等 | ✅ `ed26895` + `2ac34ad`（`8bc94b19f` 判定不跟，见 delta §4.4/§4.6） |
 | **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | ⏳ 未开始 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | ✅ `4afb050` + `2ac34ad`（env 3 项判定不适用：Rust daemon；见 delta §4.5/§4.6） |
-| **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | 🟡 六批：`ae97b71`（思考档位 + `whenIdle`）、`d57852a`（只读 Harness + `beforeProviderRequest`）、`332da47`（钩子/任务条目读取）、`a8b05cb`（工具轮次上限）、`15d315f`（`runFailure`）、`79bfdae`（continue 提交）、afterTool 全路径、未提供调用按任务跑、空闲检查脏集合、handoff 后运行继续、afterRun 与运行结束任务；`044148392` 判定不适用；窗口化视图/分组提交/重启循环可见化仍待做 |
+| **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | 🟡 十五批：`ae97b71`（思考档位 + `whenIdle`）、`d57852a`（只读 Harness + `beforeProviderRequest`）、`332da47`（钩子/任务条目读取）、`a8b05cb`（工具轮次上限）、`15d315f`（`runFailure`）、`79bfdae`（continue 提交）、afterTool 全路径、未提供调用按任务跑、空闲检查脏集合、handoff 后运行继续、afterRun 与运行结束任务、窗口化视图与 `ConversationTranscript`（删 `watchEvents`）、`wake()` 睡眠集合与空闲过期索引、重启循环可见地结束、`submit(tx, draft)` 提交内受理；`044148392` 判定不适用；分组提交（`e5c6182ba`）与节流提交延迟落盘（`6c2fd73b0`）仍待做 |
 | **P7** | chord v1（pi-schema 构造点、ANSI 清理、watch 家族） | 🟡 `a0da1ea` 首批：watch 家族 + ANSI 清理已落地；`be039fb31`/`c09c98d7d`/`db14038bd`/`8025c414d`/`d0aa218cb` 判定不适用；`8b0caefc2` 归入 P6（见 delta §4.7） |
 
 **P0/P2 顺带修掉的端口缺陷**：`PiMessages.Stream` 在终态事件后只 `Push` 不 `End`——TS 的
@@ -412,3 +412,14 @@ durable 554 例全绿。
 `MarkIdleLocked` / `ForgetIdleLocked` / `DropContextLocked`。
 
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 554 全绿（行为不变）。
+
+### P6 第十五批：在调用方的提交内受理提交（2026-11-03）
+
+上游 `cc9c52310`（#11149）：宿主自己的检查/写入与一次用户提交进同一次存储提交，受理随它一起存储或一起丢掉。
+`Session.OwnsTransaction(tx)` 做事务品牌检查；`Submissions.AdmitInCommitAsync` 在首次表写之前受理（受理本身
+也算表写，同一次提交的第二次受理即抛 `ReadAfterWrite`）；`IConversation` 与 `IConversationHandle` 各加一个
+`SubmitAsync(ITx, draft)`，句柄版先查调用是否已结束、是否已中止。`ReadAfterWrite` 的消息改成按操作命名。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 565 例全绿（新增 `HarnessSubmitInCommitTests`
+11 例；视图投递类用例仍是既有偶发超时，逐例重跑通过）。未移植：上游同批用例里的 telemetry span 断言
+（端口 `Submissions` 没有 telemetry 面）。
