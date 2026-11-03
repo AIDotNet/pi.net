@@ -22,7 +22,7 @@
 | **P2** | ai wire 层：Gemini `const`→`enum`、Bedrock strict 回退、OAuth trusted-url 收敛 + `auth.json` 0600、42 份模型目录重导 | ✅ `e6d4c4d` / `c71cd41` / `1ca2e05` / `a8db1eb` |
 | **P3** | coding-agent 窗口项：扩展 changelog、device-code 确认、`ctx.ui.custom` 的 `blocked`、`keyText()`/`keyHint()` 注入、trust 优先级、路径大小写、写盘一致性、分支摘要 thinking/context edits、`pi.exec` 上限等 22 项 | 🟡 主体已落地（见 delta §4.4）；余 `e3da248ea` / `6454d07ec` / `8c03fef4d` 的会话搜索分层 / HTML 导出两项；`8bc94b19f` 判定不跟 |
 | **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | ⏳ 未开始 |
-| **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | ⏳ 未开始 |
+| **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | 🟡 env 侧 1 项已落地、3 项判定不适用（Rust daemon）；mcp 1 项已落地，OAuth 客户端元数据文档与工具搜索排序未做（delta §4.5） |
 | **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | ⏳ 未开始 |
 | **P7** | chord v1（pi-schema 构造点、ANSI 清理、watch 家族） | ⏳ 未开始 |
 

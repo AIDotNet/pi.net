@@ -379,3 +379,18 @@ typebox 语料问题），较基线 5118 增 39 例。
 1. `git -C D:\AI\参考项目\pi log -1` 确认检出；若已越过 `f9a263655`，用 `git log --oneline v1.5.0..HEAD` 重新评估。
 2. 表驱动常量逐项 diff：`Retry.cs` 模式表、`Overflow.cs` 模式表、`ModelCatalog` 的 provider/model 表、`keys`/`keybindings` 表。**不能只看漂移窗口**。
 3. 每批收口：`dotnet build Pi.slnx -m:1` 0 警告 0 错误 → 定向测试 → 全量测试 → 提交 → 更新本台账与 `coding-agent-porting-status.md`。
+
+### 4.5 P5 首批已落地：env 启动错误 + mcp login 作用域（`4afb050`）
+
+| 变更 | 上游 | 落点 | 处置 |
+| --- | --- | --- | --- |
+| 启动错误带 stderr 尾部（20 行 / 2000 字符，去终端转义与控制字符） | `479d6e5e2` | `Pi.Env/Connection.cs` 的 `StartupErrorText` + `Session.StderrTail/Ready/StderrEnded` | ✅ 本批 |
+| `pi mcp login/logout -l`、项目作用域校验、服务器名拼写建议 | `be15fe3c1` | `Extensions/Mcp/Cli.cs`（`local` flag、`EditDistance`、未知选项报原文） | ✅ 本批 |
+| watch 变更列表超帧上限报 overflow | `102d12871` | `daemon/src/watch.rs`（Rust） | ➖ 守护进程按原生产物使用 |
+| 守护进程被终止时杀掉它启动的命令 | `b6d5c2ecd` | `daemon/src/main.rs` + `sys/*.rs`（Rust） | ➖ 同上 |
+| 辅助线程起不来时 `exec`/`pty` 返回 `spawn_error` | `92c1da1f6` | `daemon/src/{exec,pty}.rs`（Rust） | ➖ 同上 |
+| MCP OAuth 优先用 Client ID Metadata Document，否则动态注册（`oauth.clientRegistration: auto/dcr`） | `908aa7b74` | `extensions/mcp/oauth.ts` ~59 行 + `core/mcp-servers.ts` | ⏳ 未做 |
+| 工具搜索：名称权重高于描述、命中词数优先、查询即名称时置顶、CJK 分词；durable 侧同规则 | `cc44fa216` / `e033f255f` / `ae823bc0b` / `79006f061` / `c7372af42` | `extensions/tool-search/tool.ts` + `durable/src/search.ts` | ⏳ 未做（`Tokenize` 目前只切 ASCII，中日韩文本会被整段丢弃） |
+
+> env 三项的判定依据：`docs/env-package-migration.md` 已明确「守护进程（`daemon/src/*.rs`）不移植，
+> 按原生产物处理」。这三条是守护进程内部行为，端口侧没有对应代码路径；升级原生 `pi-env` 即得修复。
