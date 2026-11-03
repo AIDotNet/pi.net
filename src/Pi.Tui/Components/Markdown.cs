@@ -131,7 +131,23 @@ public sealed class Markdown : IComponent
     // The TS original holds them in a WeakRef so the token tree (about ten times the size of
     // its source) can be collected between bursts of re-renders; a strong reference here is
     // observationally equivalent — the only difference is when the GC reclaims the tree.
-    private (string Source, List<MarkedToken> Tokens)? _cachedTokens;
+    private (string Source, List<MarkedToken> Tokens, bool HasLinks)? _cachedTokens;
+
+    /// <summary>上次渲染的顶层块，按源码（<see cref="MarkedToken.Raw"/>）缓存，下次渲染直接复用。</summary>
+    private sealed class RenderedBlock
+    {
+        /// <summary>折行用的宽度；-1 表示还没渲染过。</summary>
+        public int Width { get; set; } = -1;
+
+        /// <summary>下一块的类型（决定间距），块复用的另一半键。</summary>
+        public string? NextTokenType { get; set; }
+
+        /// <summary>样式化并折行后的行（还没加左右边距与背景）。</summary>
+        public List<string> Lines { get; } = [];
+    }
+
+    /// <summary>上次渲染的顶层块，只保留这次用到的（流式时旧版本就此丢掉）。</summary>
+    private Dictionary<string, RenderedBlock>? _blocks;
 
     public Markdown(
         string text,
@@ -152,7 +168,10 @@ public sealed class Markdown : IComponent
     public void SetText(string text)
     {
         _text = text;
-        Invalidate();
+        // 顶层块缓存保留：流式时文本只是变长，前面的块不必重新样式化与折行。
+        _cachedText = null;
+        _cachedWidth = null;
+        _cachedLines = null;
     }
 
     public void Invalidate()
@@ -160,6 +179,9 @@ public sealed class Markdown : IComponent
         _cachedText = null;
         _cachedWidth = null;
         _cachedLines = null;
+        // 主题变了，每一行的样式与默认样式的前缀都变了，块也作废。
+        _blocks = null;
+        _defaultStylePrefix = null;
     }
 
     public string[] Render(int width)
@@ -178,6 +200,7 @@ public sealed class Markdown : IComponent
         if (text.Length == 0 || JsString.Trim(text).Length == 0)
         {
             var empty = Array.Empty<string>();
+            _blocks = null;
             _cachedText = _text;
             _cachedWidth = width;
             _cachedLines = empty;
@@ -189,38 +212,62 @@ public sealed class Markdown : IComponent
 
         // Parse markdown to HTML-like tokens
         List<MarkedToken> tokens;
-        if (_cachedTokens is { Source: var cachedSource } && cachedSource == normalizedText)
+        bool hasLinks;
+        if (_cachedTokens is { } cached && cached.Source == normalizedText)
         {
-            tokens = _cachedTokens.Value.Tokens;
+            tokens = cached.Tokens;
+            hasLinks = cached.HasLinks;
         }
         else
         {
-            tokens = MarkedLexer.Lex(normalizedText, ParserOptions);
+            var lexer = new MarkedLexer(ParserOptions);
+            tokens = lexer.Lex(normalizedText);
+            // 引用式链接（`[a]: url`）跨块解析：这种文本不复用块，否则改一行定义会让复用的旧块留着旧链接。
+            hasLinks = lexer.Links.Count > 0;
             TrimPartialClosingFences(tokens);
-            _cachedTokens = (normalizedText, tokens);
+            _cachedTokens = (normalizedText, tokens, hasLinks);
         }
 
-        // Convert tokens to styled terminal output
-        var renderedLines = new List<string>();
+        // 顶层块按源码复用：流式时只有最后一块在变，前面的块直接取上次的行，不必重新样式化与折行。
+        // 宽度或「下一块类型」（决定间距）变了才重渲染该块。对应 TS `Markdown.#blocks`。
+        var reuseBlocks = !hasLinks;
+        var previousBlocks = _blocks;
+        var blocks = new Dictionary<string, RenderedBlock>(StringComparer.Ordinal);
+        _blocks = blocks;
+        var wrappedLines = new List<string>();
         for (var i = 0; i < tokens.Count; i++)
         {
             var token = tokens[i];
             var nextTokenType = i + 1 < tokens.Count ? tokens[i + 1].Type : null;
-            renderedLines.AddRange(RenderToken(token, contentWidth, nextTokenType));
-        }
+            RenderedBlock? block = null;
+            if (reuseBlocks
+                && !blocks.TryGetValue(token.Raw, out block)
+                && previousBlocks is not null)
+            {
+                previousBlocks.TryGetValue(token.Raw, out block);
+            }
 
-        // Wrap lines (NO padding, NO background yet)
-        var wrappedLines = new List<string>();
-        foreach (var line in renderedLines)
-        {
-            if (TerminalImage.IsImageLine(line))
+            block ??= new RenderedBlock();
+            if (block.Width != contentWidth || block.NextTokenType != nextTokenType)
             {
-                wrappedLines.Add(line);
+                block.Width = contentWidth;
+                block.NextTokenType = nextTokenType;
+                block.Lines.Clear();
+                foreach (var line in RenderToken(token, contentWidth, nextTokenType))
+                {
+                    if (TerminalImage.IsImageLine(line))
+                    {
+                        block.Lines.Add(line);
+                    }
+                    else
+                    {
+                        block.Lines.AddRange(TextLayout.WrapTextWithAnsi(line, contentWidth));
+                    }
+                }
             }
-            else
-            {
-                wrappedLines.AddRange(TextLayout.WrapTextWithAnsi(line, contentWidth));
-            }
+
+            if (reuseBlocks) blocks[token.Raw] = block;
+            wrappedLines.AddRange(block.Lines);
         }
 
         // Add margins and background to each wrapped line

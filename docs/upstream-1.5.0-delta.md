@@ -146,7 +146,7 @@
 | `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | 结论：需要，但**卡在语料**——实现已试过并回退（§4.28 末），43 个 `editor-corpus` 用例期望把 F13+ 当成文本插入，那正是 1.4.x 的旧行为 | 🔧 P4（等语料链） |
 | `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
 | `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
-| `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | 无 | 🔧 P4 |
+| `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | ✅ 块级复用已落地（§4.31）；**代码高亮复用与 `Text.setText` 折行缓存未做**（见该节「未移植」） |
 | `cd1ea342a` | 显示公式超宽时回退原始 LaTeX | 未核 | 🔧 P4 |
 | `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 | 未核 | 🔧 P4 |
 | `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） | ✅ 本批（`TerminalWordSelectionJoiners` 加上 `+ \ ~ _ .`；端到端用例未移植，见 §4.28） |
@@ -894,3 +894,22 @@ O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/strea
 
 用例：`ProcessTerminalInputTests.NormalizeNativeShiftEnterInput_UpgradesCarriageReturnOnlyWhenShiftIsPressed`
 （CR / ESC+CR / Shift 未按 / 不该判定 / 谓词五个方向）。原生查询本身不做断言——它的结果取决于跑测试时键盘状态。
+
+### 4.31 Markdown 顶层块复用（`0f21a3319` 的 tui 主项）
+
+流式回答的消息组件每帧重渲染整段 Markdown：所有块都要重新样式化、折行，而实际上只有最后一块在变。
+
+| 上游要求 | 端口落点 |
+| --- | --- |
+| 顶层块按源码复用，键还要带上「宽度」与「下一块类型」（它决定间距） | `Markdown.RenderedBlock { Width, NextTokenType, Lines }` + `_blocks`（`MarkedToken.Raw` → 块） |
+| `setText()` 只清行缓存、保留块；`invalidate()` 连块一起丢（主题可能变了） | 两个方法分开：`SetText` 清 `_cachedText/_cachedWidth/_cachedLines`，`Invalidate` 额外 `_blocks = null` |
+| 文本里有引用式链接定义（`[a]: url`）时整篇不复用——定义会改变别的块的解析结果 | `MarkedLexer.Links.Count > 0` → `reuseBlocks = false` |
+| 块缓存持有弱引用，避免长转录里每个消息各留一棵渲染结果 | **偏差**：端口用普通字典，只保留**本次渲染用到**的块（等于「当前文本的块数」），随组件一起回收。上游的弱引用是为了抗一段连续重渲染的突发，端口这层没有 GC 压力，先不加 |
+
+用例：`MarkdownBlockCacheTests` 三例——只改最后一块时前面块的加粗不再被调用；`Invalidate` 后重新样式化；
+引用式链接的文本改定义后第一块会重渲染。
+
+**未移植（同批的上游其余部分）**：① `highlightCode` 的逐块复用（上游在块里存 `Map<lang+source, lines>`，
+并让 coding-agent 的 `CodeHighlighter` 自己判断主题/语法是否变了）——端口主题里 `HighlightCode` 只是一个委托，
+要做这层得先让 coding-agent 的高亮器带缓存；② `Text.setText()` 保留未变文本的折行结果（12 行的独立优化）。
+两项都只影响性能，不影响输出；块级复用已经是流式路径上的主要开销。
