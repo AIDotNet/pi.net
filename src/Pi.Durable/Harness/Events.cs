@@ -476,6 +476,8 @@ public static class Events
     {
         NativeWatch<IReadOnlyList<AgentEvent>>? watch = null;
         AgentEvent.Snapshot? snapshot = null;
+        // 事件流的快照语义务必「含全部条目」：它因此挂一个不受窗口裁剪的视图（窗口化只影响消费者，
+        // 不影响这个适配器）。上游已删除 watchEvents、把客户端改到 ConversationTranscript 上，端口暂留它。
         await ConversationViews.For(harness).AttachAsync(conversationId, async (initial, release) =>
         {
             var observer = await EventsObserver.CreateAsync(harness, conversationId, initial, release)
@@ -483,7 +485,7 @@ public static class Events
             watch = observer.Watch;
             snapshot = observer.Snapshot;
             return (ViewObserver)observer;
-        }, context).ConfigureAwait(false);
+        }, context, new ConversationWindow { Min = int.MaxValue, Max = int.MaxValue }).ConfigureAwait(false);
 
         // 与 watch 一样，获取上下文决定流的生命周期。
         var signal = context.AbortSignal;

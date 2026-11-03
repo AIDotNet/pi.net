@@ -51,7 +51,7 @@ public sealed class HarnessViewTests
         return value;
     }
 
-    /// <summary>已提交状态所定义的视图：活动条目与内建文档，不经任何挂载读取。</summary>
+    /// <summary>已提交状态所定义的视图：完整历史条目与内建文档，不经任何挂载读取。</summary>
     private static async Task<ConversationView> CommittedAsync(
         HarnessImpl harness, IConversation conversation, ConversationRecord record)
     {
@@ -64,11 +64,12 @@ public sealed class HarnessViewTests
             if (value is not null) docs[token.Definition.Kind] = value;
         }
 
-        var contextView = await conversation.ContextAsync(Ctx);
+        // 视图的 entries 是完整的历史（窗口只是它的一段），不是活动上下文。
+        var entries = await HarnessTestSupport.AllEntriesAsync(conversation);
         return new ConversationView
         {
             Conversation = record,
-            Entries = contextView.Entries,
+            Entries = entries,
             Docs = docs,
         };
     }
@@ -196,14 +197,16 @@ public sealed class HarnessViewTests
             && set.Path.Segments.SequenceEqual([Seg.Key("docs"), Seg.Key("pi.agent"), Seg.Key("thinkingLevel")])
             && Equals(set.Value, "high"));
         Assert.Same(initial.Entries, frames[0].Value.Entries);
+        // 文档的外层字典按窗口快照，内层值仍共享：没变的文档不重建。
         Assert.Same(initial.Docs["pi.live"], frames[0].Value.Docs["pi.live"]);
-        Assert.Same(frames[0].Value.Docs, frames[1].Value.Docs);
+        Assert.Same(frames[0].Value.Docs["pi.agent"], frames[1].Value.Docs["pi.agent"]);
+        Assert.Same(frames[0].Value.Docs["pi.live"], frames[1].Value.Docs["pi.live"]);
         await stop();
         await HarnessTestSupport.CloseQuietlyAsync(harness);
     }
 
     [Fact]
-    public async Task CutsTheEntriesAtAHeadMarkerKeepingTheEntriesFromItsHead()
+    public async Task AppendsAHeadMarkerLikeAnyEntryAndNeverCutsTheHistory()
     {
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(
             new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("ok")));
@@ -235,12 +238,14 @@ public sealed class HarnessViewTests
         await DrainedAsync();
         await root.ResetAsync(null, Ctx);
         await DrainedAsync();
+        // 视图看的是完整历史：head 标记落在它被写入的位置，不裁掉它之前的条目（裁剪由窗口的 max 负责）。
         Assert.Equal(
-            [["summary", "b", "c"], ["summary", "b", "c", "d"], ["pi.reset"]],
+            [["a", "b", "c", "summary"], ["a", "b", "c", "summary", "d"],
+                ["a", "b", "c", "summary", "d", "pi.reset"]],
             frames.Select(frame => KindsOf(frame.Value)).ToArray());
         Assert.True(frames[0].Ops.Count == 1 && frames[0].Ops[0] is DeltaOp.Splice splice
             && splice.Path.Segments.SequenceEqual([Seg.Key("entries")])
-            && splice.Index == 0 && splice.Remove == 1
+            && splice.Index == 3 && splice.Remove == 0
             && splice.Items.Count == 1 && EntryIdIs(splice.Items[0], summary));
         AssertViewEqual(await CommittedAsync(harness, root, initial.Conversation), Replay(initial, frames));
         await stop();
@@ -248,7 +253,7 @@ public sealed class HarnessViewTests
     }
 
     [Fact]
-    public async Task KeepsOnlyMountedEntriesForARawHeadWriteThatTargetsBeforeTheActiveRange()
+    public async Task AppendsARawHeadWriteEvenWhenItTargetsAnEntryBeforeTheWindow()
     {
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(
             new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("ok")));
@@ -263,15 +268,15 @@ public sealed class HarnessViewTests
         await root.CommitAsync(
             tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "summary", Head = old }), Ctx);
         await DrainedAsync();
-        // 模型上下文现在又从 old 开始，但挂载从未持有它（spec §12）；重建的挂载会显示它。
-        Assert.Equal(["summary"], KindsOf(frames[0].Value));
+        // 历史是完整的：窗口从未裁掉 old，head 标记只是追加在末尾。
+        Assert.Equal(["old", "pi.reset", "summary"], KindsOf(frames[0].Value));
         await stop();
-        Assert.Equal(["summary", "old"], KindsOf(await FreshAsync(root)));
+        Assert.Equal(["old", "pi.reset", "summary"], KindsOf(await FreshAsync(root)));
         await HarnessTestSupport.CloseQuietlyAsync(harness);
     }
 
     [Fact]
-    public async Task CutsAForkViewIntoItsInheritedEntries()
+    public async Task ShowsAForkInheritedEntriesAndAppendsItsOwn()
     {
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(
             new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("ok")));
@@ -285,7 +290,7 @@ public sealed class HarnessViewTests
             tx => tx.AppendEntryAsync(fork.Id, new EntryDraft { Kind = "summary", Head = b }), Ctx);
         await DrainedAsync();
         Assert.Equal([a, b], initial.Entries.Select(entry => entry.Id).ToArray());
-        Assert.Equal(["summary", "b"], KindsOf(frames[0].Value));
+        Assert.Equal(["a", "b", "summary"], KindsOf(frames[0].Value));
         AssertViewEqual(await CommittedAsync(harness, fork, initial.Conversation), frames[0].Value);
         await stop();
         await HarnessTestSupport.CloseQuietlyAsync(harness);
@@ -366,7 +371,9 @@ public sealed class HarnessViewTests
     {
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(
             new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("ok")));
-        var watch = await root.WatchAsync(Ctx);
+        // 窗口的 max 要装得下全部 101 条，否则折叠后的视图只有 min 条（那正是窗口的语义）。
+        var watch = await root.WatchAsync(
+            Ctx, new ConversationWindow { Min = 200, Max = 400 });
         var initial = watch.Value;
         for (var index = 0; index < 101; index++)
         {
@@ -465,7 +472,9 @@ public sealed class HarnessViewTests
         var failing = await root.WatchAsync(Ctx);
         var (_, frames, stop) = await RecordAsync(root);
         var shared = await root.WatchAsync(Ctx);
-        Assert.Same(failing.Value, shared.Value);
+        // 窗口化之后每个观察者持有自己的值（各自的 before / 窗口起点），但来自同一个挂载与同一份历史。
+        Assert.Equal(failing.Value.Entries.Select(entry => entry.Id), shared.Value.Entries.Select(entry => entry.Id));
+        Assert.Equal(failing.Value.Docs.Keys, shared.Value.Docs.Keys);
         await shared.Stop();
         failing.Start((_, _, _) => throw new InvalidOperationException("listener failed"));
         await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "one" }), Ctx);

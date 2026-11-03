@@ -141,8 +141,8 @@ internal sealed class ConversationImpl : IConversation
         return _host.Tasks.WaitForIdleAsync(Id, context);
     }
 
-    public Task<CommittedWatch<ConversationView>> WatchAsync(Context context)
-        => _host.Views.WatchAsync(Id, context);
+    public Task<CommittedWatch<ConversationView>> WatchAsync(Context context, ConversationWindow? window = null)
+        => _host.Views.WatchAsync(Id, context, window);
 }
 
 /// <summary>

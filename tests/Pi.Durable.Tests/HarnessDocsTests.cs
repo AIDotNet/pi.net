@@ -803,13 +803,12 @@ public class HarnessDocsTests
             tx => AgentDocs.ConfigureAsync((Transaction)tx, conv, new AgentChange { Cwd = "/tmp" }), Ctx);
         Assert.Equal("/tmp", observer.Values[^1].Docs["pi.agent"]["cwd"]);
 
-        // head 标记：保留后缀并前置。
+        // head 标记：作为普通条目追加在末尾（视图看完整历史，不按 head 裁剪）。
         await session.CommitAsync(
             tx => tx.AppendEntryAsync(conv, new EntryDraft { Kind = "pi.reset", HeadIsSelf = true }), Ctx);
         var entries = observer.Values[^1].Entries;
-        Assert.Single(entries);
-        Assert.Equal("pi.reset", entries[0].Kind);
-        Assert.NotNull(entries[0].Head);
+        Assert.Equal(["user", "pi.reset"], entries.Select(entry => entry.Kind));
+        Assert.NotNull(entries[^1].Head);
 
         // 退役挂载文档：从 docs 删除。
         await session.CommitAsync(tx => tx.RetireDocAsync(AgentDocs.AgentDoc, conv), Ctx);

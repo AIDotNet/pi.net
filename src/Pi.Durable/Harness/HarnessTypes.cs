@@ -1171,7 +1171,8 @@ public interface IConversation
     /// 结构视图作为有界待发帧的序列化精确帧 watch；取消 <paramref name="context"/> 使其停止。
     /// 对应 TS <c>watch()</c> / <c>ConversationWatch = WatchHandle&lt;ConversationView&gt;</c>。
     /// </summary>
-    Task<CommittedWatch<ConversationView>> WatchAsync(Context context);
+    /// <param name="window">这个观察者持有的窗口；缺省最新的 50 个条目（spec §9.3）。</param>
+    Task<CommittedWatch<ConversationView>> WatchAsync(Context context, ConversationWindow? window = null);
 }
 
 /// <summary>一个 Session 上的持久 agent harness。对应 TS <c>Harness</c>。</summary>
