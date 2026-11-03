@@ -158,17 +158,17 @@
 | `7e15f9601` | run-end tasks + `afterRun` hook | 🔧 P6 |
 | `65fba65b2` | hook/task 的 entry reads | 🔧 P6 |
 | `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | 🔧 P6 |
-| `6a2825113` | `whenIdle` 拒绝空闲会话的输入 | 🔧 P6 |
+| `6a2825113` | `whenIdle` 拒绝空闲会话的输入 | ✅ 本批 |
 | `1c6928b30` | 未提供的工具调用按 tool task 跑 | 🔧 P6 |
 | `87eff524f` | `afterTool` 在每个 tool task 结果上跑 | 🔧 P6 |
 | `d280e1ffa` | `beforeProviderRequest` 生成钩子 | 🔧 P6（端口已有同名符号，需核对是否同一钩子） |
 | `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | 🔧 P6 |
-| `044148392` | Code Mode 脚本 `read` 返回图片块 | 🔧 P6 |
+| `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
 | `be14d9732` | 只读打开 Harness | 🔧 P6 |
 | `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6 |
 | `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | 🔧 P6 |
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | 🔧 P5 |
-| `d5b3de22d` | assistant 消息记录请求的 thinking level | 🔧 P6 |
+| `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
 | `38ff99177` | 工具交接后继续运行 | 🔧 P6 |
 | `b3a29f111` | 重启循环可见地结束；宿主死亡计入一次 generation 尝试 | 🔧 P6 |
 
@@ -463,3 +463,16 @@ SQLite 门面：`SqliteCommandExecutor` 每条 SQL 现建命令、不缓存预�
 watch」（退休后同一地址的新化身接续同一 watch）、以及 `observeDoc`/`observeConversation`/`observeTaskGraph`
 三个同步 observer——它们和分组提交、节流落盘是同一处 Session 线路改动，拆开做会两次改动同一批方法。
 `da412b039` 的 `appendText` 在端口已是既有能力（`Tracker.Change.Append` 直接记 `a` 而不比对整串）。
+
+### 4.8 P6 首批已落地：思考档位落盘 + `whenIdle`（`9b0d3f1`）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| assistant 消息记下**请求**的思考档位（`providerThinkingLevel` 另记实际档位）；轮询检查点也带这一项，旧记录缺字段时视为 null | `d5b3de22d` | `Harness/Generation.cs`（`RequestInfo.ThinkingLevel`、`GenerationCheckpoint.Poll.ThinkingLevel`、`ClassifyAsync` 里的 `message with { ThinkingLevel = … }`） | `HarnessGenerationTests.RecordsTheRequestedThinkingLevelOnTheAnswer` |
+| `whenIdle: "reject"`：空闲对话在任何写之前以新的 `ConversationIdle` 拒绝输入，因此它不会启动一次运行 | `6a2825113` | `DurableErrors.ConversationIdle`、`SubmissionDraft.Input.WhenIdle`、`Submissions.AdmitAsync` | `HarnessSubmissionsTests.RejectsIdleInputWithWhenIdleRejectBeforeAnyWrite` |
+
+**判定不适用**：`044148392`（durable 的 Code Mode 脚本通道按 1.4.0 的产品决策不采纳——端口没有
+`tools.read()` 的脚本桥，`structuredOutput`/`structuredOutputSchema` 一整套也就没有落点）。
+
+**观察项**：`d5b3de22d` 的第二半（轮询检查点）在端口的端到端断言要等 faux provider 的 deferred 流；
+目前只覆盖写盘侧（`ClassifyAsync` 与 `Poll` 检查点都带了字段），恢复侧留待补齐 faux deferred 流后加。
