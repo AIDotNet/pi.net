@@ -56,6 +56,18 @@ internal abstract record GenerationCheckpoint
             json.TryGetValue("thinkingLevel", out var pollThinking) && pollThinking is string pollLevel
                 ? ThinkingLevelOf(pollLevel)
                 : null),
+        "finish" => new Finish(new RunSummary
+        {
+            Reason = (string)((JsonDict)json["run"]!)["reason"]!,
+            Answer = EntryId.From(Convert.ToInt64(((JsonDict)json["run"]!)["answer"]!)),
+            First = EntryId.From(Convert.ToInt64(((JsonDict)json["run"]!)["first"]!)),
+            Last = EntryId.From(Convert.ToInt64(((JsonDict)json["run"]!)["last"]!)),
+        }),
+        "drain" => new Drain(
+            EntryId.From(Convert.ToInt64(json["answer"]!)),
+            json.TryGetValue("tasks", out var drainTasks) && drainTasks is IReadOnlyList<object?> drainList
+                ? drainList.Select(value => TaskId<object?>.From(Convert.ToInt64(value))).ToList()
+                : []),
         "tools" => new Tools(
             EntryId.From(Convert.ToInt64(json["assistant"]!)),
             json.TryGetValue("tools", out var tools) && tools is IReadOnlyList<object?> toolList
@@ -160,6 +172,36 @@ internal abstract record GenerationCheckpoint
         }
     }
 
+    /// <summary>
+    /// 运行已回答：答案已提交、输入已结算，运行仍持有 <c>pi.live.run</c>，等 <c>afterRun</c> 钩子要任务（spec §8.3）。
+    /// 在这一阶段崩溃会把钩子再问一次（什么都还没创建）。对应 TS <c>finish</c>。
+    /// </summary>
+    public sealed record Finish(RunSummary Run) : GenerationCheckpoint
+    {
+        public override JsonDict ToJson() => new Dictionary<string, object?>
+        {
+            ["phase"] = "finish",
+            ["run"] = new Dictionary<string, object?>
+            {
+                ["reason"] = Run.Reason,
+                ["answer"] = Run.Answer.Value,
+                ["first"] = Run.First.Value,
+                ["last"] = Run.Last.Value,
+            },
+        };
+    }
+
+    /// <summary>等待 <c>afterRun</c> 钩子要来的任务（生成拥有它们）；它们终态后运行结束。对应 TS <c>drain</c>。</summary>
+    public sealed record Drain(EntryId Answer, IReadOnlyList<TaskId<object?>> Tasks) : GenerationCheckpoint
+    {
+        public override JsonDict ToJson() => new Dictionary<string, object?>
+        {
+            ["phase"] = "drain",
+            ["answer"] = Answer.Value,
+            ["tasks"] = Tasks.Select(task => (object?)task.Value).ToList(),
+        };
+    }
+
     /// <summary>等待本轮的工具任务；生成拥有它们（spec §8.5）。</summary>
     public sealed record Tools(EntryId Assistant, IReadOnlyList<TaskId<object?>> ToolsIds, IReadOnlyList<string> Pending)
         : GenerationCheckpoint
@@ -201,6 +243,8 @@ public static partial class Generation
                 ["retry"] = (TaskPhaseHandler)RetryPhaseAsync,
                 ["poll"] = (TaskPhaseHandler)PollPhaseAsync,
                 ["tools"] = (TaskPhaseHandler)ToolsPhaseAsync,
+                ["finish"] = (TaskPhaseHandler)FinishPhaseAsync,
+                ["drain"] = (TaskPhaseHandler)DrainPhaseAsync,
             },
             Abort = (TaskPhaseHandler)AbortAsync,
         });
@@ -1019,6 +1063,8 @@ public static partial class Generation
             var decision = await hooks.OnYield(message, runtime, context).ConfigureAwait(false);
             if (decision is { ContinueRun: true, Continue: { Count: > 0 } decided }) continuation = decided;
         }).ConfigureAwait(false);
+        // afterRun 钩子声明了吗：声明了就让运行在答案之后等它们的任务，排队项留到那时再放置。
+        var afterRun = await AsksAfterRunAsync(runtime, context).ConfigureAwait(false);
         var conversationId = runtime.ConversationId;
         await runtime.CommitAsync(async (tx, _) =>
         {
@@ -1039,6 +1085,13 @@ public static partial class Generation
             };
             // 续延在 final 边界放置任何东西之前就已定夺：队列里没有会被选中的用户项，也没有会先跑的重置。
             var continues = TakesContinuation(continuation, boundary) ? continuation : null;
+            if (continues is null && afterRun)
+            {
+                // 输入的 done 结算与保持住运行在同一提交里；钩子在 finish 阶段问。
+                var held = HoldRun(tx, live, runtime, "answer", entry.Id, entry.Id);
+                if (held is not null) return held;
+            }
+
             var applied = await Inbox.ApplyBoundaryAsync(tx, boundary, BoundaryAt.Final, runtime.Now())
                 .ConfigureAwait(false);
             if (continues is not null)
@@ -1070,6 +1123,184 @@ public static partial class Generation
     /// tool_unavailable 结果；其他每个调用得到生成拥有的工具任务——顺序轮只有第一个现在启动。生成随后
     /// 在其 tools 阶段等待它们，持有运行。对应 TS <c>startToolRound()</c>。
     /// </summary>
+    // ─── 运行结束任务（afterRun） ────────────────────────────────────────────
+
+    /// <summary>
+    /// 本阶段的 agent 是否选了声明 <c>afterRun</c> 的生成钩子：声明了，一次回答的运行要等它要的任务。
+    /// 对应 TS <c>asksAfterRun()</c>。
+    /// </summary>
+    private static async Task<bool> AsksAfterRunAsync(ITaskRuntime runtime, Context context)
+    {
+        var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
+        return agent.Extensions
+            .SelectMany(extension => extension.Hooks ?? [])
+            .Any(hook => hook.Task == TaskName && hook.Handlers is IRunEndHooks);
+    }
+
+    /// <summary>
+    /// 已回答且声明了 <c>afterRun</c> 的运行的第 A 个提交（spec §8.3）：输入的 done 结算与保持住
+    /// <c>pi.live.run</c> 在同一提交里，随后在 <c>finish</c> 阶段问钩子。final 边界要等运行结束，因此排队项留队列。
+    /// 运行不是本次任务持有时返回 null（交回调用方走原路径）。对应 TS <c>holdRun()</c>。
+    /// </summary>
+    private static TaskState? HoldRun(
+        Transaction tx, TxDocChange live, ITaskRuntime runtime, string reason, EntryId answer, EntryId last)
+    {
+        if (Live.RunTaskId(live) != runtime.TaskId) return null;
+        foreach (var input in Live.RunInputs(live))
+        {
+            tx.SettleSubmission(input, new SubmissionSettlement.Done(answer));
+        }
+
+        Live.ClearRunInputs(live);
+        // 结束后任务仍在跑：run 上的标记让对话保持忙碌，Stop 会中止它们，崩溃后恢复它们。
+        Live.SetRunAfterRun(live);
+        Live.DeleteGeneration(live);
+        Live.DeleteTools(live);
+        var summary = new RunSummary
+        {
+            Reason = reason,
+            Answer = answer,
+            // 端口尚未记录 run.first：以答案代第一个条目（只有把区间裁到「运行内」的钩子会看出差别）。
+            First = answer,
+            Last = last,
+        };
+        return new TaskState
+        {
+            Status = TaskStatus.Running,
+            Checkpoint = new GenerationCheckpoint.Finish(summary).ToJson(),
+        };
+    }
+
+    /// <summary>
+    /// 检查一个 <c>afterRun</c> 钩子要的任务并收进 <paramref name="prepared"/>（在线上之外）：种类必须是已安装的
+    /// 非内建任务，输入是 JSON，其定义的 <c>initial()</c> 必须给出该任务某个阶段的 JSON checkpoint。坏请求被跳过
+    /// 而不是让创建提交失败，最后把拒绝原因抛出去（由钩子分发报到该扩展名下）。对应 TS <c>prepareRunEndTasks()</c>。
+    /// </summary>
+    private static void PrepareRunEndTasks(
+        ITaskRuntime runtime, IReadOnlyList<RunEndTaskRequest> requests, List<RunEndTaskRequest> prepared)
+    {
+        var rejected = new List<Exception>();
+        foreach (var request in requests)
+        {
+            try
+            {
+                var name = request.Task.Name;
+                if (name.StartsWith("pi.", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException($"An afterRun hook cannot start the built-in task {name}");
+                }
+
+                if (runtime.Registry.Task(name) is null)
+                {
+                    throw new InvalidOperationException($"Task {name} is not installed");
+                }
+
+                if (request.Task.Initial(request.Input) is not JsonDict checkpoint
+                    || !checkpoint.TryGetValue("phase", out var phase)
+                    || phase is not string phaseName
+                    || !request.Task.Phases.ContainsKey(phaseName))
+                {
+                    throw new InvalidOperationException($"Task {name} starts at an unknown phase");
+                }
+
+                prepared.Add(request);
+            }
+            catch (Exception error)
+            {
+                rejected.Add(error);
+            }
+        }
+
+        if (rejected.Count == 1) throw rejected[0];
+        if (rejected.Count > 1) throw new AggregateException(rejected);
+    }
+
+    /// <summary>
+    /// 问 <c>afterRun</c> 钩子要任务，并在移到 <c>drain</c> 的同一提交里把它们作为生成的孩子创建；一个都没有就
+    /// 立刻结束运行。对应 TS <c>finish</c> 阶段。
+    /// </summary>
+    private static async Task FinishPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
+    {
+        var checkpoint = (GenerationCheckpoint.Finish)ReadCheckpoint(task);
+        var prepared = new List<RunEndTaskRequest>();
+        await runtime.Hooks.EachAsync("afterRun", async handler =>
+        {
+            if (handler is not IRunEndHooks hooks) return;
+            var asked = await hooks.AfterRun(checkpoint.Run, runtime, context).ConfigureAwait(false);
+            if (asked is not null) PrepareRunEndTasks(runtime, asked, prepared);
+        }).ConfigureAwait(false);
+        if (prepared.Count == 0)
+        {
+            await EndAnsweredRunAsync(runtime, checkpoint.Run.Answer, context).ConfigureAwait(false);
+            return;
+        }
+
+        await runtime.CommitAsync(async (tx, _) =>
+        {
+            var tasks = new List<TaskId<object?>>();
+            foreach (var request in prepared)
+            {
+                // 擦除形状：registry 存的是 AnyDurableTask，创建时以其定义为准。
+                var created = await tx.CreateTaskErasedAsync(request.Task, request.Input, new TaskOptions
+                {
+                    Ownership = new TaskOwnership.TaskOwner(runtime.TaskId),
+                    ConversationId = runtime.ConversationId,
+                }).ConfigureAwait(false);
+                tasks.Add(created);
+            }
+
+            var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
+            if (Live.RunTaskId(live) == runtime.TaskId) Live.SetRunAfterRun(live, tasks);
+            return new TaskState
+            {
+                Status = TaskStatus.Waiting,
+                Checkpoint = new GenerationCheckpoint.Drain(checkpoint.Run.Answer, tasks).ToJson(),
+                On = tasks,
+                Policy = JoinPolicy.AllSettled,
+            };
+        }, context).ConfigureAwait(false);
+    }
+
+    /// <summary>afterRun 的任务都终态了（无论结局）：结束运行。对应 TS <c>drain</c> 阶段。</summary>
+    private static async Task DrainPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
+    {
+        var checkpoint = (GenerationCheckpoint.Drain)ReadCheckpoint(task);
+        await EndAnsweredRunAsync(runtime, checkpoint.Answer, context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 已回答的运行的最后一个提交（spec §8.3）：afterRun 的任务终态了，或本来就没有。放置 final 边界选中的项、
+    /// 结束运行，并为选中的用户项启动下一次运行。对应 TS <c>endAnsweredRun()</c>。
+    /// </summary>
+    private static async Task EndAnsweredRunAsync(ITaskRuntime runtime, EntryId answer, Context context)
+    {
+        var conversationId = runtime.ConversationId;
+        await runtime.CommitAsync(async (tx, _) =>
+        {
+            var settings = runtime.Settings;
+            var boundary = await Inbox.PrepareBoundaryAsync(
+                tx, conversationId, settings.SteeringMode, settings.FollowUpMode).ConfigureAwait(false);
+            var live = await tx.DocAsync(Live.LiveDoc, conversationId).ConfigureAwait(false);
+            var applied = await Inbox.ApplyBoundaryAsync(tx, boundary, BoundaryAt.Final, runtime.Now())
+                .ConfigureAwait(false);
+            Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Done(answer));
+            if (applied.Users.Count > 0)
+            {
+                await StartRunAsync(tx, conversationId, live, applied.Users).ConfigureAwait(false);
+            }
+
+            return new TaskState
+            {
+                Status = TaskStatus.Terminal,
+                Outcome = new TaskOutcome
+                {
+                    Status = TaskOutcomeStatus.Completed,
+                    Result = new Dictionary<string, object?> { ["entryId"] = answer.Value },
+                },
+            };
+        }, context).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// 应答的 <c>onYield</c> 续延是否被采纳（spec §8.3），在 final 边界放置任何东西之前由收件箱决定：仅当队列里没有
     /// 会被选中的 steer/follow-up 用户项、也没有会先跑的重置。续延会把运行的轮数清零。
@@ -1192,6 +1423,8 @@ public static partial class Generation
         var handoff = controls.LastOrDefault(control => control?.Handoff is not null)?.Handoff;
         // 与每个 agent 字段一样读自本阶段的 agent；轮次中途的 configure() 在轮结束时生效。
         var maxTurns = (await runtime.AgentAsync(context).ConfigureAwait(false)).MaxTurns;
+        // 只有终止控制的轮才可能由 afterRun 接手：运行先答（这里是工具轮的结果），再等钩子要的任务。
+        var afterRun = terminate && await AsksAfterRunAsync(runtime, context).ConfigureAwait(false);
         await runtime.CommitAsync(async (tx, _) =>
         {
             var settings = runtime.Settings;
@@ -1205,6 +1438,8 @@ public static partial class Generation
             var live = await tx.DocAsync(Live.LiveDoc, conversationId).ConfigureAwait(false);
             var now = runtime.Now();
             var turns = Live.RunTurns(live, runtime.TaskId);
+            // 运行到目前为止的最后条目：最新的结果，没有结果条目时是 assistant。
+            var last = results.Aggregate(assistant, (newest, id) => id.Value > newest.Value ? id : newest);
             if (handoff is not null)
             {
                 // handoff 的重置先于每个排队项：排队的写入与被选中的 steer 都落进它的新上下文。
@@ -1215,6 +1450,13 @@ public static partial class Generation
                         HeadIsSelf = true, Model = [new UserMessage([new TextContent(handoff)], now)],
                     }).ConfigureAwait(false);
                 boundary.Head = resetEntry.Id;
+                last = resetEntry.Id;
+            }
+
+            if (afterRun)
+            {
+                var held = HoldRun(tx, live, runtime, "terminate", assistant, last);
+                if (held is not null) return held;
             }
 
             if (terminate)

@@ -642,6 +642,34 @@ internal static class HarnessTestSupport
             => Task.CompletedTask;
     }
 
+    /// <summary>
+    /// 只声明 <c>afterRun</c> 的生成钩子。生成钩子接口的其余成员都是空实现；只有实现了 <see cref="IRunEndHooks"/>
+    /// 的处理器才算「声明了 afterRun」（对应 TS 里 afterRun 是可选属性）。对应 TS <c>hook(GenerationTask, {afterRun})</c>。
+    /// </summary>
+    internal sealed class RunEndHooksImpl(Func<RunSummary, IReadOnlyList<RunEndTaskRequest>?> afterRun)
+        : IGenerationHooks, IRunEndHooks
+    {
+        public Task<(IReadOnlyList<ChatMessage> Messages, bool Used)?> BeforeRequest(
+            IReadOnlyList<ChatMessage> messages, IHookApi api, Context context)
+            => Task.FromResult<(IReadOnlyList<ChatMessage>, bool)?>(null);
+
+        public Task<System.Text.Json.Nodes.JsonObject?> BeforeProviderRequest(
+            ModelSpec model, System.Text.Json.Nodes.JsonObject payload, IHookApi api, Context context)
+            => Task.FromResult<System.Text.Json.Nodes.JsonObject?>(null);
+
+        public Task AfterResponse(AssistantMessage message, IHookApi api, Context context) => Task.CompletedTask;
+
+        public Task<(IReadOnlyList<ContentBlock> Continue, bool ContinueRun)?> OnYield(
+            AssistantMessage answer, IHookApi api, Context context)
+            => Task.FromResult<(IReadOnlyList<ContentBlock>, bool)?>(null);
+
+        public Task AfterTools(
+            EntryId assistant, IReadOnlyList<EntryId> results, IHookApi api, Context context) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<RunEndTaskRequest>?> AfterRun(RunSummary run, IHookApi api, Context context)
+            => Task.FromResult(afterRun(run));
+    }
+
     /// <summary>由处理函数构造一个工具钩子。对应 TS <c>hook(ToolTask, {afterTool})</c>。</summary>
     internal sealed class ToolHooksImpl(
         Func<ToolCallContent, ToolExecutionResult, ToolExecutionResult?>? afterTool = null) : IToolHooks

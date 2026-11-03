@@ -1284,6 +1284,50 @@ public interface IGenerationHooks
     Task AfterTools(EntryId assistant, IReadOnlyList<EntryId> results, IHookApi api, Context context);
 }
 
+/// <summary>
+/// 可选：运行结束后要持久任务的生成钩子。TS 里 <c>afterRun</c> 是可选属性（未声明即不问），C# 用一个独立接口
+/// 表达同一件事——只有实现了它的钩子才算「声明了 afterRun」。
+/// </summary>
+public interface IRunEndHooks
+{
+    /// <summary>
+    /// 运行已回答之后，问它是否有要在运行结束后继续跑的持久任务（<see cref="RunEndTaskRequest"/>）。有则运行的输入
+    /// 先结算 done，生成以 <c>finish</c> / <c>drain</c> 阶段把这些任务作为自己的孩子创建并等待；期间
+    /// <c>pi.live.run</c> 仍被持有（对话保持忙碌），排队输入等它们终态后才放置。
+    /// 对应 TS <c>GenerationHooks.afterRun</c>。
+    /// </summary>
+    Task<IReadOnlyList<RunEndTaskRequest>?> AfterRun(RunSummary run, IHookApi api, Context context);
+}
+
+/// <summary>
+/// 一次已回答的运行，交给 <see cref="IRunEndHooks.AfterRun"/>。对应 TS <c>RunSummary</c>。
+/// </summary>
+public sealed record RunSummary
+{
+    /// <summary>运行怎么结束的：<c>"answer"</c>（应答）或 <c>"terminate"</c>（工具轮的终止控制）。</summary>
+    public required string Reason { get; init; }
+
+    /// <summary>答案条目。</summary>
+    public required EntryId Answer { get; init; }
+
+    /// <summary>运行的第一个条目（端口暂以答案代替，见 delta 文档）。</summary>
+    public required EntryId First { get; init; }
+
+    /// <summary>运行的最后一个条目（最近的结果、handoff 的重置条目，或答案）。</summary>
+    public required EntryId Last { get; init; }
+}
+
+/// <summary>
+/// <c>afterRun</c> 钩子请求的一个运行结束任务。对应 TS <c>runEndTask(task, input)</c>。
+/// </summary>
+public sealed record RunEndTaskRequest
+{
+    /// <summary>要创建的任务定义；必须是已安装的非内建任务。</summary>
+    public required AnyDurableTask Task { get; init; }
+
+    public object? Input { get; init; }
+}
+
 /// <summary>内建工具任务的钩子。对应 TS <c>ToolHooks</c>。</summary>
 public interface IToolHooks
 {

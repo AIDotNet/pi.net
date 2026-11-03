@@ -238,6 +238,26 @@ public static class Live
     /// <summary>清掉 <c>runFailure</c>：一次新的运行开始（除非它结束的那次失败要留着）。对应 TS <c>delete live.runFailure</c>。</summary>
     public static void DeleteRunFailure(TxDocChange live) => live.Delete(RunFailurePath);
 
+    /// <summary>
+    /// 运行已答但还在等 <c>afterRun</c> 钩子要来的任务：在 <c>pi.live.run</c> 上留一个标记（上游是
+    /// <c>run.afterRun = {}</c>，创建后补 <c>tasks</c>），使对话保持忙碌。对应 TS <c>live.run.afterRun</c>。
+    /// </summary>
+    public static void SetRunAfterRun(TxDocChange live, IReadOnlyList<TaskId<object?>>? tasks = null)
+    {
+        if (!live.Draft.TryGetValue("run", out var value) || value is not IReadOnlyDictionary<string, object?> run)
+        {
+            return;
+        }
+
+        var afterRun = new Dictionary<string, object?>();
+        if (tasks is not null)
+        {
+            afterRun["tasks"] = tasks.Select(task => (object?)task.Value).ToList();
+        }
+
+        live.Set(RunPath.Append(Seg.Key("afterRun")), afterRun);
+    }
+
     /// <summary>运行已走的工具轮数；不是当前任务持有的运行时为 0。对应 TS <c>live.run.turns</c>。</summary>
     public static long RunTurns(TxDocChange live, TaskId<object?> taskId)
         => RunTaskId(live) == taskId
@@ -272,6 +292,24 @@ public static class Live
         if (live.Draft.TryGetValue("run", out var value) && value is IReadOnlyDictionary<string, object?> run)
         {
             live.Set(RunPath, new Dictionary<string, object?>(run) { ["taskId"] = to.Value });
+        }
+    }
+
+    /// <summary>运行当前的输入提交。对应 TS <c>live.run.inputs</c>。</summary>
+    public static IReadOnlyList<SubmissionId> RunInputs(TxDocChange live)
+        => live.Draft.TryGetValue("run", out var value)
+            && value is IReadOnlyDictionary<string, object?> run
+            && run.TryGetValue("inputs", out var inputs)
+            && inputs is IReadOnlyList<object?> list
+                ? [.. list.Where(item => item is not null).Select(item => SubmissionId.From(Convert.ToInt64(item)))]
+                : [];
+
+    /// <summary>清空运行的 <c>inputs</c>：已回答的运行把它们结算 done 之后不再持有。对应 TS <c>run.inputs = []</c>。</summary>
+    public static void ClearRunInputs(TxDocChange live)
+    {
+        if (live.Draft.TryGetValue("run", out var value) && value is IReadOnlyDictionary<string, object?>)
+        {
+            live.Set(RunPath.Append(Seg.Key("inputs")), new List<object?>());
         }
     }
 
