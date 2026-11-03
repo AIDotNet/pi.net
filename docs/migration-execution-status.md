@@ -22,7 +22,7 @@
 | **P1** | 1.5.0 窗口内的小修集（不重试判定、溢出文案、`MarkdownTransformContext` 等） | ✅ `677e30c` |
 | **P2** | ai wire 层：Gemini `const`→`enum`、Bedrock strict 回退、OAuth trusted-url 收敛 + `auth.json` 0600、42 份模型目录重导 | ✅ `e6d4c4d` / `c71cd41` / `1ca2e05` / `a8db1eb` |
 | **P3** | coding-agent 窗口项：扩展 changelog、device-code 确认、`ctx.ui.custom` 的 `blocked`、`keyText()`/`keyHint()` 注入、trust 优先级、路径大小写、写盘一致性、分支摘要、`pi.exec` 上限、git clean 容错、WSL 深目录、`/resume` 搜索分层、HTML 导出等 | ✅ `ed26895` + `2ac34ad`（`8bc94b19f` 判定不跟，见 delta §4.4/§4.6） |
-| **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | ⏳ 未开始 |
+| **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | 🟡 `27e8464` 首批两项（不改渲染字节）：Orca 终端识别（`f09d01b85`）、图像行搜索按最高图像行数定界（`1c8cb1781`）；余 11 项仍等语料链，见 delta §4.26 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | ✅ `4afb050` + `2ac34ad`（env 3 项判定不适用：Rust daemon；见 delta §4.5/§4.6） |
 | **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | 🟡 十五批：`ae97b71`（思考档位 + `whenIdle`）、`d57852a`（只读 Harness + `beforeProviderRequest`）、`332da47`（钩子/任务条目读取）、`a8b05cb`（工具轮次上限）、`15d315f`（`runFailure`）、`79bfdae`（continue 提交）、afterTool 全路径、未提供调用按任务跑、空闲检查脏集合、handoff 后运行继续、afterRun 与运行结束任务、窗口化视图与 `ConversationTranscript`（删 `watchEvents`）、`wake()` 睡眠集合与空闲过期索引、重启循环可见地结束、`submit(tx, draft)` 提交内受理；`044148392` 判定不适用；分组提交（`e5c6182ba`）与节流提交延迟落盘（`6c2fd73b0`）仍待做 |
 | **P7** | chord v1（pi-schema 构造点、ANSI 清理、watch 家族） | 🟡 `a0da1ea` 首批：watch 家族 + ANSI 清理已落地；`be039fb31`/`c09c98d7d`/`db14038bd`/`8025c414d`/`d0aa218cb` 判定不适用；`8b0caefc2` 归入 P6（见 delta §4.7） |
@@ -423,3 +423,15 @@ durable 554 例全绿。
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 565 例全绿（新增 `HarnessSubmitInCommitTests`
 11 例；视图投递类用例仍是既有偶发超时，逐例重跑通过）。未移植：上游同批用例里的 telemetry span 断言
 （端口 `Submissions` 没有 telemetry 面）。
+
+### P4 首批：Orca 终端识别与图像行搜索定界（2026-11-03）
+
+P4 的其余项都要先恢复语料生成链，这两项不改渲染字节，所以先做：
+
+- `f09d01b85`：`TERM_PROGRAM=Orca` 且 `ORCA_IMAGE_PROTOCOL=kitty` 才算 Kitty 图像能力（两个信号都要，
+  早于该声明的 Orca 版本保持文本回退）；分支放在 rex 之后、`KITTY_WINDOW_ID` 之前。
+- `1c8cb1781`：`MaxKittyImageRows`（已注册图像里最高的行数，只增不减）给 `Layout.PaintBox` 的视口上方
+  倒序搜索定界，并跳过非图像行——此前「遇到第一个非空行就停」会在占位行带边框/并排文字时漏图。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` 23944 例全绿（新增 2 例）。上游那条端到端
+alt-screen 回归用例需要「录制终端 + 全屏渲染」设施，端口没有这一层，等语料链恢复后补。
