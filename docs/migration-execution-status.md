@@ -378,3 +378,25 @@ Stage 15 定向验证：`dotnet build .\tests\Pi.CodingAgent.Tests\Pi.CodingAgen
 
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 543 例，本批相关 34 例全绿；
 全量并行时 `HarnessTaskGraphTests` / `HarnessViewTests` 各出现 1 例既有的旋转噪声，单跑通过。
+
+### P6 第十三批：窗口化视图与 ConversationTranscript（2026-11-03）
+
+上游 `f3255de76` 的前半。
+
+- **视图**：`ConversationView.Entries` 改为完整历史（`Conversation.EntriesAsync`）上的窗口，新增 `Before`；
+  `ConversationWindow`（`From` / `Min` / `Max`，缺省 50 / 100）由 `WindowBounds.Resolve` 校验，初始窗口用
+  有界扫描（`LoadWindowAsync` + `ScanUpToAsync`）；`Mount` 只留对话、文档与化身，观察者各持 `Windowed`
+  （自己的窗口值），推进时 append 到 `max` 之后一次 splice 丢到 `min` 并写 `before`。
+- **API**：`IConversation.WatchAsync(context, ConversationWindow?)`、`ConversationViews.WatchAsync/AttachAsync`
+  同参。
+- **转录**：新增 `Harness/Transcript.cs`（`TranscriptItem` / `TranscriptView` / `EntryLoader` /
+  `ConversationTranscript`），支持 `Merge`、`LoadEarlierAsync`、`FillGapAsync`、`Newest`、`Resume`，
+  并发加载共享同一个 `Task`。
+- **保留**：`ViewObserver.Publication` 与 `watchEvents`（事件流挂不受裁剪的窗口）；它们的删除与上游一致地留到
+  下一批。
+
+用例：`ConversationTranscriptTests` 7 例、`HarnessViewWindowTests` 5 例；改写 7 个既有的视图/文档用例。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 556 例，本批相关 12 例全绿；全量并行仍是既有
+旋转噪声（`HarnessEventsTests` 批投递、`ToolsTests.Bash_*`、reopen 类），逐例单跑通过。`Pi.CodingAgent.Tests`
+全量 5208 例 1 失败（既有的 typebox 语料用例），`ClientRuntimeTests` / `ClientTuiTests` 全绿。

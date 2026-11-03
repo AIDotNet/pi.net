@@ -683,3 +683,36 @@ P4（tui）全部 13 项（等语料生成链）。
 **已知未做**（更新）：`f3255de76` 的窗口化视图 + `ConversationTranscript` + 删 `watchEvents`（下一批）；
 `e5c6182ba` / `6c2fd73b0` 分组提交与节流落盘（工具输出在崩溃前是否落盘就取决于它，本批工具用例因此只断言
 诊断码而不部分输出）；`35dfa7573` 的 `idleOrder` 索引与 `wake()` 睡眠集合；P4（tui）13 项等语料链。
+
+### 4.21 P6 第十三批：窗口化视图与 `ConversationTranscript`（`f3255de76` 前半）
+
+上游把「一份共享的完整视图」换成「每个观察者各自的窗口」，并在其上提供客户端转录。端口按同一模型重写：
+
+| 变更 | 上游落点 | 端口落点 |
+| --- | --- | --- |
+| `entries` 是完整历史（分叉感知）上的窗口，带 `before` | `ConversationView.entries/before` | `ConversationView.Before`；`ConversationView.Entries` 改为完整历史（head 标记只是按序追加的条目，不再裁历史） |
+| 每个观察者一个窗口 | `Windowed` / `Mount.observers` | `ConversationViews.Windowed`（min / max / 自己的值）；`Mount` 只留对话、文档与化身 |
+| `watch(ctx, { from, min, max })` | `watch()` 的第三参 | `IConversation.WatchAsync(context, ConversationWindow?)`；`ConversationViews.WatchAsync/AttachAsync` 同参 |
+| 初始窗口用有界扫描 | `loadWindow()` / `scanUpTo()` | `LoadWindowAsync`（`from` 装得下就从它起，否则退回最新 `min` 个）+ `ScanUpToAsync`（`SCAN_PAGE_SIZE = 256`，`+1` 探测在 `int.MaxValue` 处饱和） |
+| 追加与裁剪 | `advance()` 里每窗口 append，`> max` 时一次 splice 丢到 `min` 并写 `before` | `Advance()` 同结构：`Splice(entries, count, 0, appended)` + `Splice(entries, 0, drop)` + `Set(before)` |
+| 客户端转录 | 新增 `transcript.ts`（缺口、`loadEarlier`、`fillGap`、`resume`） | 新增 `Harness/Transcript.cs`：`TranscriptItem`（`Entry` / `Gap` / `Earlier`）、`TranscriptView`、`EntryLoader`、`ConversationTranscript`（`Merge` / `LoadEarlierAsync` / `FillGapAsync` / `Newest` / `Resume`） |
+
+**端口的取舍**：
+
+1. **保留 `ViewObserver.Publication`**（上游删除）。窗口化之后它给出的 `before`/`after` 是该观察者窗口的两次
+   修订，既有消费者（`watchEvents`、一个测试）仍在用；删除随 `watchEvents` 一起做。
+2. **`watchEvents` 暂留**，并让它挂 `Min = Max = int.MaxValue` 的窗口：事件快照的契约是「含全部条目」，窗口
+   裁剪不该改变它。上游把客户端改到 `ConversationTranscript` 之后才删掉整个事件流。
+3. **`ConversationTranscript` 的加载用 `Task` + `Task.Yield()`**：与上游的微任务推迟等价，保证并发的
+   `loadEarlier` / 同一缺口 `fillGap` 共享同一个 `Task` 实例（测试用 `Assert.Same` 断言）。
+4. **`Merge` 的成本是 O(items)**，不做增量索引；`Result()` 用引用比较（items / docs / conversation）保持
+   「什么都没加就返回上一份」。
+
+**用例**：`ConversationTranscriptTests` 7 例（首个窗口与 `earlier`、追加并保留掉出的条目、缺口逐页填、
+逐页 `loadEarlier` 到开头、并发共享一次加载、`resume` 与越过最新条目的缺口、合并前拒绝与消失的缺口）；
+`HarnessViewWindowTests` 5 例（最新 min 个 + `before`、追加到 max 后一次丢到 min、`from` 装得下与装不下、
+非法窗口拒绝、真实 Harness 上的 merge → resume → loadEarlier 连续性）。
+
+**连带修正的既有用例**（都是旧语义的直接后果）：`HarnessViewTests` 6 例（head 不再裁剪、fork 继承条目、
+原始 head 写入、文档快照、每个观察者自己的值、折叠需要够大的窗口）、`HarnessDocsTests` 的视图构建用例。
+调试踩到的坑：`{ max = 3 }` 不带 `min` 会被缺省的 `min = 50` 判为非法（上游同样如此）。
