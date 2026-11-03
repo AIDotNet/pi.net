@@ -716,3 +716,16 @@ P4（tui）全部 13 项（等语料生成链）。
 **连带修正的既有用例**（都是旧语义的直接后果）：`HarnessViewTests` 6 例（head 不再裁剪、fork 继承条目、
 原始 head 写入、文档快照、每个观察者自己的值、折叠需要够大的窗口）、`HarnessDocsTests` 的视图构建用例。
 调试踩到的坑：`{ max = 3 }` 不带 `min` 会被缺省的 `min = 50` 判为非法（上游同样如此）。
+
+### 4.22 删除 `watchEvents`（`f3255de76` 后半）
+
+窗口化之后，「一份共享的完整视图」不存在了，事件流没有可翻译的输入；上游把客户端迁到
+`ConversationTranscript` 之后删掉了整个事件流。端口照做：
+
+- 删 `Harness/Events.cs`（`AgentEvent` / `AgentEventStream` / `Events.WatchEventsAsync`，共 1062 行）、
+  `ViewObserver.Publication` 回调与它的派发、`HarnessEventsTests`（2 例）。
+- `HarnessDocsTests` 的 `RecordingObserver` 去掉发布计数。
+- **迁移说明**（与上游 README 同义）：原来用 `watchEvents` 的客户端改为 `conversation.WatchAsync(transcript.Resume)`
+  + `ConversationTranscript.Merge`，缺口交给 `FillGapAsync`，更早的历史交给 `LoadEarlierAsync`。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **554** 全绿（删掉的 2 例就是事件流用例）。

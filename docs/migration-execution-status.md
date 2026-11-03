@@ -400,3 +400,6 @@ Stage 15 定向验证：`dotnet build .\tests\Pi.CodingAgent.Tests\Pi.CodingAgen
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 556 例，本批相关 12 例全绿；全量并行仍是既有
 旋转噪声（`HarnessEventsTests` 批投递、`ToolsTests.Bash_*`、reopen 类），逐例单跑通过。`Pi.CodingAgent.Tests`
 全量 5208 例 1 失败（既有的 typebox 语料用例），`ClientRuntimeTests` / `ClientTuiTests` 全绿。
+
+`watchEvents` 删除（同批）：`Events.cs` 1062 行、`ViewObserver.Publication` 与 `HarnessEventsTests` 一并移除，
+durable 554 例全绿。
