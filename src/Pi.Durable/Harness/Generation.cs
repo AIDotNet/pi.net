@@ -728,8 +728,8 @@ public static partial class Generation
             var failure = await PrepareFailureAsync(tx, runtime).ConfigureAwait(false);
             var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
             await EndFailedRunAsync(
-                tx, runtime, live, failure, new SubmissionSettlement.Unanswered("nothing_to_answer", text))
-                .ConfigureAwait(false);
+                tx, runtime, live, failure,
+                new SubmissionSettlement.Unanswered(RunFailureReasons.NothingToAnswer, text)).ConfigureAwait(false);
             return new TaskState
             {
                 Status = TaskStatus.Terminal,
@@ -739,7 +739,10 @@ public static partial class Generation
                     Error = new TaskOutcomeError
                     {
                         Message = text,
-                        Detail = new Dictionary<string, object?> { ["reason"] = "nothing_to_answer" },
+                        Detail = new Dictionary<string, object?>
+                        {
+                            ["reason"] = RunFailureReasons.NothingToAnswer,
+                        },
                     },
                 },
             };
@@ -915,7 +918,9 @@ public static partial class Generation
         {
             var failure = await PrepareFailureAsync(tx, runtime).ConfigureAwait(false);
             var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
-            await EndFailedRunAsync(tx, runtime, live, failure, new SubmissionSettlement.Unanswered("no_model"))
+            // detail 说明缺的是哪个模型，客户端不必另找。
+            await EndFailedRunAsync(
+                tx, runtime, live, failure, new SubmissionSettlement.Unanswered("no_model", message))
                 .ConfigureAwait(false);
             return new TaskState
             {
@@ -1701,7 +1706,7 @@ public static partial class Generation
                     policy, policy == AfterFailedRun.Continue ? boundary : null);
                 await EndFailedRunAsync(tx, runtime, live, failure,
                     new SubmissionSettlement.Unanswered(
-                        "turn_limit", turns == 1 ? "1 turn" : $"{turns} turns")).ConfigureAwait(false);
+                        RunFailureReasons.TurnLimit, turns == 1 ? "1 turn" : $"{turns} turns")).ConfigureAwait(false);
             }
             else
             {

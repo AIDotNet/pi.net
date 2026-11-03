@@ -393,6 +393,8 @@ public sealed class HarnessGenerationRecoveryTests
             var record = Assert.IsType<SubmissionRecord.InputRecord>(await reopenedSubmission.StatusAsync(Ctx));
             Assert.Equal(SubmissionStatus.Unanswered, record.Status);
             Assert.Equal("no_model", record.Reason);
+            // 失败记录说明缺的是哪个模型。
+            Assert.Contains("is not available", Assert.IsType<string>(record.Detail));
             Assert.Equal(0, faux.State.DeferredFetchCount);
         }
         finally

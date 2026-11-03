@@ -138,6 +138,12 @@ public static class RunFailureReasons
     /// <summary>运行的生成被连续切断 <c>settings.restartLimit</c> 次；请求或轮询途中的切断先算一次失败尝试，
     /// 因此它结束的是「这次记账本身反复失败」的那种。</summary>
     public const string RestartLimit = "restart_limit";
+
+    /// <summary>上下文没有可回答的东西（空的，或以上一次回答结尾），请求没有发出。</summary>
+    public const string NothingToAnswer = "nothing_to_answer";
+
+    /// <summary>运行走满了 <c>agent.maxTurns</c> 个工具轮。</summary>
+    public const string TurnLimit = "turn_limit";
 }
 
 /// <summary>一个活跃压缩任务的呈现（spec §8.7）。对应 TS <c>CompactionStatus</c>。</summary>
