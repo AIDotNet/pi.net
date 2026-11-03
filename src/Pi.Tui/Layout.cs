@@ -481,28 +481,33 @@ public static partial class Layout
             && scrollView.ScrollTop > 0
             && box.Rect.Height > 0)
         {
-            for (var imageRow = scrollView.ScrollTop - 1; imageRow >= 0; imageRow--)
+            // 在视口上方找最近的一条图像行。图像行下面的占位行可能带内边距、边框或并排文字，
+            // 所以倒序搜索以「已注册图像里最高的那个」为界，而不是按行内容判断。
+            var scrollTop = scrollView.ScrollTop;
+            var minRow = Math.Max(0, scrollTop - TerminalImage.MaxKittyImageRows);
+            for (var imageRow = scrollTop - 1; imageRow >= minRow; imageRow--)
             {
                 var imageLine = imageRow < scrollContentLines.Length ? scrollContentLines[imageRow] : "";
-                var metadata = TerminalImage.GetKittyImageMetadata(imageLine);
-                if (metadata is { } meta)
+                if (!TerminalImage.IsImageLine(imageLine))
                 {
-                    var hiddenRows = scrollView.ScrollTop - imageRow;
-                    if (hiddenRows < meta.Rows)
+                    continue;
+                }
+                if (TerminalImage.GetKittyImageMetadata(imageLine) is not { } meta)
+                {
+                    continue;
+                }
+
+                var hiddenRows = scrollTop - imageRow;
+                if (hiddenRows < meta.Rows)
+                {
+                    var visibleRows = Math.Min(box.Rect.Height, meta.Rows - hiddenRows);
+                    var cropped = TerminalImage.CropKittyImageLine(imageLine, hiddenRows, visibleRows);
+                    if (box.Rect.X == 0 && box.Rect.Width >= totalWidth)
                     {
-                        var visibleRows = Math.Min(box.Rect.Height, meta.Rows - hiddenRows);
-                        var cropped = TerminalImage.CropKittyImageLine(imageLine, hiddenRows, visibleRows);
-                        if (box.Rect.X == 0 && box.Rect.Width >= totalWidth)
-                        {
-                            screen[box.Rect.Y] = cropped;
-                        }
+                        screen[box.Rect.Y] = cropped;
                     }
-                    break;
                 }
-                if (imageLine.Length != 0)
-                {
-                    break;
-                }
+                break;
             }
         }
 

@@ -145,9 +145,9 @@
 | `cd1ea342a` | 显示公式超宽时回退原始 LaTeX | 未核 | 🔧 P4 |
 | `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 | 未核 | 🔧 P4 |
 | `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） | 无 | 🔧 P4 |
-| `f09d01b85` | Orca 终端识别（truecolor / hyperlink / `ORCA_IMAGE_PROTOCOL=kitty`） | 未核 | 🔧 P4 |
+| `f09d01b85` | Orca 终端识别（truecolor / hyperlink / `ORCA_IMAGE_PROTOCOL=kitty`） | ✅ 本批（`DetectCapabilitiesFromEnvironment` 的 Orca 分支：`TERM_PROGRAM=Orca` 且 `ORCA_IMAGE_PROTOCOL=kitty` 才给 Kitty，否则文本回退；见 §4.26） |
 | `89c921d8b` | 终端标题/控制序列注入加固；`stripAnsi` 去掉带 `<=>` 前缀的私有 CSI | 部分 | 🔧 P4 |
-| `1c8cb1781` | 图片行搜索按最高注册图片限界 | 未核 | 🔧 P4 |
+| `1c8cb1781` | 图片行搜索按最高注册图片限界 | ✅ 本批（`TerminalImage.MaxKittyImageRows` 给 `Layout.PaintBox` 的倒序搜索定界，并跳过非图像行；见 §4.26） |
 
 ### 2.5 durable（P6）
 
@@ -785,3 +785,21 @@ P4（tui）全部 13 项（等语料生成链）。
 
 未移植：上游这些用例里的 telemetry span 断言（`pi.durable.submit` 的 trace carrier / 链接到运行 trace）——
 端口 `Submissions` 本就没有 telemetry 面，与 §4.1 的记法一致；批内其余语义已全部对齐。
+
+### 4.26 P4 首批：两处不改渲染字节的 tui 修复（`f09d01b85` / `1c8cb1781`）
+
+P4 的前置条件是先恢复语料生成链（`markdown-corpus.json` / `alt-screen-corpus.json`）。这两个提交不改变
+任何渲染字节，因此可以先做，不会让语料对不上：
+
+| 变更 | 上游 | 端口落点 | 用例 |
+| --- | --- | --- | --- |
+| Orca 只在 `ORCA_IMAGE_PROTOCOL=kitty` 时算 Kitty 图像能力：两个信号都要，早于该声明的版本继续文本回退 | `f09d01b85` | `TerminalImage.DetectCapabilitiesFromEnvironment` 的 Orca 分支（放在 rex 之后、`KITTY_WINDOW_ID` 之前，保持 tmux/screen 的优先级） | `TerminalImageTests.DetectCapabilities_EnablesKittyImagesForOrcaOnlyWhenItAdvertisesThem`（并把 `ORCA_IMAGE_PROTOCOL` 加进测试的环境清理清单） |
+| 视口上方的图像行搜索按「已注册图像里最高的行数」定界，而不是遇到第一个非空行就停 | `1c8cb1781` | `TerminalImage._maxKittyImageRows`（只增不减）+ `MaxKittyImageRows`；`Layout.PaintBox` 的倒序循环改成 `minRow = max(0, scrollTop - MaxKittyImageRows)`、`!IsImageLine` 与无元数据都 `continue` | `TerminalImageMetadataTests.MaxKittyImageRowsTracksTheTallestRegisteredImage` |
+
+**为什么只增不减**：这个值只用来缩小搜索范围。图像被淘汰后不回退，搜索范围偏大只是多走几步；
+偏小才会漏掉已滚出视口的图像（上游注释同此）。
+
+**未移植的回归用例**：上游 `tui-alt-screen.test.ts` 那个端到端用例（滚到 `viewportTop=3` 后断言写出
+`i=11272` 且 `y=66,h=34,r=1`）需要「录制终端 + 全屏渲染」的测试设施，端口 `Pi.Tui.Tests` 没有这一层
+（现有全屏用例走语料，图像相关用例只测编码/元数据）。因此这项行为只由代码与 `MaxKittyImageRows` 的
+单元用例背书，端到端等语料链恢复后补。

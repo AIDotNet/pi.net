@@ -150,6 +150,13 @@ public static partial class TerminalImage
     private static readonly List<long> KittyImageOrder = new();
     private static long _kittyTransmissionGeneration;
 
+    /// <summary>
+    /// 已注册图像里最高的行数。用来给「视口上方找图像行」的倒序搜索定界：比这更靠上的行不可能
+    /// 伸进视口。淘汰旧图像后不回退（只是搜索范围偏大一点，不会漏）。
+    /// 对应 TS <c>maxKittyImageRows</c>。
+    /// </summary>
+    private static int _maxKittyImageRows;
+
     private static readonly HashSet<string> KittyPlacementControlKeys = new(StringComparer.Ordinal)
     {
         "i", "p", "x", "y", "w", "h", "X", "Y", "c", "r", "C", "U", "z", "P", "Q", "H", "V",
@@ -247,6 +254,13 @@ public static partial class TerminalImage
         // Rex supports OSC 8 hyperlinks and only partially implements the Kitty graphics protocol
         // (no Unicode placeholders), but enough to support Pi.
         if (termProgram == "rex")
+        {
+            return new TerminalCapabilities(ImageProtocol.Kitty, true, true);
+        }
+
+        // Orca 支持 Kitty 图形，但只通过 ORCA_IMAGE_PROTOCOL 声明。要求两个信号同时具备：早于这个声明的
+        // Orca 版本仍走文本回退，免得预留了没人画的图像行。
+        if (termProgram == "orca" && Env("ORCA_IMAGE_PROTOCOL") == "kitty")
         {
             return new TerminalCapabilities(ImageProtocol.Kitty, true, true);
         }
@@ -528,6 +542,7 @@ public static partial class TerminalImage
     public static void RegisterKittyImageMetadata(KittyImageMetadata metadata)
     {
         _kittyTransmissionGeneration += 1;
+        _maxKittyImageRows = Math.Max(_maxKittyImageRows, metadata.Rows);
         if (KittyImageMetadata.Remove(metadata.ImageId))
         {
             KittyImageOrder.Remove(metadata.ImageId);
@@ -548,6 +563,9 @@ public static partial class TerminalImage
             KittyImageMetadata.Remove(oldestImageId);
         }
     }
+
+    /// <summary>已注册图像里最高的行数（给视口上方的图像行搜索定界）。对应 TS <c>getMaxKittyImageRows()</c>。</summary>
+    public static int MaxKittyImageRows => _maxKittyImageRows;
 
     private static RegisteredKittyImageMetadata? GetRegisteredKittyImageMetadataFromControls(string controls)
     {

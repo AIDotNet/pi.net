@@ -42,6 +42,7 @@ internal sealed class EnvScope : IDisposable
     public static EnvScope ClearTerminalEnvironment() => new(
         ("TERM", null),
         ("TERM_PROGRAM", null),
+        ("ORCA_IMAGE_PROTOCOL", null),
         ("TERMINAL_EMULATOR", null),
         ("COLORTERM", null),
         ("TMUX", null),
@@ -343,9 +344,24 @@ public class TerminalImageMetadataTests
         Assert.Null(TerminalImage.GetKittyImageMetadata("no image here"));
     }
 
+    /// <summary>
+    /// 已注册图像里最高的行数只增不减：它给「视口上方的图像行搜索」定界，偏大只是多走几步，
+    /// 偏小才会漏掉滚出视口的图像。
+    /// </summary>
     [Fact]
-    public void GetKittyImagePlacementRows_PrefersExplicitRowsThenMetadata()
+    public void MaxKittyImageRowsTracksTheTallestRegisteredImage()
     {
+        var before = TerminalImage.MaxKittyImageRows;
+        var tall = before + 5;
+        TerminalImage.RegisterKittyImageMetadata(new KittyImageMetadata(900_001, 2, tall, 10, 10));
+        Assert.Equal(tall, TerminalImage.MaxKittyImageRows);
+
+        TerminalImage.RegisterKittyImageMetadata(new KittyImageMetadata(900_002, 1, 1, 10, 10));
+        Assert.Equal(tall, TerminalImage.MaxKittyImageRows);
+    }
+
+    [Fact]
+    public void GetKittyImagePlacementRows_PrefersExplicitRowsThenMetadata()    {
         TerminalImage.RegisterKittyImageMetadata(new KittyImageMetadata(781, 4, 7, 10, 10));
 
         Assert.Equal(3, TerminalImage.GetKittyImagePlacementRows("\x1b_Ga=T,c=2,r=3,i=781;AAAA\x1b\\"));
@@ -709,6 +725,35 @@ public class TerminalImageCapabilityTests
         using (new EnvScope(("TERM_PROGRAM", "herdr"), ("COLORTERM", "truecolor")))
         {
             Assert.True(TerminalImage.DetectCapabilities(() => true).TrueColor);
+        }
+    }
+
+    /// <summary>
+    /// Orca (#9329) 只在 <c>ORCA_IMAGE_PROTOCOL=kitty</c> 时声明它支持 Kitty 图形：两个信号都要求，
+    /// 免得给早于该声明的 Orca 版本预留没人画的图像行。
+    /// </summary>
+    [Fact]
+    public void DetectCapabilities_EnablesKittyImagesForOrcaOnlyWhenItAdvertisesThem()
+    {
+        using var cleared = EnvScope.ClearTerminalEnvironment();
+
+        using (new EnvScope(
+            ("TERM_PROGRAM", "Orca"),
+            ("TERM", "xterm-256color")))
+        {
+            // 没有能力声明：保持文本回退（其余能力按常规探测，不在这里断言）。
+            Assert.Equal(ImageProtocol.None, TerminalImage.DetectCapabilities(() => true).Images);
+        }
+
+        using (new EnvScope(
+            ("TERM_PROGRAM", "Orca"),
+            ("ORCA_IMAGE_PROTOCOL", "kitty"),
+            ("TERM", "xterm-256color")))
+        {
+            var caps = TerminalImage.DetectCapabilities(() => true);
+            Assert.Equal(ImageProtocol.Kitty, caps.Images);
+            Assert.True(caps.TrueColor);
+            Assert.True(caps.Hyperlinks);
         }
     }
 
