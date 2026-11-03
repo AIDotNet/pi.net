@@ -40,7 +40,27 @@ public static class Cli
     public static void SaveAuth(IReadOnlyDictionary<string, Credential> auth, string? directory = null)
     {
         var path = Path.Combine(directory ?? Directory.GetCurrentDirectory(), AuthFile);
-        File.WriteAllText(path, JsonSerializer.Serialize(auth, AuthJson.Options));
+        var json = JsonSerializer.Serialize(auth, AuthJson.Options);
+        // 里面是 OAuth token，只允许本人读写。create mode 只管新建；chmod 覆盖旧版本
+        // 建出来的宽权限文件——要在写入新 token 之前先收紧（上游 89c921d8b）。
+        if (OperatingSystem.IsWindows())
+        {
+            File.WriteAllText(path, json);
+            return;
+        }
+        if (File.Exists(path))
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        using var stream = new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.Create,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+            UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+        });
+        using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        writer.Write(json);
     }
 
     /// <summary>

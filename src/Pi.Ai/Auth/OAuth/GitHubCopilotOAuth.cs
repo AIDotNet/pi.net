@@ -345,15 +345,14 @@ public sealed class GitHubCopilotOAuth(HttpClient? httpClient = null,
             throw new InvalidOperationException("Invalid device code response fields");
         }
 
-        // 验证 URI 会在用户浏览器打开；强制是 URL，防止 `open` 打开可执行文件等。
-        if (!Uri.TryCreate(verificationUri, UriKind.Absolute, out var parsedUri)
-            || parsedUri.Scheme is not ("https" or "http"))
+        // 验证 URI 会在用户浏览器打开；只信任 http(s)，否则 `open` 可能打开可执行文件等。
+        if (OAuthHttp.TrustedHttpUrl(verificationUri) is not { } trustedVerificationUri)
         {
             throw new InvalidOperationException("Untrusted verification_uri in device code response");
         }
 
         return new DeviceCodeResponse(
-            deviceCode, userCode, parsedUri.ToString(),
+            deviceCode, userCode, trustedVerificationUri,
             data.PositiveInt("interval"), (int)expiresIn);
     }
 

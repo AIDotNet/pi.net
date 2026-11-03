@@ -399,6 +399,30 @@ public class KimiCodingOAuthTests
     }
 
     [Fact]
+    public async Task UntrustedVerificationUriIsRejected()
+    {
+        // 验证 URI 会被交给系统 URL 处理器打开：`file:` 之类等于让服务端拉起本地程序（上游 89c921d8b）。
+        var handler = new FakeHttpHandler(_ => FakeResponse.Json(new JsonObject
+        {
+            ["user_code"] = "ABCD-1234",
+            ["device_code"] = "device-code-123",
+            ["verification_uri"] = "file:///Users/victim/Downloads/payload.app",
+            ["verification_uri_complete"] = "https://www.kimi.com/code?user_code=ABCD-1234",
+            ["interval"] = 0,
+            ["expires_in"] = 600,
+        }));
+        var oauth = new KimiCodingOAuth(new HttpClient(handler));
+        var interaction = new FakeInteraction();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            oauth.LoginAsync(interaction.ToInteraction()));
+
+        Assert.Contains("Invalid Kimi Code device authorization response", error.Message);
+        Assert.Empty(interaction.Events);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
     public async Task ToAuthSendsBearerHeader()
     {
         var oauth = new KimiCodingOAuth();
@@ -450,6 +474,26 @@ public class MetaOAuthTests
         {
             DeviceCodeFlow.DefaultSleepAsync = null;
         }
+    }
+
+    [Fact]
+    public async Task UntrustedVerificationUriIsRejected()
+    {
+        var handler = new FakeHttpHandler(_ => FakeResponse.Json(new JsonObject
+        {
+            ["device_code"] = "dc",
+            ["user_code"] = "USER-CODE",
+            ["verification_uri"] = "file:///Users/victim/Downloads/payload.app",
+            ["expires_in"] = 600,
+        }));
+        var oauth = new MetaOAuth(new HttpClient(handler));
+        var interaction = new FakeInteraction();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            oauth.LoginAsync(interaction.ToInteraction()));
+
+        Assert.Contains("Invalid Meta device authorization response", error.Message);
+        Assert.Empty(interaction.Events);
     }
 
     [Fact]

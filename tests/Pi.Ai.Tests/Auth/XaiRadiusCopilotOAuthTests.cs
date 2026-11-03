@@ -288,6 +288,27 @@ public class GitHubCopilotOAuthTests
     }
 
     [Fact]
+    public async Task UntrustedVerificationUriIsRejected()
+    {
+        // 验证 URI 会被交给系统 URL 处理器打开：`file:` 之类等于让服务端拉起本地程序（上游 89c921d8b）。
+        var handler = new FakeHttpHandler(_ => FakeResponse.Json(new JsonObject
+        {
+            ["device_code"] = "dc",
+            ["user_code"] = "PANEL-WORD",
+            ["verification_uri"] = "file:///Users/victim/Downloads/payload.app",
+            ["expires_in"] = 900,
+            ["interval"] = 0,
+        }));
+        var oauth = new GitHubCopilotOAuth(new HttpClient(handler));
+        var interaction = new FakeInteraction { PromptHandler = async (_, _) => "" };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            oauth.LoginAsync(interaction.ToInteraction()));
+
+        Assert.Contains("Untrusted verification_uri in device code response", error.Message);
+    }
+
+    [Fact]
     public async Task ToAuthDerivesBaseUrlFromProxyEndpoint()
     {
         var oauth = new GitHubCopilotOAuth();

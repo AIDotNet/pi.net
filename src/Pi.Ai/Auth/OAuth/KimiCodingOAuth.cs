@@ -71,21 +71,6 @@ public sealed class KimiCodingOAuth(HttpClient? httpClient = null) : IOAuthAuth
 
     private sealed record TokenResponse(string Access, string Refresh, long Expires);
 
-    /// <summary>验证 URI 在用户浏览器里打开；只信任 http(s)。</summary>
-    private static bool IsTrustedHttpUrl(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return false;
-        try
-        {
-            var url = new Uri(value);
-            return url.Scheme is "https" or "http";
-        }
-        catch (UriFormatException)
-        {
-            return false;
-        }
-    }
-
     private async Task<DeviceAuthorization> StartDeviceAuthorizationAsync(
         string oauthHost, CancellationToken cancellationToken)
     {
@@ -104,11 +89,11 @@ public sealed class KimiCodingOAuth(HttpClient? httpClient = null) : IOAuthAuth
         var json = await OAuthHttp.ReadObjectAsync(response).ConfigureAwait(false);
         var deviceCode = json?.Str("device_code");
         var userCode = json?.Str("user_code");
-        var verificationUri = json?.Str("verification_uri");
-        var verificationUriComplete = json?.Str("verification_uri_complete");
+        // 验证 URI 会在用户浏览器打开；只信任 http(s)，并按规范化后的形式保存。
+        var verificationUri = OAuthHttp.TrustedHttpUrl(json?.Str("verification_uri"));
+        var verificationUriComplete = OAuthHttp.TrustedHttpUrl(json?.Str("verification_uri_complete"));
         if (deviceCode is not { Length: > 0 } || userCode is not { Length: > 0 }
-            || verificationUri is not { Length: > 0 } || verificationUriComplete is not { Length: > 0 }
-            || !IsTrustedHttpUrl(verificationUriComplete) || !IsTrustedHttpUrl(verificationUri))
+            || verificationUri is null || verificationUriComplete is null)
         {
             throw new InvalidOperationException(
                 $"Invalid Kimi Code device authorization response: {json?.ToJsonString() ?? "null"}");

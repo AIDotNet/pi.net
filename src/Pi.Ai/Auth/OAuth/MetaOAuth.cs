@@ -76,21 +76,6 @@ public sealed class MetaOAuth(HttpClient? httpClient = null) : IOAuthAuth
         return "";
     }
 
-    /// <summary>验证 URI 在用户浏览器里打开；只信任 http(s)。</summary>
-    private static string? TrustedHttpUrl(object? value)
-    {
-        if (value is not string { Length: > 0 } text) return null;
-        try
-        {
-            var url = new Uri(text);
-            return url.Scheme is "https" or "http" ? url.ToString() : null;
-        }
-        catch (UriFormatException)
-        {
-            return null;
-        }
-    }
-
     private async Task<DeviceAuthorization> StartDeviceAuthorizationAsync(CancellationToken cancellationToken)
     {
         var response = await OAuthHttp.PostFormAsync(_client, DeviceAuthorizationUrl,
@@ -104,8 +89,8 @@ public sealed class MetaOAuth(HttpClient? httpClient = null) : IOAuthAuth
         }
         var deviceCode = json?.Str("device_code");
         var userCode = json?.Str("user_code");
-        var verificationUri = TrustedHttpUrl(json?.Str("verification_uri_complete"))
-            ?? TrustedHttpUrl(json?.Str("verification_uri"));
+        var verificationUri = OAuthHttp.TrustedHttpUrl(json?.Str("verification_uri_complete"))
+            ?? OAuthHttp.TrustedHttpUrl(json?.Str("verification_uri"));
         if (deviceCode is not { Length: > 0 } || userCode is not { Length: > 0 } || verificationUri is null)
         {
             throw new InvalidOperationException(
@@ -186,7 +171,7 @@ public sealed class MetaOAuth(HttpClient? httpClient = null) : IOAuthAuth
         var apiKey = json?.Str("api_key");
         if (apiKey is not { Length: > 0 })
         {
-            var actionUrl = TrustedHttpUrl(json?.Str("action_url"));
+            var actionUrl = OAuthHttp.TrustedHttpUrl(json?.Str("action_url"));
             throw new InvalidOperationException(
                 $"Meta did not issue an API key.{(actionUrl is not null ? $" Complete setup at {actionUrl}" : "")}");
         }

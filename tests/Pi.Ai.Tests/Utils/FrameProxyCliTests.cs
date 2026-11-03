@@ -285,4 +285,35 @@ public class CliTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    /// <summary>
+    /// auth.json 里是 OAuth token：新建时就是 0600，且旧版本留下的宽权限文件在写入新
+    /// token 之前先被收紧（上游 89c921d8b）。
+    /// </summary>
+    [Fact]
+    public void AuthFileIsOwnerReadWriteOnly()
+    {
+        if (OperatingSystem.IsWindows()) Assert.Skip("Unix 权限位在 Windows 上无意义");
+        // Assert.Skip 不参与 CA1416 的流分析，所以下面几处 Unix 调用要自己声明平台前提。
+#pragma warning disable CA1416
+        var directory = Path.Combine(Path.GetTempPath(), $"pi-ai-cli-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, Cli.AuthFile);
+        try
+        {
+            Cli.SaveAuth(new Dictionary<string, Credential> { ["anthropic"] = new Credential.OAuth("r", "a", 1) }, directory);
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+
+            // 旧版本留下的 0644 文件：写回时被收紧。
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite
+                | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+            Cli.SaveAuth(new Dictionary<string, Credential> { ["anthropic"] = new Credential.OAuth("r2", "a2", 2) }, directory);
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+#pragma warning restore CA1416
+    }
 }
