@@ -284,6 +284,35 @@ public static class ConstrainedSampling
         => tool.ConstrainedSampling;
 
     /// <summary>
+    /// 该工具只在 provider 支持时才请求 strict 采样（<c>strict:"prefer"</c>）。
+    /// 对应 TS <c>prefersJsonSchemaStrictSampling</c>。
+    /// </summary>
+    public static bool PrefersJsonSchemaStrictSampling(ToolDefinition tool)
+    {
+        var config = GetConstrainedSamplingConfig(tool);
+        return config is not null && config.Str("type") == "json_schema" && config.Str("strict") == "prefer";
+    }
+
+    /// <summary>
+    /// Claude（Anthropic API 与 Bedrock 都一样）在 strict 工具集超出容量时用这些文案拒绝请求。
+    /// 已观测上限：20 个 strict 工具；所有 strict 工具合计 16 个可选或 union 类型参数。
+    /// 对应 TS <c>STRICT_TOOL_LIMIT_ERROR_MESSAGES</c>。
+    /// </summary>
+    private static readonly string[] StrictToolLimitErrorMessages =
+    [
+        "The compiled grammar is too large",
+        "Too many strict tools (",
+        "Schemas contains too many parameters with union types (",
+    ];
+
+    /// <summary>
+    /// 这个错误文案是不是在说「请求的 strict 工具集超出了 provider 的容量」。
+    /// 对应 TS <c>isStrictToolLimitErrorMessage</c>。
+    /// </summary>
+    public static bool IsStrictToolLimitErrorMessage(string message)
+        => StrictToolLimitErrorMessages.Any(entry => message.Contains(entry, StringComparison.Ordinal));
+
+    /// <summary>
     /// 决定 JSON-schema 工具是否以 strict 模式发送。对应 TS
     /// <c>resolveJsonSchemaStrictSampling</c>。
     /// </summary>

@@ -112,58 +112,94 @@ public static class BedrockConverseStream
                     ? Text.GetSystemMessageText(initialSystemMessage)
                     : null;
 
-                var payload = BuildCommandInput(
-                    model, normalizedContext, options, cacheRetention, isClaude,
-                    inferenceMaxTokens, initialSystemPrompt);
-                if (options?.OnPayload is { } onPayload)
-                {
-                    var transformed = await onPayload(payload, model).ConfigureAwait(false);
-                    if (transformed is not null) payload = transformed;
-                }
-
-                var bodyJson = payload.ToJsonString();
-                var (url, authHeaders) = BuildEndpointAndAuth(model, options);
-                var bodyBytes = Encoding.UTF8.GetBytes(bodyJson);
-                var request = new HttpRequestMessage(HttpMethod.Post, url)
-                {
-                    Content = new ByteArrayContent(bodyBytes),
-                };
-                request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-                // 身份头先写，auth / 请求头覆盖它（对齐 TS：身份位于 model、provider 与请求头之下）。
-                Identity.ApplyIdentityHeaders(request, Identity.TargetOf(model), options?.Identity);
-                foreach (var (key, value) in authHeaders)
-                {
-                    request.Headers.Remove(key);
-                    request.Headers.TryAddWithoutValidation(key, value);
-                }
-                if (options?.Headers is not null)
-                {
-                    foreach (var (key, value) in options.Headers)
-                    {
-                        // host/x-amz-*/authorization 由 SigV4/bearer 拥有（对齐 TS isReservedHeader）。
-                        if (IsReservedHeader(key)) continue;
-                        request.Headers.Remove(key);
-                        if (value is not null) request.Headers.TryAddWithoutValidation(key, value);
-                    }
-                }
-
+                // Bedrock 和 Anthropic 一样会用 ValidationException 拒绝「strict 工具集超出容量」的请求
+                // （语法太大、strict 工具太多、union 参数太多）。Bedrock 在开流之前就校验工具 schema，
+                // 所以重发不会重复已经流出的内容：命中后把 prefer 工具按原始 schema 再发一次，
+                // require 工具保持 strict（上游 #11416）。
+                var disablePreferredStrictTools = false;
+                JsonObject payload;
+                HttpResponseMessage response;
                 using var perCallCts = CancellationTokenSource.CreateLinkedTokenSource(signal, cancellationToken);
                 if (options?.TimeoutMs is { } timeout) perCallCts.CancelAfter(timeout);
-                var response = await client.SendAsync(
-                    request, HttpCompletionOption.ResponseHeadersRead, perCallCts.Token).ConfigureAwait(false);
-                if (options?.OnResponse is { } onResponse)
+                while (true)
                 {
-                    await onResponse(new ProviderResponse
+                    signal.ThrowIfCancellationRequested();
+                    payload = BuildCommandInput(
+                        model, normalizedContext, options, cacheRetention, isClaude,
+                        inferenceMaxTokens, initialSystemPrompt, disablePreferredStrictTools,
+                        out var hasPreferredStrictTools);
+                    if (options?.OnPayload is { } onPayload)
                     {
-                        Status = (int)response.StatusCode,
-                        Headers = response.Headers.ToDictionary(
-                            kv => kv.Key, kv => string.Join(",", kv.Value), StringComparer.OrdinalIgnoreCase),
-                    }, model).ConfigureAwait(false);
-                }
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorBody = await response.Content.ReadAsStringAsync(perCallCts.Token).ConfigureAwait(false);
-                    throw new ProviderHttpException((int)response.StatusCode, errorBody);
+                        var transformed = await onPayload(payload, model).ConfigureAwait(false);
+                        if (transformed is not null) payload = transformed;
+                    }
+
+                    var bodyJson = payload.ToJsonString();
+                    var (url, authHeaders) = BuildEndpointAndAuth(model, options);
+                    var bodyBytes = Encoding.UTF8.GetBytes(bodyJson);
+                    var request = new HttpRequestMessage(HttpMethod.Post, url)
+                    {
+                        Content = new ByteArrayContent(bodyBytes),
+                    };
+                    request.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                    // 身份头先写，auth / 请求头覆盖它（对齐 TS：身份位于 model、provider 与请求头之下）。
+                    Identity.ApplyIdentityHeaders(request, Identity.TargetOf(model), options?.Identity);
+                    foreach (var (key, value) in authHeaders)
+                    {
+                        request.Headers.Remove(key);
+                        request.Headers.TryAddWithoutValidation(key, value);
+                    }
+                    if (options?.Headers is not null)
+                    {
+                        foreach (var (key, value) in options.Headers)
+                        {
+                            // host/x-amz-*/authorization 由 SigV4/bearer 拥有（对齐 TS isReservedHeader）。
+                            if (IsReservedHeader(key)) continue;
+                            request.Headers.Remove(key);
+                            if (value is not null) request.Headers.TryAddWithoutValidation(key, value);
+                        }
+                    }
+
+                    try
+                    {
+                        var httpResponse = await client.SendAsync(
+                            request, HttpCompletionOption.ResponseHeadersRead, perCallCts.Token).ConfigureAwait(false);
+                        // 对齐 TS 的响应中间件：每次真的收到 HTTP 响应都上报（含被拒绝的那次），
+                        // 而不是只报最终成功的那次。
+                        if (options?.OnResponse is { } onResponse)
+                        {
+                            await onResponse(new ProviderResponse
+                            {
+                                Status = (int)httpResponse.StatusCode,
+                                Headers = httpResponse.Headers.ToDictionary(
+                                    kv => kv.Key, kv => string.Join(",", kv.Value), StringComparer.OrdinalIgnoreCase),
+                            }, model).ConfigureAwait(false);
+                        }
+                        if (!httpResponse.IsSuccessStatusCode)
+                        {
+                            var status = (int)httpResponse.StatusCode;
+                            var errorBody = await httpResponse.Content.ReadAsStringAsync(perCallCts.Token)
+                                .ConfigureAwait(false);
+                            httpResponse.Dispose();
+                            throw new ProviderHttpException(status, errorBody);
+                        }
+                        response = httpResponse;
+                        break;
+                    }
+                    catch (ProviderHttpException error) when (
+                        // 只降级「被拒绝的请求」，绝不重试已经开始流的请求。
+                        !signal.IsCancellationRequested
+                        && !disablePreferredStrictTools
+                        && hasPreferredStrictTools
+                        && IsStrictToolLimitRejection(error))
+                    {
+                        disablePreferredStrictTools = true;
+                        output.Diagnostics.Add(new AssistantMessageDiagnostic(
+                            "bedrock_strict_tools_fallback",
+                            DateTimeOffset.Now.ToUnixTimeMilliseconds(),
+                            new DiagnosticErrorInfo(null, BedrockErrorMessage(error), null, null),
+                            new JsonObject { ["reason"] = "strict_tool_limits_exceeded" }));
+                    }
                 }
 
                 stream.Push(new AssistantMessageEvent.Start(output.Snapshot()));
@@ -409,6 +445,24 @@ public static class BedrockConverseStream
         bool isClaude,
         int? inferenceMaxTokens,
         string? initialSystemPrompt)
+        => BuildCommandInput(
+            model, normalizedContext, options, cacheRetention, isClaude, inferenceMaxTokens,
+            initialSystemPrompt, disablePreferredStrictTools: false, out _);
+
+    /// <summary>
+    /// 同上，并回报转换结果里有没有「真的以 strict 发出、且声明为 prefer」的工具——只有这类工具
+    /// 能被 provider 的容量拒绝降级掉，<c>require</c> 不在此列（上游 #11416）。
+    /// </summary>
+    public static JsonObject BuildCommandInput(
+        ModelSpec model,
+        TranscriptContext normalizedContext,
+        BedrockOptions? options,
+        string cacheRetention,
+        bool isClaude,
+        int? inferenceMaxTokens,
+        string? initialSystemPrompt,
+        bool disablePreferredStrictTools,
+        out bool hasPreferredStrictTools)
     {
         var supportsStrictMode = model.Compat?["supportsStrictMode"] is System.Text.Json.Nodes.JsonValue { } strictValue
             && strictValue.TryGetValue<bool>(out var strictFlag) && strictFlag;
@@ -431,11 +485,15 @@ public static class BedrockConverseStream
             commandInput["system"] = system;
         }
 
-        if (ConvertToolConfig(
-                Transcript.GetCurrentTools(normalizedContext.Messages), options?.ToolChoice, supportsStrictMode)
-            is { } toolConfig)
+        var toolConfig = ConvertToolConfig(
+            Transcript.GetCurrentTools(normalizedContext.Messages),
+            options?.ToolChoice,
+            supportsStrictMode,
+            disablePreferredStrictTools);
+        hasPreferredStrictTools = toolConfig.HasPreferredStrictTools;
+        if (toolConfig.Config is { } config)
         {
-            commandInput["toolConfig"] = toolConfig;
+            commandInput["toolConfig"] = config;
         }
 
         if (BuildAdditionalModelRequestFields(model, options) is { } additionalFields)
@@ -473,18 +531,31 @@ public static class BedrockConverseStream
         return new JsonObject { ["cachePoint"] = cachePoint };
     }
 
-    /// <summary>工具配置（toolSpec + inputSchema.json + strict）。对应 TS <c>convertToolConfig</c>。</summary>
-    public static JsonObject? ConvertToolConfig(
-        IReadOnlyList<ToolDefinition> tools, System.Text.Json.Nodes.JsonNode? toolChoice, bool supportsStrictMode)
-    {
-        if (tools.Count == 0) return null;
-        var choiceText = (toolChoice as System.Text.Json.Nodes.JsonValue)?.GetValue<string>();
-        if (choiceText == "none") return null;
+    /// <summary>
+    /// 工具配置与其 strict 降级能力。对应 TS <c>convertToolConfig</c> 的返回值
+    /// <c>{ toolConfig, hasPreferredStrictTools }</c>。
+    /// </summary>
+    public sealed record BedrockToolConfig(JsonObject? Config, bool HasPreferredStrictTools);
 
+    /// <summary>工具配置（toolSpec + inputSchema.json + strict）。对应 TS <c>convertToolConfig</c>。</summary>
+    public static BedrockToolConfig ConvertToolConfig(
+        IReadOnlyList<ToolDefinition> tools, System.Text.Json.Nodes.JsonNode? toolChoice, bool supportsStrictMode,
+        bool disablePreferredStrictTools = false)
+    {
+        if (tools.Count == 0) return new BedrockToolConfig(null, false);
+        var choiceText = (toolChoice as System.Text.Json.Nodes.JsonValue)?.GetValue<string>();
+        if (choiceText == "none") return new BedrockToolConfig(null, false);
+
+        var hasPreferredStrictTools = false;
         var bedrockTools = new JsonArray();
         foreach (var tool in tools)
         {
-            var strict = ConstrainedSampling.ResolveJsonSchemaStrictSampling(tool, supportsStrictMode);
+            var preferred = ConstrainedSampling.PrefersJsonSchemaStrictSampling(tool);
+            // 降级重试：prefer 工具按原始 schema 发送；require 工具仍走 strict（上游 #11416）。
+            var strict = disablePreferredStrictTools && preferred
+                ? (bool?)null
+                : ConstrainedSampling.ResolveJsonSchemaStrictSampling(tool, supportsStrictMode);
+            if (strict == true && preferred) hasPreferredStrictTools = true;
             var spec = new JsonObject
             {
                 ["name"] = tool.Name,
@@ -515,7 +586,7 @@ public static class BedrockConverseStream
 
         var config = new JsonObject { ["tools"] = bedrockTools };
         if (bedrockToolChoice is not null) config["toolChoice"] = bedrockToolChoice;
-        return config;
+        return new BedrockToolConfig(config, hasPreferredStrictTools);
     }
 
     /// <summary>思考扩展字段（adaptive/budget、display、block binding、interleaved beta、GovCloud、OpenAI GPT）。对应 TS <c>buildAdditionalModelRequestFields</c>。</summary>
@@ -1304,6 +1375,40 @@ public static class BedrockConverseStream
     {
         var name = error.GetType().Name;
         return name.EndsWith("Exception", StringComparison.Ordinal) ? NormalizeDiagnosticValue(name) : null;
+    }
+
+    /// <summary>
+    /// Bedrock 错误体里的 message：AWS JSON 协议用小写 <c>message</c>，个别网关用 <c>Message</c>。
+    /// </summary>
+    private static string? ExtractBedrockErrorMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+        try
+        {
+            return JsonNode.Parse(body) is JsonObject obj
+                ? obj.Str("message") ?? obj.Str("Message")
+                : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>错误体里的 message；取不到时退回异常自身的 message。</summary>
+    private static string BedrockErrorMessage(ProviderHttpException error)
+        => ExtractBedrockErrorMessage(error.Body) ?? error.Message;
+
+    /// <summary>
+    /// 这个响应是不是「strict 工具集超出容量」的 ValidationException 拒绝——只有这种拒绝值得把
+    /// prefer 工具降级重发一次。端口走裸 HTTP，SDK 的
+    /// <c>BedrockRuntimeServiceException.name === "ValidationException"</c> 对应 HTTP 400 + 错误体文案
+    /// （上游 #11416）。
+    /// </summary>
+    internal static bool IsStrictToolLimitRejection(ProviderHttpException error)
+    {
+        if (error.Status != 400) return false;
+        return ConstrainedSampling.IsStrictToolLimitErrorMessage(BedrockErrorMessage(error));
     }
 
     /// <summary>结构化失败诊断（status/errorCode/requestId）。对应 TS <c>appendBedrockFailureDiagnostic</c>。</summary>

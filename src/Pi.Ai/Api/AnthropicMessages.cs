@@ -866,7 +866,7 @@ public static class AnthropicMessages
         {
             var tool = tools[index];
             // 降级重试：prefer 工具按原始 schema 发送；require 工具仍走 strict（上游同一语义）。
-            var strict = disablePreferredStrictTools && IsPreferredStrictConfig(tool.ConstrainedSampling)
+            var strict = disablePreferredStrictTools && ConstrainedSampling.PrefersJsonSchemaStrictSampling(tool)
                 ? (bool?)null
                 : ConstrainedSampling.ResolveJsonSchemaStrictSampling(
                     tool, supportsStrictTools, IsAnthropicStrictUnsupportedKeyword);
@@ -907,18 +907,6 @@ public static class AnthropicMessages
         return result;
     }
 
-    /// <summary>该工具的 constrainedSampling 声明是不是 <c>{type:"json_schema", strict:"prefer"}</c>。</summary>
-    private static bool IsPreferredStrictConfig(JsonObject? config)
-        => config is not null && config.Str("type") == "json_schema" && config.Str("strict") == "prefer";
-
-    /// <summary>Anthropic 明确因「strict 工具集超出容量」而拒绝时的文案片段（上游 #10409）。</summary>
-    private static readonly string[] AnthropicStrictToolLimitRejections =
-    [
-        "The compiled grammar is too large",
-        "Too many strict tools (",
-        "Schemas contains too many parameters with union types (",
-    ];
-
     /// <summary>
     /// 这个 400 是不是「strict 工具集超出容量」——只有这种拒绝值得把 prefer 工具降级重发一次。
     /// Anthropic 的错误体是 <c>{"type":"error","error":{"type":"invalid_request_error","message":"…"}}</c>。
@@ -943,7 +931,7 @@ public static class AnthropicMessages
         }
 
         if (errorType != "invalid_request_error") return false;
-        return AnthropicStrictToolLimitRejections.Any(entry => message.Contains(entry, StringComparison.Ordinal));
+        return ConstrainedSampling.IsStrictToolLimitErrorMessage(message);
     }
 
     /// <summary>
@@ -959,7 +947,7 @@ public static class AnthropicMessages
                 && definition["strict"] is JsonValue strictValue
                 && strictValue.TryGetValue<bool>(out var strict)
                 && strict
-                && IsPreferredStrictConfig(tools[index].ConstrainedSampling))
+                && ConstrainedSampling.PrefersJsonSchemaStrictSampling(tools[index]))
             {
                 return true;
             }
