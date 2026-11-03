@@ -3,8 +3,57 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace Pi.Env;
+
+/// <summary>
+/// 启动期错误的 stderr 尾部长度。上游 <c>479d6e5e2</c>：远端写的是任意文本，可能带终端转义，
+/// 而且工具错误会进模型上下文，所以只留很短一截。
+/// </summary>
+public static partial class StartupErrorText
+{
+    public const int StderrTailChars = 2000;
+
+    public const int StderrTailLines = 20;
+
+    /// <summary>CSI / OSC / 其他单字符转义。近似 Node 的 <c>stripVTControlCharacters</c>。</summary>
+    [GeneratedRegex(@"\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1B]*(?:\x07|\x1B\\)|[@-Z\\-_])")]
+    private static partial Regex VtRegex();
+
+    /// <summary>
+    /// <paramref name="message"/> 加上 stderr 的最后几行。控制字符与终端转义一律去掉，空行过滤。
+    /// 对应 TS <c>withStderr</c>。
+    /// </summary>
+    public static string WithStderr(string message, string stderr)
+    {
+        var normalized = stderr.Replace("\r\n", "\n", StringComparison.Ordinal);
+        normalized = normalized.Replace('\r', '\n');
+        var stripped = VtRegex().Replace(normalized, string.Empty);
+        var text = new StringBuilder(stripped.Length);
+        foreach (var character in stripped)
+        {
+            var code = character;
+            if (character == '\n' || character == '\t' || (code >= 0x20 && (code < 0x7f || code > 0x9f)))
+            {
+                text.Append(character);
+            }
+        }
+
+        var lines = text.ToString()
+            .Split('\n')
+            .Select(line => line.TrimEnd())
+            .Where(line => line.Length > 0)
+            .ToList();
+        if (lines.Count == 0)
+        {
+            return message;
+        }
+
+        var tail = lines.Count > StderrTailLines ? lines.Skip(lines.Count - StderrTailLines) : lines;
+        return message + "\nremote stderr:\n" + string.Join("\n", tail);
+    }
+}
 
 /// <summary>
 /// 守护进程报告的失败，带 Node 风格错误码。对应 TS <c>RemoteError</c>。
@@ -102,7 +151,7 @@ public sealed class RequestOptions
 /// 与一个 pi-env 守护进程的连接：首个请求时惰性启动，丢失后再次启动。
 /// 丢失时在途请求以码 <c>unknown</c> 失败；对写操作而言结果未知。对应 TS <c>Connection</c>。
 /// </summary>
-public sealed class Connection : IDisposable
+public sealed partial class Connection : IDisposable
 {
     private const byte Request = 1;
     private const byte Result = 2;
@@ -320,7 +369,12 @@ public sealed class Connection : IDisposable
         process.Exited += (_, _) =>
         {
             var code = process.HasExited ? process.ExitCode : -1;
-            failure.TrySetResult(Lost($"pi-env exited with code {code} before it was ready"));
+            // 已就绪的会话一旦守护进程退出就判失败，即使它派生的进程还占着管道（上游 479d6e5e2）。
+            if (!session.Ready)
+            {
+                failure.TrySetResult(Lost($"pi-env exited with code {code} before it was ready"));
+            }
+
             Teardown(session, Lost("pi-env connection lost"));
         };
         _ = Task.Run(() => PumpStdoutAsync(session));
@@ -345,6 +399,9 @@ public sealed class Connection : IDisposable
             if (ReferenceEquals(completed, failure.Task))
             {
                 var error = await failure.Task.ConfigureAwait(false);
+                // 就绪前退出时先等 stderr 排空，尾部才完整（TS 用 `close` 事件达到同一效果）。
+                await WaitForStderrDrainAsync(session).ConfigureAwait(false);
+                error = WithStartupStderr(error, session);
                 Teardown(session, error);
                 try
                 {
@@ -361,13 +418,32 @@ public sealed class Connection : IDisposable
             var reply = await hello.ConfigureAwait(false);
             var protocol = EnvJson.Number(reply.Json, "protocol");
             if (protocol != 1) throw Lost($"Unsupported protocol {protocol}");
+            session.Ready = true;
+            session.StderrTail = "";
             return new Ready(ParseInfo(reply.Json), session);
         }
         catch (Exception error)
         {
-            Teardown(session, error);
-            throw;
+            var failureResult = WithStartupStderr(error, session);
+            Teardown(session, failureResult);
+            throw failureResult;
         }
+    }
+
+    /// <summary>
+    /// 把启动期 stderr 的尾部并进失败文案（<see cref="RemoteError"/> 改文案，其余原样）。
+    /// 对应 TS <c>479d6e5e2</c> 的 catch 分支。
+    /// </summary>
+    private static Exception WithStartupStderr(Exception error, Session session)
+    {
+        if (error is not RemoteError remote || session.StderrTail.Length == 0)
+        {
+            return error;
+        }
+
+        var fields = remote.Fields.DeepClone().AsObject();
+        fields["message"] = StartupErrorText.WithStderr(remote.Message, session.StderrTail);
+        return new RemoteError(fields);
     }
 
     private void Teardown(Session session, Exception error)
@@ -426,22 +502,44 @@ public sealed class Connection : IDisposable
 
     private async Task PumpStderrAsync(Session session)
     {
-        if (_options.OnLog is null) return;
         var stream = session.Process.StandardError.BaseStream;
         var buffer = new byte[64 * 1024];
+        var decoder = Encoding.UTF8.GetDecoder();
+        var characters = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
         try
         {
             while (true)
             {
                 var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false);
                 if (read == 0) return;
-                _options.OnLog(Encoding.UTF8.GetString(buffer, 0, read));
+                // 按字符解码，跨块的多字节序列不会变成替换字符。
+                var count = decoder.GetChars(buffer, 0, read, characters, 0);
+                var text = new string(characters, 0, count);
+                if (!session.Ready)
+                {
+                    var combined = session.StderrTail + text;
+                    session.StderrTail = combined.Length > StartupErrorText.StderrTailChars
+                        ? combined[^StartupErrorText.StderrTailChars..]
+                        : combined;
+                }
+
+                _options.OnLog?.Invoke(text);
             }
         }
         catch (Exception)
         {
             // 诊断输出丢失不影响协议。
         }
+        finally
+        {
+            session.StderrEnded.TrySetResult();
+        }
+    }
+
+    /// <summary>等 stderr 排空，最多 <paramref name="milliseconds"/>；守护进程被杀时管道会很快关闭。</summary>
+    private static async Task WaitForStderrDrainAsync(Session session, int milliseconds = 200)
+    {
+        await Task.WhenAny(session.StderrEnded.Task, Task.Delay(milliseconds)).ConfigureAwait(false);
     }
 
     private void OnData(Session session, ReadOnlySpan<byte> chunk)
@@ -605,6 +703,16 @@ public sealed class Connection : IDisposable
         public Timer? Timer { get; set; }
 
         public bool Live { get; set; } = true;
+
+        /// <summary><c>hello</c> 已成功；此后 stderr 不再作为启动错误的上下文收集。对应 TS <c>ready</c>。</summary>
+        public bool Ready { get; set; }
+
+        /// <summary>启动期 stderr 的尾部，长度上限 <see cref="StartupErrorText.StderrTailChars"/>。</summary>
+        public string StderrTail { get; set; } = "";
+
+        /// <summary>stderr 读到 EOF 时完成，供启动失败时等待尾部排空。</summary>
+        public TaskCompletionSource StderrEnded { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     /// <summary>可增长的接收缓冲：追加、查找、消费前缀，必要时合并为连续区间。</summary>

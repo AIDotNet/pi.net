@@ -104,8 +104,8 @@ public static class McpCli
           {{Config.AppName}} mcp add <server> [options] --url <url>
           {{Config.AppName}} mcp remove <server> [-l]
           {{Config.AppName}} mcp list [--json]
-          {{Config.AppName}} mcp login <server> [--timeout <seconds>]
-          {{Config.AppName}} mcp logout <server>
+          {{Config.AppName}} mcp login <server> [-l] [--timeout <seconds>]
+          {{Config.AppName}} mcp logout <server> [-l]
 
         Configure and check MCP servers and sign in to OAuth servers without starting a session.
         Reads ~/{{Config.ConfigDirName}}/agent/mcp.json and, in trusted projects, {{Config.ConfigDirName}}/mcp.json.
@@ -117,7 +117,7 @@ public static class McpCli
           login <server>          Sign in through the browser
           logout <server>         Delete the stored OAuth credentials
 
-        Options for add and remove:
+        Options for add, remove, login, and logout:
           -l, --local             Use {{Config.ConfigDirName}}/mcp.json in the current project instead of the global file
 
         Options for add:
@@ -213,11 +213,16 @@ public static class McpCli
             case "login":
             case "logout":
             {
+                // TS `be15fe3c1`: `-l` selects the project file for login/logout too.
                 var parsed = ParseOptions(
                     rest,
                     command == "login"
-                        ? new Dictionary<string, OptionKind>(StringComparer.Ordinal) { ["timeout"] = OptionKind.Value }
-                        : new Dictionary<string, OptionKind>(StringComparer.Ordinal),
+                        ? new Dictionary<string, OptionKind>(StringComparer.Ordinal)
+                        {
+                            ["local"] = OptionKind.Flag,
+                            ["timeout"] = OptionKind.Value,
+                        }
+                        : new Dictionary<string, OptionKind>(StringComparer.Ordinal) { ["local"] = OptionKind.Flag },
                     error);
                 if (parsed is null)
                 {
@@ -227,18 +232,25 @@ public static class McpCli
                 var name = parsed.Positional.Count > 0 ? parsed.Positional[0] : null;
                 if (string.IsNullOrEmpty(name) || parsed.Positional.Count > 1)
                 {
-                    error($"Usage: {Config.AppName} mcp {command} <server>\n{HelpHint}");
+                    error($"Usage: {Config.AppName} mcp {command} <server> [-l]\n{HelpHint}");
                     return 1;
                 }
 
                 var entry = loaded.Servers.FirstOrDefault(server => server.Name == name);
                 if (entry is null)
                 {
-                    var configured = loaded.Servers.Count > 0
-                        ? string.Join(", ", loaded.Servers.Select(server => server.Name))
-                        : "none";
+                    var names = loaded.Servers.Select(server => server.Name).ToList();
+                    var suggestion = names.FirstOrDefault(candidate => EditDistance(candidate, name) <= 2);
+                    var configured = names.Count > 0 ? string.Join(", ", names) : "none";
                     error($"No MCP server named \"{name}\"." +
+                        $"{(suggestion is not null ? $" Did you mean \"{suggestion}\"?" : "")}" +
                         $"{(untrustedNote is not null ? $" {untrustedNote}" : "")} Configured: {configured}.");
+                    return 1;
+                }
+
+                if (parsed.Flags.Contains("local") && entry.Scope != "project")
+                {
+                    error($"MCP server \"{name}\" is defined in {entry.Source}, not in the project; omit --local.");
                     return 1;
                 }
 
@@ -921,6 +933,28 @@ public static class McpCli
     /// arguments are positional, so a command's own options (<c>add &lt;server&gt; &lt;command&gt; --flag</c>)
     /// are passed through.
     /// </summary>
+    /// <summary>Levenshtein distance, to suggest a configured server name for a mistyped one.</summary>
+    internal static int EditDistance(string a, string b)
+    {
+        var previous = new int[b.Length + 1];
+        for (var index = 0; index <= b.Length; index++) previous[index] = index;
+        for (var i = 1; i <= a.Length; i++)
+        {
+            var current = new int[b.Length + 1];
+            current[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+            {
+                current[j] = Math.Min(
+                    Math.Min(previous[j] + 1, current[j - 1] + 1),
+                    previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+            }
+
+            previous = current;
+        }
+
+        return previous[b.Length];
+    }
+
     private static ParsedOptions? ParseOptions(
         string[] args,
         IReadOnlyDictionary<string, OptionKind> known,
@@ -930,7 +964,8 @@ public static class McpCli
         var parsed = new ParsedOptions();
         for (var index = 0; index < args.Length; index++)
         {
-            var arg = OptionAliases.TryGetValue(args[index], out var alias) ? alias : args[index];
+            var typed = args[index];
+            var arg = OptionAliases.TryGetValue(typed, out var alias) ? alias : typed;
             if (arg == "--" || parsed.Positional.Count >= maxPositionals)
             {
                 var start = arg == "--" ? index + 1 : index;
@@ -951,7 +986,7 @@ public static class McpCli
             var name = arg[2..];
             if (!known.TryGetValue(name, out var kind))
             {
-                error($"Unknown option {arg}.\n{HelpHint}");
+                error($"Unknown option {typed}.\n{HelpHint}");
                 return null;
             }
 
