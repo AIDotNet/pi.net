@@ -98,9 +98,11 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
     private const int CopyErrorFlashDurationMs = 5000;
 
     // Regular mode delegates double-click selection to the terminal emulator. Fullscreen owns mouse
-    // selection, so mirror common terminal word-selection behavior by keeping paths and kebab-case
-    // tokens whole.
-    private static readonly HashSet<string> TerminalWordSelectionJoiners = new(StringComparer.Ordinal) { "/", "-" };
+    // selection, so it uses iTerm2's default "characters considered part of a word" set:
+    // https://github.com/gnachman/iTerm2/blob/7f4ff739721f95d0b93003d8701c4523a7edf261/sources/Settings/iTermPreferences.m#L743
+    // `~/...`, `~/.pi/...`, `foo+bar` 因此整段选中。对应 TS `TERMINAL_WORD_SELECTION_JOINERS`（`ff6896471`）。
+    private static readonly HashSet<string> TerminalWordSelectionJoiners =
+        new(StringComparer.Ordinal) { "/", "-", "+", "\\", "~", "_", "." };
 
     private static readonly Regex Osc133ZonePrefix = new(@"^(?:\x1b\]133;[ABC](?:\x07|\x1b\\))+", RegexOptions.Compiled);
     private static readonly Regex Osc133PromptStart = new(@"^\x1b\]133;A(?:\x07|\x1b\\)", RegexOptions.Compiled);

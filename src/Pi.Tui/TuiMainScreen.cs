@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Pi.Tui;
 
@@ -21,9 +22,13 @@ public sealed class TuiMainScreenRenderState
 /// Deviation from TS: the file-based debug/crash logging (<c>PI_DEBUG_REDRAW</c>, <c>PI_TUI_DEBUG</c>,
 /// <c>pi-crash.log</c>) is not ported; the over-wide-line guard still throws.
 /// </summary>
-public sealed class TuiMainScreen : TuiBase
+public sealed partial class TuiMainScreen : TuiBase
 {
     private const string KittySequencePrefix = "\x1b_G";
+
+    /// <summary>行首的 OSC 133 提示符标记（<c>A</c>/<c>B</c>/<c>C</c>，BEL 或 ST 结尾）。对应 TS <c>OSC133_ZONE_PREFIX</c>。</summary>
+    [GeneratedRegex(@"^(?:\x1b\]133;[ABC](?:\x07|\x1b\\))+")]
+    private static partial Regex Osc133ZonePrefix();
 
     private string[] _previousLines = Array.Empty<string>();
     private HashSet<long> _previousKittyImageIds = new();
@@ -255,7 +260,11 @@ public sealed class TuiMainScreen : TuiBase
         }
 
         // Resolve fake cursors before compositing so overlays and line slicing see plain SGR codes
-        var newLines = ResolveFakeCursors(Render(width));
+        // 去掉 OSC 133 标记：终端把 133;A 当成新的 shell 提示符，会结束程序状态（OSC 7501），
+        // 于是 working 指示在运行开始后立刻消失。全屏模式本来就在写之前剥掉。对应 TS `19ce8059c`。
+        var newLines = ResolveFakeCursors(Render(width))
+            .Select(line => Osc133ZonePrefix().Replace(line, ""))
+            .ToArray();
 
         if (HasOverlayEntries)
         {

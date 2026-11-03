@@ -262,9 +262,26 @@ public class TuiMainScreenTests
         Assert.Contains("hello", terminal.Output);
     }
 
+    /// <summary>
+    /// 常规模式不把 OSC 133 提示符标记写到终端（`19ce8059c`）：终端会把 <c>133;A</c> 当成新的 shell 提示符，
+    /// 结束程序状态（OSC 7501），working 指示随即消失。消息组件仍然生成标记，主屏在写出前剥掉。
+    /// </summary>
     [Fact]
-    public void SecondRender_OnlyEmitsChangedLines()
+    public void Render_StripsOsc133PromptMarkers()
     {
+        var terminal = new StringTerminal(40, 6);
+        var tui = new TuiMainScreen(terminal);
+        tui.AddChild(new Text("\x1b]133;A\x07prompt line", 0, 0));
+        tui.AddChild(new Text("\x1b]133;A\x1b\\prompt with ST", 0, 1));
+        tui.RenderNow();
+
+        Assert.DoesNotContain("\x1b]133;", terminal.Output);
+        Assert.Contains("prompt line", terminal.Output);
+        Assert.Contains("prompt with ST", terminal.Output);
+    }
+
+    [Fact]
+    public void SecondRender_OnlyEmitsChangedLines()    {
         var terminal = new StringTerminal(20, 5);
         var text = new Text("hello", 0, 0);
         var tui = new TuiMainScreen(terminal);

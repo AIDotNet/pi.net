@@ -145,11 +145,11 @@
 | `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding | 无 | 🔧 P4 |
 | `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | 未核 | 🔧 P4 |
 | `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | 未核 | 🔧 P4 |
-| `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | 未核 | 🔧 P4 |
+| `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
 | `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | 无 | 🔧 P4 |
 | `cd1ea342a` | 显示公式超宽时回退原始 LaTeX | 未核 | 🔧 P4 |
 | `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 | 未核 | 🔧 P4 |
-| `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） | 无 | 🔧 P4 |
+| `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） | ✅ 本批（`TerminalWordSelectionJoiners` 加上 `+ \ ~ _ .`；端到端用例未移植，见 §4.28） |
 | `f09d01b85` | Orca 终端识别（truecolor / hyperlink / `ORCA_IMAGE_PROTOCOL=kitty`） | ✅ 本批（`DetectCapabilitiesFromEnvironment` 的 Orca 分支：`TERM_PROGRAM=Orca` 且 `ORCA_IMAGE_PROTOCOL=kitty` 才给 Kitty，否则文本回退；见 §4.26） |
 | `89c921d8b` | 终端标题/控制序列注入加固；`stripAnsi` 去掉带 `<=>` 前缀的私有 CSI | 部分 | 🔧 P4 |
 | `1c8cb1781` | 图片行搜索按最高注册图片限界 | ✅ 本批（`TerminalImage.MaxKittyImageRows` 给 `Layout.PaintBox` 的倒序搜索定界，并跳过非图像行；见 §4.26） |
@@ -833,3 +833,16 @@ O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/strea
 用例：`HarnessPartialAppendTests.StreamsTextAsAppendsInsteadOfReassigningTheMessage`——每个增量等它落盘再发下一个
 （写入形状不随并行负载的合并而变），断言文本路径上全是 `a` op、没有任何一次把整条 `generation.message` 重赋，
 且最终助手条目仍是完整答案。
+
+### 4.28 P4 第二批：OSC 133 与双击选词字符集（`19ce8059c` / `ff6896471`）
+
+| 变更 | 上游 | 端口落点 | 用例 |
+| --- | --- | --- | --- |
+| 常规模式不再把 OSC 133 提示符标记写到终端（终端把 `133;A` 当成新 shell 提示符，会结束 OSC 7501 程序状态，`working` 指示随即消失） | `19ce8059c` | `TuiMainScreen` 在合成前对每行 `Osc133ZonePrefix()` 剥一次（与全屏用的同一个模式：`133;A/B/C`，BEL 或 ST 结尾） | `TuiMainScreenTests.Render_StripsOsc133PromptMarkers`（BEL 与 ST 两种结尾） |
+| 全屏双击选词用 iTerm2 的默认 word 字符集，`~/...`、`~/.pi/...`、`foo+bar` 整段选中 | `ff6896471` | `TuiAltScreen.TerminalWordSelectionJoiners` 由 `{"/","-"}` 扩到 `{"/","-","+","\\","~","_","."}` | 未移植（见下） |
+
+**未移植的用例**：双击选词要经鼠标事件驱动（`GetWordSelection` 是私有，公开面只有 `HasActiveSelection` /
+`GetActiveSelectionText`），上游那条是 `tui-alt-screen.test.ts` 里的端到端用例；端口补这条得先有输入/鼠标的
+录制式测试设施。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` **23945** 例全绿（新增 1 例）。
