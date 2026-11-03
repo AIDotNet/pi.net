@@ -548,9 +548,8 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 | --- | --- | --- | --- |
 | call 阶段的拒绝（tool_unavailable / 参数无效 / beforeTool 拦截）先过 afterTool 再结算；被打断与中止的槽结果同样过钩子并按工具上限有界化 | `87eff524f` | `ToolTask.RejectAsync` / `SettleFromSlotAsync` / `AfterHarnessResultAsync` / `LimitsOf`，`FromSlot` 改为单独返回截断诊断 | `ToolTaskTests` 16 例 |
 
-**端口差异**：上游在 abort 时按 `restarts < restartLimit - 1` 豁免钩子（防「钩子就是打断元凶」的
-死循环）；端口的工具重启计数（`b3a29f111`）尚未移植，钩子总是跑——移植重启计数时必须补上这条豁免，
-否则一个改写结果的钩子可能让工具永远跑不完。
+**端口差异（已补）**：上游在 abort 时按 `restarts < restartLimit - 1` 豁免钩子（防「钩子就是打断元凶」的
+死循环）；端口此前钩子总是跑，本轮补上这条豁免。
 
 ### 4.14 P6 第八批：未提供的工具调用按工具任务跑（提交见 git log）
 
@@ -593,10 +592,10 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 1. **`afterRun` 用独立接口 `IRunEndHooks` 表达**。TS 里 `afterRun` 是钩子对象上的可选属性（未声明即不问），
    C# 的接口成员无法「未声明」，若放进 `IGenerationHooks` 则每个生成钩子都会被当成声明了 afterRun——每次
    回答都会多一次 hold + finish 提交。独立接口让「声明」保持可选。
-2. **`RunSummary.First` 暂以答案代第一个条目**。上游为此新增了 `pi.live.run.first`（并在 `runFailure` 上也记
-   `first`，让失败的运行也有历史起点）；端口尚未记录运行第一个条目，只有把区间裁到「运行内」的钩子会看出
-   差别。同批的 `endAnsweredCutOff`（`finish`/`drain` 被重启上限打断时以 completed 收场并标记
-   `task_interrupted`）依赖 `b3a29f111` 的 `endedByCrashes`，也随那批补。
+2. **`run.first` 已补**（本轮）：`BoundaryResult.First` 把「边界放置的第一个条目」交给它起的运行，
+   没有边界条目可依的运行以第一个工具轮答案补；`RunSummary.First` 因此是真正的第一个条目。仍未做的是
+   `runFailure.first`（失败运行的历史起点，供 continue 的钩子用）与 `endAnsweredCutOff`（`finish`/`drain`
+   被重启上限打断时以 completed 收场并标 `task_interrupted`）——后者依赖 `b3a29f111` 的 `endedByCrashes`。
 
 ### 4.18 自查记录（全仓验证与遗漏核对）
 
