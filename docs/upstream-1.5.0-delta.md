@@ -143,7 +143,7 @@
 | `8a2ebd385` | 嵌套引用不再指数膨胀（`width < 3` 直接渲染子节点） | 已有 | ✅ |
 | `3bae85274` | `tui.select.pageUp/pageDown` 作用于所有列表；全屏下翻页键翻列表而不是滚 transcript；`capturesViewportInput` | 无 | 🔧 P4 |
 | `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding | 无 | 🔧 P4 |
-| `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | 未核 | 🔧 P4 |
+| `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | 结论：需要，但**卡在语料**——实现已试过并回退（§4.28 末），43 个 `editor-corpus` 用例期望把 F13+ 当成文本插入，那正是 1.4.x 的旧行为 | 🔧 P4（等语料链） |
 | `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | 未核 | 🔧 P4 |
 | `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
 | `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | 无 | 🔧 P4 |
@@ -219,6 +219,9 @@
 | **P7** | chord v1：pi-schema 构造点、ANSI 清理、watch 家族 | ~600 行 | `Pi.Chord.Tests` 全量（首批已过：135 例，见 §4.7） |
 
 依赖：P0 先于 P2（ai 的工具校验在 P0 里换语义）；P3/P4 互不依赖；P6 与 P0 无耦合，可并行。
+
+**语料阻塞已有实证**（§4.28 末）：`deb12d78e`（Kitty F13+ 不再当文本）实现后 `Pi.Tui.Tests` 立刻红 43 例，
+失败信息是「期望 `\uE008` 被插入」——那正是 1.4.x 语料里的旧行为。**任何改变 keys/渲染结果的 P4 项都必须先重算语料**。
 
 **P4 的前置条件**：`Pi.Tui.Tests` 的 `markdown-corpus.json` / `alt-screen-corpus.json` 是从
 **1.4.x 的 TS 源码**在 Node 里跑出来的。P4 里任何改变输出字节的修复（删除线行尾 `29m`、
@@ -846,3 +849,16 @@ O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/strea
 录制式测试设施。
 
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` **23945** 例全绿（新增 1 例）。
+
+**附：`deb12d78e` 的试做与回退（语料阻塞的实证）**。按上游把 F1–F12 的内部码点、`CSI P/Q/S` 解析、
+`:3P/:3Q/:3S` 释放事件、`f1`…`f12` 的修饰键匹配、F13+ 私用区拒绝都移植进来后，`dotnet build` 与
+`KeysAndUtilTests` 全绿，但 `Pi.Tui.Tests` 全量红 **43** 例，全是 `EditorCorpusTests.ScenariosMatchTheTypeScriptReference`
+的 `keys` 场景：
+
+```
+[k464] expected {"L":["hello world\uE008"],"C":[0,12],...}
+       actual   {"L":["hello world"],"C":[0,11],...}
+```
+
+语料是 1.4.x 的 TS 跑出来的，那时 F13+ 确实会被当成文本插进编辑器（正是这次要修的 bug）。所以这项**不是实现问题，
+是语料版本问题**：必须先用 1.5.0 的 TS 重算 `editor-corpus.json` 才能落地。已整体回退，代码库保持全绿。
