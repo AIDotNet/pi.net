@@ -245,8 +245,31 @@ public sealed class ProcessTerminal : ITerminal
             return;
         }
 
-        _inputHandler?.Invoke(sequence);
+        // Apple Terminal 与 Windows 控制台在没开 Kitty 协议时把 Shift+Enter 发成 CR；有些 Apple Terminal 配置发
+        // ESC+CR（`#11559`）。本机确实按着 Shift 时换成 Kitty 的 shift+enter 序列，否则它会被当成 alt+enter
+        // 排进 follow-up。对应 TS `normalizeNativeShiftEnterInput()`（`73dd066ee` + `86dc686cf`）。
+        var shouldDetect = ShouldDetectNativeShiftEnter(sequence);
+        _inputHandler?.Invoke(
+            NormalizeNativeShiftEnterInput(sequence, shouldDetect, shouldDetect && NativeModifiers.IsShiftPressed()));
     }
+
+    /// <summary>
+    /// 这个序列要不要走「本机 Shift 按下」的判定：CR 或 ESC+CR，且是 Apple Terminal 或 Windows。
+    /// 对应 TS <c>shouldDetectNativeShiftEnter</c>。
+    /// </summary>
+    internal static bool ShouldDetectNativeShiftEnter(string sequence)
+        => sequence is "\r" or "\x1b\r"
+            && (TerminalSession.IsAppleTerminalSession() || OperatingSystem.IsWindows());
+
+    /// <summary>
+    /// 本机按着 Shift 时把 CR / ESC+CR 换成 Kitty 的 shift+enter 序列。纯函数，便于测试。
+    /// 对应 TS <c>normalizeNativeShiftEnterInput()</c>。
+    /// </summary>
+    internal static string NormalizeNativeShiftEnterInput(string data, bool shouldDetect, bool isShiftPressed)
+        => shouldDetect && isShiftPressed ? NativeShiftEnterSequence : data;
+
+    /// <summary>Kitty 的 shift+enter：<c>CSI 13;2u</c>。对应 TS <c>NATIVE_SHIFT_ENTER_SEQUENCE</c>。</summary>
+    internal const string NativeShiftEnterSequence = "\x1b[13;2u";
 
     /// <summary>Port of <c>resolveEscapeTimeoutMs(env)</c>.</summary>
     internal static int ResolveEscapeTimeoutMs(Func<string, string?>? getEnv = null)
@@ -661,6 +684,40 @@ public sealed class StringTerminal : ITerminal
         ExitRestores.Add(before + "\x1b[?2004l" + after);
         Write(before + "\x1b[?2004l" + after);
     }
+}
+
+/// <summary>
+/// 本机修饰键状态。TS 用 tui 的原生插件（<c>native-modifiers.ts</c> + win32/macOS 预编译）；
+/// 端口改为直接问平台 API，失败一律当「没按」——判定只用来把 CR 升级成 shift+enter，
+/// 猜错最多退回原来的 alt+enter 行为。
+/// </summary>
+internal static class NativeModifiers
+{
+    private const int VkShift = 0x10;
+    private const int CombinedSessionState = 0;
+    private const ulong ShiftFlagMask = 0x0002_0000;
+
+    /// <summary>本机 Shift 是否按着。</summary>
+    public static bool IsShiftPressed()
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows()) return (GetAsyncKeyState(VkShift) & 0x8000) != 0;
+            if (OperatingSystem.IsMacOS()) return (EventSourceFlagsState(CombinedSessionState) & ShiftFlagMask) != 0;
+            return false;
+        }
+        catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    /// <summary>CoreGraphics <c>CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState)</c>。</summary>
+    [DllImport("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")]
+    private static extern ulong EventSourceFlagsState(int stateId);
 }
 
 /// <summary>Session-level terminal helpers (port of <c>terminal.ts</c> free functions).</summary>

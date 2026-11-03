@@ -144,7 +144,7 @@
 | `3bae85274` | `tui.select.pageUp/pageDown` 作用于所有列表；全屏下翻页键翻列表而不是滚 transcript；`capturesViewportInput` | 无 | 🔧 P4 |
 | `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding | 无 | 🔧 P4 |
 | `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | 结论：需要，但**卡在语料**——实现已试过并回退（§4.28 末），43 个 `editor-corpus` 用例期望把 F13+ 当成文本插入，那正是 1.4.x 的旧行为 | 🔧 P4（等语料链） |
-| `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | 未核 | 🔧 P4 |
+| `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
 | `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
 | `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | 无 | 🔧 P4 |
 | `cd1ea342a` | 显示公式超宽时回退原始 LaTeX | 未核 | 🔧 P4 |
@@ -873,3 +873,24 @@ O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/strea
 | ai 侧（可信 URL、contentIndex 校验、auth.json 0600） | ✅ P2 已收口（见 §2.2 的 `89c921d8b` 行） |
 
 台账里这行长期写着「部分」是没核对：tui 三处都在，durable 那条本就不适用。
+
+### 4.30 原生 Shift+Enter（`86dc686cf`，前置 `73dd066ee`）
+
+上游在**序列层**做这件事：`normalizeNativeShiftEnterInput(data, shouldDetect, isShiftPressed)`，`shouldDetect` 表示
+「这串是 CR 或 ESC+CR，且平台是 Apple Terminal 或 Windows」；修饰键状态来自 tui 的原生插件（`native-modifiers.ts`
++ win32/macOS 预编译）。
+
+端口此前只在 `MapKey` 里做了 Windows 一半：`ConsoleKey.Enter` + `Shift` → `\x1b[13;2u`。这次补齐序列层：
+
+| 上游要求 | 端口落点 |
+| --- | --- |
+| `shouldDetectNativeShiftEnter(sequence)`：CR / ESC+CR 且 Apple Terminal 或 Windows | `ProcessTerminal.ShouldDetectNativeShiftEnter` |
+| Shift 按下时换成 `CSI 13;2u`，否则原样 | `ProcessTerminal.NormalizeNativeShiftEnterInput`（纯函数，`NativeShiftEnterSequence` 常量） |
+| 修饰键查询 | `NativeModifiers.IsShiftPressed`：Windows `GetAsyncKeyState(VK_SHIFT)`、macOS `CGEventSourceFlagsState` 的 `kCGEventFlagMaskShift`；`DllNotFoundException` / `EntryPointNotFoundException` 一律当「没按」 |
+| 输入转发的最后一站应用 | `ProcessTerminal.ForwardInputSequence`（在吞掉终端回复之后、交给 `_inputHandler` 之前） |
+
+**为什么用 P/Invoke 而不是移植原生插件**：上游的 `.node` 预编译产物在 .NET 里没有消费者，而这里只需要一个
+「Shift 是否按着」的布尔值；猜错最多退回原来的 alt+enter 行为，不会破坏输入。
+
+用例：`ProcessTerminalInputTests.NormalizeNativeShiftEnterInput_UpgradesCarriageReturnOnlyWhenShiftIsPressed`
+（CR / ESC+CR / Shift 未按 / 不该判定 / 谓词五个方向）。原生查询本身不做断言——它的结果取决于跑测试时键盘状态。

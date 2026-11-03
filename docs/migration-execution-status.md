@@ -22,7 +22,7 @@
 | **P1** | 1.5.0 窗口内的小修集（不重试判定、溢出文案、`MarkdownTransformContext` 等） | ✅ `677e30c` |
 | **P2** | ai wire 层：Gemini `const`→`enum`、Bedrock strict 回退、OAuth trusted-url 收敛 + `auth.json` 0600、42 份模型目录重导 | ✅ `e6d4c4d` / `c71cd41` / `1ca2e05` / `a8db1eb` |
 | **P3** | coding-agent 窗口项：扩展 changelog、device-code 确认、`ctx.ui.custom` 的 `blocked`、`keyText()`/`keyHint()` 注入、trust 优先级、路径大小写、写盘一致性、分支摘要、`pi.exec` 上限、git clean 容错、WSL 深目录、`/resume` 搜索分层、HTML 导出等 | ✅ `ed26895` + `2ac34ad`（`8bc94b19f` 判定不跟，见 delta §4.4/§4.6） |
-| **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | 🟡 两批四项：`27e8464` 首批 Orca 识别（`f09d01b85`）、图像行搜索定界（`1c8cb1781`），本批 OSC 133 剥离（`19ce8059c`）、双击选词字符集（`ff6896471`）；余 9 项仍等语料链，见 delta §4.26/§4.28 |
+| **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | 🟡 三批五项：Orca 识别（`f09d01b85`）、图像行搜索定界（`1c8cb1781`）、OSC 133 剥离（`19ce8059c`）、双击选词字符集（`ff6896471`）、原生 Shift+Enter（`86dc686cf`，`ee87251` 之后）；余 7 项仍等语料链，见 delta §4.26/§4.28/§4.30 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | ✅ `4afb050` + `2ac34ad`（env 3 项判定不适用：Rust daemon；见 delta §4.5/§4.6） |
 | **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | 🟡 十六批：`ae97b71`（思考档位 + `whenIdle`）、`d57852a`（只读 Harness + `beforeProviderRequest`）、`332da47`（钩子/任务条目读取）、`a8b05cb`（工具轮次上限）、`15d315f`（`runFailure`）、`79bfdae`（continue 提交）、afterTool 全路径、未提供调用按任务跑、空闲检查脏集合、handoff 后运行继续、afterRun 与运行结束任务、窗口化视图与 `ConversationTranscript`（删 `watchEvents`）、`wake()` 睡眠集合与空闲过期索引、重启循环可见地结束、`submit(tx, draft)` 提交内受理、partial 提交按追加写文本（`da412b039` 的文本部分）；`044148392` 判定不适用；分组提交（`e5c6182ba`）、节流提交延迟落盘（`6c2fd73b0`）与工具参数增量仍待做 |
 | **P7** | chord v1（pi-schema 构造点、ANSI 清理、watch 家族） | 🟡 `a0da1ea` 首批：watch 家族 + ANSI 清理已落地；`be039fb31`/`c09c98d7d`/`db14038bd`/`8025c414d`/`d0aa218cb` 判定不适用；`8b0caefc2` 归入 P6（见 delta §4.7） |
@@ -460,3 +460,13 @@ alt-screen 回归用例需要「录制终端 + 全屏渲染」设施，端口没
 
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` 23945 例全绿（新增 `Render_StripsOsc133PromptMarkers`）。
 双击选词的端到端用例未移植（要鼠标事件驱动的录制式测试设施）。
+
+### P4 第三批：原生 Shift+Enter（2026-11-04）
+
+- `ProcessTerminal.ShouldDetectNativeShiftEnter` / `NormalizeNativeShiftEnterInput`：CR 与 ESC+CR 在本机按着 Shift 时
+  换成 Kitty 的 `CSI 13;2u`（否则 ESC+CR 会被当成 alt+enter 排进 follow-up）。`ForwardInputSequence` 末端应用。
+- `NativeModifiers.IsShiftPressed`：Windows `GetAsyncKeyState`、macOS `CGEventSourceFlagsState`，平台 API 缺失当「没按」。
+  上游用的是 tui 的原生插件，端口没有 .node 消费者，改问平台。
+- Windows 的 `MapKey` 本来就把 `ConsoleKey.Enter + Shift` 映射成同一个序列，这次补的是序列层（ESC+CR）与 macOS 路径。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` **23946** 例全绿（新增 1 例）。

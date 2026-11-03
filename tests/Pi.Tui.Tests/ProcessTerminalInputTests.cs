@@ -88,6 +88,28 @@ public class ProcessTerminalInputTests
         }
     }
 
+    /// <summary>
+    /// 本机按着 Shift 时把 CR / ESC+CR 升级成 Kitty 的 shift+enter（`73dd066ee` + `86dc686cf`）：
+    /// Apple Terminal 与 Windows 在没开 Kitty 协议时就是这么发的，否则会被当成 alt+enter 排进 follow-up。
+    /// 判定只在「该判定」且「Shift 确实按着」时生效，其余原样返回。
+    /// </summary>
+    [Fact]
+    public void NormalizeNativeShiftEnterInput_UpgradesCarriageReturnOnlyWhenShiftIsPressed()
+    {
+        Assert.Equal("\x1b[13;2u", ProcessTerminal.NormalizeNativeShiftEnterInput("\r", true, true));
+        // 有些 Apple Terminal 配置发 ESC+CR（#11559）。
+        Assert.Equal("\x1b[13;2u", ProcessTerminal.NormalizeNativeShiftEnterInput("\x1b\r", true, true));
+        // Shift 没按着：保持 CR / alt+enter。
+        Assert.Equal("\r", ProcessTerminal.NormalizeNativeShiftEnterInput("\r", true, false));
+        Assert.Equal("\x1b\r", ProcessTerminal.NormalizeNativeShiftEnterInput("\x1b\r", true, false));
+        // 不该判定的场景（其它平台、其它键）原样返回；谓词已经把「是不是 CR」判掉了。
+        Assert.Equal("\r", ProcessTerminal.NormalizeNativeShiftEnterInput("\r", false, true));
+        Assert.Equal("a", ProcessTerminal.NormalizeNativeShiftEnterInput("a", false, true));
+        // 谓词只认 CR / ESC+CR。
+        Assert.False(ProcessTerminal.ShouldDetectNativeShiftEnter("a"));
+        Assert.False(ProcessTerminal.ShouldDetectNativeShiftEnter("\x1b[13;2u"));
+    }
+
     private static ConsoleKeyInfo Key(ConsoleKey key, char c) => new(c, key, false, false, false);
 
     private static Func<string, string?> Env(params (string Name, string Value)[] pairs) => name =>
