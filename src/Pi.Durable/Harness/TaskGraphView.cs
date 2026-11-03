@@ -47,7 +47,7 @@ public sealed record TaskGraphNode
 
     /// <summary>
     /// 它在这里不能运行的原因（若有）：没有注册的定义能接手（<c>missing_task</c> / <c>task_too_old</c> /
-    /// <c>migration_failed</c>），或被重启上限停放（<c>restart_limit</c>）。随注册表变化。
+    /// <c>migration_failed</c>）。随注册表变化。
     /// </summary>
     public string? Blocked { get; init; }
 

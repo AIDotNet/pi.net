@@ -583,7 +583,8 @@ internal static class HarnessTestSupport
 
     /// <summary>按名称、描述与执行函数构造一个无参数工具。对应 TS <c>defineTool</c> 的最小形状。</summary>
     internal sealed class ScriptedTool(
-        string name, string description, Func<IToolExecutionApi, Context, Task<ToolExecutionResult>> execute)
+        string name, string description, Func<IToolExecutionApi, Context, Task<ToolExecutionResult>> execute,
+        string? replay = null)
         : IToolRegistration
     {
         public string Name => name;
@@ -592,7 +593,7 @@ internal static class HarnessTestSupport
 
         public ToolSchema Parameters => new(new Dictionary<string, object?> { ["type"] = "object" });
 
-        public string? Replay => null;
+        public string? Replay => replay;
 
         public ToolExecutionMode? ExecutionMode => null;
 

@@ -589,6 +589,7 @@ public class HarnessSleepTests
             OnWake = onWake,
             Timers = HostTimers.Create(timers?.SetTimer, reports.Add),
             Report = (error, _) => reports.Add(error),
+            LimitsRestarts = _ => false,
             SettleOutcome = (_, _, _) => Task.CompletedTask,
             WithdrawInputs = (_, _) => Task.CompletedTask,
             Conversation = (_, _, _) => Task.FromResult<IConversationHandle?>(null),

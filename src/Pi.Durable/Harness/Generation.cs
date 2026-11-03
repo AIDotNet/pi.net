@@ -43,7 +43,10 @@ internal abstract record GenerationCheckpoint
             json.TryGetValue("compacted", out var compacted3) && compacted3 is not null
                 ? TaskId<object?>.From(Convert.ToInt64(compacted3))
                 : null,
-            Convert.ToInt64(json["until"]!)),
+            Convert.ToInt64(json["until"]!),
+            json.TryGetValue("poll", out var retryPoll) && retryPoll is JsonDict pollJson
+                ? PollRequestFromJson(pollJson)
+                : null),
         "poll" => new Poll(
             (int)Convert.ToInt64(json["attempt"]!),
             json.TryGetValue("compacted", out var compacted4) && compacted4 is not null
@@ -78,6 +81,15 @@ internal abstract record GenerationCheckpoint
                 : []),
         var other => throw new InvalidOperationException($"Unknown pi.generation checkpoint phase {other}"),
     };
+
+    private static PollRequest PollRequestFromJson(JsonDict json)
+        => new(
+            new ModelRef((string)((JsonDict)json["model"]!)["provider"]!, (string)((JsonDict)json["model"]!)["modelId"]!),
+            json.TryGetValue("thinkingLevel", out var thinkingLevel) && thinkingLevel is string level
+                ? ThinkingLevelOf(level)
+                : null,
+            EntryId.From(Convert.ToInt64(json["cutoff"]!)),
+            JsonTrees.Deserialize<DeferredHandle>(json["handle"]!));
 
     protected static JsonDict ModelRefJson(ModelRef model)
         => new Dictionary<string, object?> { ["provider"] = model.Provider, ["modelId"] = model.ModelId };
@@ -137,7 +149,12 @@ internal abstract record GenerationCheckpoint
         }
     }
 
-    public sealed record RetryPhase(int Attempt, TaskId<object?>? Compacted, long Until) : GenerationCheckpoint
+    /// <summary>
+    /// 退避的睡眠。<see cref="Polling"/> 非空时，宿主是在轮询这次取回的延迟应答时死的：下一次尝试再轮询同一个应答，
+    /// 既不丢掉提供方的工作也不重复付费。对应 TS <c>retry.poll</c>。
+    /// </summary>
+    public sealed record RetryPhase(
+        int Attempt, TaskId<object?>? Compacted, long Until, PollRequest? Polling = null) : GenerationCheckpoint
     {
         public override JsonDict ToJson()
         {
@@ -146,6 +163,23 @@ internal abstract record GenerationCheckpoint
                 ["phase"] = "retry", ["attempt"] = (long)Attempt, ["until"] = Until,
             };
             if (Compacted is { } compacted) json["compacted"] = compacted.Value;
+            if (Polling is { } poll) json["poll"] = poll.ToJson();
+            return json;
+        }
+    }
+
+    /// <summary>一次要再轮询的延迟应答（<c>retry.poll</c> 的四个字段）。对应 TS <c>GenerationCheckpoint["retry"]["poll"]</c>。</summary>
+    public sealed record PollRequest(ModelRef Model, ThinkingLevel? ThinkingLevel, EntryId Cutoff, DeferredHandle Handle)
+    {
+        public JsonDict ToJson()
+        {
+            var json = new Dictionary<string, object?>
+            {
+                ["model"] = ModelRefJson(Model),
+                ["cutoff"] = Cutoff.Value,
+                ["handle"] = JsonTrees.ToTree(Handle),
+            };
+            if (ThinkingLevel is { } thinkingLevel) json["thinkingLevel"] = ThinkingLevelJson(thinkingLevel);
             return json;
         }
     }
@@ -254,6 +288,12 @@ public static partial class Generation
     /// <summary>渲染系统提示与工具负载并追加所需的位置 <c>pi.system</c> 条目，随后进入 request。</summary>
     private static async Task PreparePhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await EndCutOffAsync(runtime, task, context).ConfigureAwait(false);
+            return;
+        }
+
         var conversationId = runtime.ConversationId;
         var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
         var settings = runtime.Settings;
@@ -378,6 +418,20 @@ public static partial class Generation
     private static async Task RequestPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var checkpoint = (GenerationCheckpoint.Request)ReadCheckpoint(task);
+        // 记账本身可能正是反复失败的那一步（例如转换一个巨大的 partial）：由上限收场。
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await EndCutOffAsync(runtime, task, context).ConfigureAwait(false);
+            return;
+        }
+
+        // 宿主是在这次请求途中停下的：记一次失败的尝试，而不是重发（spec §8.3）。
+        if (task.Restarts is not null)
+        {
+            await InterruptedAsync(runtime, checkpoint, context).ConfigureAwait(false);
+            return;
+        }
+
         var conversationId = runtime.ConversationId;
         await runtime.CommitAsync(async (tx, _) =>
         {
@@ -418,6 +472,12 @@ public static partial class Generation
     private static async Task RetryPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var checkpoint = (GenerationCheckpoint.RetryPhase)ReadCheckpoint(task);
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await EndCutOffAsync(runtime, task, context).ConfigureAwait(false);
+            return;
+        }
+
         if (checkpoint.Until > runtime.Now())
         {
             await runtime.SleepUntilAsync(checkpoint.Until, task.State.Checkpoint, context).ConfigureAwait(false);
@@ -427,11 +487,30 @@ public static partial class Generation
         await runtime.CommitAsync(async (tx, _) =>
         {
             var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
-            Live.SetGeneration(live, new Dictionary<string, object?> { ["attempt"] = (long)(checkpoint.Attempt + 1) });
+            var attempt = checkpoint.Attempt + 1;
+            // 宿主死在轮询途中的那次，下一次尝试再轮询同一个应答。
+            if (checkpoint.Polling is { } poll)
+            {
+                var pollAt = runtime.Now();
+                Live.SetGeneration(live, new Dictionary<string, object?>
+                {
+                    ["attempt"] = (long)attempt,
+                    ["deferred"] = new Dictionary<string, object?> { ["pollAt"] = pollAt },
+                });
+                return new TaskState
+                {
+                    Status = TaskStatus.Running,
+                    Checkpoint = new GenerationCheckpoint.Poll(
+                        attempt, checkpoint.Compacted, poll.Model, poll.Cutoff, poll.Handle, pollAt, poll.ThinkingLevel)
+                        .ToJson(),
+                };
+            }
+
+            Live.SetGeneration(live, new Dictionary<string, object?> { ["attempt"] = (long)attempt });
             return new TaskState
             {
                 Status = TaskStatus.Running,
-                Checkpoint = new GenerationCheckpoint.Prepare(checkpoint.Attempt + 1, checkpoint.Compacted, null).ToJson(),
+                Checkpoint = new GenerationCheckpoint.Prepare(attempt, checkpoint.Compacted, null).ToJson(),
             };
         }, context).ConfigureAwait(false);
     }
@@ -440,6 +519,20 @@ public static partial class Generation
     private static async Task PollPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var checkpoint = (GenerationCheckpoint.Poll)ReadCheckpoint(task);
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await EndCutOffAsync(runtime, task, context).ConfigureAwait(false);
+            return;
+        }
+
+        // 宿主是在轮询的取回途中停下的：与请求一样记一次失败尝试。在时间之前判断，因为替身上时钟可能后退；
+        // 睡着的轮询从不被切断。
+        if (task.Restarts is not null)
+        {
+            await InterruptedAsync(runtime, checkpoint, context).ConfigureAwait(false);
+            return;
+        }
+
         var model = runtime.Models.GetModel(checkpoint.Model.Provider, checkpoint.Model.ModelId);
         if (model is null)
         {
@@ -463,6 +556,12 @@ public static partial class Generation
 
     private static async Task ToolsPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await EndCutOffAsync(runtime, task, context).ConfigureAwait(false);
+            return;
+        }
+
         var checkpoint = (GenerationCheckpoint.Tools)ReadCheckpoint(task);
         var next = checkpoint.Pending.FirstOrDefault();
         if (next is null)
@@ -496,22 +595,7 @@ public static partial class Generation
     private static async Task AbortAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var checkpoint = ReadCheckpoint(task);
-        if (checkpoint is GenerationCheckpoint.Poll poll)
-        {
-            var model = runtime.Models.GetModel(poll.Model.Provider, poll.Model.ModelId);
-            if (model is not null)
-            {
-                try
-                {
-                    await runtime.Models.CancelDeferredAsync(model, poll.Handle, null, runtime.Signal)
-                        .ConfigureAwait(false);
-                }
-                catch (Exception error)
-                {
-                    runtime.Report(error);
-                }
-            }
-        }
+        if (DeferredOf(checkpoint) is { } polled) await CancelDeferredAsync(runtime, polled, context).ConfigureAwait(false);
 
         var conversationId = runtime.ConversationId;
         // 在本轮的工具任务都终态之后运行；从未启动的调用得到 aborted 结果（spec §8.5）。
@@ -660,6 +744,140 @@ public static partial class Generation
                 },
             };
         }, context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 宿主是在这次尝试的请求或轮询途中停下的（<see cref="TaskRecord.Restarts"/>）：按 <c>settings.retry</c> 记一次
+    /// 失败的尝试（spec §8.3）。已提交的 partial 变成 aborted 条目；下一次尝试按退避进行——轮询的那次再轮询同一个
+    /// 延迟应答——或者在没有重试可用了时让运行以 <c>interrupted</c> 结束。
+    /// </summary>
+    private static async Task InterruptedAsync(
+        ITaskRuntime runtime, GenerationCheckpoint checkpoint, Context context)
+    {
+        var (attempt, compacted, polled) = checkpoint switch
+        {
+            GenerationCheckpoint.Request request => (request.Attempt, request.Compacted, (GenerationCheckpoint.PollRequest?)null),
+            GenerationCheckpoint.Poll poll => (
+                poll.Attempt,
+                poll.Compacted,
+                new GenerationCheckpoint.PollRequest(poll.Model, poll.ThinkingLevel, poll.Cutoff, poll.Handle)),
+            _ => throw new InvalidOperationException(
+                $"pi.generation checkpoint {checkpoint.GetType().Name} cannot be interrupted"),
+        };
+        var policy = runtime.Settings.Retry;
+        var retry = policy.Enabled && attempt <= policy.MaxRetries;
+        var until = retry ? runtime.Now() + Retry.RetryDelayMs(Compaction.ToPiRetryPolicy(policy), attempt) : 0L;
+        var text = polled is null
+            ? $"The host stopped while the model was answering, on attempt {attempt}"
+            : $"The host stopped while the deferred answer was fetched, on attempt {attempt}";
+        // 结束的运行不会留下仍在跑的提供方作业。
+        if (!retry && polled is not null) await CancelDeferredAsync(runtime, polled, context).ConfigureAwait(false);
+        await runtime.CommitAsync(async (tx, _) =>
+        {
+            // 首次表写之前读取；只有失败才用它。
+            FailurePolicy? failure = retry ? null : await PrepareFailureAsync(tx, runtime).ConfigureAwait(false);
+            var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
+            await ConvertPartialAsync(tx, live, runtime.ConversationId).ConfigureAwait(false);
+            if (failure is null)
+            {
+                Live.SetGeneration(live, new Dictionary<string, object?>
+                {
+                    ["attempt"] = (long)attempt,
+                    ["retry"] = new Dictionary<string, object?> { ["at"] = until, ["error"] = text },
+                });
+                return new TaskState
+                {
+                    Status = TaskStatus.Sleeping,
+                    Checkpoint = new GenerationCheckpoint.RetryPhase(attempt, compacted, until, polled).ToJson(),
+                    Until = until,
+                };
+            }
+
+            await EndFailedRunAsync(
+                tx, runtime, live, failure,
+                new SubmissionSettlement.Unanswered(RunFailureReasons.Interrupted, text))
+                .ConfigureAwait(false);
+            return new TaskState
+            {
+                Status = TaskStatus.Terminal,
+                Outcome = new TaskOutcome
+                {
+                    Status = TaskOutcomeStatus.Failed,
+                    Error = new TaskOutcomeError
+                    {
+                        Message = text,
+                        Detail = new Dictionary<string, object?> { ["reason"] = RunFailureReasons.Interrupted },
+                    },
+                },
+            };
+        }, context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 结束一次被连续切断 <c>settings.restartLimit</c> 次的运行（spec §5.4）。到达上限时它仍把已提交的 partial
+    /// 留作 aborted 条目、并取消它轮询的延迟应答；超过上限后，那次清理本身可能就是切断它的原因，于是不做清理。
+    /// </summary>
+    private static async Task EndCutOffAsync(ITaskRuntime runtime, TaskRecord task, Context context)
+    {
+        var checkpoint = ReadCheckpoint(task);
+        var phase = task.State.Checkpoint is JsonDict raw && raw.TryGetValue("phase", out var value)
+            ? value as string ?? "unknown"
+            : "unknown";
+        var text = $"The generation was interrupted {Live.CutOffCount(task)} in its {phase} phase";
+        var salvage = Live.Salvageable(task, runtime);
+        if (salvage && DeferredOf(checkpoint) is { } polled)
+        {
+            await CancelDeferredAsync(runtime, polled, context).ConfigureAwait(false);
+        }
+
+        await runtime.CommitAsync(async (tx, _) =>
+        {
+            var failure = await PrepareFailureAsync(tx, runtime).ConfigureAwait(false);
+            var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
+            if (salvage) await ConvertPartialAsync(tx, live, runtime.ConversationId).ConfigureAwait(false);
+            await EndFailedRunAsync(
+                tx, runtime, live, failure,
+                new SubmissionSettlement.Unanswered(RunFailureReasons.RestartLimit, text))
+                .ConfigureAwait(false);
+            return new TaskState
+            {
+                Status = TaskStatus.Terminal,
+                Outcome = new TaskOutcome
+                {
+                    Status = TaskOutcomeStatus.Failed,
+                    Error = new TaskOutcomeError
+                    {
+                        Message = text,
+                        Detail = new Dictionary<string, object?> { ["reason"] = RunFailureReasons.RestartLimit },
+                    },
+                },
+            };
+        }, context).ConfigureAwait(false);
+    }
+
+    /// <summary>检查点正在轮询（或退避后要再轮询）的延迟应答。</summary>
+    private static GenerationCheckpoint.PollRequest? DeferredOf(GenerationCheckpoint checkpoint) => checkpoint switch
+    {
+        GenerationCheckpoint.Poll poll => new GenerationCheckpoint.PollRequest(
+            poll.Model, poll.ThinkingLevel, poll.Cutoff, poll.Handle),
+        GenerationCheckpoint.RetryPhase { Polling: { } retryPoll } => retryPoll,
+        _ => null,
+    };
+
+    /// <summary>取消一个没有尝试会再轮询的延迟应答；失败只上报，从不抛出。</summary>
+    private static async Task CancelDeferredAsync(
+        ITaskRuntime runtime, GenerationCheckpoint.PollRequest request, Context context)
+    {
+        var model = runtime.Models.GetModel(request.Model.Provider, request.Model.ModelId);
+        if (model is null) return;
+        try
+        {
+            await runtime.Models.CancelDeferredAsync(model, request.Handle, null, runtime.Signal).ConfigureAwait(false);
+        }
+        catch (Exception error)
+        {
+            runtime.Report(error);
+        }
     }
 
     /// <summary>把运行的输入以 <c>model_error</c> 结算为 unanswered 并以 <paramref name="text"/> 失败。</summary>

@@ -206,6 +206,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
             ReadOnly = options.ReadOnly,
             Timers = HostTimers.Create(options.SetTimer, reportSetTimer),
             Report = _report,
+            LimitsRestarts = Live.LimitsRestarts.Contains,
             SettleOutcome = LiveSettle.SettleSchedulerOutcomeAsync,
             WithdrawInputs = (tx, id) => Inbox.WithdrawQueuedInputsAsync(tx, id),
             Conversation = async (id, binding, callContext) =>
@@ -332,12 +333,6 @@ public sealed class HarnessImpl : DurableSession, IHarness
         => _submissions.AbortAsync(id, context, conversationId);
 
     public Task<string> AbortTaskAsync(TaskId<object?> id, Context context) => _tasks.AbortAsync(id, context);
-
-    public Task RetryTaskAsync(TaskId<object?> id, Context context)
-    {
-        AssertOpen();
-        return _tasks.RetryAsync(id, context);
-    }
 
     public Task<SettledTask> WaitForTaskAsync(TaskId<object?> id, Context context)
     {
@@ -501,22 +496,44 @@ internal static class LiveSettle
         if (record.Kind == Live.CompactionTaskKind)
         {
             var live = await tx.DocAsync(Live.LiveDoc, record.ConversationId).ConfigureAwait(false);
-            Live.RemoveCompactionStatus(live, record.Id);
+            // 只有 abort 处理器会在这里因上限 faulted（内建阶段自己收场）：任务是被中止的，保留那个含义——
+            // 它没有失败，所以不写 compactionFailure。
+            if (CutOffForRestartLimit(outcome)) Live.RemoveCompactionStatus(live, record.Id);
+            else
+            {
+                Live.FailCompactionStatus(
+                    live,
+                    record.Id,
+                    outcome.Status == TaskOutcomeStatus.Faulted
+                        ? outcome.Error?.Message ?? string.Empty
+                        : outcome.Reason ?? string.Empty);
+            }
+
             return;
         }
 
         if (!Live.RunTaskKinds.Contains(record.Kind)) return;
         var runLive = await tx.DocAsync(Live.LiveDoc, record.ConversationId).ConfigureAwait(false);
         if (Live.RunTaskId(runLive) != record.Id) return;
-        await Generation.ConvertPartialAsync(tx, runLive, record.ConversationId).ConfigureAwait(false);
+        // 被切断时，abort 处理器可能正是死在转换 partial 上：这次运行不做转换就收场。
+        var cutOff = CutOffForRestartLimit(outcome);
+        if (!cutOff) await Generation.ConvertPartialAsync(tx, runLive, record.ConversationId).ConfigureAwait(false);
         Live.EndRun(
             tx,
             runLive,
             record.Id,
             outcome.Status == TaskOutcomeStatus.Faulted
-                ? new SubmissionSettlement.Unanswered("faulted", outcome.Error?.Message)
+                ? new SubmissionSettlement.Unanswered(
+                    cutOff ? RunFailureReasons.Aborted : RunFailureReasons.Faulted, outcome.Error?.Message)
                 : new SubmissionSettlement.Unanswered(outcome.Reason ?? "unknown"));
     }
+
+    /// <summary>调度器的 faulted 结局是否因为任务被切断 <c>restartLimit</c> 次。</summary>
+    private static bool CutOffForRestartLimit(SchedulerOutcome outcome)
+        => outcome.Status == TaskOutcomeStatus.Faulted
+            && outcome.Error?.Detail is IReadOnlyDictionary<string, object?> detail
+            && detail.TryGetValue("reason", out var reason)
+            && reason as string == ReportReasons.RestartLimit;
 }
 
 /// <summary>

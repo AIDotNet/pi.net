@@ -69,6 +69,7 @@ public class SchedulerTests
             WriteAtClose = writes => storage.CommitAsync(writes(), static _ => { }),
             Timers = HostTimers.Create(null, reports.Add),
             Report = (error, _) => reports.Add(error),
+            LimitsRestarts = _ => false,
             SettleOutcome = (_, record, outcome) =>
             {
                 settled.Add((record, outcome));

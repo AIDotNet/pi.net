@@ -59,6 +59,13 @@ public sealed record TaskSchedulerOptions
     /// <summary>上报一次不使调用失败的失败，附带说明其来源的 <see cref="ReportInfo"/>。</summary>
     public required Action<Exception, ReportInfo> Report { get; init; }
 
+    /// <summary>
+    /// 被切断 <c>settings.restartLimit</c> 次后由自己的阶段收场（而不是由调度器 faulted）的任务种类：
+    /// 内建任务从 <see cref="TaskRecord.Restarts"/> 自己判断，其他种类一律由调度器 faulted。对应 TS
+    /// <c>TaskSchedulerOptions.limitsRestarts</c>。
+    /// </summary>
+    public required Func<string, bool> LimitsRestarts { get; init; }
+
     /// <summary>使调度器写入的终局落定的 Harness 清理（与终态同一提交）。</summary>
     public required Func<Transaction, TaskRecord, SchedulerOutcome, Task> SettleOutcome { get; init; }
 
@@ -120,6 +127,7 @@ public sealed class TaskScheduler
     private readonly Timers _timers;
     private readonly Action<Exception, ReportInfo> _report;
     private readonly Func<Transaction, TaskRecord, SchedulerOutcome, Task> _settleOutcome;
+    private readonly Func<string, bool> _limitsRestarts;
     private readonly Func<Transaction, ConversationId, Task> _withdrawInputs;
     private readonly Func<ConversationId, InvocationBinding, Context, Task<IConversationHandle?>> _conversation;
     private readonly Context _context;
@@ -161,10 +169,7 @@ public sealed class TaskScheduler
     /// </summary>
     private readonly HashSet<TaskId<object?>> _failFastChecks = [];
 
-    /// <summary>一遍调度作为停放任务略过的任务；每一遍都再检查，因为 <c>settings.restartLimit</c> 可能已上调。</summary>
-    private readonly HashSet<TaskId<object?>> _parkedTasks = [];
-
-    /// <summary>阻塞原因可能已在不提交的情况下改变的监听器：注册表变化、迁移失败、取消停放。</summary>
+    /// <summary>阻塞原因可能已在不提交的情况下改变的监听器：注册表变化、迁移失败。</summary>
     private readonly List<Action> _blockedListeners = [];
 
     /// <summary>崩溃后被放弃（<c>TaskOptions.AbandonOnRestart</c>）的任务：首遍调度只打 <c>restart</c> 标记。</summary>
@@ -218,6 +223,7 @@ public sealed class TaskScheduler
         _timers = options.Timers;
         _report = options.Report;
         _settleOutcome = options.SettleOutcome;
+        _limitsRestarts = options.LimitsRestarts;
         _withdrawInputs = options.WithdrawInputs;
         _conversation = options.Conversation;
         _context = options.Context;
@@ -238,7 +244,9 @@ public sealed class TaskScheduler
 
     // ─── 生命周期 ───────────────────────────────────────────────────────────
 
-    /// <summary>加载存活任务，并把幸存的 <c>running</c> 任务改回 <c>pending</c>。不派发任何工作。</summary>
+    /// <summary>加载存活任务，并把幸存的 <c>running</c> 任务改回 <c>pending</c>。不派发任何工作；被切断
+    /// <c>settings.restartLimit</c> 次的任务在下次被保留时结束。只读时只加载：<c>running</c> 任务保持已提交的
+    /// 样子（它在另一个进程里跑）。</summary>
     public async Task OpenAsync(Context context)
     {
         _session.SubscribeCommits(Observe);
@@ -248,8 +256,6 @@ public sealed class TaskScheduler
             NotifyBlocked();
             Kick();
         });
-        var limit = RestartLimit();
-        var parked = new List<TaskRecord>();
         await _session.CommitWithAsync<object?>(async tx =>
         {
             // 每张表读都在首次写之前。
@@ -277,7 +283,6 @@ public sealed class TaskScheduler
                             State = new TaskState { Status = TaskStatus.Pending, Checkpoint = record.State.Checkpoint },
                             Restarts = restarts,
                         });
-                        if (restarts >= limit && !record.AbortRequested) parked.Add(record);
                     }
 
                     if (record.State is { Status: TaskStatus.Waiting, Policy: JoinPolicy.FailFast })
@@ -290,16 +295,6 @@ public sealed class TaskScheduler
             RefreshEarliestSleep();
             return null;
         }, context).ConfigureAwait(false);
-
-        foreach (var record in parked)
-        {
-            var restarts = (record.Restarts ?? 0) + 1;
-            _report(
-                new InvalidOperationException(
-                    $"Task {record.Id.Value} ({record.Kind}) was cut off {restarts} times without progress; "
-                    + "it is parked until retryTask()"),
-                new ReportInfo.TaskParked(ReportTaskOf(record), InstallerOf(record)));
-        }
 
         if (_readOnly) return;
         // 补派崩溃遗留的、低于已取消属主的 abort 标记，并终结保持的结果。
@@ -372,8 +367,6 @@ public sealed class TaskScheduler
 
             // 尚未到点的睡眠：它的定时器会唤醒，本身不算“现在能跑”。
             if (NotDue(record)) continue;
-            // 停放的任务不需要进程：它要等 retry() 或上调的上限。
-            if (Parked(record)) continue;
             // abort 调用等待其下的存活工作，那份工作会自己计入。
             if (record.AbortRequested && OwnedLiveBelow(record.Id).Count > 0) continue;
             // 没有定义能接手的任务在等注册表变化，带 abort 标记的除外（它会被 orphaned）。
@@ -500,23 +493,6 @@ public sealed class TaskScheduler
         }
 
         return result;
-    }
-
-    /// <summary>
-    /// 重跑被重启上限停放的任务：清除其重启计数并启用调度。未停放的任务什么也不做；未知任务拒绝。
-    /// </summary>
-    public async Task RetryAsync(TaskId<object?> id, Context context)
-    {
-        await _session.CommitWithAsync<object?>(async tx =>
-        {
-            var current = await tx.GetTaskAsync(id).ConfigureAwait(false);
-            if (current is null) throw new InvalidOperationException($"Task {id.Value} does not exist");
-            var status = current.State.Status;
-            if (status is TaskStatus.Terminal or TaskStatus.Completing || !Parked(current)) return null;
-            tx.SetTask(Progressed(current));
-            return null;
-        }, context).ConfigureAwait(false);
-        Resume();
     }
 
     /// <summary>以终态回执完成；检查与注册同在线上，使终态发布不落在两者之间。</summary>
@@ -1451,10 +1427,6 @@ public sealed class TaskScheduler
     /// </summary>
     private void WakeDue() => Kick();
 
-    /// <summary>连续被切断 <c>restartLimit</c> 次的任务；带 abort 标记的任务仍运行其 abort 处理器。</summary>
-    private bool Parked(TaskRecord record)
-        => !record.AbortRequested && record.Restarts is { } restarts && restarts >= RestartLimit();
-
     /// <summary><c>settings.restartLimit</c>；宿主的设置抛出时用缺省值。</summary>
     private int RestartLimit()
     {
@@ -1467,22 +1439,6 @@ public sealed class TaskScheduler
             _report(error, SettingsError);
             return AgentDocs.DefaultRestartLimit;
         }
-    }
-
-    /// <summary>让上调的 <c>settings.restartLimit</c> 不再停放的任务重新成为候选，并告知任务图。</summary>
-    private void UnparkRaised()
-    {
-        var unparked = false;
-        foreach (var id in _parkedTasks.ToArray())
-        {
-            var record = _live.GetValueOrDefault(id);
-            if (record is not null && Parked(record)) continue;
-            _parkedTasks.Remove(id);
-            if (record is null) continue;
-            unparked = true;
-        }
-
-        if (unparked) _ = Task.Run(NotifyBlocked);
     }
 
     /// <summary>告知每个阻塞原因监听器；一个监听器抛出被上报，其余仍运行。</summary>
@@ -1517,16 +1473,15 @@ public sealed class TaskScheduler
     }
 
     /// <summary>
-    /// 存活任务在这里不能运行的原因（若有）：其定义（缺失、过旧、迁移失败）或重启上限。运行中、持有结局、
-    /// 以及带 abort 请求标记的任务从不阻塞：中止请求会运行其处理器或将任务 orphaned；带 <c>restart</c> 标记的
-    /// 任务等待其定义，因此算阻塞。对应 TS <c>blockedReason()</c>。
+    /// 存活任务在这里不能运行的原因（若有）：其定义缺失、过旧或迁移失败。运行中、持有结局、以及带 abort 请求
+    /// 标记的任务从不阻塞：中止请求会运行其处理器或将任务 orphaned；带 <c>restart</c> 标记的任务等待其定义，
+    /// 因此算阻塞。对应 TS <c>blockedReason()</c>。
     /// </summary>
     public string? BlockedReasonOf(TaskRecord record)
     {
         var status = record.State.Status;
         if (status is TaskStatus.Running or TaskStatus.Completing or TaskStatus.Terminal) return null;
         if (record.AbortRequested && record.AbortReason is null) return null;
-        if (Parked(record)) return "restart_limit";
         IRegistrySnapshot snapshot;
         try
         {
@@ -1580,8 +1535,6 @@ public sealed class TaskScheduler
                 }
 
                 await LoadScopesAsync(false).ConfigureAwait(false);
-                // 任一遍都可能在上调上限后第一次运行停放的任务：每一遍先取消不再成立的停放。
-                UnparkRaised();
                 // 向下索引每遍建一次：单条记录的「名下自有工作」只走它自己的子树。
                 var children = BuildChildren();
                 // 每遍取一次，且仅当有任务是候选时。
@@ -1598,20 +1551,18 @@ public sealed class TaskScheduler
                     if (record.State.Status == TaskStatus.Completing) continue;
                     // 到点才回到候选：由睡眠定时器或 Resume() 的 WakeDue() 重新发起一遍。
                     if (NotDue(record)) continue;
-                    // 取消停放（retry()）或 settings.restartLimit 上调后的某一遍才重新成为候选。
-                    if (Parked(record))
-                    {
-                        // 没有提交就新停放（例如上限被下调）：任务图必须听到。
-                        if (_parkedTasks.Add(record.Id)) _ = Task.Run(NotifyBlocked);
-                        continue;
-                    }
 
                     var mode = record.AbortRequested ? "abort" : "run";
-                    // abort 处理器连续被切断 restartLimit 次会永远运行下去；没有东西能再停放它。
-                    if (mode == "abort" && (record.Restarts ?? 0) >= RestartLimit())
+                    // 连续被切断 restartLimit 次的工作会永远运行下去：abort 处理器，以及不由自己收场的种类的阶段，
+                    // 都以 faulted 结束。设置只对至少被切断过一次的任务读取。
+                    var cutOff = record.Restarts is { } cutOffRestarts && cutOffRestarts >= RestartLimit();
+                    if (cutOff && (mode == "abort" || !_limitsRestarts(record.Kind)))
                     {
-                        var message = $"Abort handler of task {record.Id.Value} ({record.Kind}) was cut off "
-                            + $"{record.Restarts} times";
+                        var message = mode == "abort"
+                            ? $"Abort handler of task {record.Id.Value} ({record.Kind}) was cut off "
+                                + $"{record.Restarts} times"
+                            : $"Task {record.Id.Value} ({record.Kind}) was cut off {record.Restarts} times "
+                                + "without progress";
                         await TerminateAsync(tx, record, SchedulerOutcome.Faulted(
                             message, new Dictionary<string, object?> { ["reason"] = "restart_limit" }))
                             .ConfigureAwait(false);
@@ -1765,7 +1716,6 @@ public sealed class TaskScheduler
         var on = WaitingOn(record, record.AbortRequested ? OwnedLiveBelow(record.Id, null, children) : []);
         if (on.Count > 0) return new TaskInspection.Waiting(on) { Record = record };
         if (NotDue(record)) return new TaskInspection.Sleeping(record.State.Until ?? 0) { Record = record };
-        if (Parked(record)) return new TaskInspection.Blocked("restart_limit") { Record = record };
         var fit = FitOf(record, snapshot.Task(record.Kind));
         if (fit is Fit.No no) return new TaskInspection.Blocked(no.Reason, no.Error) { Record = record };
         var fits = (Fit.Fits)fit;
@@ -2322,17 +2272,35 @@ public sealed class TaskScheduler
         public Task<IExecutionEnv?> EnvAsync(Context context)
             => scheduler.ReadAsync(invocation, () => scheduler._env(invocation.ConversationId, context));
 
-        public Task CommitAsync(Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context)
-            => scheduler.GatedAsync<object?>(invocation, async (tx, current) =>
+        public async Task CommitAsync(Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context)
+        {
+            (TaskOutcomeError Error, string Reason, int Restarts)? interrupted = null;
+            await scheduler.GatedAsync<object?>(invocation, async (tx, current) =>
             {
                 var next = await change(tx, current).ConfigureAwait(false);
                 if (next is not null)
                 {
                     await scheduler.CommitStateAsync(tx, invocation, current, next).ConfigureAwait(false);
+                    // 因崩溃收场的任务要说出来（task_interrupted），宿主才有崩溃循环的信号。
+                    if (next is { Status: TaskStatus.Terminal, Outcome: { Status: TaskOutcomeStatus.Failed } settled }
+                        && settled.Error is { } error
+                        && InterruptionOf(error) is { } reason)
+                    {
+                        interrupted = (error, reason, current.Restarts ?? 0);
+                    }
                 }
 
                 return null;
-            }, context);
+            }, context).ConfigureAwait(false);
+
+            if (interrupted is { } report)
+            {
+                scheduler._report(
+                    new InvalidOperationException(report.Error.Message),
+                    new ReportInfo.TaskInterrupted(
+                        ReportTaskOf(invocation), report.Reason, report.Restarts, invocation.Extension));
+            }
+        }
 
         public Task<TaskId<object?>> CreateTaskAsync(
             AnyDurableTask task, object? input, TaskOptions options, Context context)
@@ -2791,6 +2759,16 @@ public sealed class TaskScheduler
         Kind = record.Kind,
         ConversationId = record.ConversationId,
     };
+
+    /// <summary>失败结局的 <c>detail.reason</c> 表明崩溃结束了任务时给出它（否则 null）。</summary>
+    private static string? InterruptionOf(TaskOutcomeError error)
+    {
+        if (error.Detail is not IReadOnlyDictionary<string, object?> detail) return null;
+        return detail.TryGetValue("reason", out var reason)
+            && reason as string is ReportReasons.RestartLimit or RunFailureReasons.Interrupted
+                ? (string)reason
+                : null;
+    }
 
     /// <summary>上报所指的任务，按其调用的身份。对应 TS <c>reportTask(invocation)</c>。</summary>
     private static ReportTask ReportTaskOf(Invocation invocation) => new()

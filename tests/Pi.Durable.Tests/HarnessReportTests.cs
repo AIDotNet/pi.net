@@ -134,13 +134,13 @@ public class HarnessReportTests
             })),
         ]);
 
-    // ─── 停放、迁移失败与过旧定义 ──────────────────────────────────────────
+    // ─── 重启上限、迁移失败与过旧定义 ──────────────────────────────────────
 
     [Fact]
-    public async Task ReportsAParkedTaskWithItsExtension()
+    public async Task ReportsATaskOfAnExtensionKindFaultedAtTheRestartLimitWithItsExtension()
     {
         var started = new HarnessTestSupport.Deferred<object?>();
-        var definition = HarnessTestSupport.DefineTask("test.parked", 1,
+        var definition = HarnessTestSupport.DefineTask("test.cut-off", 1,
         [
             ("run", (TaskPhaseHandler)(async (_, _, context) =>
             {
@@ -155,17 +155,19 @@ public class HarnessReportTests
         opened.Harness.Resume();
         await started.Task;
 
-        // 不关闭即“崩溃”：记录留在 running，下一次打开按被切断计。
+        // 不关闭即“崩溃”：记录留在 running，下一次打开按被切断计；保留时它到限，于是 faulted。
         var second = await OpenAsync([("test", [AnyDurableTask.From(definition)])], storage.Reopen(), settings);
         await using var _ = new Closer(second.Harness);
+        second.Harness.Resume();
         await HarnessTestSupport.WaitForAsync(
-            () => second.Reports.Any(report => report.Info is ReportInfo.TaskParked));
-        var parked = second.Reports.First(report => report.Info is ReportInfo.TaskParked);
-        Assert.Contains("is parked until retryTask()", parked.Message);
+            () => second.Reports.Any(report => report.Info is ReportInfo.TaskFaulted));
+        var faulted = second.Reports.First(report => report.Info is ReportInfo.TaskFaulted);
+        Assert.Contains("was cut off 1 times without progress", faulted.Message);
         Assert.Equal(
-            new ReportInfo.TaskParked(
-                new ReportTask { Id = id, Kind = "test.parked", ConversationId = conversationId }, "test"),
-            parked.Info);
+            new ReportInfo.TaskFaulted(
+                new ReportTask { Id = id, Kind = "test.cut-off", ConversationId = conversationId },
+                ReportReasons.RestartLimit, "test"),
+            faulted.Info);
     }
 
     [Fact]

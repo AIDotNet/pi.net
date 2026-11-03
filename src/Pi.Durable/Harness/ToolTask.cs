@@ -122,6 +122,12 @@ public static partial class ToolTask
     private static async Task CallPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var call = await ReadCallAsync(runtime, task, context).ConfigureAwait(false);
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await EndCutOffAsync(runtime, task, call, context).ConfigureAwait(false);
+            return;
+        }
+
         var input = ToolTaskInput.FromJson(
             task.Input as JsonDict ?? throw new InvalidOperationException("pi.tool input must be a JSON object"));
         var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
@@ -199,6 +205,12 @@ public static partial class ToolTask
         var tool = agent.Tools.FirstOrDefault(each => each.Name == call.Name);
         if (intent.Replay == "safe" && tool?.Replay == "safe")
         {
+            if (Live.CutOffTooOften(task, runtime))
+            {
+                await EndCutOffAsync(runtime, task, call, context).ConfigureAwait(false);
+                return;
+            }
+
             // 重跑从头上报；清除被打断的尝试已发布的内容。
             await runtime.CommitAsync(async (tx, _) =>
             {
@@ -214,7 +226,6 @@ public static partial class ToolTask
         var message = $"Tool {call.Name} was interrupted and may have partially run";
         // failed 记录取消意图，因此该调用拥有的对话在无人监督时被中止。
         var ending = new Ending(TaskOutcomeStatus.Failed, message);
-        // 上游把「被打断太多次」的检查放在解析工具之前；端口的工具重启计数尚未移植，钩子总是跑。
         await SettleFromSlotAsync(
             runtime, call, agent.Tools.FirstOrDefault(each => each.Name == call.Name),
             ending, "interrupted", message, context).ConfigureAwait(false);
@@ -559,9 +570,28 @@ public static partial class ToolTask
     }
 
     /// <summary>
-    /// 结算一个由槽拼出来的错误结果（被打断、重启上限、中止）。工具没在运行，所以提交之前读到的槽在提交时仍然
-    /// 是最新的。有工具时结果过一遍 <c>afterTool</c> 并按其输出上限有界化；没有时（端口场景：无工具重启计数）
-    /// 按拼好的原样结算。对应 TS <c>settleFromSlot()</c>。
+    /// 结束一个被连续切断 <c>settings.restartLimit</c> 次的调用（spec §5.4）：像被打断的调用那样由槽拼出错误结果，
+    /// 但不再跑它。与被打断一样是 <c>failed</c>，因此它拥有的工作会被中止。结果不过 <c>afterTool</c>：工具没有
+    /// 运行，跑钩子可能正是切断它的原因。对应 TS <c>endCutOff()</c>。
+    /// </summary>
+    private static async Task EndCutOffAsync(
+        ITaskRuntime runtime, TaskRecord task, ToolCallContent call, Context context)
+    {
+        var message = $"Tool {call.Name} was interrupted {Live.CutOffCount(task)}; it is not run again";
+        var ending = new Ending(TaskOutcomeStatus.Failed, message, ReportReasons.RestartLimit);
+        await SettleAsync(
+            runtime, call, ending,
+            slot =>
+            {
+                var (built, _) = FromSlot(slot, ReportReasons.RestartLimit, message);
+                return built;
+            },
+            context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 结算一个由槽拼出来的错误结果（被打断、中止）。工具没在运行，所以提交之前读到的槽在提交时仍然是最新的。
+    /// 结果过一遍 <c>afterTool</c> 并按其输出上限有界化。对应 TS <c>settleFromSlot()</c>。
     /// </summary>
     private static async Task SettleFromSlotAsync(
         ITaskRuntime runtime, ToolCallContent call, IToolRegistration? tool,
@@ -654,7 +684,14 @@ public static partial class ToolTask
                     Outcome = new TaskOutcome
                     {
                         Status = TaskOutcomeStatus.Failed,
-                        Error = new TaskOutcomeError { Message = ending.Message! },
+                        Error = new TaskOutcomeError
+                        {
+                            Message = ending.Message!,
+                            // 收场原因（被切断到上限）给宿主看的细节；普通失败不带。
+                            Detail = ending.Reason is null
+                                ? null
+                                : new Dictionary<string, object?> { ["reason"] = ending.Reason },
+                        },
                         Result = resultJson,
                     },
                 };
@@ -684,7 +721,7 @@ public static partial class ToolTask
     /// 工具任务如何结束；两种情况都会追加结果条目。failed（执行抛出或被打断）为该调用拥有的对话记录
     /// 取消意图；带 isError 的结果仍然完成。对应 TS <c>Ending</c>。
     /// </summary>
-    private sealed record Ending(TaskOutcomeStatus Status, string? Message = null);
+    private sealed record Ending(TaskOutcomeStatus Status, string? Message = null, string? Reason = null);
 
     private static readonly Ending Completed = new(TaskOutcomeStatus.Completed);
 

@@ -204,6 +204,12 @@ public static partial class Compaction
 
     private static async Task SelectPhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await FailCutOffAsync(runtime, task, context).ConfigureAwait(false);
+            return;
+        }
+
         var conversationId = runtime.ConversationId;
         var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
         var settings = runtime.Settings;
@@ -273,6 +279,12 @@ public static partial class Compaction
 
     private static async Task SummarizePhaseAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await FailCutOffAsync(runtime, task, context).ConfigureAwait(false);
+            return;
+        }
+
         var request = ReadCheckpoint(task) as CompactionCheckpoint.Summarize
             ?? throw new InvalidOperationException("pi.compaction summarize phase requires a summarize checkpoint");
         var model = runtime.Models.GetModel(request.Model.Provider, request.Model.ModelId);
@@ -348,8 +360,8 @@ public static partial class Compaction
                 };
             }
 
-            Live.RemoveCompactionStatus(live, runtime.TaskId);
             var text = SummaryFailure(message);
+            Live.FailCompactionStatus(live, runtime.TaskId, text);
             return new TaskState
             {
                 Status = TaskStatus.Terminal,
@@ -367,6 +379,12 @@ public static partial class Compaction
     {
         var checkpoint = ReadCheckpoint(task) as CompactionCheckpoint.RetryPhase
             ?? throw new InvalidOperationException("pi.compaction retry phase requires a retry checkpoint");
+        if (Live.CutOffTooOften(task, runtime))
+        {
+            await FailCutOffAsync(runtime, task, context).ConfigureAwait(false);
+            return;
+        }
+
         if (checkpoint.Until > runtime.Now())
         {
             await runtime.SleepUntilAsync(checkpoint.Until, task.State.Checkpoint, context).ConfigureAwait(false);
@@ -467,6 +485,8 @@ public static partial class Compaction
         Transaction tx, ITaskRuntime runtime, TaskRecord current, TxDocChange live, EntryId firstKept, string summary)
     {
         Live.RemoveCompactionStatus(live, runtime.TaskId);
+        // 产出了摘要的压缩清掉上一次的失败：客户端不必再显示它。
+        Live.DeleteCompactionFailure(live);
         var text = $"{SummaryPrefix}{summary}{SummarySuffix}";
         var reason = ReadInput(current).Reason;
         var entry = new EntryDraft
@@ -512,6 +532,33 @@ public static partial class Compaction
         }, context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 让一个被连续切断 <c>settings.restartLimit</c> 次的压缩失败（spec §5.4），而不是再跑它：失败写进
+    /// <c>pi.live.compactionFailure</c>。对应 TS <c>failCutOff()</c>。
+    /// </summary>
+    private static async Task FailCutOffAsync(ITaskRuntime runtime, TaskRecord task, Context context)
+    {
+        var message = $"Compaction was interrupted {Live.CutOffCount(task)}";
+        await runtime.CommitAsync(async (tx, _) =>
+        {
+            var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
+            Live.FailCompactionStatus(live, runtime.TaskId, message);
+            return new TaskState
+            {
+                Status = TaskStatus.Terminal,
+                Outcome = new TaskOutcome
+                {
+                    Status = TaskOutcomeStatus.Failed,
+                    Error = new TaskOutcomeError
+                    {
+                        Message = message,
+                        Detail = new Dictionary<string, object?> { ["reason"] = ReportReasons.RestartLimit },
+                    },
+                },
+            };
+        }, context).ConfigureAwait(false);
+    }
+
     private static async Task FailNoModelAsync(ITaskRuntime runtime, ModelRef? reference, Context context)
     {
         var message = reference is null
@@ -520,7 +567,7 @@ public static partial class Compaction
         await runtime.CommitAsync(async (tx, _) =>
         {
             var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
-            Live.RemoveCompactionStatus(live, runtime.TaskId);
+            Live.FailCompactionStatus(live, runtime.TaskId, message);
             return new TaskState
             {
                 Status = TaskStatus.Terminal,

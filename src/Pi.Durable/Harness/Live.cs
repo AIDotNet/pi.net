@@ -109,10 +109,40 @@ public sealed record ToolSlot
     }
 }
 
+/// <summary>
+/// 一次运行没有回答就结束的原因（<c>pi.live.runFailure.reason</c>）。对应 TS <c>RunFailureReason</c>。
+/// </summary>
+public static class RunFailureReasons
+{
+    /// <summary>模型的应答失败了（已重试过），或一次请求需要的压缩失败了。</summary>
+    public const string ModelError = "model_error";
+
+    /// <summary>没有配置模型，或配置的模型不可用。</summary>
+    public const string NoModel = "no_model";
+
+    /// <summary>运行被中止；<c>detail</c> 说明其 abort 处理器是否被切断 <c>settings.restartLimit</c> 次而没完成。</summary>
+    public const string Aborted = "aborted";
+
+    /// <summary>一次排队的 reset 在 postTools 边界起了新上下文，还没回答。</summary>
+    public const string Reset = "reset";
+
+    /// <summary>运行的任务在无法恢复处抛出，或存储拒绝了它的提交。</summary>
+    public const string Faulted = "faulted";
+
+    /// <summary>运行的任务被中止时，没有注册的定义能接手它。</summary>
+    public const string Orphaned = "orphaned";
+
+    /// <summary>宿主在模型回答期间停止，次数超过 <c>settings.retry</c> 的重试。</summary>
+    public const string Interrupted = "interrupted";
+
+    /// <summary>运行的生成被连续切断 <c>settings.restartLimit</c> 次；请求或轮询途中的切断先算一次失败尝试，
+    /// 因此它结束的是「这次记账本身反复失败」的那种。</summary>
+    public const string RestartLimit = "restart_limit";
+}
+
 /// <summary>一个活跃压缩任务的呈现（spec §8.7）。对应 TS <c>CompactionStatus</c>。</summary>
 public sealed record CompactionStatus
-{
-    public required TaskId<object?> TaskId { get; init; }
+{    public required TaskId<object?> TaskId { get; init; }
 
     public required CompactionReason Reason { get; init; }
 
@@ -179,6 +209,32 @@ public static class Live
 
     public const string CompactionTaskKind = "pi.compaction";
 
+    /// <summary>
+    /// 被切断 <c>settings.restartLimit</c> 次后自己收场（<see cref="TaskRecord.Restarts"/>）的内建任务种类；
+    /// 其他种类的任务由调度器 faulted（spec §5.4）。对应 TS <c>LIMITS_RESTARTS</c>。
+    /// </summary>
+    public static readonly IReadOnlySet<string> LimitsRestarts =
+        new HashSet<string>(StringComparer.Ordinal) { "pi.generation", ToolTaskKind, CompactionTaskKind };
+
+    /// <summary>任务是否已被连续切断 <c>settings.restartLimit</c> 次，其阶段应当收场而不是再跑。</summary>
+    public static bool CutOffTooOften(TaskRecord task, ITaskRuntime runtime)
+        // 设置只对至少被切断过一次的任务读取，正常路径不多解析任何东西。
+        => task.Restarts is { } restarts && restarts >= runtime.Settings.RestartLimit;
+
+    /// <summary>
+    /// 到达上限的任务是否还能做它收场时的清理（例如把 partial 转成 aborted 条目）：只在到达上限时。超过上限后，
+    /// 那次清理本身可能就是切断它的原因，于是不做清理直接收场。对应 TS <c>salvageable()</c>。
+    /// </summary>
+    public static bool Salvageable(TaskRecord task, ITaskRuntime runtime)
+        => (task.Restarts ?? 0) <= runtime.Settings.RestartLimit;
+
+    /// <summary>任务被切断了几次，供消息使用：<c>once</c> 或 <c>3 times in a row</c>。</summary>
+    public static string CutOffCount(TaskRecord task)
+    {
+        var restarts = task.Restarts ?? 0;
+        return restarts == 1 ? "once" : $"{restarts} times in a row";
+    }
+
     public static readonly DocToken<Dictionary<string, object?>> LiveDoc =
         DurableDocuments.DefineDoc(new DocDefinition<Dictionary<string, object?>>
         {
@@ -204,6 +260,7 @@ public static class Live
     private static readonly Path RunFailurePath = Path.Root.Append(Seg.Key("runFailure"));
     private static readonly Path ToolsPath = Path.Root.Append(Seg.Key("tools"));
     private static readonly Path CompactionsPath = Path.Root.Append(Seg.Key("compactions"));
+    private static readonly Path CompactionFailurePath = Path.Root.Append(Seg.Key("compactionFailure"));
 
     // ─── 运行控制 ───────────────────────────────────────────────────────────
 
@@ -439,6 +496,26 @@ public static class Live
         if (list.Count == 1) live.Delete(CompactionsPath);
         else live.Splice(CompactionsPath, index, 1, []);
     }
+
+    /// <summary>
+    /// 移除压缩任务 <paramref name="taskId"/> 的状态，并记下它失败了：最新的压缩失败留在
+    /// <c>pi.live.compactionFailure</c>，供客户端在任务结束后显示。对应 TS <c>failCompactionStatus()</c>。
+    /// </summary>
+    public static void FailCompactionStatus(TxDocChange live, TaskId<object?> taskId, string error)
+    {
+        var status = FindCompactionStatus(live, taskId);
+        if (status is null) return;
+        live.Set(CompactionFailurePath, new Dictionary<string, object?>
+        {
+            ["taskId"] = status.TaskId.Value,
+            ["trigger"] = status.Reason.ToString().ToLowerInvariant(),
+            ["error"] = error,
+        });
+        RemoveCompactionStatus(live, taskId);
+    }
+
+    /// <summary>清掉 <c>compactionFailure</c>：产出了摘要的压缩清掉它。对应 TS <c>delete live.compactionFailure</c>。</summary>
+    public static void DeleteCompactionFailure(TxDocChange live) => live.Delete(CompactionFailurePath);
 
     /// <summary>以整体 Set 写回压缩状态（TS 的字段原地变异在 C# 用显式写回表达）。</summary>
     public static void ReplaceCompactionStatus(TxDocChange live, CompactionStatus status)

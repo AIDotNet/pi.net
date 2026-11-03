@@ -17,9 +17,10 @@ using TaskKind = Pi.Durable.Types.DurableTask<
     System.Collections.Generic.IReadOnlyDictionary<string, object?>>;
 
 /// <summary>
-/// 1.4.0 的 crash-loop guard：任务在运行中被崩溃连续切断，达到 <c>settings.restartLimit</c> 后停放为
-/// blocked（<c>restart_limit</c>），由 <c>Harness.RetryTaskAsync()</c> 或上调的上限放行；close 不算崩溃。
-/// 对应 TS <c>test/harness-blocked.test.ts</c> 的 "tasks that cannot run" 一组。
+/// 崩溃循环：任务在运行中被崩溃连续切断，达到 <c>settings.restartLimit</c> 后结束——内建任务自己可见地收场
+/// （<c>tool</c> 的错误结果、<c>compactionFailure</c>、<c>runFailure</c>），扩展自有的种类由调度器 faulted；
+/// 不存在停放与 retryTask。close 不算崩溃。对应 TS <c>test/harness-blocked.test.ts</c> 与
+/// <c>test/harness-restart-failure.test.ts</c>。
 /// </summary>
 public class HarnessRestartTests
 {
@@ -28,7 +29,7 @@ public class HarnessRestartTests
     // ─── 停放、显示原因、retryTask 重跑 ─────────────────────────────────────
 
     [Fact]
-    public async Task ParksATaskCutOffRestartLimitTimesShowsWhyAndRunsItAgainOnRetry()
+    public async Task FaultsATaskOfAnExtensionKindCutOffRestartLimitTimes()
     {
         var loop = new CrashLoop();
         var settings = new MutableSettings(restartLimit: 3);
@@ -46,34 +47,25 @@ public class HarnessRestartTests
         }
 
         var harness = opened.Harness;
-        var parked = (await harness.GetTaskAsync(id, Ctx))!;
-        Assert.Equal(3, parked.Restarts);
-        Assert.Equal(TaskStatus.Pending, parked.State.Status);
-        Assert.Contains(opened.Reports, report => report.Message.Contains("was cut off 3 times"));
+        var pending = (await harness.GetTaskAsync(id, Ctx))!;
+        Assert.Equal(3, pending.Restarts);
+        Assert.Equal(TaskStatus.Pending, pending.State.Status);
 
-        var inspection = await harness.InspectAsync(Ctx);
-        var blocked = Assert.IsType<TaskInspection.Blocked>(
-            Assert.Single(inspection.Tasks, entry => entry.Record.Id == id));
-        Assert.Equal("restart_limit", blocked.Reason);
-
-        // 已启动的 watch 保持其值为最新修订。
-        var graph = await harness.WatchTaskGraphAsync(Ctx);
-        graph.Start((_, _, _) => Task.CompletedTask);
-        Assert.Equal("restart_limit", TaskGraphReader.Node(graph.Value, Key(id))!.Blocked);
-
-        // 停放的工作不需要进程。
-        await HarnessTestSupport.WaitForAsync(() => !harness.Wake().Active);
+        // 扩展自有的种类不由自己收场：调度器在它下次被保留时把它 faulted，而不是停放。
         harness.Resume();
-        // 一遍调度在若干轮次内运行；它略过停放的任务。
-        for (var turn = 0; turn < 5; turn++) await HarnessTestSupport.FlushAsync();
-        Assert.Equal(3, loop.Started);
-
-        loop.Crashing = false;
-        await harness.RetryTaskAsync(id, Ctx);
         var settled = await harness.WaitForTaskAsync(id, Ctx);
-        Assert.Equal(TaskOutcomeStatus.Completed, settled.State.Outcome!.Status);
-        Assert.Equal(4, loop.Started);
-        await graph.Stop();
+        Assert.Equal(TaskOutcomeStatus.Faulted, settled.State.Outcome!.Status);
+        var detail = Assert.IsAssignableFrom<JsonDict>(settled.State.Outcome!.Error!.Detail);
+        Assert.Equal("restart_limit", detail["reason"]);
+        await HarnessTestSupport.WaitForAsync(() => opened.Reports
+            .Exists(report => report.Message.Contains("was cut off 3 times without progress")));
+
+        // 没有了停放：阻塞原因里不再有 restart_limit。
+        var inspection = await harness.InspectAsync(Ctx);
+        Assert.DoesNotContain(
+            inspection.Tasks,
+            entry => entry is TaskInspection.Blocked blocked && blocked.Reason == "restart_limit");
+        Assert.Equal(3, loop.Started);
         await harness.CloseAsync(Ctx);
     }
 
@@ -155,7 +147,7 @@ public class HarnessRestartTests
     // ─── 上限上调与进展清零 ────────────────────────────────────────────────
 
     [Fact]
-    public async Task RunsAParkedTaskOnceARaisedRestartLimitNoLongerParksIt()
+    public async Task RunsItOnceTheRestartLimitIsRaisedBeforeItIsReserved()
     {
         var loop = new CrashLoop();
         var settings = new MutableSettings(restartLimit: 1);
@@ -166,22 +158,15 @@ public class HarnessRestartTests
         await HarnessTestSupport.WaitForAsync(() => loop.Started == 1);
         opened = await OpenAsync(storage.Reopen(), [loop.Definition], settings);
         var harness = opened.Harness;
+        Assert.Equal(1, (await harness.GetTaskAsync(id, Ctx))!.Restarts);
 
-        var graph = await harness.WatchTaskGraphAsync(Ctx);
-        graph.Start((_, _, _) => Task.CompletedTask);
-        harness.Resume();
-        await HarnessTestSupport.WaitForAsync(
-            () => TaskGraphReader.Node(graph.Value, Key(id))?.Blocked == "restart_limit");
-        // 让一遍调度略过停放的任务。
-        for (var turn = 0; turn < 5; turn++) await HarnessTestSupport.FlushAsync();
-        loop.Crashing = false;
-        // 宿主的活设置变了；下一遍就运行它。
+        // 宿主的活设置变了：上调的限在它下次被保留前生效，于是它照常运行。
         settings.RestartLimit = int.MaxValue;
+        loop.Crashing = false;
         harness.Resume();
         var settled = await harness.WaitForTaskAsync(id, Ctx);
         Assert.Equal(TaskOutcomeStatus.Completed, settled.State.Outcome!.Status);
         Assert.Equal(2, loop.Started);
-        await graph.Stop();
         await harness.CloseAsync(Ctx);
     }
 
@@ -287,17 +272,18 @@ public class HarnessRestartTests
         }
 
         Assert.Equal(2, (await harness.GetTaskAsync(id, Ctx))!.Restarts);
-        var inspection = await harness.InspectAsync(Ctx);
-        var blocked = Assert.IsType<TaskInspection.Blocked>(
-            Assert.Single(inspection.Tasks, entry => entry.Record.Id == id));
-        Assert.Equal("restart_limit", blocked.Reason);
+        harness.Resume();
+        var settled = await harness.WaitForTaskAsync(id, Ctx);
+        Assert.Equal(TaskOutcomeStatus.Faulted, settled.State.Outcome!.Status);
+        var detail = Assert.IsAssignableFrom<JsonDict>(settled.State.Outcome!.Error!.Detail);
+        Assert.Equal("restart_limit", detail["reason"]);
         await harness.CloseAsync(Ctx);
     }
 
     // ─── 阻塞原因与注册表 ──────────────────────────────────────────────────
 
     [Fact]
-    public async Task StillRunsTheAbortHandlerOfAParkedTask()
+    public async Task StillRunsTheAbortHandlerOfATaskBelowTheLimit()
     {
         var loop = new CrashLoop();
         var aborted = new List<TaskId<object?>>();
@@ -322,7 +308,8 @@ public class HarnessRestartTests
                 }),
             },
         };
-        var settings = new MutableSettings(restartLimit: 1);
+        // 上限是 2：被切断一次之后，abort 处理器仍会跑（到限的那次不跑，直接 faulted）。
+        var settings = new MutableSettings(restartLimit: 2);
         var storage = new MemoryStorage();
         var opened = await OpenAsync(storage, [withAbort], settings);
         var id = await CreateAsync(opened.Harness, withAbort);

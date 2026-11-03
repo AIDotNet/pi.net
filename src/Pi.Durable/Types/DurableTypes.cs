@@ -700,8 +700,8 @@ public sealed record TaskRecord
 
     /// <summary>
     /// 崩溃、驱逐或重置在任务运行期间连续切断了它多少次（任务自那以后没有改变状态）；
-    /// 由 open 计数，close 不计。达到 <see cref="HarnessSettings.RestartLimit"/> 时任务作为
-    /// blocked（<c>restart_limit</c>）停放，直到 <c>Harness.RetryTaskAsync()</c> 或 <c>settings.restartLimit</c> 上调。
+    /// 由 open 计数，close 不计。达到 <see cref="HarnessSettings.RestartLimit"/> 时任务结束（内建任务自己可见地收场，
+    /// 调度器把其他种类 faulted），生成还会读它来把一次被切断的模型请求记作一次失败尝试。
     /// 对应 TS <c>TaskRecordBase.restarts</c>。
     /// </summary>
     public int? Restarts { get; init; }

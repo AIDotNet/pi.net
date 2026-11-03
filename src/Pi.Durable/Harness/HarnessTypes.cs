@@ -816,11 +816,17 @@ public abstract record ReportInfo
     /// <summary>错误使 Session 失败并关闭：Storage 错误，通常是平台重置。</summary>
     public sealed record SessionFailed : ReportInfo;
 
-    /// <summary>任务以 <c>faulted</c> 结束：阶段抛出，或 abort 处理器被切断 <c>restartLimit</c> 次。</summary>
+    /// <summary>任务以 <c>faulted</c> 结束：阶段抛出，或它的 abort 处理器（或扩展自有种类的阶段）被切断
+    /// <c>restartLimit</c> 次。</summary>
     public sealed record TaskFaulted(ReportTask Task, string Reason, string? Extension = null) : ReportInfo;
 
-    /// <summary>重启上限把任务停放到 <c>RetryTaskAsync()</c>。</summary>
-    public sealed record TaskParked(ReportTask Task, string? Extension = null) : ReportInfo;
+    /// <summary>
+    /// 崩溃结束了任务：内建任务（工具调用、压缩、生成）在被连续打断 <c>settings.restartLimit</c> 次后自己收场
+    /// （<c>restart_limit</c>），或一次运行因宿主在模型回答期间反复停止而以 <c>interrupted</c> 结束。
+    /// <paramref name="Restarts"/> 是它收场时的重启计数。对应 TS <c>task_interrupted</c>。
+    /// </summary>
+    public sealed record TaskInterrupted(ReportTask Task, string Reason, int Restarts, string? Extension = null)
+        : ReportInfo;
 
     /// <summary>任务的存储状态无法迁移；它在注册表变化前一直阻塞。</summary>
     public sealed record MigrationFailed(ReportTask Task, string? Extension = null) : ReportInfo;
@@ -899,9 +905,11 @@ public sealed record HarnessSettings
     public AfterFailedRun? AfterFailedRun { get; init; }
 
     /// <summary>
-    /// 一个任务连续被崩溃、驱逐或重置切断多少次后停放而不再重跑（关闭不计）；停放的任务显示为
-    /// blocked（<c>restart_limit</c>），直到 <c>Harness.RetryTaskAsync()</c> 让它再跑。默认 5；
-    /// <see cref="int.MaxValue"/> 表示从不停放（对应 TS 的 <c>Infinity</c>）。
+    /// 一个任务连续被崩溃、驱逐或重置切断多少次（关闭不计）后不再重跑而是结束：工具调用以错误结果结束，
+    /// 压缩失败写进 <c>pi.live.compactionFailure</c>，运行以 <c>pi.live.runFailure</c> 的 <c>restart_limit</c> 结束，
+    /// 其他任务以 <c>faulted</c> 结束（detail 为 <c>{ reason: "restart_limit" }</c>）。生成在请求或轮询途中被
+    /// 宿主切断的，先按 <c>retry</c> 记一次失败尝试；只有这次记账本身反复被切断才由上限收场。默认 5；
+    /// <see cref="int.MaxValue"/> 表示从不为重启结束任务（对应 TS 的 <c>Infinity</c>）。
     /// 对应 TS <c>HarnessSettings.restartLimit</c>。
     /// </summary>
     public int? RestartLimit { get; init; }
@@ -1075,8 +1083,7 @@ public abstract record TaskInspection
 
     /// <summary>
     /// 它在这里不能运行：没有注册的定义能接手（<c>missing_task</c> / <c>task_too_old</c> /
-    /// <c>migration_failed</c>，中止它将以 orphaned 结算），或被重启上限停放（<c>restart_limit</c>，
-    /// <c>RetryTaskAsync()</c> 让它再跑）。
+    /// <c>migration_failed</c>，中止它将以 orphaned 结算）。
     /// </summary>
     public sealed record Blocked(string Reason, object? Error = null) : TaskInspection;
 }
@@ -1206,12 +1213,6 @@ public interface IHarness : ISession
     /// 提交中止标记、发信号并加入活跃运行调用，再调度 abort 调用。定义不能接手的任务以 orphaned 结算。
     /// </summary>
     Task<string> AbortTaskAsync(TaskId<object?> id, Context context);
-
-    /// <summary>
-    /// 重跑被 <see cref="HarnessSettings.RestartLimit"/> 停放的任务：清除其重启计数并启用调度。
-    /// 对未停放的任务不做任何事；未知任务报错。
-    /// </summary>
-    Task RetryTaskAsync(TaskId<object?> id, Context context);
 
     /// <summary>以终态回执完成；取消 context 只取消本等待。</summary>
     Task<SettledTask> WaitForTaskAsync(TaskId<object?> id, Context context);
