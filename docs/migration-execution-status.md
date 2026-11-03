@@ -4,7 +4,42 @@
 [migration-plan.md](./migration-plan.md) 与 [porting-status.md](./porting-status.md)
 保留历史阶段说明；其汇总快照早于当前代码，不应用来推断当前完成度。
 
-## 当前口径（2026-10-23）
+## 当前口径（2026-11-03，对齐上游 v1.5.0）
+
+- **上游目标版本：`v1.5.0`**（tag `f9a263655`，2026-11-02）。同步窗口 `v1.4.0..v1.5.0` = 308 个提交，
+  逐包盘点与批次计划见 [upstream-1.5.0-delta.md](./upstream-1.5.0-delta.md)（P0–P7）。
+- **参照检出：`9c9ce854`（`v1.5.0+49`）**。`v1.5.0..HEAD` 的 49 个未发布提交按既有策略先不跟。
+  动工前用 `git -C D:\AI\参考项目\pi log -1` 复核——基线会漂移。
+- **端口发布版本：`1.4.1`**（尚未按 1.5.0 发版）。
+
+### 1.5.0 同步进度
+
+| 批次 | 范围 | 状态 |
+| --- | --- | --- |
+| **P0** | pi-schema 校验/转换/文案对齐（`Validation.cs` 重写 + `Utils/Schema/` 六个文件 + 编译缓存） | ✅ `367ae68`（368 条上游语料差分全绿） |
+| **P1** | 1.5.0 窗口内的小修集（不重试判定、溢出文案、`MarkdownTransformContext` 等） | ✅ `677e30c` |
+| **P2** | ai wire 层：Gemini `const`→`enum`、Bedrock strict 回退、OAuth trusted-url 收敛 + `auth.json` 0600、42 份模型目录重导 | ✅ `e6d4c4d` / `c71cd41` / `1ca2e05` / `a8db1eb` |
+| **P3** | coding-agent ~18 项（扩展 changelog、`PI_SELF_UPDATE_COMMAND`、device-code 确认、`ctx.ui.custom` 的 `blocked`、`keyText()`/`keyHint()` 注入、trust 优先级、路径大小写、分支摘要等） | ⏳ 未开始 |
+| **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | ⏳ 未开始 |
+| **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | ⏳ 未开始 |
+| **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | ⏳ 未开始 |
+| **P7** | chord v1（pi-schema 构造点、ANSI 清理、watch 家族） | ⏳ 未开始 |
+
+**P0/P2 顺带修掉的端口缺陷**：`PiMessages.Stream` 在终态事件后只 `Push` 不 `End`——TS 的
+`EventStream.push` 收到 `done`/`error` 会自己收尾，端口的 `Push` 不会，成功的 pi-messages 请求
+会让消费方永远等下去（此前没有任何 `PiMessages` 测试，一直没暴露）。见 `b247a0e`。
+
+**验证基线（2026-11-03 实测）**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；
+`Pi.Ai.Tests` **976**（1 跳过：Unix 权限位在 Windows 上无意义）；`Pi.CodingAgent.Tests`
+**5118** / 1 失败 / 3 跳过（`--filter-not-class "*PackageManagerTests*"`；那 1 例是既有的
+`UpstreamTypeScriptExampleTests` typebox 语料问题）；`Pi.Agent.Tests` **36** 全绿。
+
+**已知测试噪声（非代码缺陷）**：`Pi.Ai.Tests` 里 8 个用 `HttpListener` 起本地端点的用例文件
+在并行下随机 1–2 例失败，失败成员每次不同、单跑全绿。新增用例一律注入
+`HttpMessageHandler`（`BedrockConverseStream.Stream` / `PiMessages.Stream` 都收 `HttpClient`），
+不要再用监听器。
+
+## 历史口径（2026-10-23，对齐上游 v1.4.0）
 
 - **上游目标版本：`v1.4.0`**（tag `4a080252f`，2026-10-22）。端口已不再以 `v1.0.4` 为基线：
   `v1.0.4..v1.4.0` 的 278 个提交按批逐项评估（批次编号至第五十五批），适用项全部落地。
@@ -34,6 +69,10 @@
 
 ## 逐包迁移矩阵
 
+> **注**：下表的「当前判断」与各项测试数是 **2026-10-23 对齐 v1.4.0** 时的复验结果。1.5.0 的
+> P0–P2 已改变 `ai` 的测试数与模型目录数据（`Pi.Ai.Tests` 现为 976 项，目录已按 1.5.0 生成器重导），
+> 最新口径以本文开头「1.5.0 同步进度」为准。
+
 | TypeScript package | .NET 目标 | 当前判断（对齐上游 v1.4.0） | 1.4.0 增量与明确取舍 |
 |---|---|---|---|
 | `telemetry` | `Pi.Telemetry` | 已迁移 | 1.4.0 把 `telemetryContext` 收成 `telemetry?: TelemetrySpan`；端口不接 span 链路（ai 层无 `observeModelRequest` 观察器），判不适用。12 项测试。 |
@@ -42,7 +81,7 @@
 | `mcp` | `Pi.Mcp` | 已迁移（含 1.4.0 增量） | `structuredContent` 任意 JSON、无元数据时拒绝 `iss`、已取消请求不重发、连接时不列资源、OAuth 取消/关闭语义已落地；55 项。 |
 | `server` | `Pi.Server` | 已迁移，Windows/POSIX 验收通过 | 区间内无增量；Unix socket 端到端 9/9（Stage 23）保持。 |
 | `client` | `Pi.Client` | 已迁移 | 区间内无增量；客户端协议与传输已实现。 |
-| `ai` | `Pi.Ai` | 已迁移（含 1.4.0 增量） | 空白工具输出、非法 `\u` 转义、重试判定与瞬时故障文案、`argumentsError`、identity/User-Agent、`TranscriptToolSupport` 与前缀缓存、System One 图像与 provider `compat`、per-key OpenRouter 目录、跨模型思维块与错误工具结果图片均已落地；515 项。模型目录数据不更新（上游数据不在仓库，见 delta §6 第 4 条）。 |
+| `ai` | `Pi.Ai` | 已迁移（含 1.4.0 增量） | 空白工具输出、非法 `\u` 转义、重试判定与瞬时故障文案、`argumentsError`、identity/User-Agent、`TranscriptToolSupport` 与前缀缓存、System One 图像与 provider `compat`、per-key OpenRouter 目录、跨模型思维块与错误工具结果图片均已落地；515 项。~~模型目录数据不更新~~——1.5.0 P2 已按上游生成器重导（`a8db1eb`）。 |
 | `chord` | `Pi.Chord` | 已迁移（按端口需要收窄） | 1.4.0 区间的 118 个文件大多落在端口没有的对象运行时与跨进程链路上，判不适用；端口内落地的是数组追加快路径、watch 类型与显式退休。106 项。 |
 | `codemode` | `Pi.Codemode` | 已迁移（含 1.4.0 增量） | Jint 默认引擎与声明约束（约束进注释、`@options` 首行、预算回退）；QuickJS worker 排队不适用（端口每个脚本一个 VM，没有 worker 池）。57 项。 |
 | `env` | `Pi.Env` | 客户端实现已迁移；Windows/POSIX 验收通过 | 1.2.0 的 node 侧 `listFiles`/PTY/`nodePlatform` 不适用（端口是 SSH 远程环境）；守护进程按原生产物注入（差异 E-C1），本机需先 `cargo build`，随后 44/47（3 项平台跳过）。 |
@@ -56,13 +95,17 @@
 
 ## 剩余事项与优先级
 
+**对上游 v1.5.0 的结论（2026-11-03）：P0/P1/P2 已落地，P3–P7 未开始。** 详见上文「1.5.0 同步进度」与
+[upstream-1.5.0-delta.md](./upstream-1.5.0-delta.md)。下面这张边界表是 2026-10-23 对齐 **v1.4.0** 时
+的结论，除「上游模型目录数据」一项已被 1.5.0 的 P2 数据子批取代外，其余仍然成立。
+
 **对上游 v1.4.0 的结论（2026-10-23）：没有已知的功能缺口。** `v1.0.4..v1.4.0` 的适用变更已全部落地，并通过本地全量套件（见“验证基线”）。仍存在的边界分四类，均已在 delta 文档逐条登记，不属于“没来得及做”：
 
 | 类别 | 项 | 结论与依据 |
 |---|---|---|
 | 不适用（端口形态不同） | chord 的对象运行时与跨进程链路、env 的 node 侧 `listFiles`/PTY/`nodePlatform`、托管安装布局、Bun/Node 运行时垫片、IndexedDB 存储 | 端口没有对应宿主、消费方或分发形态；见 delta §3.5 与 §6 第 6 条。 |
 | 不采纳（产品决策） | durable 的 `./codemode` 与 `./tool-search` 入口 | 上游仓内无消费方，端口已有等价能力；重启条件与照搬清单见 delta §6 第 7 条。 |
-| 暂不移植（成本/收益） | telemetry span（`observeModelRequest`）与 chord 的 `telemetry`/`traceIn`；上游模型目录数据 | span 需重建整条流式观察链；模型数据不在上游仓库，硬编等于编造。见 delta §6 第 2、3、4 条。 |
+| 暂不移植（成本/收益） | telemetry span（`observeModelRequest`）与 chord 的 `telemetry`/`traceIn` | span 需重建整条流式观察链。见 delta §6 第 2、3 条。~~上游模型目录数据~~——**1.5.0 P2 已解决**：上游 `providers/data/*.json` 虽是生成物不入库，但可在 Node 里直接跑 `catalog/generate.ts` 的管线重导（`a8db1eb`，方法见 1.5.0 delta §4.3）。 |
 | 验证缺口（非代码缺口） | 交互式 TUI、OAuth 浏览器登录流、steering 的运行中打断时序、官方 `api.openai.com` 密钥路径；CI 仅 Windows、测试未进 CI | 需要人工交互、密钥或非 Windows runner；本地已用真实端点覆盖 print/json/continue/fork/export/RPC/MCP/AGENTS.md/skills/compaction/follow_up（delta §6.at）。 |
 | 已登记的语义差异（非 1.4.0 范围） | C152 消息就地替换的观察者、C154 扩展就地改写工具入参、C258 mermaid 渲染、T11 TUI 调试日志等 | 结构或运行时形态限制，逐条见 [review-inconsistencies-2026-10-21.md](./review-inconsistencies-2026-10-21.md)；不属于 1.4.0 未落地项。 |
 
