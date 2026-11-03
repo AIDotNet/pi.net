@@ -154,7 +154,7 @@
 | 上游提交 | 变更 | 处置 |
 | --- | --- | --- |
 | `f6a9db1d8` | 每会话 turn limit | ✅ 本批（持久化 `runFailure` 记录随 `f3255de76` 落地） |
-| `fb524dd2e` | continue 提交 | 🔧 P6 |
+| `fb524dd2e` | continue 提交 | ✅ 本批 |
 | `7e15f9601` | run-end tasks + `afterRun` hook | 🔧 P6 |
 | `65fba65b2` | hook/task 的 entry reads | ✅ 本批 |
 | `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | 🔧 P6 |
@@ -526,3 +526,18 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 **仍未做**（同一上游提交的其余部分）：`ConversationView.entries` 的窗口（`before` / `from` / `min` / `max`）、
 `ConversationTranscript`（`gaps` / `loadEarlier` / `fillGap` / `resume`）、删除 `watchEvents` 及其事件类型。
 端口目前仍保留 `Events.WatchEventsAsync`，删它与 P6 的窗口化视图一起做，免得两次改同一批视图代码。
+
+### 4.12 P6 第六批：continue 提交（`79bfdae`）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| `{ type: "continue" }`：不追加用户消息、直接在现有上下文上起一次运行；不落条目、从不排队；忙碌时 `ConversationBusy`；队列里留着的项先放置并一起并入 | `fb524dd2e` | `SubmissionDraft.Continue` / `SubmissionCreate.ContinueCreate` / `SubmissionRecord.ContinueRecord`、`Transaction`（IsSettled/StatusOf/WithStatus/Create 四处）、`Admission`（含 continue 专用分支与 `CreateFor`）、`MemoryStorage` / `SqliteStorage` / `SqliteStorageJson` | `HarnessContinueTests` 2 例 |
+| 上下文最后一条（忽略系统消息）不是用户消息或工具结果时，不发请求就结束运行，结算 `nothing_to_answer` | `fb524dd2e` | `Generation.FailNothingToAnswerAsync` + `PreparePhaseAsync` 的判定 | 同上第 1 例（断言 provider 只被调用一次、`runFailure.reason = nothing_to_answer`） |
+
+**为什么这批值得单列**：`continue` 是新的**提交记录种类**，它横向穿过类型层、事务结算、受理、两个存储
+后端与 JSON 编解码共十处。漏任何一处都会出现「某个后端读不回记录」的半成品，所以这批一次改全，
+`Pi.Durable.Tests` 全量（532 例）覆盖了 Memory 的存放与 Sqlite 的 JSON 往返转换器。
+
+**仍未做**（同一上游提交）：`ConversationHandle.submit()` 放开为任意 `SubmissionDraft`（端口目前仍只收
+输入草稿——子代理对话用 continue 属可用性改进，不影响内核语义）；`afterFailedRun` 的文档里补
+`nothing_to_answer` 这一失败原因（端口文档已按同一语义描述）。
