@@ -52,6 +52,22 @@ public static class Inbox
         public EntryId? Head { get; set; }
     }
 
+    /// <summary>边界处的排队项（原始 JSON）。对应 TS <c>boundary.inbox.items</c>。</summary>
+    public static IReadOnlyList<IReadOnlyDictionary<string, object?>> QueuedItems(Boundary boundary)
+        => Items(boundary.Inbox.Draft);
+
+    /// <summary>
+    /// 队列里有 <c>head: "self"</c> 的写入，即一次重置：它把 <c>postTools</c> 边界提升为 <c>final</c>。
+    /// 对应 TS <c>hasQueuedReset()</c>。
+    /// </summary>
+    public static bool HasQueuedReset(IReadOnlyList<IReadOnlyDictionary<string, object?>> items)
+        => items.Any(item => item.TryGetValue("mode", out var mode)
+            && mode is "write"
+            && item.TryGetValue("entry", out var entry)
+            && entry is IReadOnlyDictionary<string, object?> entryJson
+            && entryJson.TryGetValue("head", out var headValue)
+            && headValue is "self");
+
     /// <summary>被选中的用户项（按 ID 序），以及是否放置了 <c>head: "self"</c> 写入（一次重置）。对应 TS <c>BoundaryResult</c>。</summary>
     public sealed record BoundaryResult(IReadOnlyList<SubmissionId> Users, bool Reset);
 
@@ -85,13 +101,7 @@ public static class Inbox
         Transaction tx, Boundary boundary, BoundaryAt at, long now)
     {
         var items = Items(boundary.Inbox.Draft);
-        var reset = items.Any(item => item is IReadOnlyDictionary<string, object?> dict
-            && dict.TryGetValue("mode", out var mode)
-            && mode is "write"
-            && dict.TryGetValue("entry", out var entry)
-            && entry is IReadOnlyDictionary<string, object?> entryJson
-            && entryJson.TryGetValue("head", out var headValue)
-            && headValue is "self");
+        var reset = HasQueuedReset(items);
         var final = at == BoundaryAt.Final || reset;
 
         static List<int> Pick(IReadOnlyList<IReadOnlyDictionary<string, object?>> items, string mode, bool all)

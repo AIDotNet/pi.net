@@ -208,7 +208,28 @@ public static class Live
             ["taskId"] = taskId.Value,
             // 必须显式构造 List<object?>：List<long> 因泛型不变性不被严格 JSON 容器判定接受（P56 修正）。
             ["inputs"] = inputs.Select(input => (object?)input.Value).ToList(),
+            // 一次运行已走的工具轮数（AgentState.MaxTurns 按它计）。
+            ["turns"] = 0L,
         });
+
+    /// <summary>运行已走的工具轮数；不是当前任务持有的运行时为 0。对应 TS <c>live.run.turns</c>。</summary>
+    public static long RunTurns(TxDocChange live, TaskId<object?> taskId)
+        => RunTaskId(live) == taskId
+            && live.Draft.TryGetValue("run", out var value)
+            && value is IReadOnlyDictionary<string, object?> run
+            && run.TryGetValue("turns", out var turns)
+            && turns is not null
+                ? Convert.ToInt64(turns)
+                : 0;
+
+    /// <summary>把运行的轮数设为 <paramref name="turns"/>（续延把计数清零）。对应 TS <c>live.run.turns = n</c>。</summary>
+    public static void SetRunTurns(TxDocChange live, long turns)
+    {
+        if (live.Draft.TryGetValue("run", out var value) && value is IReadOnlyDictionary<string, object?> run)
+        {
+            live.Set(RunPath.Append(Seg.Key("turns")), turns);
+        }
+    }
 
     /// <summary>当前持有 <c>run</c> 的任务（若存在）。对应 TS <c>live.run?.taskId</c>。</summary>
     public static TaskId<object?>? RunTaskId(TxDocChange live)

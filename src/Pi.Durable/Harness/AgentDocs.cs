@@ -173,6 +173,18 @@ public static class AgentDocs
             }
         }
 
+        if (change.MaxTurns is { } maxTurns)
+        {
+            if (maxTurns < 1)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(change), $"maxTurns must be an integer 1 or more, got {maxTurns}");
+            }
+
+            doc.Set(Key("maxTurns"), maxTurns);
+        }
+        else if (change.ClearMaxTurns) doc.Delete(Key("maxTurns"));
+
         if (change.ClearTools) doc.Delete(Key("tools"));
         else if (change.Tools is { } tools)
         {
@@ -319,6 +331,7 @@ public static class AgentDocs
             Sections = agentSections,
             Instructions = instructions,
             Cwd = state?.Cwd,
+            MaxTurns = state?.MaxTurns,
         };
     }
 
@@ -382,6 +395,9 @@ public static class AgentDocs
             Tools = tools,
             Instructions = json.TryGetValue("instructions", out var instructions) ? instructions as string : null,
             Cwd = json.TryGetValue("cwd", out var cwd) ? cwd as string : null,
+            MaxTurns = json.TryGetValue("maxTurns", out var maxTurns) && maxTurns is not null
+                ? Convert.ToInt64(maxTurns)
+                : null,
         };
     }
 

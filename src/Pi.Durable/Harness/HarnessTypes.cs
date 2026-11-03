@@ -500,6 +500,9 @@ public sealed record AgentState
     /// <summary>环境文件系统内的目录，传给 <see cref="HarnessOptions.EnvFactory"/>。</summary>
     public string? Cwd { get; init; }
 
+    /// <summary>一次运行允许的工具轮数上限；达到即像失败一样结束该运行。对应 TS <c>maxTurns</c>。</summary>
+    public long? MaxTurns { get; init; }
+
     /// <summary>扩展选择：数组或 {add, remove} 对象。</summary>
     public sealed record ExtensionSelection
     {
@@ -549,6 +552,11 @@ public sealed record AgentChange
 
     public bool ClearCwd { get; init; }
 
+    /// <summary>工具轮数上限；必须 ≥ 1。对应 TS <c>maxTurns</c>。</summary>
+    public long? MaxTurns { get; init; }
+
+    public bool ClearMaxTurns { get; init; }
+
     /// <summary>扩展对象或 {add, remove} 的变更载荷。</summary>
     public sealed record ExtensionChange
     {
@@ -586,6 +594,9 @@ public sealed record Agent
     public string? Instructions { get; init; }
 
     public string? Cwd { get; init; }
+
+    /// <summary>一次运行允许的工具轮数上限；null 表示不限。</summary>
+    public long? MaxTurns { get; init; }
 }
 
 /// <summary>对话创建初始化回调：运行于创建提交内。对应 TS <c>ConversationInit</c>。</summary>

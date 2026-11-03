@@ -993,14 +993,18 @@ public static partial class Generation
                     Result = new Dictionary<string, object?> { ["entryId"] = entry.Id.Value },
                 },
             };
+            // 续延在 final 边界放置任何东西之前就已定夺：队列里没有会被选中的用户项，也没有会先跑的重置。
+            var continues = TakesContinuation(continuation, boundary) ? continuation : null;
             var applied = await Inbox.ApplyBoundaryAsync(tx, boundary, BoundaryAt.Final, runtime.Now())
                 .ConfigureAwait(false);
-            if (continuation is not null && applied.Users.Count == 0 && !applied.Reset)
+            if (continues is not null)
             {
                 await tx.AppendEntryAsync(
                     DurableEntries.UserEntry, conversationId,
-                    new TypedEntryDraft<object?> { Model = [new UserMessage(continuation, runtime.Now())] })
+                    new TypedEntryDraft<object?> { Model = [new UserMessage(continues, runtime.Now())] })
                     .ConfigureAwait(false);
+                // 续延把运行的轮数清零：给 onYield 循环设上限是扩展的事。
+                Live.SetRunTurns(live, 0);
                 var successor = await CreateGenerationAsync(tx, conversationId).ConfigureAwait(false);
                 Live.HandOver(live, runtime.TaskId, successor);
                 Live.DeleteGeneration(live);
@@ -1022,6 +1026,20 @@ public static partial class Generation
     /// tool_unavailable 结果；其他每个调用得到生成拥有的工具任务——顺序轮只有第一个现在启动。生成随后
     /// 在其 tools 阶段等待它们，持有运行。对应 TS <c>startToolRound()</c>。
     /// </summary>
+    /// <summary>
+    /// 应答的 <c>onYield</c> 续延是否被采纳（spec §8.3），在 final 边界放置任何东西之前由收件箱决定：仅当队列里没有
+    /// 会被选中的 steer/follow-up 用户项、也没有会先跑的重置。续延会把运行的轮数清零。
+    /// 对应 TS <c>takesContinuation()</c>。
+    /// </summary>
+    private static bool TakesContinuation(IReadOnlyList<ContentBlock>? continuation, Inbox.Boundary boundary)
+    {
+        if (continuation is null) return false;
+        var items = Inbox.QueuedItems(boundary);
+        var hasUserItem = items.Any(item => item.TryGetValue("mode", out var mode)
+            && mode is "steer" or "followUp");
+        return !hasUserItem && !Inbox.HasQueuedReset(items);
+    }
+
     private static async Task StartToolRoundAsync(
         ITaskRuntime runtime, RequestInfo request, AssistantMessage message,
         IReadOnlyList<ToolCallContent> calls, Context context)
@@ -1073,6 +1091,12 @@ public static partial class Generation
 
             Live.DeleteGeneration(live);
             Live.SetTools(live, slots);
+            // 一个工具轮就是一次运行的一轮（AgentState.MaxTurns 按它计）。
+            if (Live.RunTaskId(live) == runtime.TaskId)
+            {
+                Live.SetRunTurns(live, Live.RunTurns(live, runtime.TaskId) + 1);
+            }
+
             return new TaskState
             {
                 Status = TaskStatus.Waiting,
@@ -1128,6 +1152,8 @@ public static partial class Generation
             .SelectMany(control => control!.AddTools!).ToList();
         // 调用顺序的最后一个 handoff 胜出。
         var handoff = controls.LastOrDefault(control => control?.Handoff is not null)?.Handoff;
+        // 与每个 agent 字段一样读自本阶段的 agent；轮次中途的 configure() 在轮结束时生效。
+        var maxTurns = (await runtime.AgentAsync(context).ConfigureAwait(false)).MaxTurns;
         await runtime.CommitAsync(async (tx, _) =>
         {
             var settings = runtime.Settings;
@@ -1140,6 +1166,7 @@ public static partial class Generation
 
             var live = await tx.DocAsync(Live.LiveDoc, conversationId).ConfigureAwait(false);
             var now = runtime.Now();
+            var turns = Live.RunTurns(live, runtime.TaskId);
             if (terminate || handoff is not null)
             {
                 if (handoff is not null)
@@ -1159,6 +1186,17 @@ public static partial class Generation
                 {
                     await StartRunAsync(tx, conversationId, live, final.Users).ConfigureAwait(false);
                 }
+            }
+            else if (maxTurns is { } limit && turns >= limit)
+            {
+                // 轮次上限让运行像失败一样结束：afterFailedRun 决定排队项，continue 则在轮结果上续跑。
+                // 边界的表读已在任何写之前完成。
+                var policy = runtime.Settings.AfterFailedRun;
+                var failure = new FailurePolicy(
+                    policy, policy == AfterFailedRun.Continue ? boundary : null);
+                await EndFailedRunAsync(tx, runtime, live, failure,
+                    new SubmissionSettlement.Unanswered(
+                        "turn_limit", turns == 1 ? "1 turn" : $"{turns} turns")).ConfigureAwait(false);
             }
             else
             {
