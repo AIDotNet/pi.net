@@ -597,3 +597,26 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
    `first`，让失败的运行也有历史起点）；端口尚未记录运行第一个条目，只有把区间裁到「运行内」的钩子会看出
    差别。同批的 `endAnsweredCutOff`（`finish`/`drain` 被重启上限打断时以 completed 收场并标记
    `task_interrupted`）依赖 `b3a29f111` 的 `endedByCrashes`，也随那批补。
+
+### 4.18 自查记录（全仓验证与遗漏核对）
+
+**验证**（本轮实测）：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；`Pi.Durable.Tests` **538**、`Pi.Chord.Tests`
+**135**、`Pi.Codemode.Tests` **57**、`Pi.Agent.Tests` **36** 全绿；`Pi.Env.Tests` 53（3 跳过，Windows 上无意义
+的 Unix 权限位）；`Pi.CodingAgent.Tests` **5184 / 1 / 3**——那 1 例仍是既有的 `UpstreamTypeScriptExampleTests`
+typebox 语料问题，与 1.5.0 追平无关。
+
+**修掉的一处偏差**：`afterRun` 请求的任务在校验与创建时各跑一次 `initial()`；上游保证只跑一次（把校验出的
+checkpoint 固定在定义里）。已改为固定 checkpoint 创建。
+
+**已核对落点**（文档标 ✅ 的项逐符号确认）：`ConversationIdle`、`ReadOnlySession`、`BeforeProviderRequest`、
+`EntriesAsync`（钩子/任务）、`MaxTurns`、`SetRunFailure`、`ContinueRecord`、`Unoffered`、`AddScopesAbove`、
+`IRunEndHooks`、`FinishPhaseAsync`、`TakesContinuation` 均在预期文件；`src/Pi.Durable` 无 TODO/FIXME 残留。
+
+**已知未做**（文档已标 🟡/🔧，不是遗漏）：`f3255de76` 的窗口化视图 / `ConversationTranscript` / 删
+`watchEvents`；`e5c6182ba` / `6c2fd73b0` 分组提交与节流落盘 + 「采纳时发布」；`b3a29f111` 重启循环可见化
+（连带 `endAnsweredCutOff`、`run.first`、afterTool 的 abort 豁免）；`35dfa7573` 的 `idleOrder` 索引与
+`wake()` 睡眠集合；P4（tui）全部 13 项（等语料生成链）。
+
+**已知测试噪声**：全量并行满载时，watch/reopen 与计时类用例（`SessionTests.Watch*`、`HarnessViewTests`、
+`HarnessSleepTests`、`HarnessTaskGraphTests`、`ToolsTests.Bash_*`）每轮随机 1–2 例超时，单跑全绿。
+判断回归要看「失败集合是否变化」，不能只看一跑。
