@@ -131,6 +131,9 @@ public partial class InteractiveMode
     private double _lastSigintTime;
     private double _lastEscapeTime;
     private string? _changelogMarkdown;
+
+    /// <summary>Changelog entries new since the last launch for installed extension packages.</summary>
+    private List<ExtensionChangelogUpdate> _extensionChangelogUpdates = [];
     private bool _startupNoticesShown;
     private bool _anthropicSubscriptionWarningShown;
 
@@ -1312,7 +1315,8 @@ public partial class InteractiveMode
             }
             else
             {
-                PushExtensionDialog(component);
+                // TS `c1810bf70`: inline components can ask the host to report blocked status.
+                PushExtensionDialog(component, options?.Blocked);
             }
         }
         catch (Exception)
@@ -1346,8 +1350,14 @@ public partial class InteractiveMode
         // Save text from current editor before switching
         var currentText = _editor.GetText();
 
-        DisposeActiveSelector();
-        _editorContainer.Clear();
+        // An open extension dialog keeps the editor slot; the new editor is shown when the last dialog
+        // closes. TS `7853186d1`.
+        var dialogOpen = _extensionDialogs.Count > 0;
+        if (!dialogOpen)
+        {
+            DisposeActiveSelector();
+            _editorContainer.Clear();
+        }
 
         if (factory is not null)
         {
@@ -1397,7 +1407,11 @@ public partial class InteractiveMode
             _editor = _defaultEditor;
         }
 
-        _editorContainer.AddChild(_editor);
+        if (!dialogOpen)
+        {
+            _editorContainer.AddChild(_editor);
+        }
+
         if (_activeStatusIndicator is not null)
         {
             _statusContainer.Clear();
@@ -1408,7 +1422,11 @@ public partial class InteractiveMode
             }
         }
 
-        _ui.SetFocus(_editor);
+        if (!dialogOpen)
+        {
+            _ui.SetFocus(_editor);
+        }
+
         _ui.RequestRender();
     }
 
@@ -1556,3 +1574,6 @@ public partial class InteractiveMode
         _ui.RequestRender();
     }
 }
+
+/// <summary>One extension package's new changelog entries. TS <c>ExtensionChangelogUpdate</c>.</summary>
+public sealed record ExtensionChangelogUpdate(string Name, string Version, string Markdown);

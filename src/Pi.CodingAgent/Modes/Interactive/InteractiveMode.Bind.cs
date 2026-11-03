@@ -339,7 +339,7 @@ public partial class InteractiveMode
 
         _startupNoticesShown = true;
 
-        if (string.IsNullOrEmpty(_changelogMarkdown))
+        if (string.IsNullOrEmpty(_changelogMarkdown) && _extensionChangelogUpdates.Count == 0)
         {
             return;
         }
@@ -350,20 +350,48 @@ public partial class InteractiveMode
         }
 
         _chatContainer.AddChild(new DynamicBorder());
-        if (SettingsManager.GetCollapseChangelog())
+        if (!string.IsNullOrEmpty(_changelogMarkdown))
         {
-            _chatContainer.AddChild(new Text(
-                InteractiveModeStartup.BuildCondensedChangelogNotice(_changelogMarkdown, _version, ThemeRuntime.Current),
-                1,
-                0));
+            if (SettingsManager.GetCollapseChangelog())
+            {
+                _chatContainer.AddChild(new Text(
+                    InteractiveModeStartup.BuildCondensedChangelogNotice(_changelogMarkdown, _version, ThemeRuntime.Current),
+                    1,
+                    0));
+            }
+            else
+            {
+                _chatContainer.AddChild(new ThemedText(
+                    () => ThemeRuntime.Current.Bold(ThemeRuntime.Current.Fg("accent", "What's New")), 1, 0));
+                _chatContainer.AddChild(new Spacer(1));
+                _chatContainer.AddChild(new Markdown(_changelogMarkdown.Trim(), 1, 0, GetMarkdownThemeWithSettings()));
+                _chatContainer.AddChild(new Spacer(1));
+            }
         }
-        else
+
+        if (_extensionChangelogUpdates.Count > 0)
         {
-            _chatContainer.AddChild(new ThemedText(
-                () => ThemeRuntime.Current.Bold(ThemeRuntime.Current.Fg("accent", "What's New")), 1, 0));
-            _chatContainer.AddChild(new Spacer(1));
-            _chatContainer.AddChild(new Markdown(_changelogMarkdown.Trim(), 1, 0, GetMarkdownThemeWithSettings()));
-            _chatContainer.AddChild(new Spacer(1));
+            if (!string.IsNullOrEmpty(_changelogMarkdown))
+            {
+                _chatContainer.AddChild(new Spacer(1));
+            }
+
+            if (SettingsManager.GetCollapseChangelog())
+            {
+                var condensed = string.Join(
+                    "\n",
+                    _extensionChangelogUpdates.Select(update => $"Updated {update.Name} to v{update.Version}."));
+                _chatContainer.AddChild(new Text(condensed, 1, 0));
+            }
+            else
+            {
+                _chatContainer.AddChild(new ThemedText(
+                    () => ThemeRuntime.Current.Bold(ThemeRuntime.Current.Fg("accent", "Extension Updates")), 1, 0));
+                _chatContainer.AddChild(new Spacer(1));
+                var markdown = string.Join("\n\n", _extensionChangelogUpdates.Select(update => update.Markdown));
+                _chatContainer.AddChild(new Markdown(markdown, 1, 0, GetMarkdownThemeWithSettings()));
+                _chatContainer.AddChild(new Spacer(1));
+            }
         }
 
         _chatContainer.AddChild(new DynamicBorder());

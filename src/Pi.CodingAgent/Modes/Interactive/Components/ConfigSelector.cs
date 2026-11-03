@@ -46,23 +46,8 @@ internal static class ConfigSelectorStatics
 
     public static string FormatBaseDir(string baseDir)
     {
-        var homeDir = Paths.GetHomeDirectory();
-        string displayPath;
-
-        if (string.Equals(baseDir, homeDir, StringComparison.Ordinal))
-        {
-            displayPath = "~";
-        }
-        else if (baseDir.StartsWith(homeDir, StringComparison.Ordinal))
-        {
-            // Replace home prefix with ~, normalize separators for display
-            displayPath = $"~{baseDir[homeDir.Length..].Replace('\\', '/')}";
-        }
-        else
-        {
-            displayPath = baseDir.Replace('\\', '/');
-        }
-
+        // Anchored home shortening (TS `1be312b46`): `/home/me2/x` used to render as `~2/x`.
+        var displayPath = Paths.ShortenHomePath(baseDir).Replace('\\', '/');
         return displayPath.EndsWith('/') ? displayPath : $"{displayPath}/";
     }
 
@@ -993,7 +978,7 @@ internal sealed class ResourceList : IComponent, IFocusable
         entry.StartsWith('!') || entry.StartsWith('+') || entry.StartsWith('-') ? entry[1..] : entry;
 
     private string GetResourceItemKey(ResourceItem item) =>
-        $"{item.ResourceType}:{Paths.CanonicalizePath(item.Path)}";
+        $"{item.ResourceType}:{SourceInfos.GetResourcePathKey(item.Path)}";
 
     private static string GetItemScope(ResourceItem item) =>
         item.Metadata.Scope == "project" ? "project" : "user";

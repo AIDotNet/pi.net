@@ -13,7 +13,11 @@ public sealed record OAuthDeviceCodeInfo(
     string UserCode,
     string VerificationUri,
     int? IntervalSeconds = null,
-    int? ExpiresInSeconds = null);
+    int? ExpiresInSeconds = null,
+    /// <summary>Open the verification page when the user confirms. Defaults to true. TS <c>openBrowserOnConfirm</c>.</summary>
+    bool? OpenBrowserOnConfirm = null,
+    /// <summary>Copy the user code when the user confirms. Defaults to true. TS <c>copyCodeOnConfirm</c>.</summary>
+    bool? CopyCodeOnConfirm = null);
 
 /// <summary>选择项。对应 TS <c>OAuthSelectOption</c>。</summary>
 public sealed record OAuthSelectOption(string Id, string Label);

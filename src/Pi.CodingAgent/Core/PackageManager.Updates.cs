@@ -134,8 +134,15 @@ public sealed partial class DefaultPackageManager
 
         var npmChecks = npmCandidates
             .Select(entry => (Func<Task<(NpmUpdateTarget Entry, bool ShouldUpdate)>>)(async () =>
-                (entry, await ShouldUpdateNpmSourceAsync(entry.Parsed, entry.Scope, cancellationToken)
-                    .ConfigureAwait(false))))
+            {
+                var check = await ShouldUpdateNpmSourceAsync(entry.Parsed, entry.Scope, cancellationToken)
+                    .ConfigureAwait(false);
+                return (entry with
+                {
+                    InstalledVersion = check.InstalledVersion,
+                    TargetVersion = check.TargetVersion,
+                }, check.ShouldUpdate);
+            }))
             .ToArray();
         var npmResults = await RunWithConcurrencyAsync(
             npmChecks,
@@ -191,7 +198,7 @@ public sealed partial class DefaultPackageManager
         await Task.WhenAll(updates).ConfigureAwait(false);
     }
 
-    private async Task<bool> ShouldUpdateNpmSourceAsync(
+    private async Task<NpmUpdateCheck> ShouldUpdateNpmSourceAsync(
         ParsedPackageSource source,
         string scope,
         CancellationToken cancellationToken)
@@ -200,13 +207,16 @@ public sealed partial class DefaultPackageManager
         var installedVersion = Directory.Exists(installedPath) ? GetInstalledNpmVersion(installedPath) : null;
         if (installedVersion is null)
         {
-            return true;
+            return new NpmUpdateCheck(true, null, null);
         }
 
         try
         {
             var targetVersion = await GetLatestNpmVersionAsync(source, cancellationToken).ConfigureAwait(false);
-            return CompareVersions(targetVersion, installedVersion) > 0;
+            return new NpmUpdateCheck(
+                CompareVersions(targetVersion, installedVersion) > 0,
+                installedVersion,
+                targetVersion);
         }
         catch (OperationCanceledException)
         {
@@ -214,7 +224,38 @@ public sealed partial class DefaultPackageManager
         }
         catch
         {
-            return true;
+            // Preserve existing update behavior when version lookup fails.
+            return new NpmUpdateCheck(true, installedVersion, null);
+        }
+    }
+
+    /// <summary>
+    /// npm can resolve stale registry metadata shortly after a publish and install the old version
+    /// without an error. Warn when an announced update did not change the installed version.
+    /// Port of <c>reportUnchangedNpmUpdates</c> (TS <c>0d23d5345</c>).
+    /// </summary>
+    private void ReportUnchangedNpmUpdates(IReadOnlyList<NpmUpdateTarget> sources, string scope)
+    {
+        foreach (var entry in sources)
+        {
+            if (entry.InstalledVersion is null || entry.TargetVersion is null)
+            {
+                continue;
+            }
+
+            var installedPath = GetManagedNpmInstallPath(entry.Parsed, scope);
+            var versionAfter = GetInstalledNpmVersion(installedPath);
+            if (versionAfter != entry.InstalledVersion)
+            {
+                continue;
+            }
+
+            _progress?.Invoke(new PackageProgressEvent(
+                "progress",
+                "update",
+                entry.Source,
+                $"{entry.Source} is still {versionAfter} (registry reports {entry.TargetVersion}); "
+                + "npm registry metadata may be stale, try again in a few minutes"));
         }
     }
 
@@ -251,6 +292,8 @@ public sealed partial class DefaultPackageManager
                     cancellationToken: cancellationToken).ConfigureAwait(false);
             },
             cancellationToken).ConfigureAwait(false);
+
+        ReportUnchangedNpmUpdates(sources, scope);
     }
 
     private async Task<string> GetLatestNpmVersionAsync(
@@ -1133,7 +1176,17 @@ public sealed partial class DefaultPackageManager
         => Semver.Compare(left, right)
             ?? throw new InvalidDataException($"Invalid semantic version comparison: {left} and {right}");
 
-    private sealed record NpmUpdateTarget(string Source, string Scope, ParsedPackageSource Parsed);
+    private sealed record NpmUpdateTarget(
+        string Source,
+        string Scope,
+        ParsedPackageSource Parsed,
+        /// <summary>Version installed before the update, if any.</summary>
+        string? InstalledVersion = null,
+        /// <summary>Newer version reported by the registry, if the lookup succeeded.</summary>
+        string? TargetVersion = null);
+
+    /// <summary>Outcome of <see cref="ShouldUpdateNpmSourceAsync"/>: the update also carries the versions.</summary>
+    private readonly record struct NpmUpdateCheck(bool ShouldUpdate, string? InstalledVersion, string? TargetVersion);
 
     private sealed record GitUpdateSource(string Source, string Scope, ParsedPackageSource Parsed);
 

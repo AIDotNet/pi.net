@@ -49,6 +49,17 @@ public sealed class ModelSelectorTests : SelectorTestFixture
         });
     }
 
+    /// <summary>
+    /// Expected selector row. The display name is only shown when it adds words the ID does not have
+    /// (TS `606af8662`), so the suffix goes through the same public rule the selector uses.
+    /// </summary>
+    private static string Row(string cursor, string currentMarker, ModelSpec model)
+    {
+        var name = Pi.CodingAgent.Modes.Interactive.ModelSearch.GetDistinctModelName(model.Id, model.Name);
+        var nameText = name is null ? "" : $" ({name})";
+        return $"{cursor}{currentMarker}{model.Id}{nameText} [{model.Provider}]";
+    }
+
     private static string? GetModelRow(IComponent component, string id) =>
         AnsiText.StripAnsi(string.Join("\n", component.Render(120)))
             .Split('\n')
@@ -120,15 +131,15 @@ public sealed class ModelSelectorTests : SelectorTestFixture
 
         var selector = await CreateWaitedSelectorAsync(modelRuntime, currentModel);
 
-        Assert.Equal($"→ ✓ {currentModel.Id} [{currentModel.Provider}]", GetModelRow(selector, currentModel.Id));
+        Assert.Equal(Row("→ ", "✓ ", currentModel), GetModelRow(selector, currentModel.Id));
 
         selector.HandleInput("\x1b[B"); // down arrow
-        Assert.Equal($"  ✓ {currentModel.Id} [{currentModel.Provider}]", GetModelRow(selector, currentModel.Id));
+        Assert.Equal(Row("  ", "✓ ", currentModel), GetModelRow(selector, currentModel.Id));
         // The selection moved to the second list row. The stable sort hoists the current model to
         // the top and keeps the catalog order below it; the first two available models share a
         // provider (each built-in catalog is far larger than one entry), so the browsed model is
         // exactly the one that follows the current model.
-        Assert.Equal($"→   {browsedModel.Id} [{browsedModel.Provider}]", SelectedRow(selector));
+        Assert.Equal(Row("→ ", "  ", browsedModel), SelectedRow(selector));
 
         selector.Dispose();
     }

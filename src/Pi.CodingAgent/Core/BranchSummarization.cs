@@ -46,6 +46,9 @@ public sealed record GenerateBranchSummaryOptions
 
     public CancellationToken Signal { get; init; }
 
+    /// <summary>可推理模型的思考档位；<c>null</c> 或 <c>off</c> 时不发 <c>reasoning</c>。</summary>
+    public ThinkingLevel? ThinkingLevel { get; init; }
+
     public string? CustomInstructions { get; init; }
 
     /// <summary>true 时 customInstructions 替换默认提示而非追加。</summary>
@@ -124,14 +127,24 @@ public static class BranchSummarization
     // 条目 → 消息
     // ───────────────────────────────────────────────────────────────────────
 
-    /// <summary>从会话条目提取 AgentMessage；压缩条目也处理。对应 TS <c>getMessageFromEntry</c>。</summary>
-    private static ChatMessage? GetMessageFromEntry(SessionEntry entry) => entry switch
+    /// <summary>
+    /// 从会话条目提取 AgentMessage；压缩条目也处理。对应 TS <c>getMessageFromEntry</c>。
+    /// </summary>
+    /// <remarks>
+    /// 传入 <paramref name="edit"/> 时按上下文编辑投影（TS <c>d0fe21308</c>）：被隐藏的条目投影为空，
+    /// 被替换的条目用替换内容。
+    /// </remarks>
+    private static ChatMessage? GetMessageFromEntry(SessionEntry entry, ContextEditEntry? edit = null) => entry switch
     {
         // 跳过 tool result——上下文在助手的工具调用里。
         SessionMessageEntry { Message: ToolResultMessage } => null,
-        SessionMessageEntry messageEntry => messageEntry.Message,
-        CustomMessageEntry custom => AgentMessages.CreateCustomMessage(
-            custom.CustomType, custom.Content ?? MessageContent.From(""), custom.Display, custom.Details, custom.Timestamp),
+        SessionMessageEntry messageEntry => edit is null
+            ? messageEntry.Message
+            : SessionEntries.ProjectContextEntry(entry, edit).FirstOrDefault(),
+        CustomMessageEntry custom => edit is { } customEdit
+            ? SessionEntries.ProjectContextEntry(entry, customEdit).FirstOrDefault()
+            : AgentMessages.CreateCustomMessage(
+                custom.CustomType, custom.Content ?? MessageContent.From(""), custom.Display, custom.Details, custom.Timestamp),
         BranchSummaryEntry branchSummary => AgentMessages.CreateBranchSummaryMessage(
             branchSummary.Summary, branchSummary.FromId, branchSummary.Timestamp),
         CompactionEntry compaction => AgentMessages.CreateCompactionSummaryMessage(
@@ -166,11 +179,19 @@ public static class BranchSummarization
             }
         }
 
+        // 上下文编辑会隐藏或替换更早的条目；每个目标只认最后一条编辑（TS `d0fe21308`）。
+        var edits = new Dictionary<string, ContextEditEntry>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            if (entry is ContextEditEntry editEntry) edits[editEntry.TargetId] = editEntry;
+        }
+
         // 第二遍：从新到旧装消息直到 token 预算。
         for (var i = entries.Count - 1; i >= 0; i--)
         {
             var entry = entries[i];
-            var message = GetMessageFromEntry(entry);
+            var message = GetMessageFromEntry(
+                entry, entry.Id is { } entryId && edits.TryGetValue(entryId, out var edit) ? edit : null);
             if (message is null) continue;
 
             // 从助手消息（工具调用）提取文件操作。
@@ -258,6 +279,12 @@ public static class BranchSummarization
             Env = options.Env,
             Signal = options.Signal,
         };
+        // TS `269afc66a`：/tree 的「Summarize」原先丢掉会话的思考档位，可推理模型因此按
+        // `effort: "none"` 发请求并被 400 拒绝。与压缩的 createSummarizationOptions 同一规则。
+        if (options.Model.Reasoning && options.ThinkingLevel is { } thinkingLevel && thinkingLevel != ThinkingLevel.Off)
+        {
+            requestOptions = requestOptions with { Reasoning = Core.ThinkingLevels.ToText(thinkingLevel) };
+        }
         var response = await Compaction.CompleteSummarizationAsync(
             options.Model, context, requestOptions, options.StreamFn, options.Retry, options.Callbacks,
             options.Signal).ConfigureAwait(false);

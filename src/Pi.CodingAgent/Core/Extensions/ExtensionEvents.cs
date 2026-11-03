@@ -1146,6 +1146,12 @@ public sealed record MessageRenderOptions
 
     /// <summary>Horizontal padding configured by the outputPad setting.</summary>
     public int OutputPad { get; init; }
+
+    /// <summary>Host keybinding formatter. TS <c>KeybindingHints.keyText</c> (<c>9376c8d17</c>).</summary>
+    public Func<string, string> KeyText { get; init; } = Modes.Interactive.Components.KeybindingHints.KeyText;
+
+    /// <summary>Host keybinding hint formatter. TS <c>KeybindingHints.keyHint</c>.</summary>
+    public Func<string, string, string> KeyHint { get; init; } = Modes.Interactive.Components.KeybindingHints.KeyHint;
 }
 
 /// <summary>TS <c>MarkdownTransformContext</c>.</summary>
@@ -1178,6 +1184,12 @@ public delegate string MarkdownTransformer(string markdown, MarkdownTransformCon
 public sealed record EntryRenderOptions
 {
     public bool Expanded { get; init; }
+
+    /// <summary>Host keybinding formatter. TS <c>KeybindingHints.keyText</c> (<c>9376c8d17</c>).</summary>
+    public Func<string, string> KeyText { get; init; } = Modes.Interactive.Components.KeybindingHints.KeyText;
+
+    /// <summary>Host keybinding hint formatter. TS <c>KeybindingHints.keyHint</c>.</summary>
+    public Func<string, string, string> KeyHint { get; init; } = Modes.Interactive.Components.KeybindingHints.KeyHint;
 }
 
 /// <summary>TS <c>MessageRenderer&lt;T&gt;</c>.</summary>

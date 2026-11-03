@@ -1097,8 +1097,7 @@ internal sealed class TreeList : IComponent
             var home =
                 Environment.GetEnvironmentVariable("HOME") ??
                 Environment.GetEnvironmentVariable("USERPROFILE") ?? "";
-            if (home.Length > 0 && p.StartsWith(home, StringComparison.Ordinal)) return $"~{p[home.Length..]}";
-            return p;
+            return Paths.ShortenHomePath(p, home);
         }
 
         static string Arg(JsonObject? args, string key)

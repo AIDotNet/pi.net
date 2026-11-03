@@ -14,6 +14,16 @@ public sealed record PiManifest
     public IReadOnlyList<string>? Prompts { get; init; }
 
     public IReadOnlyList<string>? Themes { get; init; }
+
+    /// <summary>Package-relative changelog path; <c>CHANGELOG.md</c> when absent.</summary>
+    public string? ChangelogPath { get; init; }
+
+    /// <summary>
+    /// Whether the manifest lists any resource. A <c>pi</c> object holding only metadata
+    /// (<c>changelogPath</c>, gallery image/video) still uses directory auto-discovery.
+    /// </summary>
+    public bool HasResourceFields =>
+        Extensions is not null || Skills is not null || Prompts is not null || Themes is not null;
 }
 
 /// <summary>Port of <c>core/pi-manifest.ts</c>.</summary>
@@ -57,6 +67,12 @@ public static class PiManifestReader
                     _ => manifest with { Themes = values },
                 };
             }
+            if (pi["changelogPath"] is JsonValue changelogValue
+                && changelogValue.TryGetValue(out string? changelogPath))
+            {
+                manifest = manifest with { ChangelogPath = changelogPath };
+            }
+
             return manifest;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)

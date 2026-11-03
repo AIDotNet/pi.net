@@ -82,8 +82,7 @@ public static class RenderUtils
             return "";
         }
 
-        var home = HomeDirectory;
-        return text.StartsWith(home, StringComparison.Ordinal) ? $"~{text[home.Length..]}" : text;
+        return Paths.ShortenHomePath(text);
     }
 
     /// <summary>

@@ -121,6 +121,12 @@ public sealed record ExtensionCustomOptions
 
     /// <summary>Called with the overlay handle after the overlay is shown.</summary>
     public Action<OverlayHandle>? OnHandle { get; init; }
+
+    /// <summary>
+    /// Report the program as blocked on user input (OSC 7501) while this component is visible.
+    /// Only applies to inline components, not overlays. TS <c>c1810bf70</c>.
+    /// </summary>
+    public BlockedStatus? Blocked { get; init; }
 }
 
 /// <summary>

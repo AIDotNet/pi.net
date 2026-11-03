@@ -107,7 +107,9 @@ public static class TrustManager
         while (true)
         {
             var agentsSkillsDir = NodePath.Join(currentDir, ".agents", "skills");
-            if (agentsSkillsDir != userAgentsSkillsDir && Exists(agentsSkillsDir)) return true;
+            // TS `1be312b46`: compare case-insensitively on Windows, or a lowercase HOME still loads the
+            // user's own ~/.agents/skills as a trust-requiring project resource.
+            if (!Paths.PathsEqual(agentsSkillsDir, userAgentsSkillsDir) && Exists(agentsSkillsDir)) return true;
 
             var parentDir = NodePath.Dirname(currentDir);
             if (parentDir == currentDir) return false;
@@ -173,6 +175,13 @@ public static class TrustManager
         File.WriteAllText(path, json + "\n");
     }
 
+    /// <summary>
+    /// Trust-file keys naming <paramref name="path"/>. Usually one; several on Windows when they were saved
+    /// with different casing. Port of <c>findTrustFileKeys</c>.
+    /// </summary>
+    private static List<string> FindTrustFileKeys(IReadOnlyDictionary<string, bool?> data, string path) =>
+        data.Keys.Where(key => Paths.PathsEqual(key, path)).ToList();
+
     private static ProjectTrustStoreEntry? FindNearestTrustEntry(
         IReadOnlyDictionary<string, bool?> data,
         string cwd)
@@ -180,9 +189,12 @@ public static class TrustManager
         var currentDir = NormalizeCwd(cwd);
         while (true)
         {
-            if (data.TryGetValue(currentDir, out var value) && value is not null)
+            foreach (var key in FindTrustFileKeys(data, currentDir))
             {
-                return new ProjectTrustStoreEntry(currentDir, value.Value);
+                if (data[key] is { } value)
+                {
+                    return new ProjectTrustStoreEntry(key, value);
+                }
             }
 
             var parentDir = NodePath.Dirname(currentDir);
@@ -194,6 +206,9 @@ public static class TrustManager
     internal static ProjectTrustStoreEntry? FindNearestTrustEntryForTest(
         IReadOnlyDictionary<string, bool?> data,
         string cwd) => FindNearestTrustEntry(data, cwd);
+
+    internal static List<string> FindTrustFileKeysForTest(IReadOnlyDictionary<string, bool?> data, string path) =>
+        FindTrustFileKeys(data, path);
 
     /// <summary>JSON options matching <c>JSON.stringify(data, null, 2)</c>.</summary>
     internal static class TrustJson
@@ -264,8 +279,14 @@ public sealed class ProjectTrustStore
         foreach (var (path, decision) in decisions)
         {
             var key = TrustManager.NormalizeCwd(path);
-            if (decision is null) data.Remove(key);
-            else data[key] = decision;
+            // TS removes every key that names the same location before writing the new one, so a decision
+            // saved under a different casing on Windows is replaced rather than duplicated.
+            foreach (var existingKey in TrustManager.FindTrustFileKeysForTest(data, key))
+            {
+                data.Remove(existingKey);
+            }
+
+            if (decision is not null) data[key] = decision;
         }
         TrustManager.WriteTrustFile(_trustPath, data);
     }

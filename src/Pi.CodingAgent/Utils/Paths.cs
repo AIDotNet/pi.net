@@ -93,6 +93,80 @@ public static partial class Paths
     }
 
     /// <summary>
+    /// Key for comparing filesystem paths: the resolved absolute path, case-folded on Windows because
+    /// Windows paths are case-insensitive (<c>c:\Users</c> and <c>C:\Users</c> are the same directory).
+    /// NTFS can enable per-directory case sensitivity, but that is rarely used outside WSL interop, so it
+    /// is ignored here. Does not touch the filesystem; call <see cref="CanonicalizePath"/> first when
+    /// symlinks must compare equal. Use only for comparison, never for display or filesystem access.
+    /// </summary>
+    /// <remarks>
+    /// Port of <c>getPathComparisonKey</c> (TS <c>1be312b46</c>). The TS version reads
+    /// <c>process.platform</c> at call time so tests can simulate Windows; here the flavour is an
+    /// optional parameter for the same reason.
+    /// </remarks>
+    public static string GetPathComparisonKey(string path, bool? windows = null)
+    {
+        var effectiveWindows = windows ?? NodePath.IsWindows;
+        var resolvedPath = NodePath.Resolve(effectiveWindows, path);
+        return effectiveWindows ? resolvedPath.ToLowerInvariant() : resolvedPath;
+    }
+
+    /// <summary>True when both paths name the same location. Port of <c>pathsEqual</c>.</summary>
+    public static bool PathsEqual(string left, string right, bool? windows = null) =>
+        string.Equals(
+            GetPathComparisonKey(left, windows),
+            GetPathComparisonKey(right, windows),
+            StringComparison.Ordinal);
+
+    /// <summary>True when <paramref name="child"/> is <paramref name="parent"/> or inside it, on whole path segments.</summary>
+    public static bool IsPathWithin(string parent, string child, bool? windows = null)
+    {
+        var effectiveWindows = windows ?? NodePath.IsWindows;
+        var parentKey = GetPathComparisonKey(parent, effectiveWindows);
+        var childKey = GetPathComparisonKey(child, effectiveWindows);
+        if (string.Equals(childKey, parentKey, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // Filesystem roots (`/`, `C:\`) already end with a separator.
+        var separator = effectiveWindows ? '\\' : '/';
+        return childKey.StartsWith(
+            parentKey.EndsWith(separator) ? parentKey : $"{parentKey}{separator}",
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Replace a leading home directory with <c>~</c> for display. Relative paths are returned unchanged.
+    /// Port of <c>shortenHomePath</c>; the TS callers used an unanchored <c>startsWith</c>, which turned
+    /// <c>/home/me2/x</c> into <c>~2/x</c>.
+    /// </summary>
+    public static string ShortenHomePath(string path, string? homeDir = null, bool? windows = null)
+    {
+        // Display-only helper: callers pass either the host's paths or POSIX fixtures on any host, so
+        // the flavour is inferred from the strings when it is not given (a drive letter or a backslash
+        // means Windows rules, and those decide the separator of the result).
+        var effectiveWindows = windows ?? (LooksWindows(path) || (homeDir is not null && LooksWindows(homeDir)));
+        var home = homeDir ?? GetHomeDirectory();
+        if (string.IsNullOrEmpty(home) ||
+            !NodePath.IsAbsolute(path, effectiveWindows) ||
+            !IsPathWithin(home, path, effectiveWindows))
+        {
+            return path;
+        }
+
+        var relativePath = NodePath.Relative(effectiveWindows, home, path);
+        return relativePath.Length == 0
+            ? "~"
+            : $"~{(effectiveWindows ? '\\' : '/')}{relativePath}";
+    }
+
+    /// <summary>Heuristic for <see cref="ShortenHomePath"/>: a drive prefix or a backslash means Windows.</summary>
+    private static bool LooksWindows(string path) =>
+        path.Contains('\\', StringComparison.Ordinal)
+        || (path.Length >= 2 && path[1] == ':' && char.IsLetter(path[0]));
+
+    /// <summary>
     /// A change token for a file, or <see langword="null"/> when it cannot be read. See the type remarks
     /// for how this differs from the Node original.
     /// </summary>

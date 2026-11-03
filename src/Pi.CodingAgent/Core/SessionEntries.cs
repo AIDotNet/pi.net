@@ -985,8 +985,11 @@ public static partial class SessionEntries
         return -1;
     }
 
-    /// <summary>把一条条目投影到上下文，并按需应用上下文编辑。对应 TS 模块私有的 <c>projectContextEntry</c>。</summary>
-    private static IReadOnlyList<ChatMessage> ProjectContextEntry(SessionEntry entry, ContextEditEntry? edit)
+    /// <summary>
+    /// 把一条条目投影到上下文，并按需应用上下文编辑。对应 TS 的 <c>projectContextEntry</c>
+    /// （<c>d0fe21308</c> 起由模块私有改为导出，分支摘要要按同一规则投影）。
+    /// </summary>
+    internal static IReadOnlyList<ChatMessage> ProjectContextEntry(SessionEntry entry, ContextEditEntry? edit)
     {
         var messages = SessionEntryToContextMessages(entry);
         if (edit is null)

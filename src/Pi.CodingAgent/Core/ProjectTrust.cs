@@ -56,7 +56,13 @@ public static class ProjectTrust
         CancellationToken cancellationToken = default)
     {
         if (options.TrustOverride is bool overrideValue) return overrideValue;
-        if (!TrustManager.HasTrustRequiringProjectResources(options.Cwd)) return true;
+        // TS `31ade0e0d`: a saved "Do not trust" wins over auto-trust for projects that need no
+        // trust-requiring resources — otherwise `ctx.isProjectTrusted()` flips to true behind the
+        // user's back on the next launch.
+        if (!TrustManager.HasTrustRequiringProjectResources(options.Cwd))
+        {
+            return options.TrustStore.Get(options.Cwd) ?? true;
+        }
 
         if (options.ExtensionsResult is { } extensionsResult)
         {

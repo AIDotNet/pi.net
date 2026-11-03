@@ -366,18 +366,38 @@ public partial class AgentSession
     /// allowlist 保留但未命中的 MCP 工具不能活跃（只供 codemode / tool_search）。
     /// </param>
     /// <param name="onHookError">钩子抛错时的上报回调；<c>null</c> 表示吞掉（TS 会经扩展运行时报错）。</param>
+    /// <param name="currentActiveNames">
+    /// 当前已活跃的工具名（按当前声明顺序）。传入后按 TS <c>b9e3eef6c</c> 的集合语义排序：
+    /// 仍然活跃的工具保持原顺序，新增的追加在后——同一组名字换顺序不再改动系统提示词。
+    /// <c>null</c> 表示按 <paramref name="toolNames"/> 的请求顺序（安装期首次装载即如此）。
+    /// </param>
     public static ToolLoadoutApplication ApplyToolLoadout(
         IReadOnlyList<string> toolNames,
         IReadOnlyDictionary<string, AgentTool> registry,
         IReadOnlyDictionary<string, ToolDefinitionEntry> definitions,
         ToolFilter? filter = null,
-        Action<LoadoutHookError>? onHookError = null)
+        Action<LoadoutHookError>? onHookError = null,
+        IReadOnlyList<string>? currentActiveNames = null)
     {
         var effectiveFilter = filter ?? ToolFilter.None;
         var registeredNames = registry.Keys.ToHashSet(StringComparer.Ordinal);
 
         var requested = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        if (currentActiveNames is not null)
+        {
+            // TS: `req = new Set(toolNames)`, `kept = active.filter(n => req.has(n))`,
+            // `tools = [...new Set([...kept, ...req])]`.
+            var requestedSet = toolNames.ToHashSet(StringComparer.Ordinal);
+            foreach (var name in currentActiveNames)
+            {
+                if (requestedSet.Contains(name) && seen.Add(name))
+                {
+                    requested.Add(name);
+                }
+            }
+        }
+
         foreach (var name in toolNames)
         {
             if (seen.Add(name))

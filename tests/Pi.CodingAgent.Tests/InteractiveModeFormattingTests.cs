@@ -56,12 +56,11 @@ public sealed class InteractiveModeFormattingTests
     }
 
     [Fact]
-    public void AbbreviatesOnAPlainStringPrefix()
+    public void DoesNotAbbreviateASiblingThatOnlySharesTheStringPrefix()
     {
-        // TS uses startsWith, not a path-component check, so a sibling sharing the prefix is
-        // abbreviated too. Pinned because it looks like a bug but is the upstream behaviour
-        // (verified against node: "~" + "/home/user2/.pi".slice("/home/u".length)).
-        Assert.Equal("~ser2/.pi", InteractiveModeFormatting.FormatDisplayPath("/home/user2/.pi", "/home/u"));
+        // TS `1be312b46` anchored the home check: the old `startsWith` turned a sibling directory into
+        // "~ser2/.pi". Siblings now keep their absolute path.
+        Assert.Equal("/home/user2/.pi", InteractiveModeFormatting.FormatDisplayPath("/home/user2/.pi", "/home/u"));
     }
 
     [Fact]

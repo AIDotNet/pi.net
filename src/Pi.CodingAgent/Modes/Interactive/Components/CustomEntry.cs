@@ -58,7 +58,15 @@ public sealed class CustomEntryComponent : Container, IOutputPadSettable
         IComponent? component;
         try
         {
-            component = _renderer(_entry, new EntryRenderOptions { Expanded = _expanded }, ThemeRuntime.Current);
+            component = _renderer(
+                _entry,
+                new EntryRenderOptions
+                {
+                    Expanded = _expanded,
+                    KeyText = KeybindingHints.KeyText,
+                    KeyHint = KeybindingHints.KeyHint,
+                },
+                ThemeRuntime.Current);
         }
         catch (Exception error)
         {

@@ -435,8 +435,11 @@ public sealed class ModelSelectorComponent : Container, IFocusable
             var cursor = isSelected ? theme.Fg("accent", "→ ") : "  ";
             var currentMarker = isCurrent ? theme.Fg("accent", "✓ ") : "  ";
             var modelText = isSelected ? theme.Fg("accent", item.Id) : item.Id;
+            // TS `606af8662`: show the display name when it adds words the ID does not have.
+            var distinctName = ModelSearch.GetDistinctModelName(item.Id, item.Model.Name);
+            var nameText = distinctName is null ? "" : theme.Fg("muted", $" ({distinctName})");
             var providerBadge = theme.Fg("muted", $"[{item.Provider}]");
-            var line = $"{cursor}{currentMarker}{modelText} {providerBadge}{defaultBadge}";
+            var line = $"{cursor}{currentMarker}{modelText}{nameText} {providerBadge}{defaultBadge}";
 
             _listContainer.AddChild(new Text(line, 0, 0));
         }

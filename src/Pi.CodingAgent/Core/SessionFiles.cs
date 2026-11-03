@@ -357,7 +357,7 @@ public static class SessionFiles
 
     /// <summary>TS <c>sessionCwdMatches</c>：cwd 非空且 resolve 后与当前一致。</summary>
     private static bool SessionCwdMatches(string headerCwd, string resolvedCwd) =>
-        headerCwd.Length > 0 && Paths.ResolvePath(headerCwd) == resolvedCwd;
+        headerCwd.Length > 0 && Paths.PathsEqual(Paths.ResolvePath(headerCwd), resolvedCwd);
 
     // ─────────────────────────────────────────────────────────────────────────────
     // 会话信息构建
@@ -665,7 +665,8 @@ public static class SessionFiles
     internal static string? FindSessionById(string cwd, string id, string? sessionDir)
     {
         var dir = sessionDir is not null ? Paths.NormalizePath(sessionDir) : GetDefaultSessionDir(cwd);
-        var filterCwd = sessionDir is not null && dir != SessionEntries.GetDefaultSessionDirPath(cwd);
+        var filterCwd =
+            sessionDir is not null && !Paths.PathsEqual(dir, SessionEntries.GetDefaultSessionDirPath(cwd));
         var resolvedCwd = Paths.ResolvePath(cwd);
 
         try
@@ -708,7 +709,8 @@ public static class SessionFiles
         string cwd, string? sessionDir, SessionListProgress? onProgress, CancellationToken signal)
     {
         var dir = sessionDir is not null ? Paths.NormalizePath(sessionDir) : GetDefaultSessionDir(cwd);
-        var filterCwd = sessionDir is not null && dir != SessionEntries.GetDefaultSessionDirPath(cwd);
+        var filterCwd =
+            sessionDir is not null && !Paths.PathsEqual(dir, SessionEntries.GetDefaultSessionDirPath(cwd));
         var resolvedCwd = Paths.ResolvePath(cwd);
 
         bool Include(SessionInfo session) =>

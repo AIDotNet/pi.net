@@ -73,6 +73,12 @@ public sealed class LoginDialogComponent : Container, IFocusable
 
     private bool _focused;
 
+    /// <summary>The pending device-code confirm action (Enter opens the page and copies the code).</summary>
+    private (OAuthDeviceCodeInfo Info, Container Hint)? _deviceCodeAction;
+
+    /// <summary>The hint row reused for progress and result text.</summary>
+    private Container? _deviceCodeHint;
+
     public LoginDialogComponent(
         ITui tui,
         string providerId,
@@ -147,6 +153,7 @@ public sealed class LoginDialogComponent : Container, IFocusable
 
     private void Cancel()
     {
+        ClearDeviceCodeAction();
         _abortController.Cancel();
         if (_inputCompletion is not null)
         {
@@ -162,6 +169,7 @@ public sealed class LoginDialogComponent : Container, IFocusable
     /// <summary>Called by the <c>onAuth</c> callback — show URL and optional instructions.</summary>
     public void ShowAuth(string url, string? instructions = null)
     {
+        ClearDeviceCodeAction();
         var target = WebUrl(url);
         _contentContainer.Clear();
         _contentContainer.AddChild(new Spacer(1));
@@ -182,10 +190,28 @@ public sealed class LoginDialogComponent : Container, IFocusable
         _tui.RequestRender();
     }
 
+    private void ClearDeviceCodeAction()
+    {
+        if (_deviceCodeHint is { } hint)
+        {
+            _contentContainer.RemoveChild(hint);
+        }
+
+        _deviceCodeHint = null;
+        _deviceCodeAction = null;
+    }
+
     /// <summary>Called by the <c>onDeviceCode</c> callback — show URL and user code.</summary>
     public void ShowDeviceCode(OAuthDeviceCodeInfo info)
     {
         var theme = ThemeRuntime.Current;
+        // TS `7151099d0`: both confirm actions default to on.
+        info = info with
+        {
+            OpenBrowserOnConfirm = info.OpenBrowserOnConfirm ?? true,
+            CopyCodeOnConfirm = info.CopyCodeOnConfirm ?? true,
+        };
+        ClearDeviceCodeAction();
         _authUrl = null;
         _contentContainer.Clear();
         _contentContainer.AddChild(new Spacer(1));
@@ -200,12 +226,70 @@ public sealed class LoginDialogComponent : Container, IFocusable
         _contentContainer.AddChild(new Spacer(1));
         _contentContainer.AddChild(new TuiText(theme.Fg("warning", $"Enter code: {info.UserCode}"), 1, 0));
 
+        if (!_abortController.IsCancellationRequested
+            && (info.OpenBrowserOnConfirm == true || info.CopyCodeOnConfirm == true))
+        {
+            var actionLabel = info.OpenBrowserOnConfirm == true
+                ? info.CopyCodeOnConfirm == true
+                    ? "to open browser and copy code"
+                    : "to open browser"
+                : "to copy code";
+            // Reuse this single row for progress/result text, including in narrow terminals.
+            var hint = new Container();
+            hint.AddChild(new TruncatedText(
+                $"({KeybindingHints.KeyHint(TuiKeybindingIds.SelectConfirm, actionLabel)})", 1, 0));
+            _contentContainer.AddChild(hint);
+            _deviceCodeHint = hint;
+            _deviceCodeAction = (info, hint);
+        }
+
         _tui.RequestRender();
+    }
+
+    private void SetDeviceCodeStatus(Container hint, string message)
+    {
+        if (_abortController.IsCancellationRequested || !_focused || !_contentContainer.Children.Contains(hint))
+        {
+            return;
+        }
+
+        hint.Children.Clear();
+        hint.AddChild(new TruncatedText(ThemeRuntime.Current.Fg("dim", message), 1, 0));
+        _tui.RequestRender();
+    }
+
+    private void ActivateDeviceCode(OAuthDeviceCodeInfo info, Container hint)
+    {
+        SetDeviceCodeStatus(hint, info.CopyCodeOnConfirm == true ? "Copying code..." : "Browser open requested");
+        if (info.CopyCodeOnConfirm == true)
+        {
+            // Do not delay polling or browser opening while clipboard tools are running.
+            _ = Utils.Clipboard.CopyToClipboardAsync(info.UserCode)
+                .ContinueWith(
+                    task => SetDeviceCodeStatus(
+                        hint,
+                        task.IsCompletedSuccessfully ? "Code copied to clipboard" : "Copy code manually"),
+                    TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        if (info.OpenBrowserOnConfirm == true && WebUrl(info.VerificationUri) is { } target)
+        {
+            try
+            {
+                // The shared launcher also opens files; device-code login must only open web URLs.
+                OpenBrowser.Open(target);
+            }
+            catch
+            {
+                // Launcher failures must not interrupt login.
+            }
+        }
     }
 
     /// <summary>Show input for manual code/URL entry (for callback server providers).</summary>
     public Task<string> ShowManualInputAsync(string prompt)
     {
+        ClearDeviceCodeAction();
         _input.SetValue("");
         _contentContainer.AddChild(new Spacer(1));
         _contentContainer.AddChild(new TuiText(ThemeRuntime.Current.Fg("dim", prompt), 1, 0));
@@ -223,6 +307,7 @@ public sealed class LoginDialogComponent : Container, IFocusable
     /// </summary>
     public Task<string> ShowPromptAsync(string message, string? placeholder = null)
     {
+        ClearDeviceCodeAction();
         var theme = ThemeRuntime.Current;
         _contentContainer.AddChild(new Spacer(1));
         _contentContainer.AddChild(new TuiText(theme.Fg("text", message), 1, 0));
@@ -247,6 +332,7 @@ public sealed class LoginDialogComponent : Container, IFocusable
     /// <summary>Show informational text before another login step.</summary>
     public void ShowDetails(IReadOnlyList<string> lines)
     {
+        ClearDeviceCodeAction();
         _authUrl = null;
         _contentContainer.Clear();
         _contentContainer.AddChild(new Spacer(1));
@@ -318,6 +404,19 @@ public sealed class LoginDialogComponent : Container, IFocusable
         {
             // TS `void this.authUrl.copy()`: fire and forget, the hint text updates when it settles.
             _ = _authUrl.CopyAsync();
+            return;
+        }
+
+        if (_deviceCodeAction is { } deviceCodeAction
+            && _inputCompletion is null
+            && !_abortController.IsCancellationRequested
+            && _focused
+            && keybindings.Matches(data, TuiKeybindingIds.SelectConfirm))
+        {
+            // Consume once so a repeated Enter cannot launch multiple browsers or clipboard writes.
+            _deviceCodeAction = null;
+            ActivateDeviceCode(deviceCodeAction.Info, deviceCodeAction.Hint);
+            _tui.RequestRender();
             return;
         }
 

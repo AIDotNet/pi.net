@@ -67,7 +67,7 @@ public static class ExtensionLoader
         var resolvedCwd = Paths.ResolvePath(cwd);
         lock (CacheGate)
         {
-            if (ExtensionCacheCwd is not null && ExtensionCacheCwd != resolvedCwd)
+            if (ExtensionCacheCwd is not null && !Paths.PathsEqual(ExtensionCacheCwd, resolvedCwd))
             {
                 ClearExtensionCache();
             }
@@ -82,7 +82,8 @@ public static class ExtensionLoader
         lock (CacheGate)
         {
             return token is not null
-                && ExtensionCacheCwd == token.Cwd
+                && ExtensionCacheCwd is { } cacheCwd
+                && Paths.PathsEqual(cacheCwd, token.Cwd)
                 && ExtensionCacheGeneration == token.Generation;
         }
     }

@@ -330,19 +330,49 @@ public sealed partial class SessionManager
 
     private void AppendEntry(SessionEntry entry)
     {
+        // TS `807a5c051`: an entry that was not written must not become the parent of later entries,
+        // or the file ends up holding entries that point at a missing parent and a resume drops
+        // everything before the gap. Undo the in-memory append, then rethrow.
+        var previousLeafId = _leafId;
+        var id = entry.Id;
+        SessionEntry? previousEntry = null;
+        var hadEntry = id is not null && _byId.TryGetValue(id, out previousEntry) && previousEntry is not null;
+
         _fileEntries.Add(entry);
-        if (entry.Id is { } id)
+        if (id is { } entryId)
         {
-            if (!_byId.ContainsKey(id))
+            if (!_byId.ContainsKey(entryId))
             {
-                _byIdOrder.Add(id);
+                _byIdOrder.Add(entryId);
             }
 
-            _byId[id] = entry;
-            _leafId = id;
+            _byId[entryId] = entry;
+            _leafId = entryId;
         }
 
-        Persist(entry);
+        try
+        {
+            Persist(entry);
+        }
+        catch
+        {
+            _fileEntries.RemoveAt(_fileEntries.Count - 1);
+            if (id is { } failedId)
+            {
+                if (hadEntry)
+                {
+                    _byId[failedId] = previousEntry!;
+                }
+                else
+                {
+                    _byId.Remove(failedId);
+                    _byIdOrder.Remove(failedId);
+                }
+            }
+
+            _leafId = previousLeafId;
+            throw;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -355,7 +385,7 @@ public sealed partial class SessionManager
 
     public string GetSessionDir() => _sessionDir;
 
-    public bool UsesDefaultSessionDir() => _sessionDir == SessionEntries.GetDefaultSessionDirPath(_cwd);
+    public bool UsesDefaultSessionDir() => Paths.PathsEqual(_sessionDir, SessionEntries.GetDefaultSessionDirPath(_cwd));
 
     public string GetSessionId() => _sessionId;
 
@@ -1074,7 +1104,7 @@ public sealed partial class SessionManager
     public static SessionManager ContinueRecent(string cwd, string? sessionDir = null)
     {
         var dir = sessionDir is not null ? Paths.NormalizePath(sessionDir) : SessionFiles.GetDefaultSessionDir(cwd);
-        var filterCwd = sessionDir is not null && dir != SessionEntries.GetDefaultSessionDirPath(cwd);
+        var filterCwd = sessionDir is not null && !Paths.PathsEqual(dir, SessionEntries.GetDefaultSessionDirPath(cwd));
         var mostRecent = SessionFiles.FindMostRecentSession(dir, filterCwd ? cwd : null);
         if (mostRecent is not null)
         {

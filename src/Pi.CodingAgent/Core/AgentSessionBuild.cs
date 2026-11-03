@@ -612,7 +612,8 @@ public partial class AgentSession
             _toolRegistry,
             _toolDefinitions,
             new ToolFilter(_allowedTools, _excludedTools, _allowlistFiltersMcp),
-            error => _extensionRunner.EmitError(new ExtensionError(error.ExtensionPath, error.Event, error.Error, error.Stack)));
+            error => _extensionRunner.EmitError(new ExtensionError(error.ExtensionPath, error.Event, error.Error, error.Stack)),
+            GetActiveToolNames());
         _hiddenDeclarations = application.HiddenDeclarations;
         _agent.Tools = application.Declared;
         return application.Declared;
@@ -1594,6 +1595,7 @@ public partial class AgentSession
                 {
                     Model = auth.Model,
                     ApiKey = auth.ApiKey,
+                    ThinkingLevel = auth.ThinkingLevel,
                     CustomInstructions = customInstructions,
                     ReplaceInstructions = replaceInstructions == true,
                     ReserveTokens = branchSummarySettings.ReserveTokens,

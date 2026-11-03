@@ -403,9 +403,14 @@ public sealed class ScopedModelsSelectorComponent : Container, IFocusable
             var id = item.Model?.Id ?? item.FullId;
             var styledId = item.Model is not null ? id : theme.Strikethrough(id);
             var modelText = isSelected ? theme.Fg("accent", styledId) : styledId;
+            // TS `606af8662`: names that only restate the ID add nothing.
+            var distinctName = item.Model is null
+                ? null
+                : ModelSearch.GetDistinctModelName(item.Model.Id, item.Model.Name);
+            var nameText = distinctName is null ? "" : theme.Fg("muted", $" ({distinctName})");
             var providerBadge = theme.Fg("muted", item.Model is not null ? $" [{item.Model.Provider}]" : " [unavailable]");
             var status = item.Model is not null && item.Enabled ? theme.Fg("accent", "✓ ") : "  ";
-            _listContainer.AddChild(new Text($"{prefix}{status}{modelText}{providerBadge}", 0, 0));
+            _listContainer.AddChild(new Text($"{prefix}{status}{modelText}{nameText}{providerBadge}", 0, 0));
         }
 
         // Add scroll indicator if needed

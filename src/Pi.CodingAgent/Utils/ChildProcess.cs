@@ -35,6 +35,12 @@ public sealed record SpawnOptions
 
     /// <summary>Environment overlay; a <see langword="null"/> value removes the variable.</summary>
     public IReadOnlyDictionary<string, string?>? Env { get; init; }
+
+    /// <summary>
+    /// Combined stdout+stderr byte cap. When exceeded the child is killed and
+    /// <see cref="ChildProcessHandle.OutputLimitExceeded"/> is set; <c>null</c> means unlimited.
+    /// </summary>
+    public long? MaxOutputBytes { get; init; }
 }
 
 /// <summary>Options for <see cref="ChildProcess.SpawnSync"/>.</summary>
@@ -522,6 +528,17 @@ public sealed class ChildProcessHandle : IDisposable
     private readonly TaskCompletionSource _stderrEnded = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly MemoryStream _stdoutBuffer = new();
     private readonly MemoryStream _stderrBuffer = new();
+
+    /// <summary>Combined stdout+stderr byte cap for <see cref="SpawnOptions.MaxOutputBytes"/>.</summary>
+    public long? MaxOutputBytes { get; init; }
+
+    private long _outputBytes;
+
+    /// <summary>
+    /// The child was killed because combined output passed <see cref="MaxOutputBytes"/>; the captured
+    /// output is incomplete. TS <c>truncated</c>.
+    /// </summary>
+    public bool OutputLimitExceeded { get; private set; }
     private readonly List<byte[]> _pendingStdout = [];
     private readonly List<byte[]> _pendingStderr = [];
     private readonly Lock _bufferLock = new();
@@ -657,6 +674,7 @@ public sealed class ChildProcessHandle : IDisposable
         {
             Id = process.Id,
             Stdin = hasStdin ? process.StandardInput.BaseStream : null,
+            MaxOutputBytes = options?.MaxOutputBytes,
         };
 
         Interlocked.Exchange(ref handle._lastDataMs, NowMs());
@@ -798,6 +816,27 @@ public sealed class ChildProcessHandle : IDisposable
                 }
 
                 Interlocked.Exchange(ref _lastDataMs, NowMs());
+
+                if (MaxOutputBytes is { } limit)
+                {
+                    var total = Interlocked.Add(ref _outputBytes, read);
+                    if (total > limit)
+                    {
+                        // Stop buffering and kill the child, like Node's `maxBuffer` in execSync.
+                        OutputLimitExceeded = true;
+                        try
+                        {
+                            Kill();
+                        }
+                        catch (Exception)
+                        {
+                            // The child may already be gone.
+                        }
+
+                        break;
+                    }
+                }
+
                 var copy = chunk[..read];
 
                 // Read the listener list under the lock and dispatch outside it, so a handler that

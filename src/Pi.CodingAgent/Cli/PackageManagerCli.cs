@@ -752,6 +752,11 @@ public static class PackageManagerCli
             {
                 output.Write(Chalk.Dim($"{evt.Message}\n"));
             }
+            else if (evt.Type == "progress" && !string.IsNullOrEmpty(evt.Message))
+            {
+                // TS `0d23d5345`: the "installed version did not change" notice.
+                output.Write(Chalk.Yellow($"{evt.Message}\n"));
+            }
         });
 
         try

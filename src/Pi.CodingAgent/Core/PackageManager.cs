@@ -60,6 +60,13 @@ public sealed record PathMetadata
     /// <c>collectExtensionPackageWarnings</c>, which reads the package's own <c>package.json</c>.
     /// </summary>
     public string? PackageRoot { get; init; }
+
+    /// <summary>
+    /// The package's changelog file, when the package ships one inside its own directory. Read by the
+    /// "Extension Updates" startup notice. TS mutates this while collecting a package's resources, so
+    /// it is settable rather than <c>init</c>.
+    /// </summary>
+    public string? ChangelogPath { get; set; }
 }
 
 /// <summary>Port of TS <c>ResolvedResource</c>.</summary>
@@ -489,6 +496,27 @@ public sealed partial class DefaultPackageManager : IPackageManager
                 var installedPath = GetNpmInstallPath(parsed, resolvedScope);
                 var needsInstall = !Directory.Exists(installedPath)
                     || !InstalledNpmMatchesConfiguredVersion(parsed, installedPath);
+                if (!needsInstall
+                    && resolvedScope == SourceScope.Temporary
+                    && !parsed.Pinned
+                    && await NpmHasAvailableUpdateAsync(parsed, installedPath, cancellationToken).ConfigureAwait(false))
+                {
+                    // TS `cd6a8f7f3`: temporary (-e) sources have no `pi update` path, so refresh unpinned
+                    // ones on load like temporary git sources. Like `pi update`, install `name@latest` for
+                    // unversioned specs because a bare `npm install name` keeps the range already saved in
+                    // the temporary package.json.
+                    var refreshSpec = parsed.Version is not null ? parsed.Spec : $"{parsed.Name}@latest";
+                    try
+                    {
+                        await InstallNpmAsync(parsed with { Spec = refreshSpec }, resolvedScope, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception error) when (error is not OperationCanceledException)
+                    {
+                        // Keep the cached install if the refresh fails.
+                    }
+                }
+
                 if (needsInstall)
                 {
                     var installed = await TryInstallAsync().ConfigureAwait(false);
@@ -579,9 +607,11 @@ public sealed partial class DefaultPackageManager : IPackageManager
         }
 
         var path = parsed.Path ?? "";
+        // TS `1be312b46`: the identity folds case on Windows, so `pi remove c://pkg` matches a
+        // configured `C://pkg`.
         return scope is null
-            ? $"local:{ResolvePath(path)}"
-            : $"local:{ResolvePathFromBase(path, GetBaseDirForScope(scope))}";
+            ? $"local:{Paths.GetPathComparisonKey(ResolvePath(path))}"
+            : $"local:{Paths.GetPathComparisonKey(ResolvePathFromBase(path, GetBaseDirForScope(scope)))}";
     }
 
     /// <summary>
@@ -665,6 +695,11 @@ public sealed partial class DefaultPackageManager : IPackageManager
         PackageFilter? filter,
         PathMetadata metadata)
     {
+        // TS `b4b72a351`: every resource of a package carries the package's changelog so the startup
+        // "Extension Updates" notice can show what changed.
+        var manifest = PiManifestReader.ReadPiManifest(NodePath.Join(packageRoot, "package.json"));
+        metadata.ChangelogPath = ResolvePackageChangelogPath(packageRoot, manifest);
+
         if (filter is not null)
         {
             foreach (var resourceType in PackageManagerPatterns.ResourceTypes)
@@ -688,8 +723,8 @@ public sealed partial class DefaultPackageManager : IPackageManager
             return true;
         }
 
-        var manifest = PiManifestReader.ReadPiManifest(NodePath.Join(packageRoot, "package.json"));
-        if (manifest is not null)
+        // A `pi` object that lists no resources is metadata only; fall through to directory discovery.
+        if (manifest is { HasResourceFields: true })
         {
             foreach (var resourceType in PackageManagerPatterns.ResourceTypes)
             {
@@ -723,6 +758,54 @@ public sealed partial class DefaultPackageManager : IPackageManager
         }
 
         return hasAnyDir;
+    }
+
+    /// <summary>
+    /// The package's changelog file when it resolves inside the package directory. Port of
+    /// <c>resolvePackageChangelogPath</c>.
+    /// </summary>
+    private static string? ResolvePackageChangelogPath(string packageRoot, PiManifest? manifest)
+    {
+        var changelogPath = manifest?.ChangelogPath ?? "CHANGELOG.md";
+        if (changelogPath.Length == 0)
+        {
+            return null;
+        }
+
+        var resolvedPath = NodePath.Resolve(packageRoot, changelogPath);
+        if (!File.Exists(resolvedPath) && !Directory.Exists(resolvedPath))
+        {
+            return null;
+        }
+
+        var canonicalPackageRoot = Paths.CanonicalizePath(packageRoot);
+        var canonicalChangelogPath = Paths.CanonicalizePath(resolvedPath);
+        if (!IsPathInside(canonicalPackageRoot, canonicalChangelogPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            return File.Exists(resolvedPath) ? resolvedPath : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Strict containment: true only when <paramref name="child"/> is inside <paramref name="parent"/>
+    /// and not equal to it. Port of the private <c>isPathInside</c> in <c>package-manager.ts</c>.
+    /// </summary>
+    private static bool IsPathInside(string parent, string child)
+    {
+        var relativePath = NodePath.Relative(parent, child);
+        return relativePath.Length > 0
+            && relativePath != ".."
+            && !relativePath.StartsWith($"..{NodePath.Separator}", StringComparison.Ordinal)
+            && !NodePath.IsAbsolute(relativePath);
     }
 
     private void CollectDefaultResources(
@@ -944,7 +1027,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
         {
             foreach (var dir in PackageManagerCollectors.CollectAncestorAgentsSkillDirs(_cwd))
             {
-                if (NodePath.Resolve(dir) != NodePath.Resolve(userAgentsSkillsDir))
+                if (!Paths.PathsEqual(dir, userAgentsSkillsDir))
                 {
                     projectAgentsSkillDirs.Add(dir);
                 }
@@ -1171,8 +1254,8 @@ public sealed partial class DefaultPackageManager : IPackageManager
             var resolved = new List<ResolvedResource>(indexed.Count);
             foreach (var (path, _) in indexed)
             {
-                var canonical = Paths.CanonicalizePath(path);
-                if (!seen.Add(canonical))
+                var pathKey = SourceInfos.GetResourcePathKey(path);
+                if (!seen.Add(pathKey))
                 {
                     continue;
                 }

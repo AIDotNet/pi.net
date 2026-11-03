@@ -1207,6 +1207,27 @@ public sealed class SettingsManager
         Save();
     }
 
+    /// <summary>
+    /// The last version of an extension package whose changelog was shown. Port of TS
+    /// <c>getExtensionChangelogVersion</c>.
+    /// </summary>
+    public string? GetExtensionChangelogVersion(string key) =>
+        _globalSettings["extensionChangelogVersions"] is JsonObject versions
+        && versions[key] is JsonValue value
+        && value.TryGetValue(out string? version)
+            ? version
+            : null;
+
+    /// <summary>Record the extension package version whose changelog was shown. Port of TS <c>setExtensionChangelogVersion</c>.</summary>
+    public void SetExtensionChangelogVersion(string key, string version)
+    {
+        var versions = _globalSettings["extensionChangelogVersions"] as JsonObject ?? new JsonObject();
+        versions[key] = version;
+        _globalSettings["extensionChangelogVersions"] = versions;
+        MarkModified("extensionChangelogVersions", key);
+        Save();
+    }
+
     public bool GetCollapseChangelog() => AsBool(Raw("collapseChangelog"), false);
 
     public void SetCollapseChangelog(bool collapse)

@@ -781,8 +781,8 @@ public static class Skills
             allDiagnostics.AddRange(result.Diagnostics);
             foreach (var skill in result.Skills)
             {
-                // Resolve symlinks to detect duplicate files.
-                var realPath = Paths.CanonicalizePath(skill.FilePath);
+                // Resolve symlinks to detect duplicate files; the key folds case on Windows.
+                var realPath = SourceInfos.GetResourcePathKey(skill.FilePath);
 
                 // Skip silently if we've already loaded this exact file (via symlink).
                 if (realPathSet.Contains(realPath))
@@ -821,29 +821,16 @@ public static class Skills
         var userSkillsDir = NodePath.Join(resolvedAgentDir, "skills");
         var projectSkillsDir = NodePath.Join(resolvedCwd, Config.ConfigDirName, "skills");
 
-        static bool IsUnderPath(string target, string root)
-        {
-            var normalizedRoot = Path.GetFullPath(root);
-            if (string.Equals(target, normalizedRoot, StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            var separator = Path.DirectorySeparatorChar;
-            var prefix = normalizedRoot.EndsWith(separator) ? normalizedRoot : $"{normalizedRoot}{separator}";
-            return target.StartsWith(prefix, StringComparison.Ordinal);
-        }
-
         string GetSource(string resolvedPath)
         {
             if (!options.IncludeDefaults)
             {
-                if (IsUnderPath(resolvedPath, userSkillsDir))
+                if (Paths.IsPathWithin(userSkillsDir, resolvedPath))
                 {
                     return "user";
                 }
 
-                if (IsUnderPath(resolvedPath, projectSkillsDir))
+                if (Paths.IsPathWithin(projectSkillsDir, resolvedPath))
                 {
                     return "project";
                 }

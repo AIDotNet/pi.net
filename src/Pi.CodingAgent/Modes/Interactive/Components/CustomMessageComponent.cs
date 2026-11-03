@@ -86,7 +86,13 @@ public sealed class CustomMessageComponent : Container, IOutputPadSettable
             {
                 var component = _customRenderer(
                     _message,
-                    new MessageRenderOptions { Expanded = _expanded, OutputPad = _outputPad },
+                    new MessageRenderOptions
+                    {
+                        Expanded = _expanded,
+                        OutputPad = _outputPad,
+                        KeyText = KeybindingHints.KeyText,
+                        KeyHint = KeybindingHints.KeyHint,
+                    },
                     ThemeRuntime.Current);
                 if (component is not null)
                 {

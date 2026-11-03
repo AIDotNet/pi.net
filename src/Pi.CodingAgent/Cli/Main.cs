@@ -153,7 +153,7 @@ public static class Main
         // TS: cleanupWindowsSelfUpdateQuarantine(getPackageDir()) on win32 + cleanupManagedInstall().
         // Both belong to the npm / managed-install self-update path (C301).
 
-        var cwd = options.Cwd ?? Environment.CurrentDirectory;
+        var cwd = options.Cwd ?? GetStartupCwd(error, Exit);
         var agentDir = options.AgentDir ?? Config.GetAgentDir();
         var bootstrapSettingsManager = SettingsManager.Create(cwd, agentDir, new SettingsManagerCreateOptions
         {
@@ -361,7 +361,8 @@ public static class Main
                 : hasCachedTrust
                     ? cachedProjectTrust
                     : parsed.ProjectTrustOverride
-                      ?? (!hasTrustRequiringResources || trustStore.Get(runtimeOptions.Cwd) == true);
+                      ?? trustStore.Get(runtimeOptions.Cwd)
+                      ?? !hasTrustRequiringResources;
             var runtimeSettingsManager = SettingsManager.Create(
                 runtimeOptions.Cwd,
                 runtimeOptions.AgentDir,
@@ -1384,6 +1385,41 @@ public static class Main
         AuthCheckStatus.NotReady => "not_ready",
         _ => "invalid",
     };
+
+    /// <summary>
+    /// The process working directory, reporting a deleted directory instead of crashing.
+    /// Port of the <c>process.cwd()</c> guard in <c>main.ts</c> (TS <c>88ffcdc73</c>).
+    /// </summary>
+    /// <remarks>
+    /// Node throws <c>ENOENT</c> from <c>uv_cwd</c> when the directory is gone. .NET only throws on Unix;
+    /// on Windows the call keeps returning the stale path, so the existence check runs as well — the
+    /// user-visible intent (report the directory instead of failing later) is the same.
+    /// </remarks>
+    private static string GetStartupCwd(TextWriter error, Action<int> exit)
+    {
+        string cwd;
+        try
+        {
+            cwd = Environment.CurrentDirectory;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            error.WriteLine(
+                "Error: The current working directory no longer exists. Change to an existing directory and try again.");
+            exit(1);
+            return string.Empty;
+        }
+
+        if (!Directory.Exists(cwd))
+        {
+            error.WriteLine(
+                "Error: The current working directory no longer exists. Change to an existing directory and try again.");
+            exit(1);
+            return string.Empty;
+        }
+
+        return cwd;
+    }
 }
 
 /// <summary>

@@ -175,6 +175,8 @@ public static partial class ToolHtmlRendererFactory
             IsError = isError,
             DurationMs = null,
             OutputPad = 1,
+            KeyText = Modes.Interactive.Components.KeybindingHints.KeyText,
+            KeyHint = Modes.Interactive.Components.KeybindingHints.KeyHint,
         };
 
         private static IComponent? LastComponent(

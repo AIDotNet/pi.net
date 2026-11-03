@@ -8,6 +8,9 @@
 // `core/package-manager.ts`, which arrived in 4e. `CreateSourceInfo` lands with the resource-loader
 // provenance work (4e-3e-9h-2b-1), which is its first consumer.
 
+using System.Text.Json;
+using Pi.CodingAgent.Utils;
+
 namespace Pi.CodingAgent.Core;
 
 /// <summary>Where a resource was loaded from. TS <c>SourceScope</c>.</summary>
@@ -52,11 +55,24 @@ public sealed record SourceInfo
 
     /// <summary>Directory the resource was resolved against, when it has one.</summary>
     public string? BaseDir { get; init; }
+
+    /// <summary>The owning package's changelog file, when it has one.</summary>
+    public string? ChangelogPath { get; init; }
 }
+
+/// <summary>What identifies an extension package across launches. TS <c>SourcePackageIdentity</c>.</summary>
+public sealed record SourcePackageIdentity(string Source, string Scope);
 
 /// <summary>Port of <c>core/source-info.ts</c>.</summary>
 public static class SourceInfos
 {
+    /// <summary>
+    /// Stable key for an extension package, used to remember which changelog version was shown.
+    /// Port of <c>getSourcePackageKey</c>; the shape is <c>JSON.stringify({source, scope})</c>.
+    /// </summary>
+    public static string GetSourcePackageKey(SourcePackageIdentity identity) =>
+        $"{{\"source\":{JsonSerializer.Serialize(identity.Source)},\"scope\":{JsonSerializer.Serialize(identity.Scope)}}}";
+
     /// <summary>Prefix of built-in tool and extension paths, such as <c>builtin:read</c> or <c>builtin:mcp</c>.</summary>
     public const string BuiltinPathPrefix = "builtin:";
 
@@ -87,6 +103,16 @@ public static class SourceInfos
         path.StartsWith(BuiltinPathPrefix, StringComparison.Ordinal) || path.StartsWith('<');
 
     /// <summary>
+    /// Key for deduplicating resource paths: synthetic paths as-is (they are not filesystem paths and their
+    /// lookup is case-sensitive), file paths via realpath plus the platform casing key.
+    /// Port of <c>getResourcePathKey</c> in <c>core/source-info.ts</c>.
+    /// </summary>
+    public static string GetResourcePathKey(string path) =>
+        IsSyntheticPath(path)
+            ? path
+            : Paths.GetPathComparisonKey(Paths.CanonicalizePath(path));
+
+    /// <summary>
     /// Source info for a synthetic path. Port of <c>createSyntheticSourceInfo</c>; scope defaults to
     /// <see cref="SourceScope.Temporary"/> and origin to <see cref="SourceOrigin.TopLevel"/>.
     /// </summary>
@@ -95,7 +121,8 @@ public static class SourceInfos
         string source,
         string? scope = null,
         string? origin = null,
-        string? baseDir = null) =>
+        string? baseDir = null,
+        string? changelogPath = null) =>
         new()
         {
             Path = path,
@@ -103,6 +130,7 @@ public static class SourceInfos
             Scope = scope ?? SourceScope.Temporary,
             Origin = origin ?? SourceOrigin.TopLevel,
             BaseDir = baseDir,
+            ChangelogPath = changelogPath,
         };
 
     /// <summary>
@@ -116,5 +144,6 @@ public static class SourceInfos
             Scope = metadata.Scope,
             Origin = metadata.Origin,
             BaseDir = metadata.BaseDir,
+            ChangelogPath = metadata.ChangelogPath,
         };
 }

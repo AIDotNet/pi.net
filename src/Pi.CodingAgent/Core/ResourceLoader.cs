@@ -601,10 +601,9 @@ public sealed class DefaultResourceLoader
     /// 出来正是被遮蔽的路径本身，会把工作树那份一起跳过（上游 #10681）。
     /// </summary>
     internal static bool IsShadowedContextFile(string walkedDirectory, string contextPath, string shadowedFile)
-        => string.Equals(
+        => Paths.PathsEqual(
             Path.Combine(Paths.CanonicalizePath(walkedDirectory), Path.GetFileName(contextPath)),
-            shadowedFile,
-            StringComparison.Ordinal);
+            shadowedFile);
 
     private static string? FindShadowedContextFile(string cwd)
     {
@@ -622,8 +621,17 @@ public sealed class DefaultResourceLoader
             return null;
         }
 
-        var prefix = mainRepoRoot + Path.DirectorySeparatorChar;
-        if (!worktreeRoot.StartsWith(prefix, StringComparison.Ordinal))
+        // An ordinary repo has both roots equal, and a sibling worktree's main repo is not an ancestor.
+        if (!Paths.IsPathWithin(mainRepoRoot, worktreeRoot) || Paths.PathsEqual(worktreeRoot, mainRepoRoot))
+        {
+            return null;
+        }
+
+        // dirname of the common git dir is the main worktree root only when that dir is itself checked
+        // out from the same repo. In a bare layout (`proj/.bare` + `proj/main`) it is just the directory
+        // holding `.bare`, which tracks nothing; a submodule's gitdir has no `commondir`, so it lands
+        // under `.git/modules`.
+        if (!Paths.PathsEqual(Paths.CanonicalizePath(Path.Combine(mainRepoRoot, ".git")), commonGitDir))
         {
             return null;
         }
@@ -857,7 +865,7 @@ public sealed class DefaultResourceLoader
         {
             foreach (var (sourcePath, sourceInfo) in extraSourceInfos)
             {
-                if (IsUnderResolvedPath(normalizedResourcePath, sourcePath))
+                if (Paths.IsPathWithin(sourcePath, normalizedResourcePath))
                 {
                     return sourceInfo with { Path = resourcePath };
                 }
@@ -874,7 +882,7 @@ public sealed class DefaultResourceLoader
 
             foreach (var (sourcePath, metadata) in metadataByPath)
             {
-                if (IsUnderResolvedPath(normalizedResourcePath, sourcePath))
+                if (Paths.IsPathWithin(sourcePath, normalizedResourcePath))
                 {
                     return SourceInfos.CreateSourceInfo(resourcePath, metadata);
                 }
@@ -882,22 +890,6 @@ public sealed class DefaultResourceLoader
         }
 
         return null;
-    }
-
-    /// <summary>TS <c>normalizedResourcePath === resolve(sourcePath) || startsWith(resolve(sourcePath) + sep)</c>.</summary>
-    private static bool IsUnderResolvedPath(string normalizedResourcePath, string sourcePath)
-    {
-        var normalizedSourcePath = Path.GetFullPath(sourcePath);
-        if (string.Equals(normalizedResourcePath, normalizedSourcePath, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        var separator = Path.DirectorySeparatorChar;
-        var prefix = normalizedSourcePath.EndsWith(separator)
-            ? normalizedSourcePath
-            : $"{normalizedSourcePath}{separator}";
-        return normalizedResourcePath.StartsWith(prefix, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1022,7 +1014,7 @@ public sealed class DefaultResourceLoader
         foreach (var p in primary.Concat(additional))
         {
             var resolved = ResolveResourcePath(p);
-            if (seen.Add(Paths.CanonicalizePath(resolved)))
+            if (seen.Add(SourceInfos.GetResourcePathKey(resolved)))
             {
                 merged.Add(resolved);
             }
@@ -1044,6 +1036,13 @@ public sealed class DefaultResourceLoader
         SourceInfos.IsSyntheticPath(path)
             ? path
             : Paths.ResolvePath(path, _cwd, new PathInputOptions(NormalizeUnicodeSpaces: true));
+
+    /// <summary>
+    /// Dedup key for extension paths. Port of the private <c>getExtensionPathKey</c> in
+    /// <c>resource-loader.ts</c>.
+    /// </summary>
+    private string GetExtensionPathKey(string path) =>
+        SourceInfos.GetResourcePathKey(ResolveExtensionLoadPath(path));
 
     /// <summary>
     /// TS <c>loadCurrentExtensionSet</c>: the pass used for the pre-trust bootstrap. Built-in
@@ -1161,16 +1160,16 @@ public sealed class DefaultResourceLoader
         var preloaded = preTrustExtensions?.Extensions ?? [];
         var preloadedByPath = preloaded
             .Where(extension => !extension.Path.StartsWith(InlinePathPrefix, StringComparison.Ordinal))
-            .ToDictionary(extension => extension.ResolvedPath, StringComparer.Ordinal);
+            .ToDictionary(extension => SourceInfos.GetResourcePathKey(extension.ResolvedPath), StringComparer.Ordinal);
         var failedPreloadPaths = new HashSet<string>(
-            (preTrustExtensions?.Errors ?? []).Select(error => ResolveExtensionLoadPath(error.Path)),
+            (preTrustExtensions?.Errors ?? []).Select(error => GetExtensionPathKey(error.Path)),
             StringComparer.Ordinal);
 
         var remainingPaths = extensionPaths
             .Where(path =>
             {
-                var resolvedPath = ResolveExtensionLoadPath(path);
-                return !preloadedByPath.ContainsKey(resolvedPath) && !failedPreloadPaths.Contains(resolvedPath);
+                var pathKey = GetExtensionPathKey(path);
+                return !preloadedByPath.ContainsKey(pathKey) && !failedPreloadPaths.Contains(pathKey);
             })
             .ToArray();
 
@@ -1180,7 +1179,7 @@ public sealed class DefaultResourceLoader
         var loadedByPath = new Dictionary<string, Extension>(preloadedByPath, StringComparer.Ordinal);
         foreach (var extension in remainingExtensions.Extensions)
         {
-            loadedByPath[extension.ResolvedPath] = extension;
+            loadedByPath[SourceInfos.GetResourcePathKey(extension.ResolvedPath)] = extension;
         }
 
         List<Extension> inlineExtensions;
@@ -1202,7 +1201,7 @@ public sealed class DefaultResourceLoader
         var ordered = new List<Extension>();
         foreach (var path in extensionPaths)
         {
-            if (loadedByPath.TryGetValue(ResolveExtensionLoadPath(path), out var extension))
+            if (loadedByPath.TryGetValue(GetExtensionPathKey(path), out var extension))
             {
                 ordered.Add(extension);
             }

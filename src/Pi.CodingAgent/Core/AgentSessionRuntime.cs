@@ -432,7 +432,7 @@ public sealed class AgentSessionRuntime
     public static string UniqueJsonlDestinationPath(string sessionDir, string sourcePath)
     {
         var destination = Path.Combine(sessionDir, Path.GetFileName(sourcePath));
-        if (string.Equals(Path.GetFullPath(destination), Path.GetFullPath(sourcePath), StringComparison.OrdinalIgnoreCase))
+        if (Paths.PathsEqual(destination, sourcePath))
         {
             return destination;
         }

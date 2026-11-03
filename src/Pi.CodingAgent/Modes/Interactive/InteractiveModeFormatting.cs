@@ -88,16 +88,12 @@ public static partial class InteractiveModeFormatting
     // ---------------------------------------------------------------- simple paths
 
     /// <summary>TS <c>formatDisplayPath(p)</c>: abbreviate the home directory to <c>~</c>.</summary>
-    public static string FormatDisplayPath(string p, string home)
-    {
-        var result = p;
-        if (result.StartsWith(home, StringComparison.Ordinal))
-        {
-            result = $"~{result[home.Length..]}";
-        }
-
-        return result;
-    }
+    /// <remarks>
+    /// Anchored shortening (TS <c>1be312b46</c>): the old unanchored <c>startsWith(home)</c> rendered
+    /// <c>/home/me2/x</c> as <c>~2/x</c>. The explicit <paramref name="home"/> stays so tests can inject
+    /// a fake home directory.
+    /// </remarks>
+    public static string FormatDisplayPath(string p, string home) => Paths.ShortenHomePath(p, home);
 
     /// <summary>TS <c>formatExtensionDisplayPath(path)</c>: also drop a trailing <c>index.ts/js</c>.</summary>
     public static string FormatExtensionDisplayPath(string path, string home)

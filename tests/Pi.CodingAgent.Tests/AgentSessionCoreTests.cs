@@ -205,6 +205,58 @@ public sealed class AgentSessionCoreTests
     }
 
     [Fact]
+    public void ApplyToolLoadout_KeepsActiveOrderWhenTheSameToolsAreRequestedAgain()
+    {
+        // TS `b9e3eef6c`: the active tools are a set, so reordering the same names must not reorder
+        // the declarations (and therefore must not change the system prompt).
+        var registry = new Dictionary<string, AgentTool>(StringComparer.Ordinal)
+        {
+            ["read"] = Tool("read"),
+            ["edit"] = Tool("edit"),
+            ["bash"] = Tool("bash"),
+        };
+        var definitions = new Dictionary<string, ToolDefinitionEntry>(StringComparer.Ordinal)
+        {
+            ["read"] = Entry("read"),
+            ["edit"] = Entry("edit"),
+            ["bash"] = Entry("bash"),
+        };
+
+        var first = AgentSession.ApplyToolLoadout(["read", "edit", "bash"], registry, definitions);
+        Assert.Equal(["read", "edit", "bash"], first.Declared.Select(tool => tool.Name));
+
+        var second = AgentSession.ApplyToolLoadout(
+            ["bash", "read", "edit"],
+            registry,
+            definitions,
+            currentActiveNames: ["read", "edit", "bash"]);
+        Assert.Equal(["read", "edit", "bash"], second.Declared.Select(tool => tool.Name));
+    }
+
+    [Fact]
+    public void ApplyToolLoadout_AppendsNewlyActiveToolsAfterKeptOnes()
+    {
+        var registry = new Dictionary<string, AgentTool>(StringComparer.Ordinal)
+        {
+            ["read"] = Tool("read"),
+            ["bash"] = Tool("bash"),
+        };
+        var definitions = new Dictionary<string, ToolDefinitionEntry>(StringComparer.Ordinal)
+        {
+            ["read"] = Entry("read"),
+            ["bash"] = Entry("bash"),
+        };
+
+        var application = AgentSession.ApplyToolLoadout(
+            ["bash", "read"],
+            registry,
+            definitions,
+            currentActiveNames: ["read"]);
+
+        Assert.Equal(["read", "bash"], application.Declared.Select(tool => tool.Name));
+    }
+
+    [Fact]
     public void ApplyToolLoadout_AppliesPrepareLoadoutDescriptionsAndHiddenDeclarations()
     {
         var registry = new Dictionary<string, AgentTool>(StringComparer.Ordinal)

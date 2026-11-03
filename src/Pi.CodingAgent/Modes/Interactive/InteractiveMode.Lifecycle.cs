@@ -62,8 +62,9 @@ public partial class InteractiveMode
 
         RegisterSignalHandlers();
 
-        // Load changelog (only show new entries, skip for resumed sessions)
+        // Load changelogs (only show new entries, skip for resumed sessions)
         _changelogMarkdown = GetChangelogForDisplay();
+        _extensionChangelogUpdates = GetExtensionChangelogUpdates();
 
         if (Session.ScopedModels.Count > 0 && ShouldShowStartupDetails())
         {
@@ -302,6 +303,111 @@ public partial class InteractiveMode
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Changelog entries new since the last launch for every extension package that ships one.
+    /// Port of <c>getExtensionChangelogUpdates</c> (TS <c>b4b72a351</c>).
+    /// </summary>
+    internal List<ExtensionChangelogUpdate> GetExtensionChangelogUpdates()
+    {
+        var updates = new List<ExtensionChangelogUpdate>();
+
+        // Skip changelog for resumed/continued sessions (already have messages).
+        if (SessionManager.GetEntries().Count(e => e is SessionMessageEntry) > 0)
+        {
+            return updates;
+        }
+
+        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var extension in Session.ResourceLoader.GetExtensions().Extensions)
+        {
+            var sourceInfo = extension.SourceInfo;
+            if (sourceInfo.Origin != SourceOrigin.Package
+                || sourceInfo.BaseDir is null
+                || sourceInfo.ChangelogPath is null)
+            {
+                continue;
+            }
+
+            var key = SourceInfos.GetSourcePackageKey(
+                new SourcePackageIdentity(sourceInfo.Source, sourceInfo.Scope));
+            if (!seenKeys.Add(key))
+            {
+                continue;
+            }
+
+            var package = ReadPackageJsonForChangelog(sourceInfo.BaseDir);
+            if (package?.Version is not { } packageVersion)
+            {
+                continue;
+            }
+
+            var lastVersion = SettingsManager.GetExtensionChangelogVersion(key);
+            if (lastVersion is null)
+            {
+                // Fresh install: record the version, don't show a changelog.
+                SettingsManager.SetExtensionChangelogVersion(key, packageVersion);
+                continue;
+            }
+
+            var newEntries = Changelog.GetNewEntries(
+                Changelog.ParseChangelog(sourceInfo.ChangelogPath), lastVersion);
+            if (newEntries.Count == 0)
+            {
+                continue;
+            }
+
+            SettingsManager.SetExtensionChangelogVersion(key, packageVersion);
+            var name = package.Name ?? sourceInfo.Source;
+            // Prefix each "## [x.y.z]" heading with the package name so entries read like pi's own.
+            var markdown = string.Join(
+                "\n\n",
+                newEntries.Select(entry => HeadingPrefixRegex().Replace(entry.Content, $"## {name} ", 1)))
+                .Trim();
+            updates.Add(new ExtensionChangelogUpdate(name, packageVersion, markdown));
+        }
+
+        return updates;
+    }
+
+    /// <summary>TS <c>/^##\s+/</c> without the <c>m</c> flag: only the entry's own leading heading.</summary>
+    [GeneratedRegex(@"^##\s+")]
+    private static partial Regex HeadingPrefixRegex();
+
+    private sealed record PackageJsonIdentity(string? Name, string? Version);
+
+    private static PackageJsonIdentity? ReadPackageJsonForChangelog(string packageRoot)
+    {
+        try
+        {
+            var path = NodePath.Join(packageRoot, "package.json");
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            var parsed = System.Text.Json.Nodes.JsonNode.Parse(
+                Utils.Text.StripBom(File.ReadAllText(path)));
+            if (parsed is not System.Text.Json.Nodes.JsonObject package)
+            {
+                return null;
+            }
+
+            return new PackageJsonIdentity(
+                package["name"] is System.Text.Json.Nodes.JsonValue nameValue
+                && nameValue.TryGetValue(out string? name)
+                    ? name
+                    : null,
+                package["version"] is System.Text.Json.Nodes.JsonValue versionValue
+                && versionValue.TryGetValue(out string? version)
+                    ? version
+                    : null);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void ReportInstallTelemetry(string version)

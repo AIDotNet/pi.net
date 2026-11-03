@@ -23,16 +23,33 @@ public sealed record ExecOptions
 
     /// <summary>Working directory; defaults to the current directory.</summary>
     public string? Cwd { get; init; }
+
+    /// <summary>
+    /// Combined stdout/stderr byte limit; exceeding it terminates the command with
+    /// <see cref="ExecResult.Truncated"/> set. Default: 256 MiB.
+    /// </summary>
+    public long? MaxBuffer { get; init; }
 }
 
 /// <summary>Result of <see cref="Exec.ExecCommand"/>. Port of the TS <c>ExecResult</c>.</summary>
-public sealed record ExecResult(string Stdout, string Stderr, int Code, bool Killed);
+/// <remarks>
+/// <c>Truncated</c> means output passed <see cref="ExecOptions.MaxBuffer"/>: stdout and stderr are
+/// incomplete and <c>Code</c> is nonzero (TS <c>c466a3595</c>).
+/// </remarks>
+public sealed record ExecResult(string Stdout, string Stderr, int Code, bool Killed, bool Truncated = false);
 
 /// <summary>Port of <c>core/exec.ts</c>.</summary>
 public static class Exec
 {
     /// <summary>Grace period after SIGTERM before SIGKILL. TS: the 5s force-kill timer.</summary>
     private const int KillGraceMs = 5000;
+
+    /// <summary>
+    /// Default combined output cap. Node also clamps to its string limit
+    /// (<c>buffer.constants.MAX_STRING_LENGTH</c>); .NET strings are bounded by memory only, so the
+    /// fixed 256 MiB applies.
+    /// </summary>
+    private const long DefaultMaxBuffer = 256L * 1024 * 1024;
 
     /// <summary>Execute a command and return its captured output, exit code and killed flag.</summary>
     public static async Task<ExecResult> ExecCommand(
@@ -51,6 +68,7 @@ public static class Exec
                 {
                     Cwd = cwd,
                     Stdio = [StdioMode.Ignore, StdioMode.Pipe, StdioMode.Pipe],
+                    MaxOutputBytes = options?.MaxBuffer ?? DefaultMaxBuffer,
                 });
         }
         catch (Exception error)
@@ -112,14 +130,23 @@ public static class Exec
         {
             code = await ChildProcess.WaitForChildProcessAsync(process) ?? 0;
         }
-        catch (Exception)
+        catch (Exception error)
         {
-            // TS resolves with code 1 when the wait fails (e.g. the spawn itself failed).
-            code = 1;
+            // TS resolves with code 1 when the wait fails (e.g. the spawn itself failed) and keeps the
+            // spawn error visible through stderr (TS `c60de42e9`).
+            var partialStderr = await stderrTask;
+            return new ExecResult(
+                await stdoutTask,
+                partialStderr.Length > 0 ? partialStderr : error.Message,
+                1,
+                killed);
         }
 
         var stdout = await stdoutTask;
         var stderr = await stderrTask;
-        return new ExecResult(stdout, stderr, code, killed);
+
+        // The pump kills the child when the output cap is passed; report it the way TS does.
+        var truncated = process.OutputLimitExceeded;
+        return new ExecResult(stdout, stderr, code, killed || truncated, truncated);
     }
 }

@@ -204,6 +204,16 @@ public sealed record ToolRenderContext
     /// <see cref="RenderShellMode.Self"/> apply it themselves. TS <c>outputPad</c>.
     /// </summary>
     public int OutputPad { get; init; }
+
+    /// <summary>
+    /// Formats the configured keys for a keybinding id. Injected by the host so an extension never has
+    /// to import the formatting module (a second copy would not see the host's keybindings).
+    /// TS <c>KeybindingHints.keyText</c> (<c>9376c8d17</c>).
+    /// </summary>
+    public Func<string, string> KeyText { get; init; } = Modes.Interactive.Components.KeybindingHints.KeyText;
+
+    /// <summary>Configured keys followed by a description, styled as a hint. TS <c>KeybindingHints.keyHint</c>.</summary>
+    public Func<string, string, string> KeyHint { get; init; } = Modes.Interactive.Components.KeybindingHints.KeyHint;
 }
 
 /// <summary>

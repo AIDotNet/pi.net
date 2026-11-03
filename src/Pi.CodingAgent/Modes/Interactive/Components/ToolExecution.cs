@@ -153,6 +153,8 @@ public sealed class ToolExecutionComponent : Container
         IsError = _result?.IsError ?? false,
         DurationMs = _isPartial ? null : _resultDurationMs,
         OutputPad = _outputPad,
+        KeyText = KeybindingHints.KeyText,
+        KeyHint = KeybindingHints.KeyHint,
     };
 
     private IComponent CreateCallFallback() =>

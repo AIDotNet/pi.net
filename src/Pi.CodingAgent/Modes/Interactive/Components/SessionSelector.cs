@@ -26,9 +26,8 @@ internal static partial class SessionSelectorStatics
 {
     public static string ShortenPath(string path)
     {
-        var home = Paths.GetHomeDirectory();
         if (path.Length == 0) return path;
-        return path.StartsWith(home, StringComparison.Ordinal) ? $"~{path[home.Length..]}" : path;
+        return Paths.ShortenHomePath(path);
     }
 
     public static string FormatSessionDate(DateTimeOffset date)
@@ -47,6 +46,13 @@ internal static partial class SessionSelectorStatics
         if (diffDays < 365) return $"{Math.Floor(diffDays / 30.0)}mo";
         return $"{Math.Floor(diffDays / 365.0)}y";
     }
+
+    /// <summary>
+    /// Comparison key for a session file path: follows symlinks and ignores case on Windows.
+    /// Port of <c>getSessionPathKey</c> in <c>session-selector.ts</c>.
+    /// </summary>
+    public static string GetSessionPathKey(string path) =>
+        Paths.GetPathComparisonKey(Paths.CanonicalizePath(path));
 
     public static string? CanonicalizePath(string? path)
     {
@@ -90,7 +96,7 @@ internal static class SessionTree
 
         foreach (var session in sessions)
         {
-            var sessionPath = SessionSelectorStatics.CanonicalizePath(session.Path) ?? session.Path;
+            var sessionPath = SessionSelectorStatics.GetSessionPathKey(session.Path);
             byPath[sessionPath] = new SessionInfoTreeNode
             {
                 Session = session,
@@ -102,9 +108,11 @@ internal static class SessionTree
 
         foreach (var session in sessions)
         {
-            var sessionPath = SessionSelectorStatics.CanonicalizePath(session.Path) ?? session.Path;
+            var sessionPath = SessionSelectorStatics.GetSessionPathKey(session.Path);
             var node = byPath[sessionPath];
-            var parentPath = SessionSelectorStatics.CanonicalizePath(session.ParentSessionPath);
+            var parentPath = session.ParentSessionPath is { } rawParentPath
+                ? SessionSelectorStatics.GetSessionPathKey(rawParentPath)
+                : null;
 
             if (parentPath is not null && byPath.TryGetValue(parentPath, out var parent))
             {
@@ -343,7 +351,7 @@ internal sealed class SessionList : IComponent, IFocusable
     private readonly KeybindingsManager _keybindings;
     private bool _showPath;
     private string? _confirmingDeletePath;
-    private readonly string? _currentSessionCanonicalPath;
+    private readonly string? _currentSessionPathKey;
 
     public Action<string>? OnSelect { get; set; }
     public Action? OnCancel { get; set; }
@@ -384,7 +392,9 @@ internal sealed class SessionList : IComponent, IFocusable
         _sortMode = sortMode;
         _nameFilter = nameFilter;
         _keybindings = keybindings;
-        _currentSessionCanonicalPath = SessionSelectorStatics.CanonicalizePath(currentSessionFilePath);
+        _currentSessionPathKey = currentSessionFilePath is null
+            ? null
+            : SessionSelectorStatics.GetSessionPathKey(currentSessionFilePath);
         FilterSessions("");
 
         // Handle Enter in search input - select current item
@@ -484,8 +494,8 @@ internal sealed class SessionList : IComponent, IFocusable
 
     private bool IsCurrentSessionPath(string path)
     {
-        if (_currentSessionCanonicalPath is null) return false;
-        return (SessionSelectorStatics.CanonicalizePath(path) ?? path) == _currentSessionCanonicalPath;
+        if (_currentSessionPathKey is null) return false;
+        return SessionSelectorStatics.GetSessionPathKey(path) == _currentSessionPathKey;
     }
 
     public string[] Render(int width)
