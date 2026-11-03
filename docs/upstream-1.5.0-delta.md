@@ -166,7 +166,7 @@
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
 | `be14d9732` | 只读打开 Harness | ✅ 本批 |
 | `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6 |
-| `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | 🔧 P6 |
+| `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | 🟡 脏集合 + 全量回退已落地（见 §4.15）；`idleOrder` 索引与 `wake()` 睡眠集合未做（端口热点本就不在那两处） |
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | 🔧 P5 |
 | `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
 | `38ff99177` | 工具交接后继续运行 | 🔧 P6 |
@@ -561,3 +561,14 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 **顺带修正的一处行为差**：旧端口在轮启动提交里直接给未提供的调用落结果，这既绕过 afterTool，也让 abort
 把「无论如何都不可能跑过的调用」说成 aborted。上游特意让它们进任务——两条路径（结果、abort）都说
 `tool_unavailable`。
+
+### 4.15 P6 第九批：空闲检查按脏集合走（提交见 git log）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 提交只重估「其下有任务变为存活或结束」的对话；链未知与链加载回退全量；过期定时器仍全量 | `35dfa7573` | `Scheduler.Observe` 的 dirty 收集 + `AddScopesAbove`、`SettleContextCache(dirty)`、`LoadChainAsync` 置 `_unknownsChanged`、`Harness.IdleFullChecks` 诊断 | `HarnessIdleScopesTests` 1 例 |
+
+**两处有意保留**（与上游不同，端口热点不在这两处）：上游用 `idleOrder` 有序索引找下一次过期，
+端口的 `ScheduleContextExpiryLocked` 仍对保留上下文取 min——只是字典迭代，没有逐对话的子树行走；
+上游 `wake()` 从 `_sleeping` 集合取最早睡眠，端口 `ComputeEarliestSleep` 仍扫存活任务，而端口的
+`ComputeActive` 已在「有调用在跑」时提前返回，等价于上游「只在无调用时扫描」的约束。
