@@ -7321,3 +7321,21 @@ fixture 是 `radius: true`——桥接 facet 只对 radius 服务器订阅 conne
 **未覆盖**：自定义扩展命令的补全与失败分支尚无 Client TUI 端到端对照；Jint 只支持
 host resolver 明确支持的 CommonJS import，不覆盖 Node/Bun 内置模块、全局对象和动态加载
 （C335；未支持项会显式失败，详见迁移执行状态）。
+
+## 1.5.0 P3（coding-agent 窗口修复与新特性）
+
+TS 窗口 `v1.4.0..v1.5.0` 中触及 coding-agent 的 87 个提交，P3 逐条盘点与落地清单见
+[upstream-1.5.0-delta.md](./upstream-1.5.0-delta.md) §2.3 与 §4.4。下面是本轮新增的设计差异。
+
+| # | 差异 | 说明 |
+|---|---|---|
+| C385 | **`shortenHomePath` 的路径方言按字符串推断** | TS 用 `process.platform` 选 `path.win32`/`path.posix` 并让测试模拟 Windows；端口上同一个测试进程里既有真实 Windows 路径也有从 TS 抄来的 POSIX 夹具，故 `ShortenHomePath` 在未显式指定时看「有盘符或反斜杠即为 Windows」。仅影响显示（`~` 的补法），不参与文件系统访问；`GetPathComparisonKey`/`PathsEqual`/`IsPathWithin` 仍按宿主平台，测试用显式 `windows:` 参数覆盖两套规则 |
+| C386 | **`BlockedStatus` 复用端口既有类型** | TS 的 `ctx.ui.custom({blocked})` 收 pi-tui 的 `NonNullable<ProgramStatus["kind"]>` + message；端口把这两个字段装进 `Modes.Interactive.BlockedStatus`（OSC 7501 上报器已在用），`ExtensionCustomOptions.Blocked` 直接持有它，不再造第二个同形记录 |
+| C387 | **`KeybindingHints` 用 `Func<…>` 成员 + 默认实现** | TS 让 `ToolRenderContext`/`MessageRenderOptions`/`EntryRenderOptions` 继承 `KeybindingHints` 接口，四处构造点显式注入。端口没有模块多副本问题，三个记录直接带 `KeyText`/`KeyHint` 两个委托，默认值指向宿主的 `KeybindingHints` 静态实现，四个构造点仍按 TS 显式传参 |
+| C388 | **`getStartupCwd` 在 Windows 上补存在性检查** | Node 的 `process.cwd()` 在工作目录被删时抛 `ENOENT`；.NET 在 Windows 上继续返回陈旧路径，故端口除捕获异常外再查一次 `Directory.Exists`，两种情形给同一条可执行提示并退出 1（上游 `88ffcdc73` 的用户可见行为一致） |
+| C389 | **`ExecResult.Truncated` 由输出泵杀进程后回填** | TS 在 `data` 回调里累计字节、超限调 `killProcess()`，最终结果 `killed` 与 `truncated` 同时为真。端口把上限下沉到 `SpawnOptions.MaxOutputBytes`（`ChildProcessHandle.OutputLimitExceeded`），泵超限即 `Kill()` 并停止入缓冲；`Exec` 读到该标志后把 `killed` 也置真，与 TS 的两字段组合一致 |
+| C390 | **`PathMetadata.ChangelogPath` 可写** | TS 在 `collectPackageResources` 里就地给 `metadata.changelogPath` 赋值/删除；端口的 `PathMetadata` 是 `init` 记录，该成员改为 `get; set;`（其余成员仍 `init`），避免把 metadata 的复制语义扩散到所有采集函数签名 |
+
+**已知缺口（有意保留）**：`pi.exec` 的跨块 UTF-8 解码在端口是「平台已满足」而非显式实现——
+`ChildProcessHandle` 直接读字节流、结束时统一 `Encoding.UTF8.GetString`，不存在按块解码导致的
+半个字符问题；TS 为此引入的 `StringDecoder` 在 C# 没有对应物，故只登记不造代码。

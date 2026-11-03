@@ -11,6 +11,7 @@
 - **参照检出：`9c9ce854`（`v1.5.0+49`）**。`v1.5.0..HEAD` 的 49 个未发布提交按既有策略先不跟。
   动工前用 `git -C D:\AI\参考项目\pi log -1` 复核——基线会漂移。
 - **端口发布版本：`1.4.1`**（尚未按 1.5.0 发版）。
+- **进度**：P0–P2 完成；P3 主体完成（余 5 项，见上表与 delta §4.4）；P4–P7 未开始。
 
 ### 1.5.0 同步进度
 
@@ -19,7 +20,7 @@
 | **P0** | pi-schema 校验/转换/文案对齐（`Validation.cs` 重写 + `Utils/Schema/` 六个文件 + 编译缓存） | ✅ `367ae68`（368 条上游语料差分全绿） |
 | **P1** | 1.5.0 窗口内的小修集（不重试判定、溢出文案、`MarkdownTransformContext` 等） | ✅ `677e30c` |
 | **P2** | ai wire 层：Gemini `const`→`enum`、Bedrock strict 回退、OAuth trusted-url 收敛 + `auth.json` 0600、42 份模型目录重导 | ✅ `e6d4c4d` / `c71cd41` / `1ca2e05` / `a8db1eb` |
-| **P3** | coding-agent ~18 项（扩展 changelog、`PI_SELF_UPDATE_COMMAND`、device-code 确认、`ctx.ui.custom` 的 `blocked`、`keyText()`/`keyHint()` 注入、trust 优先级、路径大小写、分支摘要等） | ⏳ 未开始 |
+| **P3** | coding-agent 窗口项：扩展 changelog、device-code 确认、`ctx.ui.custom` 的 `blocked`、`keyText()`/`keyHint()` 注入、trust 优先级、路径大小写、写盘一致性、分支摘要 thinking/context edits、`pi.exec` 上限等 22 项 | 🟡 主体已落地（见 delta §4.4）；余 `e3da248ea` / `6454d07ec` / `8c03fef4d` 的会话搜索分层 / HTML 导出两项；`8bc94b19f` 判定不跟 |
 | **P4** | tui 13 项（**前置：先恢复语料生成链**，见 delta §3 末注） | ⏳ 未开始 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序 / CJK 分词 | ⏳ 未开始 |
 | **P6** | durable（turn limit / continue / afterRun / whenIdle / submit(tx) / 只读 Harness / 窗口化视图等） | ⏳ 未开始 |
@@ -29,9 +30,9 @@
 `EventStream.push` 收到 `done`/`error` 会自己收尾，端口的 `Push` 不会，成功的 pi-messages 请求
 会让消费方永远等下去（此前没有任何 `PiMessages` 测试，一直没暴露）。见 `b247a0e`。
 
-**验证基线（2026-11-03 实测）**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；
+**验证基线（2026-11-03 P3 收口后实测）**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；
 `Pi.Ai.Tests` **976**（1 跳过：Unix 权限位在 Windows 上无意义）；`Pi.CodingAgent.Tests`
-**5118** / 1 失败 / 3 跳过（`--filter-not-class "*PackageManagerTests*"`；那 1 例是既有的
+**5157** / 1 失败 / 3 跳过（`--filter-not-class "*PackageManagerTests*"`；那 1 例仍是既有的
 `UpstreamTypeScriptExampleTests` typebox 语料问题）；`Pi.Agent.Tests` **36** 全绿。
 
 **已知测试噪声（非代码缺陷）**：`Pi.Ai.Tests` 里 8 个用 `HttpListener` 起本地端点的用例文件

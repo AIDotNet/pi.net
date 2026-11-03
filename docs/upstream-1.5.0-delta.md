@@ -324,6 +324,49 @@ pi-messages 请求会让消费方**永远等下去**。此前没有任何 `PiMes
 `OpenAiCompletionsTests` / `MistralStreamTests` / `AnthropicFederationModelsTests`，
 本轮一个都没碰。
 
+### 4.4 P3 已落地：coding-agent 窗口修复与新特性（`ed26895`）
+
+**新特性**
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 扩展包更新 changelog：读包内 `CHANGELOG.md`（或 `package.json` 的 `pi.changelogPath`），下次启动在 "Extension Updates" 下显示新于上次所见版本的内容；`collapseChangelog` 折叠为一行 | `b4b72a351` | `PiManifest.ChangelogPath` + `PathMetadata.ChangelogPath` + `SourceInfo.ChangelogPath`、`SourceInfos.GetSourcePackageKey`、`SettingsManager.Get/SetExtensionChangelogVersion`、`PackageManager.ResolvePackageChangelogPath`、`InteractiveMode.GetExtensionChangelogUpdates` + `InteractiveMode.Bind` 渲染 | `PathComparisonTests`（key 形状）+ 全量回归 |
+| `ctx.ui.custom()` 的 `blocked` 选项（仅内联组件，overlay 忽略） | `c1810bf70` | `ExtensionCustomOptions.Blocked` → `PushExtensionDialog(component, options.Blocked)` | 由既有 dialog blocked 用例覆盖 |
+| `keyText()` / `keyHint()` 注入渲染上下文 | `9376c8d17` | `ToolRenderContext` / `MessageRenderOptions` / `EntryRenderOptions` 三个 `KeyText`/`KeyHint` 成员，四个构造点显式传宿主实现 | 默认值 + 显式传参经全量回归 |
+| device-code 登录：回车打开验证页并复制 code，`openBrowserOnConfirm` / `copyCodeOnConfirm` 可关 | `7151099d0` | `OAuthDeviceCodeInfo.OpenBrowserOnConfirm/CopyCodeOnConfirm` + `LoginDialog` 提示行/一次性消费/状态行 | `LoginDialog` 既有链路由全量回归覆盖 |
+| `/model`、`/scoped-models` 名称比 ID 多词时显示名称 | `606af8662` | `ModelSearch.GetDistinctModelName` + 两个选择器行渲染 | `ModelSearchNameTests`（7 例） |
+
+**修复**
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| `trust.json` 里保存的「不信任」优先于自动信任 | `31ade0e0d` | `ProjectTrust.ResolveProjectTrustedAsync` + `Main` 的 `projectTrusted` 推导 | `SessionWindowFixesTests` 2 例 |
+| Windows 路径比较忽略大小写（skills 重复加载 / trust 重问 / `--continue` 丢会话） | `1be312b46` | `Paths.GetPathComparisonKey/PathsEqual/IsPathWithin/ShortenHomePath` + `SourceInfos.GetResourcePathKey`；改动覆盖 `TrustManager`、`Skills`、`ResourceLoader`、`PackageManager`、`SessionManager`/`SessionFiles`、`AgentSessionRuntime`、`ExtensionLoader`、`ConfigSelector`、`SessionSelector`、`TreeSelector`、`InteractiveModeFormatting`、`RenderUtils` | `PathComparisonTests`（17 例）+ `SessionWindowFixesTests` 2 例 |
+| 会话写盘失败时内存与文件保持一致（不再产生悬空 parent） | `807a5c051` | `SessionManager.AppendEntry` 回滚 `_fileEntries`/`_byId`/`_byIdOrder`/`_leafId` 后重抛 | `SessionWindowFixesTests` 1 例 |
+| `/tree` 分支摘要传 thinking level | `269afc66a` | `GenerateBranchSummaryOptions.ThinkingLevel` + `GenerateBranchSummaryAsync` 按压缩同一规则设 `reasoning` | `BranchSummarizationWindowTests` 3 例 |
+| 分支摘要输入应用 context edits | `d0fe21308` | `BranchSummarization.GetMessageFromEntry` 走 `SessionEntries.ProjectContextEntry`（该方法随之由 private 改 internal） | `BranchSummarizationWindowTests` 2 例 |
+| 对话框打开时替换扩展 editor 不再吞掉对话框 | `7853186d1` | `InteractiveMode.SetCustomEditorComponent` 的三处 `dialogOpen` 守卫 | 全量回归 |
+| 工作目录被删除时给提示，不再崩栈 | `88ffcdc73` | `Main.GetStartupCwd`（ENOENT 语义 + Windows 上 `Directory.Exists` 兜底） | 手动核对；无单测（要改进程 cwd） |
+| `pi update --extensions` 报「装到的版本与期望不符」 | `0d23d5345` | `PackageManager.Updates` 的 `NpmUpdateCheck` + `ReportUnchangedNpmUpdates` + `PackageManagerCli` 打印 `progress` 事件 | 全量回归 |
+| `-e npm:` 无版本时每次启动检查新版并刷新 | `cd6a8f7f3` | `PackageManager` npm 分支的 temporary 刷新（安装 `name@latest`，失败保留缓存） | 全量回归 |
+| `pi.exec`：256 MiB 上限 + `truncated`；UTF-8 跨块解码；spawn 错误保留 stderr | `c466a3595` / `36be9c612` / `c60de42e9` | `ExecOptions.MaxBuffer` + `ExecResult.Truncated`、`SpawnOptions.MaxOutputBytes` + `ChildProcessHandle.OutputLimitExceeded`；跨块解码由 `Stream` 读取天然满足；等待失败时 stderr 回落为错误消息 | `ExecWindowTests` 3 例 |
+
+**核对后确认此前已落地**（本批只回查、不重复改动）：`6dfb54678`（装包失败不拦启动，端口以
+`ResourceDiagnostic` 呈现）、`bec60c54b`（`-e git:...@branch` 刷新）、`984cf6643`（provider id 含斜杠）、
+`fecc19e4e`（grep 上下文行号与孤立 CR 对齐）、`8ddc44ec8`（fork 会话单 fd 写入）。
+
+**不跟**：`8bc94b19f`（`PI_SELF_UPDATE_COMMAND`）——端口的 `update --self` 按其 4g-2 的既有决定
+**不执行自更新**（.NET 构建不是 npm 包），没有可供覆盖的执行路径；`5f960a0e2`/`5fb9a0b11` 是 npm 专有；
+`27cc6bfc0` 是 macOS 进程组语义。
+
+**仍留在 P3 名下**（未做，见 §3 验收口径）：`e3da248ea`（Windows `git clean` 失败后继续装依赖）、
+`6454d07ec`（WSL 深目录互操作 + 外部编辑器失败报状态）、`8c03fef4d` 的会话搜索分层
+（`/resume` 名称/目录模糊、ID 与正文只做子串）、`1c720d285`/`9359adf0c`（HTML 导出深会话与 system prompt/tools）。
+
+**验证**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；`Pi.CodingAgent.Tests` **5157** / 1 失败 / 3 跳过
+（`--filter-not-class "*PackageManagerTests*"`；唯一失败仍是既有的 `UpstreamTypeScriptExampleTests`
+typebox 语料问题），较基线 5118 增 39 例。
+
 ## 5. 不跟的项与理由
 - **`v1.5.0..HEAD` 的 49 个提交**：按 1.4.0 期定的策略「上游未发布提交先不跟」，等下一个 tag。唯一例外是修真实计费/安全错误的提交，按需单独评估。
 - **Chord v2**（`packages/chord/src/next`，~37k 行）：实验性，未进 `exports`。
