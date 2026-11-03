@@ -59,24 +59,30 @@
 
 | 上游提交 | 变更 | 端口现状 | 处置 |
 | --- | --- | --- | --- |
-| `f715a15c1` | 流式工具调用参数**增量解析**（不再每个 delta 重解析累计串） | 只有 `JsonParse` 全量修复式解析 | 🔧 P2 |
-| `363ad78bf` | GPT-6.1 Terra（OpenAI / Azure Responses / Codex，tool search、会话中改 thinking、`off`） | 默认模型已是 `gpt-6.1-sol`；Terra 的能力位未核 | 🔧 P2（核对） |
-| `2e0f175bd` | provider 定义重构 + 目录升到 models.dev v2 | 目录为 1.4.0 期快照（42 家 / 1713 条） | 🔧 P2（数据，需生成脚本） |
-| `7314819f0` + `a7b94a03f` | Gemini 工具 schema 的 `const` 改单值 `enum`，且不改写 defaults/examples/enum 里的字面量 | 未核 | 🔧 P2 |
-| `1de2d7ade` | Kimi K3.1 Pro 按 K3 家族发请求（reasoning effort、保留 thinking、中途加工具、K3 定价） | 有 `kimi-k3` 条目，家族判定未核 | 🔧 P2 |
-| `842c73170` | Bedrock strict 工具超限时重试一次（preferred 放宽、required 保持 strict） | 未核 | 🔧 P2 |
-| `81d6759fc` | GPT-5.4/5.5 工具声明放顶层（修 `Missing namespace for function_call`） | 未核 | 🔧 P2 |
-| `177e2ad7e` | OpenCode Zen/Go 用各自协议端点（OpenAI/Anthropic/Google/System One） | 未核 | 🔧 P2 |
-| `44f6851b7` | OpenRouter `~anthropic/claude-*-latest` 走 Anthropic Messages，保住 thinking | 未核 | 🔧 P2 |
-| `e3bc05e87` | Anthropic 逐消息 effort 时顶层固定发 `low` | 未核 | 🔧 P2 |
-| `3bc6eebac` | Anthropic system 更新要越过被丢弃的空/纯推理 assistant 消息 | 未核 | 🔧 P2 |
-| `89c921d8b` | 不可信 URL / 终端文本 / 流式数据的加固 | 部分（MCP OAuth 已跟） | 🔧 P2 |
+| `f715a15c1` | 流式工具调用参数**增量解析**（不再每个 delta 重解析累计串） | **已有**：`JsonParse.ParseStreamingJson` 用在 OpenAI/Anthropic/Bedrock/Mistral/PiMessages 五处流式点 | ✅ |
+| `363ad78bf` | GPT-6.1 Terra（OpenAI / Azure Responses / Codex，tool search、会话中改 thinking、`off`） | 默认模型已是 `gpt-6.1-sol`；Terra 的能力位在目录数据里 | 🔧 P2（数据） |
+| `2e0f175bd` | provider 定义重构 + 目录升到 models.dev v2 | 目录是 1.4.0 期快照（42 个 JSON，`src/Pi.Ai/ModelData/`）；`tools/` 里没有生成脚本 | 🔧 P2（数据，需先移植 `generate-models.ts`） |
+| `7314819f0` + `a7b94a03f` | Gemini 工具 schema 的 `const` 改单值 `enum`，且不改写 defaults/examples/enum 里的字面量 | 本轮落地 `GoogleShared.RewriteConstAsEnum` | ✅ P2 |
+| `1de2d7ade` | Kimi K3.1 Pro 按 K3 家族发请求 | 家族判定在 `generate-models.ts`（目录数据） | 🔧 P2（数据） |
+| `842c73170` | Bedrock strict 工具超限时重试一次（preferred 放宽、required 保持 strict） | 本轮落地：两个助手抽到 `ConstrainedSampling.PrefersJsonSchemaStrictSampling` / `IsStrictToolLimitErrorMessage`；`ConvertToolConfig` 回报 `HasPreferredStrictTools`；`BedrockConverseStream.Stream` 命中 400 后降级重发一次并记 `bedrock_strict_tools_fallback` 诊断 | ✅ P2 |
+| `81d6759fc` | GPT-5.4/5.5 工具声明放顶层（修 `Missing namespace for function_call`） | 能力位来自目录数据（`supportsAdditionalTools`） | 🔧 P2（数据） |
+| `177e2ad7e` | OpenCode Zen/Go 用各自协议端点 | 端点来自目录数据（`providers/opencode.ts` 仅 1 行） | 🔧 P2（数据） |
+| `44f6851b7` | OpenRouter `~anthropic/claude-*-latest` 走 Anthropic Messages | 同上（`generate-models.ts` + `openrouter-catalog.ts`） | 🔧 P2（数据） |
+| `e3bc05e87` | Anthropic 逐消息 effort 时顶层固定发 `low` | **已有**：`AnthropicMessages.cs:331`，注释已写明「组织可设上限」的理由 | ✅ |
+| `3bc6eebac` | Anthropic system 更新要越过被丢弃的空/纯推理 assistant 消息 | **已有**：`AnthropicMessages.cs:598-601`（`blocks.Count == 0` 之后再 flush） | ✅ |
+| `89c921d8b` | 不可信 URL / 终端文本 / 流式数据的加固 | ai 侧本轮收口：`OAuthHttp.TrustedHttpUrl` 成为唯一实现（Copilot / Kimi / Meta 三处私有副本删除，Kimi 现在按规范化后的形式保存）；`Cli.SaveAuth` 写 `auth.json` 用 0600 并先收紧旧文件；`PiMessages.ValidateContentIndex` 已在。tui / coding-agent / durable 三块分别在 P4 / P3 / P6 | ✅ P2（ai 侧） |
 | `7c22a93d0` | `Usage.cost.totalFromProvider` | 已有 | ✅ |
 | `cae8d69e5` | OpenRouter 上报成本 | 已有（`2820568`） | ✅ |
 | `d3398f826` | LiteLLM `ContextWindowExceededError` 判为溢出 | 本轮已加模式 | ✅ |
 | `c719d5b08` | Zhipu `1308` 不重试 | 本轮已加模式 | ✅ |
 | `f3fa8bd92` | faux 缓存写入不再重复计入 input | 已有 | ✅ |
 | `14c811841` | pi-messages 终端事件带 `responseModel` | 已有 | ✅ |
+
+> **P2 剩余部分的实际形状**：8 行里有 6 行是**目录数据**（`generate-models.ts` 的产物），
+> 端口这边是 42 个 `src/Pi.Ai/ModelData/*.json` 快照。要么移植生成器（上游用 models.dev v2 +
+> 一堆 provider 特例表），要么按上游 1.5.0 的生成结果重新导出这 42 个文件。
+> 真正要写代码的两行（`842c73170` Bedrock strict 回退、`89c921d8b` 加固）都已落地，
+> **P2 只剩目录数据子批**。
 
 ### 2.3 coding-agent（P3）
 
@@ -199,7 +205,7 @@
 | --- | --- | --- | --- |
 | **P0** | pi-schema 校验/转换/文案对齐（`Validation.cs` 重写 + 编译缓存 + 悬空 `$ref`） | ~1,500 行 | 已过：368 条上游语料差分全绿（见 §4.2） |
 | **P1** | 本轮已落地的小修集（见 §4） | ~80 行 | 已过 |
-| **P2** | ai wire 层：增量解析、Gemini const、Kimi K3、Bedrock strict、GPT-5.x 顶层工具、OpenCode 端点、Anthropic 两条、exec 三条、grep CR、模型目录数据 | ~1,200 行 | 每项一个 SSE/纯函数回归；目录生成脚本 diff 为空 |
+| **P2** | ai wire 层：Gemini const、Bedrock strict 回退、加固；目录数据另立子批 | ~1,200 行 | 三项代码已过（见 §4.3）；**只剩目录数据子批** |
 | **P3** | coding-agent：扩展 changelog、自更新命令、device-code 确认、`blocked`、`keyHint` 注入、trust/路径大小写/写盘一致性/分支摘要/启动容错等 ~18 项 | ~900 行 | `InteractiveModeTests` + 新增定向用例；全量 0 失败 |
 | **P4** | tui：翻页键与 `capturesViewportInput`、换行/删除线、Kitty F 键、OSC 133、块级渲染缓存、LaTeX 回退、图片裁剪、双击词字符、Orca | ~700 行 | `Pi.Tui.Tests` 全量 + 上游用例照抄 |
 | **P5** | env 4 项 + mcp 2 项 + 工具搜索排序/CJK 分词 | ~500 行 | `Pi.Env.Tests` / `Pi.Mcp.Tests` / 搜索排序向量 |
@@ -281,6 +287,29 @@
 **验证**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；`Pi.Ai.Tests` 932 例（2 例既有 flaky 单跑全绿）、
 `Pi.CodingAgent.Tests` 5118 例 1 失败（既有 typebox 语料问题，见下）、`Pi.Agent.Tests` 36 例、
 `Pi.Durable.Tests` 515 例。
+
+### 4.3 P2 已落地：ai wire 层三项（`e6d4c4d` / `c71cd41` / `1ca2e05`）
+
+| 提交 | 内容 | 上游 | 用例 |
+| --- | --- | --- | --- |
+| `e6d4c4d` | Gemini 工具声明把字符串/数字 `const` 改写成单值 `enum`；只下钻含子 schema 的关键字，名字映射的键不当关键字，`default`/`examples`/`enum` 里的字面量原样保留 | `7314819f0` + `a7b94a03f` | `GoogleConvertToolsTests` 15 例 |
+| `c71cd41` | Bedrock strict 工具超限时降级重发一次：两个助手抽到 `ConstrainedSampling`，`ConvertToolConfig` 回报 `HasPreferredStrictTools`，主流程重试循环 + `bedrock_strict_tools_fallback` 诊断 | `842c73170` | `BedrockStrictToolFallbackTests` 17 例 |
+| `1ca2e05` | `OAuthHttp.TrustedHttpUrl` 成为唯一实现（Copilot/Kimi/Meta 三处私有副本删除）；`Cli.SaveAuth` 写 `auth.json` 用 0600 并先收紧旧文件；`contentIndex` 的 JSON `null` 也判非法 | `89c921d8b`（ai 侧） | 4 例 + 3 例 |
+
+**顺带修掉的端口缺陷**：`PiMessages.Stream` 在终态事件后只 `Push` 不 `End`。TS 的
+`EventStream.push` 收到 `done`/`error` 会自己收尾，端口的 `Push` 不会——成功的
+pi-messages 请求会让消费方**永远等下去**。此前没有任何 `PiMessages` 测试，所以一直没暴露；
+写 `PiMessagesContentIndexTests` 时正控用例直接挂死才发现。现在终态后显式 `End(message)`。
+
+**目录数据子批仍未做**：`generate-models.ts` 的产物（42 个 `ModelData/*.json`）。两条路——
+移植生成器（models.dev v2 + provider 特例表），或按 1.5.0 的生成结果重新导出。本轮未动。
+
+**`Pi.Ai.Tests` 的间歇性失败**：8 个用 `HttpListener` 起本地端点的用例文件在并行下会随机
+1–2 例失败（每次成员不同，单跑全绿）。本轮把新增的 Bedrock 用例改成注入
+`HttpMessageHandler`（不占端口），但没有根治既有那 8 个文件。**判为既有问题，与本轮改动无关**：
+失败成员分布在 `AnthropicOpenRouterCostTests` / `GoogleGenerativeAiTests` /
+`OpenAiCompletionsTests` / `MistralStreamTests` / `AnthropicFederationModelsTests`，
+本轮一个都没碰。
 
 ## 5. 不跟的项与理由
 - **`v1.5.0..HEAD` 的 49 个提交**：按 1.4.0 期定的策略「上游未发布提交先不跟」，等下一个 tag。唯一例外是修真实计费/安全错误的提交，按需单独评估。
