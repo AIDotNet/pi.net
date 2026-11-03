@@ -162,7 +162,7 @@
 | `1c6928b30` | 未提供的工具调用按 tool task 跑 | 🔧 P6 |
 | `87eff524f` | `afterTool` 在每个 tool task 结果上跑 | 🔧 P6 |
 | `d280e1ffa` | `beforeProviderRequest` 生成钩子 | ✅ 本批（端口原有 `BeforeRequest` 是消息层，这是请求体层，两者并存） |
-| `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | 🔧 P6 |
+| `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | 🟡 `runFailure` 已落地（`15d315f`，见 §4.11）；窗口化视图、`ConversationTranscript`、删 `watchEvents` 未做 |
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
 | `be14d9732` | 只读打开 Harness | ✅ 本批 |
 | `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6 |
@@ -510,3 +510,19 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 而端口的 `runFailure` 属于 `f3255de76`（窗口化会话视图 + `ConversationTranscript`）那一批，
 尚未落地。本批只验证「运行已结束、提交以 `turn_limit` 结算、不再请求模型」，`runFailure` 的断言
 随那批补。
+
+### 4.11 P6 第五批：`pi.live.runFailure`（`15d315f`）
+
+`f3255de76` 是三件事，端口先只做**公共前置**那一件：运行结束后的失败记录。窗口化视图与
+`ConversationTranscript` 是读取面，不改变写入语义，可以后补。
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| `pi.live.runFailure` = `{ taskId, inputs, reason, detail? }`，写在结束运行的那次提交里；下一次运行开始时清掉，但「结束失败的同一次提交里开始的运行」保留它 | `f3255de76` | `Live.SetRunFailure` / `DeleteRunFailure`（`EndRun` 在未应答结算时写）、`Generation.StartRunAsync(…, keepFailure)` | `HarnessTurnLimitTests` 4 例（含 reason/detail/inputs/taskId 与「下一次运行清掉」） |
+
+**为什么先做这一件**：`f6a9db1d8`（轮次上限）的上游用例断言 `live.runFailure`；`fb524dd2e`（continue）的
+`nothing_to_answer` 同样走这条通道；`7e15f9601`（afterRun）也要读它判断运行怎么结束。三处都卡在这一块上。
+
+**仍未做**（同一上游提交的其余部分）：`ConversationView.entries` 的窗口（`before` / `from` / `min` / `max`）、
+`ConversationTranscript`（`gaps` / `loadEarlier` / `fillGap` / `resume`）、删除 `watchEvents` 及其事件类型。
+端口目前仍保留 `Events.WatchEventsAsync`，删它与 P6 的窗口化视图一起做，免得两次改同一批视图代码。
