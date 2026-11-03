@@ -226,6 +226,15 @@ public sealed class TaskScheduler
 
     /// <summary>只读：不恢复、不运行、不唤醒。</summary>
     private readonly bool _readOnly;
+    /// <summary>
+    /// 一次链加载解出了 <see cref="Idle"/> 对「链未加载的存活任务」视为未知的情形，可能让某个范围不经任务变化就变
+    /// 空闲；下一次空闲检查覆盖全部范围。对应 TS <c>#unknownsChanged</c>。
+    /// </summary>
+    private bool _unknownsChanged;
+    /// <summary>覆盖了全部范围的空闲检查次数（测试诊断）。对应 TS <c>#fullIdleChecks</c>。</summary>
+    private int _fullIdleChecks;
+
+    internal int FullIdleChecks => _fullIdleChecks;
 
     // ─── 生命周期 ───────────────────────────────────────────────────────────
 
@@ -581,11 +590,17 @@ public sealed class TaskScheduler
         var updated = new List<TaskRecord>();
         var failed = new List<TaskId<object?>>();
         var changed = false;
+        // 本提交的任务变化可能改变其空闲性的对话；链未知时为 null（下一次检查覆盖全部）。
+        HashSet<ConversationId>? dirty = [];
         foreach (var change in publication.Changes)
         {
             if (change is not CommitChange.TaskTable { Value: { } record }) continue;
             changed = true;
             var previous = _live.GetValueOrDefault(record.Id);
+            // 空闲性按存活任务计，因此只有变为存活或结束的任务能改变它。在 sweep 之前收集——
+            // sweep 可能丢掉已结束任务的链。对应 TS <c>#addScopesAbove</c> 的调用点。
+            var liveness = previous is null || record.State.Status == TaskStatus.Terminal;
+            if (liveness && dirty is not null && !AddScopesAbove(record, dirty)) dirty = null;
             if (FailedOutcome(record) && (previous is null || !FailedOutcome(previous))) failed.Add(record.Id);
             if (record.State.Status == TaskStatus.Terminal)
             {
@@ -679,7 +694,7 @@ public sealed class TaskScheduler
         if (!changed) return;
         RefreshEarliestSleep();
         ResolveIdleWaiters();
-        SettleContextCache();
+        SettleContextCache(dirty);
         Kick();
     }
 
@@ -704,11 +719,19 @@ public sealed class TaskScheduler
         }
     }
 
-    private void SettleContextCache()
+    /// <summary>
+    /// 按时序过期空闲的上下文，并按 <paramref name="dirty"/> 重估其空闲性：只有其下有任务变为存活或结束的对话才
+    /// 重新走空闲判定（逐对话全量扫是每次提交 O(对话数) 的根源）。<paramref name="dirty"/> 为 null（或链加载解出
+    /// 过未知）时覆盖全部范围。对应 TS <c>#settleIdle(dirty)</c>。
+    /// </summary>
+    private void SettleContextCache(HashSet<ConversationId>? dirty)
     {
         lock (_contextsGate)
         {
             if (_closing) return;
+            var full = dirty is null || _unknownsChanged;
+            _unknownsChanged = false;
+            if (full) _fullIdleChecks++;
             var now = _now();
             var retention = ContextRetentionMs();
             foreach (var (conversationId, kept) in _contexts.ToArray())
@@ -718,22 +741,57 @@ public sealed class TaskScheduler
                 {
                     _contexts.Remove(conversationId);
                 }
-                else if (!Idle(conversationId))
+                else if (full || dirty!.Contains(conversationId))
                 {
-                    _contexts[conversationId] = kept with { IdleSince = null };
-                }
-                else if (retention > 0)
-                {
-                    _contexts[conversationId] = kept with { IdleSince = kept.IdleSince ?? now };
-                }
-                else
-                {
-                    _contexts.Remove(conversationId);
+                    if (!Idle(conversationId))
+                    {
+                        _contexts[conversationId] = kept with { IdleSince = null };
+                    }
+                    else if (retention > 0)
+                    {
+                        _contexts[conversationId] = kept with { IdleSince = kept.IdleSince ?? now };
+                    }
+                    else
+                    {
+                        _contexts.Remove(conversationId);
+                    }
                 }
             }
 
             ScheduleContextExpiryLocked();
         }
+    }
+
+    /// <summary>
+    /// <paramref name="record"/> 之上的对话范围：沿属主链上溯，遇到对话即收进 <paramref name="dirty"/>；链未知
+    /// （属主不在存活或已结算集合里）返回 false。对应 TS <c>#addScopesAbove</c>。
+    /// </summary>
+    private bool AddScopesAbove(TaskRecord record, HashSet<ConversationId> dirty)
+    {
+        var parent = ParentOf(record);
+        while (parent is { } up)
+        {
+            if (up is Up.OfConversation conversation)
+            {
+                dirty.Add(conversation.ConversationId);
+                return true;
+            }
+
+            if (up is not Up.OfTask ofTask) return false;
+            // 属主要么在存活表（TaskRecord），要么在已结算表（TaskNode）；都不在即链未知。
+            var live = _live.GetValueOrDefault(ofTask.TaskId);
+            if (live is not null)
+            {
+                parent = ParentOf(live);
+                continue;
+            }
+
+            var settled = _settled.GetValueOrDefault(ofTask.TaskId);
+            if (settled is null) return false;
+            parent = ParentOf(settled);
+        }
+
+        return true;
     }
 
     private void ScheduleContextExpiryLocked()
@@ -788,7 +846,8 @@ public sealed class TaskScheduler
                 await _session.ReadOnLineAsync(() =>
                 {
                     if (_closing) return Task.FromResult(false);
-                    SettleContextCache();
+                    // 过期/重估走全量：这是一次定时器触发的罕见路径。
+                    SettleContextCache(null);
                     return Task.FromResult(true);
                 }).ConfigureAwait(false);
             }
@@ -978,6 +1037,9 @@ public sealed class TaskScheduler
                 at = owner is { } ownerTask ? new Up.OfTask(ownerTask) : null;
             }
         }
+
+        // 一次链加载可能解出 Idle 对「链未加载的存活任务」视为未知的情形：下一次空闲检查覆盖全部范围。
+        _unknownsChanged = true;
     }
 
     private void SetEdge(ConversationId conversationId, TaskId<object?>? owner)

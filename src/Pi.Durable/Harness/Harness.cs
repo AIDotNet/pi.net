@@ -288,6 +288,9 @@ public sealed class HarnessImpl : DurableSession, IHarness
         _tasks.Resume();
     }
 
+    /// <summary>覆盖了全部范围的空闲检查次数（测试诊断）。对应 TS <c>SCHEDULER_IDLE_STATE</c> 的全量计数。</summary>
+    public int IdleFullChecks => _tasks.FullIdleChecks;
+
     /// <summary>本 Session 下一次需要运行中进程的时刻，读自调度器内存。对应 TS <c>Harness.wake()</c>。</summary>
     public Wake Wake()
     {
