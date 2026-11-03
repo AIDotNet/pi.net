@@ -271,7 +271,7 @@ public class HarnessContextTests
             await Task.Delay(20);
         }
 
-        watch.Cancel();
+        watch.Abort();
         await watch.Closed;
         lock (frames) Assert.Contains(1, frames);
     }

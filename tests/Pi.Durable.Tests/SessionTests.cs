@@ -531,7 +531,7 @@ public class SessionTests
     }
 
     [Fact]
-    public async Task WatchEndsRetiredWhenDocumentRetires()
+    public async Task WatchEndsEndedAfterTheRetirementFrameWhenDocumentRetires()
     {
         var test = OpenTestSession();
         var conversationId = await CreateConversationAsync(test.Session);
@@ -541,7 +541,8 @@ public class SessionTests
         watch.Start((_, _, _) => Task.CompletedTask);
         await test.Session.CommitAsync(tx => tx.RetireDocAsync(NotesDoc, conversationId), Ctx);
         var end = await watch.Closed;
-        Assert.IsType<WatchEnd.Retired>(end);
+        // 退休不再是一个终态：投递带 retired 标记的最后一帧后，watch 以 ended 收场。
+        Assert.IsType<WatchEnd.Ended>(end);
         Assert.Null(watch.Value);
     }
 
@@ -554,8 +555,8 @@ public class SessionTests
         var watch = await test.Session.WatchDocAsync(NotesDoc, conversationId, Ctx);
         Assert.NotNull(watch);
         watch.Start((_, _, _) => Task.CompletedTask);
-        ((DocumentWatch<Dictionary<string, object?>>)watch).Cancel();
-        Assert.IsType<WatchEnd.Cancelled>(await watch.Closed);
+        ((DocumentWatch<Dictionary<string, object?>>)watch).Abort();
+        Assert.IsType<WatchEnd.Aborted>(await watch.Closed);
 
         var watch2 = await test.Session.WatchDocAsync(NotesDoc, conversationId, Ctx);
         Assert.NotNull(watch2);
@@ -584,7 +585,7 @@ public class SessionTests
     }
 
     [Fact]
-    public async Task WatchEndsRetiredOnlyOnItsSourcesRetirementNeverOnANullValue()
+    public async Task WatchEndsEndedOnlyOnItsSourcesRetirementNeverOnANullValue()
     {
         var watch = new CommittedWatch<object?>(1, () => { });
         var frames = new List<(object? Value, int OpCount)>();
@@ -595,8 +596,12 @@ public class SessionTests
         });
         object? settled = null;
         _ = watch.Closed.ContinueWith(task => settled = task.Result, TaskScheduler.Default);
-        // null 只是又一个值：源没有退休，watch 继续投递。
+        // null 只是又一个值：源没有退休，watch 继续投递（一次调用覆盖一个忙碌周期，所以逐次等投递）。
         watch.Advance(null, CommittedWatch<object?>.RetirementOperations, Ctx);
+        await WaitUntilAsync(() =>
+        {
+            lock (frames) return frames.Count == 1;
+        });
         watch.Advance(2, [new DeltaOp.Replace(2)], Ctx);
         await WaitUntilAsync(() =>
         {
@@ -608,7 +613,7 @@ public class SessionTests
     }
 
     [Fact]
-    public async Task WatchRetireDeliversTheRetirementFrameThenEndsRetired()
+    public async Task WatchRetireDeliversTheRetirementFrameThenEndsEnded()
     {
         var watch = new CommittedWatch<object?>(1, () => { });
         var frames = new List<(object? Value, IReadOnlyList<DeltaOp> Ops)>();
@@ -618,7 +623,7 @@ public class SessionTests
             return Task.CompletedTask;
         });
         watch.Retire(Ctx);
-        Assert.IsType<WatchEnd.Retired>(await watch.Closed);
+        Assert.IsType<WatchEnd.Ended>(await watch.Closed);
         lock (frames)
         {
             var frame = Assert.Single(frames);

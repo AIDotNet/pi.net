@@ -760,15 +760,26 @@ public abstract record CommitChange
 }
 
 /// <summary>文档 watch（值可空：化身可能尚未物化）。对应 TS <c>DocumentWatch&lt;T&gt;</c>。</summary>
-public interface IDocumentWatch<T> : IWatchHandle<IReadOnlyDictionary<string, object?>?> where T : class;
+public interface IDocumentWatch<T> : IWatchHandle<IReadOnlyDictionary<string, object?>?> where T : class
+{
+    /// <summary>
+    /// 以「值 + 增量 + 上下文」装监听器：durable 侧的调用点按值思考，不必构造 <see cref="WatchCall{T}"/>。
+    /// 源可以恢复的失败到这个形态没有对应形状，遇到即以监听器错误结束。
+    /// </summary>
+    void Start(Func<IReadOnlyDictionary<string, object?>?, IReadOnlyList<Pi.Chord.Delta.DeltaOp>,
+        Pi.Chord.Context.Context, Task> listener) =>
+        Start((call, context) => call is WatchCall<IReadOnlyDictionary<string, object?>?>.Value value
+            ? listener(value.NewValue, value.Ops, context)
+            : Task.FromException(new InvalidOperationException("值形态的监听器收到了可恢复的失败调用")));
+}
 
 /// <summary>
-/// 一个已提交文档化身的 watch。退休会投递值为 <c>null</c> 的 <c>[["r", null]]</c>，随后以
-/// <see cref="WatchEnd.Retired"/> 结束；Session 的关闭使其以 <see cref="WatchEnd.Ended"/> 结束，
-/// 其失败以 <see cref="WatchEnd.Failed"/> 携带该错误结束。
+/// 一个已提交文档化身的 watch。退休会投递一帧带 <c>retired</c> 标记、值为 <c>null</c> 的
+/// <c>[["r", null]]</c>，投递完之后以 <see cref="WatchEnd.Ended"/> 结束；Session 的关闭同样以
+/// <see cref="WatchEnd.Ended"/> 结束，其失败以 <see cref="WatchEnd.Failed"/> 携带该错误结束。
 /// 对应 TS <c>DocumentWatch&lt;T&gt; = WatchHandle&lt;Readonly&lt;T&gt; | null&gt;</c>。
-/// C# 无结构化类型，TS 的接口与具体类之分由本包装承载（Cancel / ObserveCancellation
-/// 位于具体类型，对齐 TS <c>CommittedWatch</c> 的公开面）。
+/// C# 无结构化类型，TS 的接口与具体类之分由本包装承载（Abort / ObserveAbort
+/// 位于具体类型，对齐 TS <c>Watch&lt;T&gt;</c> 的公开面）。
 /// </summary>
 public sealed class DocumentWatch<T> : IDocumentWatch<T> where T : class
 {
@@ -781,6 +792,10 @@ public sealed class DocumentWatch<T> : IDocumentWatch<T> where T : class
     public IReadOnlyDictionary<string, object?>? Value => _inner.Value;
 
     /// <inheritdoc />
+    public void Start(Func<WatchCall<IReadOnlyDictionary<string, object?>?>,
+        Pi.Chord.Context.Context, Task> listener) => _inner.Start(listener);
+
+    /// <summary>以「值 + 增量 + 上下文」装监听器（见 <see cref="Session.CommittedWatch{T}.Start"/>）。</summary>
     public void Start(Func<IReadOnlyDictionary<string, object?>?, IReadOnlyList<Pi.Chord.Delta.DeltaOp>,
         Pi.Chord.Context.Context, Task> listener) => _inner.Start(listener);
 
@@ -790,9 +805,9 @@ public sealed class DocumentWatch<T> : IDocumentWatch<T> where T : class
     /// <inheritdoc />
     public Task<WatchEnd> Closed => _inner.Closed;
 
-    /// <summary>以 cancelled 终态终止。对应 TS <c>CommittedWatch.cancel()</c>。</summary>
-    public void Cancel() => _inner.Cancel();
+    /// <summary>以 aborted 终态终止。对应 TS <c>Watch.abort()</c>。</summary>
+    public void Abort() => _inner.Abort();
 
-    /// <summary>安装取消信号观察。对应 TS <c>CommittedWatch.observeCancellation()</c>。</summary>
-    public void ObserveCancellation(CancellationToken signal) => _inner.ObserveCancellation(signal);
+    /// <summary>安装取消信号观察。对应 TS <c>Watch.observeAbort()</c>。</summary>
+    public void ObserveAbort(CancellationToken signal) => _inner.ObserveAbort(signal);
 }

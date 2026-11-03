@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Pi.Durable.Env;
 
 namespace Pi.Durable.Harness;
@@ -27,29 +28,39 @@ public sealed record BoundedOutput(string Text, long DroppedBytes, long DroppedL
 public sealed record OutputSlice(string Text, long Bytes, long DroppedBytes, long DroppedLines);
 
 /// <summary>工具输出裁剪。对应 TS <c>harness/output.ts</c> 的自由函数。</summary>
-public static class ToolOutput
+public static partial class ToolOutput
 {
     private const byte Newline = 0x0a;
     private static readonly Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-    /// <summary>移除破坏显示与转录的控制字符；制表与换行保留。</summary>
+    /// <summary>
+    /// 整段 7 位转义序列：字符串类（OSC/DCS/APC/PM/SOS）到 BEL 或 ST 为止，CSI，以及 <c>ESC x</c> 短形式。
+    /// </summary>
+    [GeneratedRegex(@"\u001B[\]PX^_][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u001B\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]|\u001B[\x20-\x2F]*[\x30-\x7E]")]
+    private static partial Regex EscapeSequenceRegex();
+
+    /// <summary>
+    /// 移除破坏显示与转录的转义序列与控制字符；制表与换行保留。整段转义序列先删，再删单个控制字符——
+    /// 顺序反过来就会像旧实现那样只吃掉 ESC 字节，把 <c>"\u001B[31mERROR\u001B[0m"</c> 变成 <c>"[31mERROR[0m"</c>。
+    /// </summary>
     public static string SanitizeOutput(string text)
     {
+        var sanitized = text.Contains('\u001B') ? EscapeSequenceRegex().Replace(text, string.Empty) : text;
         var builder = (StringBuilder?)null;
-        for (var i = 0; i < text.Length; i++)
+        for (var i = 0; i < sanitized.Length; i++)
         {
-            var ch = text[i];
+            var ch = sanitized[i];
             var invalid = ch <= 0x08 || (ch >= 0x0b && ch <= 0x1f) || (ch >= '\uFFF9' && ch <= '\uFFFB');
             if (invalid)
             {
-                builder ??= new StringBuilder(text, 0, i, text.Length);
+                builder ??= new StringBuilder(sanitized, 0, i, sanitized.Length);
             }
             else if (builder is not null)
             {
                 builder.Append(ch);
             }
         }
-        return builder?.ToString() ?? text;
+        return builder?.ToString() ?? sanitized;
     }
 
     /// <summary>

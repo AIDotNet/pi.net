@@ -216,11 +216,11 @@ public sealed class TaskGraphView
         var signal = context.AbortSignal;
         if (signal?.IsCancellationRequested == true)
         {
-            observer.Cancel();
+            observer.Abort();
             throw new OperationCanceledException(signal.GetValueOrDefault());
         }
 
-        if (signal is { } watchSignal) observer.ObserveCancellation(watchSignal);
+        if (signal is { } watchSignal) observer.ObserveAbort(watchSignal);
         return observer;
     }
 
@@ -557,6 +557,6 @@ public sealed class TaskGraphView
 
     private static void CloseObserver(object observer, Exception? failure)
     {
-        if (observer is CommittedWatch<IReadOnlyDictionary<string, object?>> watch) watch.End(failure);
+        if (observer is CommittedWatch<IReadOnlyDictionary<string, object?>> watch) watch.EndWith(failure);
     }
 }

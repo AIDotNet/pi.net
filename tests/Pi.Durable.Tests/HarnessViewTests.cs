@@ -229,7 +229,10 @@ public sealed class HarnessViewTests
             summary = (await tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "summary", Head = b })).Id;
             return true;
         }, Ctx);
+        // 一次调用覆盖一个忙碌周期：端口用线程池投递，紧邻的提交会被折叠，所以逐次等它追上。
+        await DrainedAsync();
         await NoteAsync("d");
+        await DrainedAsync();
         await root.ResetAsync(null, Ctx);
         await DrainedAsync();
         Assert.Equal(
@@ -359,11 +362,12 @@ public sealed class HarnessViewTests
     }
 
     [Fact]
-    public async Task ReplacesUndeliveredFramesWithTheNewestViewAfter100PendingFrames()
+    public async Task FoldsUndeliveredCommitsIntoOneCallWhoseOpsReachTheNewestView()
     {
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(
             new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("ok")));
         var watch = await root.WatchAsync(Ctx);
+        var initial = watch.Value;
         for (var index = 0; index < 101; index++)
         {
             await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "note" }), Ctx);
@@ -376,9 +380,13 @@ public sealed class HarnessViewTests
             return Task.CompletedTask;
         });
         await DrainedAsync();
-        Assert.Single(frames);
-        Assert.True(frames[0].Ops.Count == 1 && frames[0].Ops[0] is DeltaOp.Replace);
-        Assert.Equal(101, frames[0].Value.Entries.Count);
+        Frame frame;
+        lock (frames) frame = Assert.Single(frames);
+        // 折叠而不是丢弃：增量仍然能把上一次的视图推到这个视图（状态类 watch 走 PendingOps，不是整值替换）。
+        Assert.NotEmpty(frame.Ops);
+        Assert.False(frame.Ops[0] is DeltaOp.Replace);
+        Assert.Equal(101, frame.Value.Entries.Count);
+        AssertViewEqual(await CommittedAsync(harness, root, initial.Conversation), Replay(initial, [frame]));
         await watch.Stop();
         await HarnessTestSupport.CloseQuietlyAsync(harness);
     }

@@ -85,6 +85,24 @@ public sealed class HarnessOutputTests
     }
 
     [Fact]
+    public void RemovesWholeAnsiEscapeSequencesNotOnlyTheirEscBytes()
+    {
+        // #11604：只删 ESC 字节会留下 "[31mERROR[0m"，此后再也没有 ANSI 清理能认出这些碎片。
+        Assert.Equal("ERROR\n", ToolOutput.SanitizeOutput("\u001B[31mERROR\u001B[0m\n"));
+        // SGR、光标与擦除 CSI、字符集与短形式 ESC。
+        Assert.Equal("xyz", ToolOutput.SanitizeOutput("\u001B[1;38;5;208mx\u001B[?25l\u001B[2K\u001B(By\u001B7z"));
+        // OSC 8 超链接（BEL 与 ST 两种终止）与 OSC 标题。
+        Assert.Equal("link ok", ToolOutput.SanitizeOutput("\u001B]8;;https://pi.dev\u0007link\u001B]8;;\u001B\\ \u001B]0;title\u0007ok"));
+
+        // snapshot() 净化拼接后的保留文本，所以跨块断开的序列同样被删干净。
+        var buffer = new OutputBuffer(new OutputLimits { Retain = OutputRetain.Tail, MaxBytes = 1024, MaxLines = 100 });
+        buffer.Push("\u001B[3");
+        buffer.Push("1mERROR\u001B[0");
+        buffer.Push("m\n");
+        Assert.Equal("ERROR\n", buffer.Snapshot().Text);
+    }
+
+    [Fact]
     public void KeepsOutputWithinTheLimitsUnchanged()
     {
         Assert.Equal(("a\nb\n", 0L, 0L), Bound("a\nb\n", Head(2)));

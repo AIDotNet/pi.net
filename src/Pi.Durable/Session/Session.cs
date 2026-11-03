@@ -339,10 +339,10 @@ public class DurableSession : ISession
         if (watch is null) return null;
         if (cancelled)
         {
-            watch.Cancel();
+            watch.Abort();
             throw CancellationError(signal!.Value);
         }
-        if (signal is { } watchSignal) watch.ObserveCancellation(watchSignal);
+        if (signal is { } watchSignal) watch.ObserveAbort(watchSignal);
         return watch;
     }
 
@@ -864,7 +864,7 @@ public class DurableSession : ISession
                 observer.Advance(document.Change.Value, ops, context);
             }
         });
-        unsubscribeClose = SubscribeClose(() => observer.End(_poison));
+        unsubscribeClose = SubscribeClose(() => observer.EndWith(_poison));
         return observer;
     }
 

@@ -43,11 +43,12 @@ public static class WatchState
             public void Activate(Action<ReplicatedStateSourceFrame<T>> receive)
             {
                 if (_disposed) throw new InvalidOperationException("State attachment is disposed");
-                watch.Start((value, ops, context) =>
+                watch.Start((call, context) =>
                 {
-                    if (!_disposed)
+                    // 复制状态只承载「新值 + 增量」；可恢复的失败没有对应的帧形状，投给 watch 的报告通道后丢掉。
+                    if (!_disposed && call is WatchCall<T>.Value value)
                     {
-                        receive(new ReplicatedStateSourceFrame<T>(value, ops, ++source._cursor, context));
+                        receive(new ReplicatedStateSourceFrame<T>(value.NewValue, value.Ops, ++source._cursor, context));
                     }
 
                     return Task.CompletedTask;

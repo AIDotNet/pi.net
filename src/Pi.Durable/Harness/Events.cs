@@ -331,17 +331,23 @@ public abstract record MessageChange
 /// </summary>
 public sealed class AgentEventStream
 {
-    private readonly CommittedWatch<IReadOnlyList<AgentEvent>> _watch;
+    private readonly NativeWatch<IReadOnlyList<AgentEvent>> _watch;
 
-    internal AgentEventStream(CommittedWatch<IReadOnlyList<AgentEvent>> watch, AgentEvent.Snapshot snapshot)
+    internal AgentEventStream(NativeWatch<IReadOnlyList<AgentEvent>> watch, AgentEvent.Snapshot snapshot)
         => (_watch, Snapshot) = (watch, snapshot);
 
     /// <summary>挂载时的 <c>snapshot</c> 事件。</summary>
     public AgentEvent.Snapshot Snapshot { get; }
 
-    /// <summary>安装监听器（每批一次）。</summary>
+    /// <summary>
+    /// 安装监听器（每批一次）。事件批次走原生 watch：每批按序各自一次调用，超过 100 个待发批次才折叠成一份
+    /// 最新视图的快照——状态类 watch 才会折叠 ops。对应 TS <c>watchEvents</c> 用 <c>NativeWatch</c> 的写法。
+    /// 可恢复的失败在事件流里没有对应形状（源只以失败收场），到不了监听器。
+    /// </summary>
     public void Start(Func<IReadOnlyList<AgentEvent>, Context, Task> listener)
-        => _watch.Start((events, _, context) => listener(events, context));
+        => _watch.Start((call, context) => call is NativeWatchCall<IReadOnlyList<AgentEvent>>.Value value
+            ? listener(value.NewValue, context)
+            : Task.CompletedTask);
 
     /// <summary>停止并返回终态。</summary>
     public Task<WatchEnd> StopAsync() => _watch.Stop();
@@ -468,7 +474,7 @@ public static class Events
     public static async Task<AgentEventStream> WatchEventsAsync(
         DurableSession harness, ConversationId conversationId, Context context)
     {
-        CommittedWatch<IReadOnlyList<AgentEvent>>? watch = null;
+        NativeWatch<IReadOnlyList<AgentEvent>>? watch = null;
         AgentEvent.Snapshot? snapshot = null;
         await ConversationViews.For(harness).AttachAsync(conversationId, async (initial, release) =>
         {
@@ -483,11 +489,11 @@ public static class Events
         var signal = context.AbortSignal;
         if (signal?.IsCancellationRequested == true)
         {
-            watch!.Cancel();
+            watch!.Abort();
             throw new OperationCanceledException(signal.GetValueOrDefault());
         }
 
-        if (signal is { } watchSignal) watch!.ObserveCancellation(watchSignal);
+        if (signal is { } watchSignal) watch!.ObserveAbort(watchSignal);
         return new AgentEventStream(watch!, snapshot!);
     }
 
@@ -501,7 +507,7 @@ public static class Events
         private EventsObserver(
             ConversationId conversationId,
             ConversationView initial,
-            CommittedWatch<IReadOnlyList<AgentEvent>> watch,
+            NativeWatch<IReadOnlyList<AgentEvent>> watch,
             AgentEvent.Snapshot snapshot,
             HashSet<TaskId<object?>> held)
         {
@@ -512,7 +518,7 @@ public static class Events
             _held = held;
         }
 
-        public CommittedWatch<IReadOnlyList<AgentEvent>> Watch { get; }
+        public NativeWatch<IReadOnlyList<AgentEvent>> Watch { get; }
 
         public AgentEvent.Snapshot Snapshot { get; }
 
@@ -537,8 +543,8 @@ public static class Events
             var snapshot = SnapshotOf(initial);
             // 批次是 watch 的值；溢出投递最新视图的一份快照。
             EventsObserver? self = null;
-            var watch = new CommittedWatch<IReadOnlyList<AgentEvent>>(
-                [], release, error => harness.Report(error), replace: () => [SnapshotOf(self!._current)]);
+            var watch = new NativeWatch<IReadOnlyList<AgentEvent>>(
+                [], release, error => harness.Report(error), () => [SnapshotOf(self!._current)]);
             var observer = new EventsObserver(conversationId, initial, watch, snapshot, held);
             self = observer;
             return observer;
@@ -550,10 +556,14 @@ public static class Events
         {
             _current = after;
             var events = Translate(_conversationId, before, after, ops, publication, _held);
-            if (events.Count > 0) Watch.Advance(events, [], context);
+            if (events.Count > 0) Watch.Advance(events, context);
         }
 
-        public override void End(Exception? failure) => Watch.End(failure);
+        public override void End(Exception? failure)
+        {
+            if (failure is null) Watch.End();
+            else Watch.Fail(failure);
+        }
     }
 
     /// <summary>结果条目 <c>callId</c> 在 <paramref name="entries"/> 中。对应 TS <c>resultOf</c>。</summary>

@@ -135,11 +135,11 @@ public sealed class ConversationViews
         var signal = context.AbortSignal;
         if (signal?.IsCancellationRequested == true)
         {
-            observer.Cancel();
+            observer.Abort();
             throw new OperationCanceledException(signal.GetValueOrDefault());
         }
 
-        if (signal is { } watchSignal) observer.ObserveCancellation(watchSignal);
+        if (signal is { } watchSignal) observer.ObserveAbort(watchSignal);
         return observer;
     }
 
@@ -421,7 +421,7 @@ public sealed class ConversationViews
         switch (observer)
         {
             case CommittedWatch<ConversationView> watch:
-                watch.End(failure);
+                watch.EndWith(failure);
                 break;
             case ViewObserver viewObserver:
                 viewObserver.End(failure);
