@@ -913,3 +913,43 @@ O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/strea
 并让 coding-agent 的 `CodeHighlighter` 自己判断主题/语法是否变了）——端口主题里 `HighlightCode` 只是一个委托，
 要做这层得先让 coding-agent 的高亮器带缓存；② `Text.setText()` 保留未变文本的折行结果（12 行的独立优化）。
 两项都只影响性能，不影响输出；块级复用已经是流式路径上的主要开销。
+
+### 4.32 语料链现状与结论（为 P4 余项铺路）
+
+§3 末注说「动 P4 前先恢复语料生成链」。这轮把链路探通了，也探到它**不能直接当 oracle** 用：
+
+**跑通的部分**：上游 `packages/tui/src/*.ts` 可以用 `node --experimental-strip-types`（v22.22.2）直接跑，只需三个
+运行期依赖，版本按 `package-lock.json` 钉住：
+
+| 包 | 版本 | 为什么需要 |
+| --- | --- | --- |
+| `marked` | 18.0.11 | `components/markdown.ts` 的词法器 |
+| `marked-cjk-friendly` | 0.1.2 | CJK 断行扩展 |
+| `get-east-asian-width` | 1.6.0 | `utils.ts` 的宽度计算 |
+
+验证方式：把这三个包（外加 `chalk`）装到上游仓库根的 `node_modules`，脚本放仓库内用相对路径 import，`Markdown`
+就能 `render(width)`，输出与 .NET 侧同构。上游仓库本身仍是干净的（`node_modules` 被 gitignore）。
+
+**结论（重要）**：语料里的 SGR 序列**不是真 chalk 产生的**。同一句
+`## h2 with **bold** and \`code\`` 宽 1，语料（`markdown-corpus.json` id 594）第 9 行是
+
+```
+\x1b[1;36m\x1b[1m\x1b[36m\x1b[39m\x1b[22m...     ← 先重开外层 1m+36m，再按 39m、22m 关
+```
+
+而 chalk 6.0.0（1.4.0 与 1.5.0 的 lockfile 都钉这个）与 chalk 5.3.0 都给
+
+```
+\x1b[1;36m\x1b[22m\x1b[1m\x1b[39m\x1b[22m...     ← 嵌套同款样式时先关再开
+```
+
+也就是说：**语料的主题是「每个样式一对定向开关」的朴素实现**（`bold` = `1m…22m`、`cyan` = `36m…39m`、
+`heading` = `1m36m…39m22m`，重开由渲染器按当前活动码重建 `1;36m`），与端口 `Colors` 的 chalk 模拟一致，而与
+真 chalk 的嵌套重开规则不同。
+
+**因此**：想要「生成 1.5.0 语料」必须用同一套朴素样式函数（端口 `ChalkStyle` 的 TS 等价物），不能直接用 chalk；
+否则每个带样式的用例都会有 SGR 差异，得到的不是 oracle 而是一堆噪声。
+
+**对 P4 余项的落地方式**（5 项）：逐项移植上游改动，并**照抄上游那次提交里的定向用例**（`wrap-ansi.test.ts`
+51 行、`markdown.test.ts` 16 行这类用例都用纯文本断言，不依赖主题），最后只把「确实变了」的语料用例按
+朴素样式函数重算。比整篇重生成可控得多。
