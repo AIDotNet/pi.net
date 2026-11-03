@@ -228,12 +228,19 @@ public class ToolTaskTests
     {
         public Func<ToolCallContent, IHookApi, Context, Task<ToolHookDecision?>>? BeforeToolHandler { get; set; }
 
+        /// <summary>对应 TS <c>hook(ToolTask, { afterTool })</c>。</summary>
+        public Func<ToolCallContent, ToolExecutionResult, Task<ToolExecutionResult?>>? AfterToolHandler
+        {
+            get;
+            set;
+        }
+
         public Task<ToolHookDecision?> BeforeTool(ToolCallContent call, IHookApi api, Context context)
             => BeforeToolHandler is { } handler ? handler(call, api, context) : Task.FromResult<ToolHookDecision?>(null);
 
         public Task<ToolExecutionResult?> AfterTool(
             ToolCallContent call, ToolExecutionResult result, IHookApi api, Context context)
-            => Task.FromResult<ToolExecutionResult?>(null);
+            => AfterToolHandler is { } handler ? handler(call, result) : Task.FromResult<ToolExecutionResult?>(null);
     }
 
     private sealed class FakeRuntime : ITaskRuntime, IHookRunner
@@ -484,6 +491,37 @@ public class ToolTaskTests
 
     private static ToolDiagnostic FirstDiagnostic(TypedEntry<IReadOnlyDictionary<string, object?>> entry)
         => DurableEntries.ToolResultDiagnostics(entry.Data!)[0];
+
+    [Fact]
+    public async Task CallPhase_AfterToolAppliesToABlockedCallAndCanRewriteIt()
+    {
+        var seen = new List<ToolExecutionResult>();
+        var hooks = new FakeHooks
+        {
+            BeforeToolHandler = (_, _, _) => Task.FromResult<ToolHookDecision?>(new ToolHookDecision { Block = "no" }),
+            AfterToolHandler = (_, result) =>
+            {
+                seen.Add(result);
+                return Task.FromResult<ToolExecutionResult?>(result with { Content = [new TextContent("replaced")] });
+            },
+        };
+        var fixture = await CreateFixtureAsync(
+            new FakeTool("read", new Dictionary<string, object?> { ["type"] = "object" }), [hooks]);
+
+        await CallPhase(await GetTaskAsync(fixture), fixture.Runtime, Ctx);
+
+        var record = await GetTaskAsync(fixture);
+        Assert.Equal(TaskStatus.Terminal, record.State.Status);
+        Assert.Equal(TaskOutcomeStatus.Completed, record.State.Outcome?.Status);
+        // afterTool 看到的是 Harness 写的 blocked 错误结果，并把它改写进了结果条目
+        // （条目里还有渲染诊断的文本块，所以按包含断言）。
+        var entry = await ResultEntryAsync(fixture, record);
+        var texts = Assert.IsType<ToolResultMessage>(entry.Model!.First())
+            .Content.OfType<TextContent>().Select(content => content.Text).ToList();
+        Assert.Contains("replaced", texts);
+        var saw = Assert.Single(seen);
+        Assert.True(saw.IsError);
+    }
 
     // ─── JSON 形状 ──────────────────────────────────────────────────────────
 

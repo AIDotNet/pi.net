@@ -118,7 +118,7 @@ public static partial class ToolTask
         if (tool is null)
         {
             var error = HarnessError("tool_unavailable", $"Tool {call.Name} is not available");
-            await SettleAsync(runtime, call, Completed, _ => error, context).ConfigureAwait(false);
+            await RejectAsync(runtime, call, null, error, context).ConfigureAwait(false);
             return;
         }
 
@@ -126,7 +126,7 @@ public static partial class ToolTask
         var check = prepared.Error is null ? Validate(tool, call, prepared.Args) : prepared;
         if (check.Error is not null)
         {
-            await SettleAsync(runtime, call, Completed, _ => Invalid(check.Error), context).ConfigureAwait(false);
+            await RejectAsync(runtime, call, tool, Invalid(check.Error), context).ConfigureAwait(false);
             return;
         }
 
@@ -151,14 +151,14 @@ public static partial class ToolTask
         if (block is not null)
         {
             var blocked = HarnessError("blocked", $"Tool call blocked: {block}");
-            await SettleAsync(runtime, call, Completed, _ => blocked, context).ConfigureAwait(false);
+            await RejectAsync(runtime, call, tool, blocked, context).ConfigureAwait(false);
             return;
         }
 
         var validated = Validate(tool, call, args);
         if (validated.Error is not null)
         {
-            await SettleAsync(runtime, call, Completed, _ => Invalid(validated.Error), context).ConfigureAwait(false);
+            await RejectAsync(runtime, call, tool, Invalid(validated.Error), context).ConfigureAwait(false);
             return;
         }
 
@@ -202,16 +202,20 @@ public static partial class ToolTask
         var message = $"Tool {call.Name} was interrupted and may have partially run";
         // failed 记录取消意图，因此该调用拥有的对话在无人监督时被中止。
         var ending = new Ending(TaskOutcomeStatus.Failed, message);
-        await SettleAsync(runtime, call, ending, slot => FromSlot(slot, "interrupted", message), context)
-            .ConfigureAwait(false);
+        // 上游把「被打断太多次」的检查放在解析工具之前；端口的工具重启计数尚未移植，钩子总是跑。
+        await SettleFromSlotAsync(
+            runtime, call, agent.Tools.FirstOrDefault(each => each.Name == call.Name),
+            ending, "interrupted", message, context).ConfigureAwait(false);
     }
 
     private static async Task AbortAsync(TaskRecord task, ITaskRuntime runtime, Context context)
     {
         var call = await ReadCallAsync(runtime, task, context).ConfigureAwait(false);
+        var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
         var message = $"Tool {call.Name} was aborted";
-        await SettleAsync(runtime, call, new Ending(TaskOutcomeStatus.Aborted),
-            slot => FromSlot(slot, "aborted", message), context).ConfigureAwait(false);
+        await SettleFromSlotAsync(
+            runtime, call, agent.Tools.FirstOrDefault(each => each.Name == call.Name),
+            new Ending(TaskOutcomeStatus.Aborted), "aborted", message, context).ConfigureAwait(false);
     }
 
     // ─── 调用与参数 ─────────────────────────────────────────────────────────
@@ -517,6 +521,87 @@ public static partial class ToolTask
     }
 
     /// <summary>
+    /// 结算一个 Harness 在 call 阶段就决定了、没有执行工具的结果：工具没解析到、参数无效、或 <c>beforeTool</c>
+    /// 拦截。<c>afterTool</c> 与执行过的调用一视同仁。对应 TS <c>reject()</c>。
+    /// </summary>
+    private static async Task RejectAsync(
+        ITaskRuntime runtime, ToolCallContent call, IToolRegistration? tool,
+        ToolExecutionResult result, Context context)
+    {
+        var settled = await AfterHarnessResultAsync(runtime, call, tool, result, null, context)
+            .ConfigureAwait(false);
+        await SettleAsync(runtime, call, Completed, _ => settled, context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 结算一个由槽拼出来的错误结果（被打断、重启上限、中止）。工具没在运行，所以提交之前读到的槽在提交时仍然
+    /// 是最新的。有工具时结果过一遍 <c>afterTool</c> 并按其输出上限有界化；没有时（端口场景：无工具重启计数）
+    /// 按拼好的原样结算。对应 TS <c>settleFromSlot()</c>。
+    /// </summary>
+    private static async Task SettleFromSlotAsync(
+        ITaskRuntime runtime, ToolCallContent call, IToolRegistration? tool,
+        Ending ending, string code, string message, Context context)
+    {
+        var live = await runtime.SnapshotAsync(Live.LiveDoc, runtime.ConversationId, context).ConfigureAwait(false);
+        var slot = live is not null
+            && live.TryGetValue("tools", out var toolsValue)
+            && toolsValue is IReadOnlyList<object?> slots
+            ? slots.OfType<JsonDict>().Select(ToolSlot.FromJson)
+                .FirstOrDefault(each => each.TaskId == runtime.TaskId)
+            : null;
+        var (built, truncation) = FromSlot(slot, code, message);
+        var settled = await AfterHarnessResultAsync(runtime, call, tool, built, truncation, context)
+            .ConfigureAwait(false);
+        await SettleAsync(runtime, call, ending, _ => settled, context).ConfigureAwait(false);
+    }
+
+    /// <summary>工具的输出上限（缺省值补齐）；工具没解析到时全取缺省。对应 TS <c>outputLimits()</c>。</summary>
+    private static OutputLimits LimitsOf(IToolRegistration? tool) => new()
+    {
+        MaxBytes = tool?.OutputLimits?.MaxBytes ?? Truncate.DefaultMaxBytes,
+        MaxLines = tool?.OutputLimits?.MaxLines ?? Truncate.DefaultMaxLines,
+        Retain = tool?.OutputLimits?.Retain == "tail" ? OutputRetain.Tail : OutputRetain.Head,
+    };
+
+    /// <summary>
+    /// Harness 自己写的、没有执行工具的结果，跑完 <c>afterTool</c> 链之后按执行过的调用那样归一化：输出按工具的
+    /// 上限（未解析到则全缺省）有界化，有截断就加截断诊断，而钩子换掉了内容时丢弃原有截断诊断——那描述的是
+    /// 钩子丢掉的内容。对应 TS <c>afterHarnessResult()</c>（端口的 ToolExecutionResult 没有 structuredOutput，
+    /// 该字段按缺省不存在）。
+    /// </summary>
+    private static async Task<ToolExecutionResult> AfterHarnessResultAsync(
+        ITaskRuntime runtime, ToolCallContent call, IToolRegistration? tool,
+        ToolExecutionResult result, ToolDiagnostic? truncation, Context context)
+    {
+        var final = result;
+        await runtime.Hooks.EachAsync("afterTool", async handler =>
+        {
+            if (handler is not IToolHooks hooks) return;
+            var replacement = await hooks.AfterTool(call, final, runtime, context).ConfigureAwait(false);
+            if (replacement is not null) final = replacement;
+        }).ConfigureAwait(false);
+        var harnessDiagnostics = new List<ToolDiagnostic>();
+        // 原有截断诊断只在钩子保留该内容时适用。
+        if (truncation is not null && ReferenceEquals(final.Content, result.Content))
+        {
+            harnessDiagnostics.Add(truncation);
+        }
+
+        var limits = LimitsOf(tool);
+        var bounded = BoundContent(final.Content ?? [], limits);
+        if (bounded.DroppedBytes > 0)
+        {
+            harnessDiagnostics.Add(TruncatedDiagnostic(bounded.DroppedLines, bounded.DroppedBytes, limits.Retain));
+        }
+
+        return final with
+        {
+            Content = bounded.Content,
+            Diagnostics = [.. final.Diagnostics ?? [], .. harnessDiagnostics],
+        };
+    }
+
+    /// <summary>
     /// 工具的终态提交：追加结果条目、标记槽完成，并以条目 ID 完成或以 aborted 结束。
     /// build 收到槽，使中断与中止能上报持久的部分输出。对应 TS <c>settle</c>。
     /// </summary>
@@ -579,19 +664,26 @@ public static partial class ToolTask
     private static readonly Ending Completed = new(TaskOutcomeStatus.Completed);
 
     /// <summary>来自槽的持久部分输出、details 与诊断的错误结果。对应 TS <c>fromSlot</c>。</summary>
-    private static ToolExecutionResult FromSlot(ToolSlot? slot, string code, string message)
+    private static (ToolExecutionResult Result, ToolDiagnostic? Truncation) FromSlot(
+        ToolSlot? slot, string code, string message)
     {
         var diagnostics = new List<ToolDiagnostic>(slot?.Diagnostics ?? []);
+        ToolDiagnostic? truncation = null;
         var droppedBytes = slot?.DroppedBytes ?? 0;
-        if (droppedBytes > 0) diagnostics.Add(TruncatedDiagnostic(slot?.DroppedLines ?? 0, droppedBytes));
+        if (droppedBytes > 0)
+        {
+            truncation = TruncatedDiagnostic(slot?.DroppedLines ?? 0, droppedBytes);
+            diagnostics.Add(truncation);
+        }
+
         diagnostics.Add(ErrorDiagnostic(code, message));
-        return new ToolExecutionResult
+        return (new ToolExecutionResult
         {
             Content = slot?.Output is not { Length: > 0 } ? [] : (IReadOnlyList<ContentBlock>)[new TextContent(slot.Output)],
             IsError = true,
             Details = slot?.Details,
             Diagnostics = diagnostics,
-        };
+        }, truncation);
     }
 
     /// <summary>Harness 自己写的错误结果：无内容和一个带 code 的 error 诊断。对应 TS <c>harnessError</c>。</summary>
