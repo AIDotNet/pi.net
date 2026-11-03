@@ -31,13 +31,12 @@
 `EventStream.push` 收到 `done`/`error` 会自己收尾，端口的 `Push` 不会，成功的 pi-messages 请求
 会让消费方永远等下去（此前没有任何 `PiMessages` 测试，一直没暴露）。见 `b247a0e`。
 
-**验证基线（2026-11-03 P7 首批后实测）**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；
-`Pi.CodingAgent.Tests` **5184** / 1 失败 / 3 跳过（`--filter-not-class "*PackageManagerTests*"`；
-那 1 例仍是既有的 `UpstreamTypeScriptExampleTests` typebox 语料问题）；`Pi.Durable.Tests`
-**538**（新增只读 4 / 钩子 2 / 条目读取 2 / 轮次上限 4 / continue 2 / afterTool 1 / 未提供调用 1 / 空闲检查 1 / handoff 1 / afterRun 2；并行满载时偶发 1 例超时，单跑全绿）；
-`Pi.Chord.Tests` **135** 全绿（`PendingOpsTests` 13 + `WatchTests` 16）；
-`Pi.Env.Tests` 53（3 跳过）、`Pi.Codemode.Tests` 57、`Pi.Agent.Tests` **36** 全绿；
-`Pi.Ai.Tests` **976**（1 跳过：Unix 权限位在 Windows 上无意义）。
+**验证基线（2026-11-03 全仓实测，P6 第十六批 + P4 第二批之后）**：`dotnet build Pi.slnx` 0 警告 0 错误；
+`Pi.Durable.Tests` **566** 全绿；`Pi.Tui.Tests` **23945** 全绿；`Pi.CodingAgent.Tests` **5208** / 1 失败 / 3 跳过
+（唯一失败仍是既有的 `UpstreamTypeScriptExampleTests` typebox 语料）；`Pi.Ai.Tests` **976**（1 跳过：Unix 权限位；
+另有 1 例 env 并行噪声 `ThreadsFederationEnvThroughModels`，单跑绿）；`Pi.Chord.Tests` 135、`Pi.Agent.Tests` 36、
+`Pi.Mcp.Tests` 58、`Pi.Protocol.Tests` 14、`Pi.Server.Tests` 33、`Pi.Codemode.Tests` 57、`Pi.Telemetry.Tests` 24、
+`Pi.Evals.Tests` 56（2 跳过：无沙箱）、`Pi.Env.Tests` 53（3 跳过）全绿。
 
 **已知测试噪声**：`Pi.Durable.Tests` 里依赖进程/超时的一小批用例（`ToolsTests.Bash_*`、
 `HarnessGenerationRecoveryTests` 的 reopen 恢复）在并行满载时会随机 1 例超时，单跑全绿；
