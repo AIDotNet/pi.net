@@ -23,6 +23,20 @@ public sealed class StorageRejected : Exception
     }
 }
 
+/// <summary>
+/// 带 <c>whenIdle: "reject"</c> 的输入到达空闲对话且未被受理：在任何写之前就拒绝，因此它从不启动一次运行。
+/// 对应 TS <c>ConversationIdle</c>。
+/// </summary>
+public sealed class ConversationIdle : Exception
+{
+    /// <summary>空闲的对话 ID。</summary>
+    public Types.ConversationId ConversationId { get; }
+
+    public ConversationIdle(Types.ConversationId conversationId)
+        : base($"Conversation {conversationId.Value} is idle")
+        => ConversationId = conversationId;
+}
+
 /// <summary>提交到达忙碌对话且未被受理。对应 TS <c>ConversationBusy</c>。</summary>
 public sealed class ConversationBusy : Exception
 {

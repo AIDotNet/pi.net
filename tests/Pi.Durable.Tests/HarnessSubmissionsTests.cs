@@ -104,6 +104,32 @@ public class HarnessSubmissionsTests
         }
     }
 
+    [Fact]
+    public async Task RejectsIdleInputWithWhenIdleRejectBeforeAnyWrite()
+    {
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(
+            new MemoryStorage(), HarnessTestSupport.NewChatSetup(HarnessTestSupport.AssistantReply("never")));
+        try
+        {
+            var before = await HarnessTestSupport.AllEntriesAsync(root);
+
+            var idle = await Assert.ThrowsAsync<ConversationIdle>(() => root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("hi")], WhenIdle = "reject" }, Ctx));
+            Assert.Equal(root.Id, idle.ConversationId);
+
+            // 拒绝发生在任何写之前：没有条目、没有运行、没有任务，live 仍为空。
+            Assert.Equal(before.Count, (await HarnessTestSupport.AllEntriesAsync(root)).Count);
+            Assert.Empty((await harness.SnapshotAsync(Live.LiveDoc, root.Id, Ctx))!);
+            var tasks = await root.CommitAsync(
+                tx => tx.ScanTasksAsync(new TaskQuery { ConversationId = root.Id }, 10), Ctx);
+            Assert.Empty(tasks.Items);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
     // ─── 3. 请求 ID 去重 ────────────────────────────────────────────────────
 
     [Fact]

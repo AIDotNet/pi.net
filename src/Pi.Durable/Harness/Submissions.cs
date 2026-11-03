@@ -168,6 +168,12 @@ public static class Admission
             throw new ConversationBusy(conversationId);
         }
 
+        // 空闲拒绝发生在任何写之前：这条输入不会启动一次运行。
+        if (!busy && draft is SubmissionDraft.Input { WhenIdle: "reject" })
+        {
+            throw new ConversationIdle(conversationId);
+        }
+
         // 边界读表，因此它在首次表写之前准备；忙碌的无需边界。
         var boundary = busy
             ? null

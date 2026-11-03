@@ -52,7 +52,10 @@ internal abstract record GenerationCheckpoint
             new ModelRef((string)((JsonDict)json["model"]!)["provider"]!, (string)((JsonDict)json["model"]!)["modelId"]!),
             EntryId.From(Convert.ToInt64(json["cutoff"]!)),
             JsonTrees.Deserialize<DeferredHandle>(json["handle"]!),
-            Convert.ToInt64(json["pollAt"]!)),
+            Convert.ToInt64(json["pollAt"]!),
+            json.TryGetValue("thinkingLevel", out var pollThinking) && pollThinking is string pollLevel
+                ? ThinkingLevelOf(pollLevel)
+                : null),
         "tools" => new Tools(
             EntryId.From(Convert.ToInt64(json["assistant"]!)),
             json.TryGetValue("tools", out var tools) && tools is IReadOnlyList<object?> toolList
@@ -137,7 +140,7 @@ internal abstract record GenerationCheckpoint
 
     public sealed record Poll(
         int Attempt, TaskId<object?>? Compacted, ModelRef Model, EntryId Cutoff,
-        DeferredHandle Handle, long PollAt) : GenerationCheckpoint
+        DeferredHandle Handle, long PollAt, ThinkingLevel? ThinkingLevel = null) : GenerationCheckpoint
     {
         public override JsonDict ToJson()
         {
@@ -151,6 +154,8 @@ internal abstract record GenerationCheckpoint
                 ["pollAt"] = PollAt,
             };
             if (Compacted is { } compacted) json["compacted"] = compacted.Value;
+            // 更早版本的检查点没有这一项。
+            if (ThinkingLevel is { } thinkingLevel) json["thinkingLevel"] = ThinkingLevelJson(thinkingLevel);
             return json;
         }
     }
@@ -345,7 +350,8 @@ public static partial class Generation
         var message = await StreamResponseAsync(runtime, model, messages, options, checkpoint.Attempt, context)
             .ConfigureAwait(false);
         var request = new RequestInfo(
-            checkpoint.Attempt, checkpoint.Compacted, checkpoint.Model, checkpoint.Cutoff, view.Messages);
+            checkpoint.Attempt, checkpoint.Compacted, checkpoint.Model, checkpoint.Cutoff, view.Messages,
+            ThinkingLevel: checkpoint.ThinkingLevel);
         await ClassifyAsync(runtime, request, message, context).ConfigureAwait(false);
     }
 
@@ -391,7 +397,8 @@ public static partial class Generation
         var message = await runtime.Models.FetchDeferredAsync(model, checkpoint.Handle, null, runtime.Signal)
             .ConfigureAwait(false);
         var request = new RequestInfo(
-            checkpoint.Attempt, checkpoint.Compacted, checkpoint.Model, checkpoint.Cutoff, null, checkpoint.PollAt);
+            checkpoint.Attempt, checkpoint.Compacted, checkpoint.Model, checkpoint.Cutoff, null, checkpoint.PollAt,
+            checkpoint.ThinkingLevel);
         await ClassifyAsync(runtime, request, message, context).ConfigureAwait(false);
     }
 
@@ -474,7 +481,7 @@ public static partial class Generation
 
     private readonly record struct RequestInfo(
         int Attempt, TaskId<object?>? Compacted, ModelRef Model, EntryId Cutoff,
-        IReadOnlyList<ChatMessage>? Messages, long? PollAt = null);
+        IReadOnlyList<ChatMessage>? Messages, long? PollAt = null, ThinkingLevel? ThinkingLevel = null);
 
     /// <summary>assistant 条目中 <paramref name="callIds"/> 的调用，按给定顺序。对应 TS <c>readCalls()</c>。</summary>
     private static async Task<IReadOnlyList<ToolCallContent>> ReadCallsAsync(
@@ -803,6 +810,8 @@ public static partial class Generation
     {
         // 中止标记或关闭：中止调用或重开的运行处理已提交状态。
         runtime.Signal.ThrowIfCancellationRequested();
+        // 记下**请求**的档位；provider 回传的实际档位另由 ProviderThinkingLevel 承载。
+        if (request.ThinkingLevel is { } requestedThinking) message = message with { ThinkingLevel = requestedThinking };
         var conversationId = runtime.ConversationId;
         if (message.StopReason == StopReason.Deferred && message.Deferred is { } handle)
         {

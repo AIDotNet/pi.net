@@ -45,6 +45,12 @@ public abstract record SubmissionDraft
 
         /// <summary>忙碌时的处置："steer" / "followUp" / "reject"。</summary>
         public string? WhenBusy { get; init; }
+
+        /// <summary>
+        /// 空闲时的处置："reject" 表示对话没有运行时以 <see cref="ConversationIdle"/> 拒绝且不写任何内容，
+        /// 因此这条输入永远不会启动一次运行。配 <c>WhenBusy: "steer"</c> 时改为接管当前运行，接管不了就拒绝。
+        /// </summary>
+        public string? WhenIdle { get; init; }
     }
 
     /// <summary>被动条目写入提交。</summary>

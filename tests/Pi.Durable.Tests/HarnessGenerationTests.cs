@@ -104,6 +104,33 @@ public sealed class HarnessGenerationTests
         }
     }
 
+    // ─── 1b. 请求的思考档位随 assistant 消息落盘（d5b3de22d） ────────────────
+
+    [Fact]
+    public async Task RecordsTheRequestedThinkingLevelOnTheAnswer()
+    {
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewChatSetup(provider);
+        provider.SetResponses(HarnessTestSupport.FakeStep.Of(Answer("ok")));
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            await root.ConfigureAsync(new AgentChange { ThinkingLevel = ThinkingLevel.High }, Ctx);
+            var submission = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("hi")] }, Ctx);
+            await submission.WaitAsync(Ctx);
+            var record = await InputRecordAsync(submission);
+            var answer = (await HarnessTestSupport.AllEntriesAsync(root)).Single(entry => entry.Id == record.Answer);
+            var message = Assert.IsType<AssistantMessage>(answer.Model?.FirstOrDefault());
+            // 记的是**请求**的档位，与 pi-agent-core 的 agent loop 一致。
+            Assert.Equal(ThinkingLevel.High, message.ThinkingLevel);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
     // ─── 2. 重试禁用：可重试错误一次即 model_error ─────────────────────────────
 
     [Fact]
