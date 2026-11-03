@@ -178,6 +178,22 @@ public sealed class TaskScheduler
     /// <summary>注册表快照失败已经上报过：每个任务每次查询都上报会淹没宿主。</summary>
     private bool _snapshotReported;
 
+    /// <summary>睡眠中的任务：<see cref="Wake"/> 只在这里找最早的一次睡眠，不再扫每个存活任务。</summary>
+    private readonly HashSet<TaskId<object?>> _sleeping = [];
+
+    /// <summary>
+    /// 空闲的保留上下文按 <c>IdleSince</c> 排序（最旧在前）：过期顺序，于是过期与「下一次过期」都不必扫
+    /// <see cref="_contexts"/>。宿主时钟回退时也保持有序（见 <see cref="MarkIdleLocked"/>）。
+    /// 对应 TS <c>#idleOrder</c>。
+    /// </summary>
+    private readonly SortedSet<(long IdleSince, long ConversationId)> _idleOrder = [];
+
+    /// <summary>每个在 <see cref="_idleOrder"/> 里的对话的空闲起点：O(1) 移除用。</summary>
+    private readonly Dictionary<ConversationId, long> _idleSinceById = [];
+
+    /// <summary>至少是 <see cref="_idleOrder"/> 里最新的 <c>IdleSince</c>（移除不会降低它）：加进更旧的说明时钟回退了。</summary>
+    private long _idleNewest = long.MinValue;
+
     /// <summary>最早尚未到点的睡眠时刻，-1 表示没有；在线上随提交重算，故在线外读也安全。</summary>
     private long _earliestSleep = -1;
 
@@ -271,6 +287,7 @@ public sealed class TaskScheduler
                 foreach (var record in records)
                 {
                     _live[record.Id] = record;
+                    NoteSleeping(record);
                     // 只读：running 任务保持已提交的样子（它在另一个进程里跑），不恢复也不计数。
                     if (_readOnly) continue;
                     if (record.AbandonOnRestart) _abandoned.Add(record.Id);
@@ -334,14 +351,18 @@ public sealed class TaskScheduler
         }
     }
 
-    /// <summary>尚未到点的最早睡眠；读自存活记录。</summary>
+    /// <summary>
+    /// 尚未到点的最早睡眠：只走 <see cref="_sleeping"/>（成员可能已过时，读记录时再核对），因此一次
+    /// <see cref="Wake"/> 不扫每个存活任务。对应 TS <c>#sleeping</c> 的读取。
+    /// </summary>
     private long? ComputeEarliestSleep()
     {
         var now = _now();
         long? at = null;
-        foreach (var record in _live.Values)
+        foreach (var id in _sleeping)
         {
-            if (record.State.Status != TaskStatus.Sleeping || record.AbortRequested) continue;
+            var record = _live.GetValueOrDefault(id);
+            if (record is null || record.State.Status != TaskStatus.Sleeping || record.AbortRequested) continue;
             var until = record.State.Until ?? 0;
             if (until <= now) continue;
             at = at is null ? until : Math.Min(at.Value, until);
@@ -350,9 +371,17 @@ public sealed class TaskScheduler
         return at;
     }
 
+    /// <summary>把 <paramref name="record"/> 的睡眠状态登记到 <see cref="_sleeping"/>。</summary>
+    private void NoteSleeping(TaskRecord record)
+    {
+        if (record.State.Status == TaskStatus.Sleeping && !record.AbortRequested) _sleeping.Add(record.Id);
+        else _sleeping.Remove(record.Id);
+    }
+
     private bool ComputeActive()
     {
-        if (_invocations.Count > 0) return true;
+        // 有调用在跑或正要重算时不需要进程扫描：这正是上游 #runsNow 只在没有调用时才扫的做法。
+        if (_invocations.Count > 0 || _reconcileScheduled) return true;
         IRegistrySnapshot? snapshot = null;
         var snapshotFailed = false;
         foreach (var record in _live.Values)
@@ -581,6 +610,7 @@ public sealed class TaskScheduler
             if (record.State.Status == TaskStatus.Terminal)
             {
                 _live.Remove(record.Id);
+                _sleeping.Remove(record.Id);
                 _failedMigrations.Remove(record.Id);
                 _failFastChecks.Remove(record.Id);
                 // 它不再是已知节点（除对话属主外），链的「已知」断言随之失效：下一条子任务会重新加载。
@@ -617,6 +647,7 @@ public sealed class TaskScheduler
             }
 
             _live[record.Id] = record;
+            NoteSleeping(record);
             updated.Add(record);
         }
 
@@ -669,15 +700,20 @@ public sealed class TaskScheduler
         if (_cascadePending) ScheduleReconcile();
         if (!changed) return;
         RefreshEarliestSleep();
-        ResolveIdleWaiters();
         SettleContextCache(dirty);
         Kick();
     }
 
-    private void ResolveIdleWaiters()
+    /// <summary>结算 <paramref name="scopes"/> 里（null 表示全部）对话的空闲等待者，以及整个 Harness 的那些。</summary>
+    private void ResolveIdleWaiters(HashSet<ConversationId>? scopes)
     {
         foreach (var key in _idleWaiters.Keys())
         {
+            if (key.ConversationId is { } conversationId && scopes is not null && !scopes.Contains(conversationId))
+            {
+                continue;
+            }
+
             if (Idle(key.ConversationId)) _idleWaiters.Resolve(key, null);
         }
     }
@@ -696,46 +732,101 @@ public sealed class TaskScheduler
     }
 
     /// <summary>
-    /// 按时序过期空闲的上下文，并按 <paramref name="dirty"/> 重估其空闲性：只有其下有任务变为存活或结束的对话才
-    /// 重新走空闲判定（逐对话全量扫是每次提交 O(对话数) 的根源）。<paramref name="dirty"/> 为 null（或链加载解出
-    /// 过未知）时覆盖全部范围。对应 TS <c>#settleIdle(dirty)</c>。
+    /// 任务变化（在 <paramref name="dirty"/> 这些对话之下；null 表示全部）之后：结算它们的空闲等待者与整个 Harness
+    /// 的，丢掉空闲期已过保留时长的保留上下文，然后开始或结束 <paramref name="dirty"/> 里那些上下文的空闲期。一个
+    /// 任务变化只可能改变它之上那些对话的空闲性，因此没有一次检查会访问每个对话。对应 TS <c>#settleIdle(scopes)</c>。
     /// </summary>
     private void SettleContextCache(HashSet<ConversationId>? dirty)
     {
         lock (_contextsGate)
         {
             if (_closing) return;
-            var full = dirty is null || _unknownsChanged;
+            var all = dirty is null || _unknownsChanged;
             _unknownsChanged = false;
-            if (full) _fullIdleChecks++;
+            if (all) _fullIdleChecks++;
+            ResolveIdleWaiters(all ? null : dirty);
             var now = _now();
             var retention = ContextRetentionMs();
-            foreach (var (conversationId, kept) in _contexts.ToArray())
+            // 先过期：已过保留时长的上下文即使同一提交又让它忙碌，也照样丢掉。
+            ExpireContextsLocked(now, retention);
+            foreach (var conversationId in all ? [.. _contexts.Keys] : dirty!)
             {
-                if (kept.IdleSince is { } idleSince
-                    && (double)now - idleSince >= retention)
+                if (!_contexts.TryGetValue(conversationId, out var kept)) continue;
+                if (!Idle(conversationId))
                 {
-                    _contexts.Remove(conversationId);
+                    if (kept.IdleSince is null) continue;
+                    _contexts[conversationId] = kept with { IdleSince = null };
+                    ForgetIdleLocked(conversationId);
                 }
-                else if (full || dirty!.Contains(conversationId))
+                else if (retention <= 0)
                 {
-                    if (!Idle(conversationId))
-                    {
-                        _contexts[conversationId] = kept with { IdleSince = null };
-                    }
-                    else if (retention > 0)
-                    {
-                        _contexts[conversationId] = kept with { IdleSince = kept.IdleSince ?? now };
-                    }
-                    else
-                    {
-                        _contexts.Remove(conversationId);
-                    }
+                    DropContextLocked(conversationId);
+                }
+                else if (kept.IdleSince is null)
+                {
+                    _contexts[conversationId] = kept with { IdleSince = now };
+                    MarkIdleLocked(conversationId, now);
                 }
             }
 
             ScheduleContextExpiryLocked();
         }
+    }
+
+    /// <summary>
+    /// 丢掉空闲了至少 <paramref name="retention"/> 的保留上下文，最旧的先；没有保留时长时丢掉每个空闲的（也包括
+    /// 时钟回退使其起点在 <paramref name="now"/> 之后的）。对应 TS <c>#expireContexts(now, retention)</c>。
+    /// </summary>
+    private void ExpireContextsLocked(long now, double retention)
+    {
+        while (_idleOrder.Count > 0)
+        {
+            var oldest = _idleOrder.Min;
+            if (retention > 0 && (double)now - oldest.IdleSince < retention) return;
+            DropContextLocked(ConversationId.From(oldest.ConversationId));
+        }
+    }
+
+    /// <summary>
+    /// 在过期顺序里开始一个保留上下文的空闲期。比已保留的最新一个更旧的空闲期（时钟回退造成的）触发重排，最新值
+    /// 从那时的保留集合里取。对应 TS <c>#markIdle()</c>。
+    /// </summary>
+    private void MarkIdleLocked(ConversationId conversationId, long idleSince)
+    {
+        ForgetIdleLocked(conversationId);
+        _idleOrder.Add((idleSince, conversationId.Value));
+        _idleSinceById[conversationId] = idleSince;
+        if (_idleOrder.Count == 1 || idleSince >= _idleNewest)
+        {
+            _idleNewest = idleSince;
+            return;
+        }
+
+        // 时钟回退：按当时的保留集合整体重排，并重算最新的空闲起点。
+        _idleOrder.Clear();
+        _idleSinceById.Clear();
+        foreach (var (id, kept) in _contexts)
+        {
+            if (kept.IdleSince is not { } since) continue;
+            _idleOrder.Add((since, id.Value));
+            _idleSinceById[id] = since;
+        }
+
+        _idleNewest = _idleOrder.Count == 0 ? long.MinValue : _idleOrder.Max.IdleSince;
+    }
+
+    /// <summary>从过期顺序里移除一个对话（若在）。</summary>
+    private void ForgetIdleLocked(ConversationId conversationId)
+    {
+        if (!_idleSinceById.Remove(conversationId, out var since)) return;
+        _idleOrder.Remove((since, conversationId.Value));
+    }
+
+    /// <summary>忘掉一个保留上下文（无论是否空闲）与它在过期顺序里的位置。对应 TS <c>#dropContext()</c>。</summary>
+    private void DropContextLocked(ConversationId conversationId)
+    {
+        _contexts.Remove(conversationId);
+        ForgetIdleLocked(conversationId);
     }
 
     /// <summary>
@@ -773,16 +864,10 @@ public sealed class TaskScheduler
     private void ScheduleContextExpiryLocked()
     {
         var retention = ContextRetentionMs();
-        double? at = null;
-        if (retention > 0)
-        {
-            foreach (var kept in _contexts.Values)
-            {
-                if (kept.IdleSince is not { } idleSince) continue;
-                var deadline = AddRetention(idleSince, retention);
-                if (at is null || deadline < at.Value) at = deadline;
-            }
-        }
+        // 队首就是最早的空闲起点：不扫 _contexts。
+        double? at = retention > 0 && _idleOrder.Count > 0
+            ? AddRetention(_idleOrder.Min.IdleSince, retention)
+            : null;
 
         if (_contextExpiryDisarm is not null && _contextExpiryAt == at) return;
         CancelContextExpiryLocked();
@@ -918,7 +1003,8 @@ public sealed class TaskScheduler
             if (!_closing) _report(error, ListenerFailure);
         }
 
-        ResolveIdleWaiters();
+        // 一遍 reconcile 可能终结任务而没走发布路径：全量结算空闲等待者（少见，但必须准确）。
+        ResolveIdleWaiters(null);
     }
 
     /// <summary><paramref name="ids"/> 中是否有任务持有或以非 <c>completed</c> 的结局结束。</summary>
@@ -1307,6 +1393,8 @@ public sealed class TaskScheduler
         lock (_contextsGate)
         {
             _contexts.Clear();
+            _idleOrder.Clear();
+            _idleSinceById.Clear();
             CancelContextExpiryLocked();
         }
 
@@ -2174,14 +2262,20 @@ public sealed class TaskScheduler
 
                     if (!idle)
                     {
+                        // 忙碌的对话没有空闲期：从过期顺序里移除旧的（若有）。
+                        ForgetIdleLocked(conversationId);
                         _contexts[conversationId] = new KeptContext(range, null);
                     }
                     else if (ContextRetentionMs() > 0)
                     {
-                        _contexts[conversationId] = new KeptContext(range, kept?.IdleSince ?? _now());
+                        var idleSince = kept?.IdleSince ?? _now();
+                        _contexts[conversationId] = new KeptContext(range, idleSince);
+                        MarkIdleLocked(conversationId, idleSince);
                     }
                     else
                     {
+                        // 保留为零：不保留，也不留在过期顺序里。
+                        DropContextLocked(conversationId);
                         return Task.FromResult(false);
                     }
 
