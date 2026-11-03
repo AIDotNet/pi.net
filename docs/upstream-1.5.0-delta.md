@@ -156,15 +156,15 @@
 | `f6a9db1d8` | 每会话 turn limit | 🔧 P6 |
 | `fb524dd2e` | continue 提交 | 🔧 P6 |
 | `7e15f9601` | run-end tasks + `afterRun` hook | 🔧 P6 |
-| `65fba65b2` | hook/task 的 entry reads | 🔧 P6 |
+| `65fba65b2` | hook/task 的 entry reads | ✅ 本批 |
 | `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | 🔧 P6 |
 | `6a2825113` | `whenIdle` 拒绝空闲会话的输入 | ✅ 本批 |
 | `1c6928b30` | 未提供的工具调用按 tool task 跑 | 🔧 P6 |
 | `87eff524f` | `afterTool` 在每个 tool task 结果上跑 | 🔧 P6 |
-| `d280e1ffa` | `beforeProviderRequest` 生成钩子 | 🔧 P6（端口已有同名符号，需核对是否同一钩子） |
+| `d280e1ffa` | `beforeProviderRequest` 生成钩子 | ✅ 本批（端口原有 `BeforeRequest` 是消息层，这是请求体层，两者并存） |
 | `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | 🔧 P6 |
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
-| `be14d9732` | 只读打开 Harness | 🔧 P6 |
+| `be14d9732` | 只读打开 Harness | ✅ 本批 |
 | `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6 |
 | `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | 🔧 P6 |
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | 🔧 P5 |
@@ -476,3 +476,21 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 
 **观察项**：`d5b3de22d` 的第二半（轮询检查点）在端口的端到端断言要等 faux provider 的 deferred 流；
 目前只覆盖写盘侧（`ClassifyAsync` 与 `Poll` 检查点都带了字段），恢复侧留待补齐 faux deferred 流后加。
+
+### 4.9 P6 第三批：只读 Harness、`beforeProviderRequest`、条目读取（`d57852a` + `332da47`）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 只读打开：`running` 任务保持已提交的样子，带写的提交与所有会启用调度的调用以 `ReadOnlySession` 拒绝，`Wake()` 恒为非活跃 | `be14d9732` | `DurableErrors.ReadOnlySession`、`HarnessOptions.ReadOnly`、`DurableSession._readOnly`（提交守卫）、`TaskScheduler`（open/resume/wake/reconcile 守卫） | `ReadOnlyHarnessTests` 4 例 |
+| `beforeProviderRequest`：pi-ai 拼好请求体之后、发送之前跑替换链，返回值替换该次请求的体 | `d280e1ffa` | `IGenerationHooks.BeforeProviderRequest`、`Generation.RequestPhaseAsync` 里的 `onPayload` 接线与 `ProviderPayloadAsync` | `HarnessGenerationTests` 2 例 |
+| 钩子与任务读原始条目历史：`entry()` / `entries()`，按条目 ID 界定的区间在压缩前后与重跑之间一致 | `65fba65b2` | `EntryRange`、`HarnessUtil.ConversationEntries`、`IHookApi` / `ITaskRuntime` 的同名成员、`Conversation.EntriesAsync` 复用 helper | `HarnessHookReadsTests` 2 例 |
+
+**两处端口判断**：
+
+1. **`d280e1ffa` 与端口原有 `BeforeRequest` 不是同一个钩子**。原有的 `BeforeRequest` 在**消息层**
+   （替换要发给模型的 `IReadOnlyList<ChatMessage>`）；新的是**请求体层**（pi-ai 拼好 provider 报文之后）。
+   两者并存，顺序是消息层先、请求体层后，与上游一致。
+2. **条目区间用独立的 `EntryRange`**，而不是把 `EntryQuery` 的 `ConversationId` 设成可选。TS 用
+   `Omit<EntryQuery, "conversationId">` 表达「对话已由调用方确定」，C# 没有 `Omit`，用一个不含对话的
+   record 更直白：调用方不可能选错对话，`HarnessUtil.ConversationEntries` 负责补上任务自己的对话。
+   顺带修掉 `Conversation.EntriesAsync` 的一处小缺陷：旧的内联收敛漏了 `Order`，调用方传升序会被丢掉。
