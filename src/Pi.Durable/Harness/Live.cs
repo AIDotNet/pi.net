@@ -196,6 +196,7 @@ public static class Live
 
     private static readonly Path RunPath = Path.Root.Append(Seg.Key("run"));
     private static readonly Path GenerationPath = Path.Root.Append(Seg.Key("generation"));
+    private static readonly Path RunFailurePath = Path.Root.Append(Seg.Key("runFailure"));
     private static readonly Path ToolsPath = Path.Root.Append(Seg.Key("tools"));
     private static readonly Path CompactionsPath = Path.Root.Append(Seg.Key("compactions"));
 
@@ -211,6 +212,26 @@ public static class Live
             // 一次运行已走的工具轮数（AgentState.MaxTurns 按它计）。
             ["turns"] = 0L,
         });
+
+    /// <summary>
+    /// 最近一次没有回答就结束的运行及其原因，写进结束它的那个提交。对应 TS <c>live.runFailure</c>。
+    /// </summary>
+    public static void SetRunFailure(
+        TxDocChange live, TaskId<object?> taskId, IReadOnlyList<SubmissionId> inputs, string reason, object? detail)
+    {
+        var failure = new Dictionary<string, object?>
+        {
+            ["taskId"] = taskId.Value,
+            // 必须显式构造 List<object?>：List<long> 不被严格 JSON 容器判定接受。
+            ["inputs"] = inputs.Select(input => (object?)input.Value).ToList(),
+            ["reason"] = reason,
+        };
+        if (detail is not null) failure["detail"] = detail;
+        live.Set(RunFailurePath, failure);
+    }
+
+    /// <summary>清掉 <c>runFailure</c>：一次新的运行开始（除非它结束的那次失败要留着）。对应 TS <c>delete live.runFailure</c>。</summary>
+    public static void DeleteRunFailure(TxDocChange live) => live.Delete(RunFailurePath);
 
     /// <summary>运行已走的工具轮数；不是当前任务持有的运行时为 0。对应 TS <c>live.run.turns</c>。</summary>
     public static long RunTurns(TxDocChange live, TaskId<object?> taskId)
@@ -300,9 +321,12 @@ public static class Live
         {
             if (run.TryGetValue("inputs", out var inputsValue) && inputsValue is IReadOnlyList<object?> inputs)
             {
-                foreach (var input in inputs)
+                var settledInputs = inputs.Select(input => SubmissionId.From(Convert.ToInt64(input))).ToList();
+                foreach (var input in settledInputs) tx.SettleSubmission(input, settlement);
+                // 没有回答就结束的运行留下原因，供运行结束后展示；开始新运行时清掉（见 StartRunAsync）。
+                if (settlement is SubmissionSettlement.Unanswered unanswered)
                 {
-                    tx.SettleSubmission(SubmissionId.From(Convert.ToInt64(input)), settlement);
+                    SetRunFailure(live, taskId, settledInputs, unanswered.Reason, unanswered.Detail);
                 }
             }
 

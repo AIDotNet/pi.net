@@ -60,9 +60,14 @@ public class HarnessTurnLimitTests
             Assert.Equal(DurableEntries.ToolResultEntry.Kind, entries[^1].Kind);
             Assert.Empty(setup.Reports);
 
-            // 运行已经结束：live 里没有 run（持久化的 runFailure 记录随窗口化视图那批一起落地）。
+            // 运行已经结束：live 里没有 run，但留下了 runFailure（结束它的那次提交写的）。
             var live = await harness.SnapshotAsync(Live.LiveDoc, root.Id, Ctx);
             Assert.False(live!.ContainsKey("run"));
+            var failure = Assert.IsAssignableFrom<JsonDict>(live["runFailure"]);
+            Assert.Equal("turn_limit", failure["reason"]);
+            Assert.Equal("1 turn", failure["detail"]);
+            Assert.Equal(submission.Id.Value,
+                Convert.ToInt64(((IReadOnlyList<object?>)failure["inputs"]!).Single()));
             Assert.Equal(submission.Id, record.Id);
 
             var tasks = await harness.CommitAsync(
@@ -70,6 +75,8 @@ public class HarnessTurnLimitTests
             var generation = tasks.Items.Single(task => task.Kind == "pi.generation");
             Assert.Equal(TaskStatus.Terminal, generation.State.Status);
             Assert.Equal(TaskOutcomeStatus.Completed, generation.State.Outcome!.Status);
+            // runFailure 记的是结束这次运行的那个任务。
+            Assert.Equal(generation.Id.Value, Convert.ToInt64(failure["taskId"]));
         }
         finally
         {
@@ -97,6 +104,35 @@ public class HarnessTurnLimitTests
             Assert.Equal(2, provider.CallCount);
             var entries = await HarnessTestSupport.AllEntriesAsync(root);
             Assert.Equal("pi.assistant", entries[^1].Kind);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    [Fact]
+    public async Task StartingALaterRunClearsTheFailure()
+    {
+        var (provider, setup) = Limited(1);
+        provider.SetResponses(
+            HarnessTestSupport.FakeStep.Of(Round("c1")),
+            HarnessTestSupport.FakeStep.Of(Done("second")));
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            await root.ConfigureAsync(new AgentChange { MaxTurns = 1 }, Ctx);
+            await (await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("go")] }, Ctx)).WaitAsync(Ctx);
+            Assert.True((await harness.SnapshotAsync(Live.LiveDoc, root.Id, Ctx))!.ContainsKey("runFailure"));
+
+            // 抬到两轮再提交：新的运行一开始就清掉上一次的失败记录（它不是在结束失败的同一次提交里开始的）。
+            await root.ConfigureAsync(new AgentChange { MaxTurns = 2 }, Ctx);
+            var secondSubmission = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("again")] }, Ctx);
+            var second = Assert.IsType<SubmissionRecord.InputRecord>((await secondSubmission.WaitAsync(Ctx)).Record);
+            Assert.Equal(SubmissionStatus.Done, second.Status);
+            Assert.False((await harness.SnapshotAsync(Live.LiveDoc, root.Id, Ctx))!.ContainsKey("runFailure"));
         }
         finally
         {

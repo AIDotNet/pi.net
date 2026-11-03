@@ -570,7 +570,7 @@ public static partial class Generation
             .ConfigureAwait(false);
         if (applied.Users.Count > 0)
         {
-            await StartRunAsync(tx, conversationId, live, applied.Users).ConfigureAwait(false);
+            await StartRunAsync(tx, conversationId, live, applied.Users, keepFailure: true).ConfigureAwait(false);
         }
     }
 
@@ -1208,7 +1208,8 @@ public static partial class Generation
                     Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Unanswered("reset"));
                     if (postTools.Users.Count > 0)
                     {
-                        await StartRunAsync(tx, conversationId, live, postTools.Users).ConfigureAwait(false);
+                        await StartRunAsync(
+                            tx, conversationId, live, postTools.Users, keepFailure: true).ConfigureAwait(false);
                     }
                 }
                 else
@@ -1239,10 +1240,16 @@ public static partial class Generation
     // ─── 运行启动与移交 ─────────────────────────────────────────────────────
 
     /// <summary>为 <paramref name="inputs"/> 启动运行，放置输入提交：新生成持有 <c>pi.live.run</c>。对应 TS <c>startRun()</c>。</summary>
+    /// <summary>
+    /// 为 <paramref name="inputs"/> 开始一次运行。清掉 <c>runFailure</c>，除非 <paramref name="keepFailure"/>：
+    /// 结束那次失败的同一次提交里开始的运行保留它。对应 TS <c>startRun()</c>。
+    /// </summary>
     public static async Task StartRunAsync(
-        Transaction tx, ConversationId conversationId, TxDocChange live, IReadOnlyList<SubmissionId> inputs)
+        Transaction tx, ConversationId conversationId, TxDocChange live, IReadOnlyList<SubmissionId> inputs,
+        bool keepFailure = false)
     {
         Live.SetRun(live, await CreateGenerationAsync(tx, conversationId).ConfigureAwait(false), inputs);
+        if (!keepFailure) Live.DeleteRunFailure(live);
     }
 
     /// <summary>对话拥有的生成。对应 TS <c>createGeneration()</c>。</summary>
