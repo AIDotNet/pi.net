@@ -12,7 +12,8 @@ public class ModelCatalogTests
         var openai = ModelCatalog.LoadFromResource("openai");
         Assert.Equal("openai", openai.Provider);
 
-        // flatten：跨 api 分组按模型 id 索引。目录取自上游 v1.4.0 的 providers/data。
+        // flatten：跨 api 分组按模型 id 索引。目录由上游 catalog/generate.ts 导出
+        // （见 tools/catalog-export.mjs）。
         var gpt55 = openai.ChatModels["gpt-5.5"];
         Assert.Equal("openai-responses", gpt55.Api);
         Assert.Equal("https://api.openai.com/v1", gpt55.BaseUrl);
@@ -21,7 +22,7 @@ public class ModelCatalogTests
 
         // chat 是缺省类型（JSON 无 type 字段）。
         Assert.Equal(ModelType.Chat, gpt55.Type);
-        Assert.Equal(43, openai.ChatModels.Count);
+        Assert.Equal(44, openai.ChatModels.Count);
         Assert.Empty(openai.ImageModels);
         // openai-decisions 的分类模型落在独立桶里。
         Assert.Equal("openai-decisions", Assert.Single(openai.ClassifierModels.Values).Api);
@@ -48,7 +49,8 @@ public class ModelCatalogTests
         Assert.Empty(empty);
         // 上游 v1.4.0 的 42 份数据 flatten 后按 id 去重 1713 个条目；1.4.4 补入
         // GPT-6.1 Terra（openai / openai-codex / azure 三条），总计 1716。
-        Assert.Equal(1716, total);
+        // 1.5.0 批重新导出后为 1718。
+        Assert.Equal(1718, total);
     }
 
     /// <summary>
@@ -78,7 +80,9 @@ public class ModelCatalogTests
         }
 
         Assert.Empty(incomplete);
-        Assert.Equal(1602, total);
+        // chat 桶 1602 → 1598：openrouter 的 openai-completions 组净减 16（+10 / -26），
+        // 其余 provider 净增 12。总量反而涨了 2——image / classifier 桶加得更多。
+        Assert.Equal(1598, total);
     }
 
     [Fact]
