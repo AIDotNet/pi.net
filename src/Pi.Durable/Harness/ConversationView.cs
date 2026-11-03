@@ -82,16 +82,6 @@ public abstract class ViewObserver
     {
     }
 
-    /// <summary>
-    /// 每次发布（挂载取用之后）；<c>ops</c> 是该观察者窗口的（可能为空）。上游已删除这个回调（窗口化后不再有
-    /// 「一份共享的完整视图」可给）；端口保留它，供既有消费者观察发布本身，见差异记录。
-    /// </summary>
-    public virtual void Publication(
-        ConversationView before, ConversationView after, IReadOnlyList<DeltaOp> ops,
-        CommitPublication publication, Context context)
-    {
-    }
-
     /// <summary>Session 已关闭；<paramref name="failure"/> 给出使其失败的错误（若失败）。</summary>
     public abstract void End(Exception? failure);
 }
@@ -495,7 +485,6 @@ public sealed class ConversationViews
                 Docs = SnapshotDocs(mount.Docs),
             };
             DispatchAdvance(windowed.Observer, windowed.Value, ops, frameContext);
-            DispatchPublication(windowed.Observer, previous, windowed.Value, ops, publication, frameContext);
         }
     }
 
@@ -531,17 +520,6 @@ public sealed class ConversationViews
             case ViewObserver viewObserver:
                 viewObserver.Advance(value, ops, context);
                 break;
-        }
-    }
-
-    private static void DispatchPublication(
-        object observer, ConversationView before, ConversationView after, IReadOnlyList<DeltaOp> ops,
-        CommitPublication publication, Context context)
-    {
-        // CommittedWatch 没有 publication 回调（TS 的可选方法缺省）。
-        if (observer is ViewObserver viewObserver)
-        {
-            viewObserver.Publication(before, after, ops, publication, context);
         }
     }
 

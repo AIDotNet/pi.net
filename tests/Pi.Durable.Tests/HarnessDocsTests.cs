@@ -748,7 +748,6 @@ public class HarnessDocsTests
     {
         public List<(int EntryCount, int OpCount)> Advances = [];
         public List<ConversationView> Values = [];
-        public int Publications;
         public int Closes;
 
         public override void Advance(ConversationView value, IReadOnlyList<DeltaOp> ops, Context context)
@@ -757,10 +756,6 @@ public class HarnessDocsTests
             Values.Add(value);
         }
 
-        public override void Publication(
-            ConversationView before, ConversationView after, IReadOnlyList<DeltaOp> ops,
-            CommitPublication publication, Context context)
-            => Publications++;
 
         public override void End(Exception? failure) => Closes++;
     }
@@ -814,8 +809,6 @@ public class HarnessDocsTests
         await session.CommitAsync(tx => tx.RetireDocAsync(AgentDocs.AgentDoc, conv), Ctx);
         Assert.False(observer.Values[^1].Docs.ContainsKey("pi.agent"));
 
-        // 每次发布都通知（含无挂载操作的提交）。
-        Assert.Equal(5, observer.Publications);
         Assert.Equal(0, observer.Closes);
 
         detach();
