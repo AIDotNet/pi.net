@@ -38,6 +38,11 @@
 
 ## 2. 逐子系统差异
 
+> **口径**：§2 各表是**初次评估时**的逐提交视图，行的处置列可能落后于后文的批次记录。
+> 判断某项是否完成，以 §4.x 的批次小节（含用例与落点）与 [migration-execution-status.md](./migration-execution-status.md)
+> 为准：**同一项在 §4.x 里标 ✅ 就以 §4.x 为准**。截至 §4.26，P0/P1/P2/P3/P5 已收口，P4 只做了两项不改渲染
+> 字节的（§4.26），P6 余分组提交 / 节流提交延迟落盘 / `appendText`（§2.5 末行）。
+
 ### 2.1 pi-schema（**破坏性变更**，P0）
 
 上游：`fab2c5353`（新包）、`8ffea8a1b`（编译与内存优化）、`6536f8012`（**工具参数改用 pi-schema 校验，删除 TypeBox**）、`6291b9bcc`（`Static` 兼容 TypeBox 构造的 schema）。
@@ -90,7 +95,7 @@
 | 上游提交 | 变更 | 端口现状 | 处置 |
 | --- | --- | --- | --- |
 | `b4b72a351` | **扩展包更新 changelog**：读 `package.json` 的 `pi.changelogPath` 或根 `CHANGELOG.md`，下次启动在 "Extension Updates" 下显示新于上次所见版本的内容；`collapseChangelog` 折叠成一行 | 无 "Extension Updates" 渲染 | 🔧 P3 |
-| `8bc94b19f` | **自定义自更新命令**：`PI_SELF_UPDATE_COMMAND` / `selfUpdateCommand`，`{packageName}`/`{version}`/`{installSpec}` 占位 | 无 | 🔧 P3 |
+| `8bc94b19f` | **自定义自更新命令**：`PI_SELF_UPDATE_COMMAND` / `selfUpdateCommand`，`{packageName}`/`{version}`/`{installSpec}` 占位 | 无 | ➖ 端口不执行自更新（§4.4） |
 | `7151099d0` | device-code 登录：回车时打开验证页并复制 code；`openBrowserOnConfirm` / `copyCodeOnConfirm` 可关 | 无 | 🔧 P3 |
 | `c1810bf70` | `ctx.ui.custom()` 的 `blocked` 选项（overlay 忽略） | 无 | 🔧 P3 |
 | `9376c8d17` | 渲染上下文注入 `keyText()` / `keyHint()`（扩展从包里 import 拿不到宿主键位） | `keyHint` 有，但未注入 render context | 🔧 P3 |
@@ -116,18 +121,18 @@
 | `0d23d5345` | `pi update --extensions` 报「装到的版本与期望不符」 | 🔧 P3 |
 | `cd6a8f7f3` / `bec60c54b` | `-e npm:` 无版本、`-e git:...@branch` 每次启动/`/reload` 刷新 | 🔧 P3 |
 | `5f960a0e2` | agent 目录是符号链接时 npm 用真实路径（package-lock 嵌套） | ➖ npm 专有 |
-| `e3da248ea` | Windows 上 `git clean` 失败时仍继续装依赖并下次重试 | 🔧 P3（待核） |
+| `e3da248ea` | Windows 上 `git clean` 失败时仍继续装依赖并下次重试 | ✅ `2ac34ad`（见 §4.6） |
 | `c466a3595` / `36be9c612` / `c60de42e9` | `pi.exec`：256 MiB 上限 + `truncated`；UTF-8 跨块解码；spawn 错误保留 stderr | 🔧 P2（`core/exec.ts` 182 行） |
-| `6454d07ec` | WSL 深目录下从 `/` 启动 `powershell.exe`/`explorer.exe`；外部编辑器失败要报状态 | ➖/🔧（Windows 宿主，待核） |
+| `6454d07ec` | WSL 深目录下从 `/` 启动 `powershell.exe`/`explorer.exe`；外部编辑器失败要报状态 | ✅ `2ac34ad`（见 §4.6） |
 | `5fb9a0b11` | 安装包时屏蔽 npm audit/fund 输出 | ➖ npm 专有 |
 | `fecc19e4e` | `grep` 上下文行号在含孤立 CR 的文件里与 ripgrep 对齐 | 🔧 P2 |
 | `984cf6643` | `--model <provider>/<id>` 支持 provider id 含斜杠 | 🔧 P3 |
 | `8ddc44ec8` | fork 会话单 fd 写入（打开文件昂贵的文件系统） | 🔧 P2（待核） |
-| `8c03fef4d` | `/resume` 搜索：名称/目录模糊，ID 与消息正文只做子串 | 🔧 P3 |
+| `8c03fef4d` | `/resume` 搜索：名称/目录模糊，ID 与消息正文只做子串 | ✅ `2ac34ad`（`SessionSelectorSearch` 51 例，见 §4.6） |
 | `8c03fef4d` | `/model` 搜索排序：连续匹配优先 | 🔧 P3 |
-| `be15fe3c1` | `pi mcp login/logout -l` | 🔧 P5 |
-| `908aa7b74` | MCP OAuth 默认用 Client ID Metadata Document，否则动态注册（`oauth.clientRegistration: auto/dcr`） | 🔧 P5 |
-| `1c720d285` / `9359adf0c` | HTML 导出：数千条目不空白；包含 system prompt/tools | 🔧 P3（待核） |
+| `be15fe3c1` | `pi mcp login/logout -l` | ✅ `4afb050`（`local` flag、作用域校验、拼写建议；见 §4.5） |
+| `908aa7b74` | MCP OAuth 默认用 Client ID Metadata Document，否则动态注册（`oauth.clientRegistration: auto/dcr`） | ✅ `2ac34ad`（`McpClientRegistration.Auto` + `McpClientRegistrationTests` 10 例；见 §4.6） |
+| `1c720d285` / `9359adf0c` | HTML 导出：数千条目不空白；包含 system prompt/tools | ✅ `2ac34ad`（1.5.0 模板，见 §4.6） |
 | `27cc6bfc0` | macOS 先停进程组再 kill | ➖（平台语义，C# 侧另行处理） |
 
 ### 2.4 tui（P4）
@@ -165,7 +170,7 @@
 | `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | ✅ `runFailure`（§4.11）、窗口化视图与转录（§4.21）、删 `watchEvents`（§4.22） |
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
 | `be14d9732` | 只读打开 Harness | ✅ 本批 |
-| `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6 |
+| `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6（三件都未做。`da412b039` 的 chord 侧端口已有等价物——`Change.Append` 直接记追加 op、不做前缀比较；缺的是 durable 侧的增量 JSON 解析器 + `assignJson` 计划，见 §4.26 说明） |
 | `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | ✅ 脏集合 + 全量回退（§4.15）+ `idleOrder` 索引与睡眠集合（§4.23） |
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | ✅ 已在（`ToolSearch.cs` 的覆盖优先 / 名称权重 / 精确名 / 命名空间 0.5x，以及 NFC + CJK bigram 分词；见 §4.24） |
 | `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
@@ -176,10 +181,10 @@
 
 | 上游提交 | 变更 | 处置 |
 | --- | --- | --- |
-| `102d12871` | 变更列表超过帧上限时报 watch overflow | 🔧 P5 |
-| `b6d5c2ecd` | daemon 被终止时杀掉它启动的命令 | 🔧 P5 |
-| `92c1da1f6` | 辅助线程起不来时 `exec`/`pty` 返回 `spawn_error` | 🔧 P5 |
-| `479d6e5e2` | 启动错误带 stderr 尾部（20 行 / 2000 字符，去转义） | 🔧 P5 |
+| `102d12871` | 变更列表超过帧上限时报 watch overflow | ➖ 守护进程按原生产物（§4.5 注） |
+| `b6d5c2ecd` | daemon 被终止时杀掉它启动的命令 | ➖ 同上（§4.5 注） |
+| `92c1da1f6` | 辅助线程起不来时 `exec`/`pty` 返回 `spawn_error` | ➖ 同上（§4.5 注） |
+| `479d6e5e2` | 启动错误带 stderr 尾部（20 行 / 2000 字符，去转义） | ✅ `4afb050`（`Pi.Env/Connection.cs` 的 `StartupErrorText`；见 §4.5） |
 | `9ffd27cfa` | MCP OAuth 只接受 http/https | 已有 ✅ |
 | `6c384aa30` | workspace 测试从源码解析 pi-telemetry | ➖ |
 | `936e5f40a` / `9628c8480` | evals 去掉 autoevals 依赖、加提示词模板文档评测 | ➖ |
@@ -359,7 +364,7 @@ pi-messages 请求会让消费方**永远等下去**。此前没有任何 `PiMes
 **不执行自更新**（.NET 构建不是 npm 包），没有可供覆盖的执行路径；`5f960a0e2`/`5fb9a0b11` 是 npm 专有；
 `27cc6bfc0` 是 macOS 进程组语义。
 
-**仍留在 P3 名下**（未做，见 §3 验收口径）：`e3da248ea`（Windows `git clean` 失败后继续装依赖）、
+**当时仍留在 P3 名下**（后来 `2ac34ad` 全部做完，见 §4.6）：`e3da248ea`（Windows `git clean` 失败后继续装依赖）、
 `6454d07ec`（WSL 深目录互操作 + 外部编辑器失败报状态）、`8c03fef4d` 的会话搜索分层
 （`/resume` 名称/目录模糊、ID 与正文只做子串）、`1c720d285`/`9359adf0c`（HTML 导出深会话与 system prompt/tools）。
 
@@ -389,7 +394,7 @@ typebox 语料问题），较基线 5118 增 39 例。
 | watch 变更列表超帧上限报 overflow | `102d12871` | `daemon/src/watch.rs`（Rust） | ➖ 守护进程按原生产物使用 |
 | 守护进程被终止时杀掉它启动的命令 | `b6d5c2ecd` | `daemon/src/main.rs` + `sys/*.rs`（Rust） | ➖ 同上 |
 | 辅助线程起不来时 `exec`/`pty` 返回 `spawn_error` | `92c1da1f6` | `daemon/src/{exec,pty}.rs`（Rust） | ➖ 同上 |
-| MCP OAuth 优先用 Client ID Metadata Document，否则动态注册（`oauth.clientRegistration: auto/dcr`） | `908aa7b74` | `extensions/mcp/oauth.ts` ~59 行 + `core/mcp-servers.ts` | ⏳ 未做 |
+| MCP OAuth 优先用 Client ID Metadata Document，否则动态注册（`oauth.clientRegistration: auto/dcr`） | `908aa7b74` | `extensions/mcp/oauth.ts` ~59 行 + `core/mcp-servers.ts` | ✅ 下一批（§4.6） |
 | 工具搜索：名称权重高于描述、命中词数优先、查询即名称时置顶、CJK 分词；durable 侧同规则 | `cc44fa216` / `e033f255f` / `ae823bc0b` / `79006f061` / `c7372af42` | `extensions/tool-search/tool.ts` + `durable/src/search.ts` | ✅ 已在（§4.24 核对） |
 
 > env 三项的判定依据：`docs/env-package-migration.md` 已明确「守护进程（`daemon/src/*.rs`）不移植，
@@ -611,10 +616,10 @@ checkpoint 固定在定义里）。已改为固定 checkpoint 创建。
 `EntriesAsync`（钩子/任务）、`MaxTurns`、`SetRunFailure`、`ContinueRecord`、`Unoffered`、`AddScopesAbove`、
 `IRunEndHooks`、`FinishPhaseAsync`、`TakesContinuation` 均在预期文件；`src/Pi.Durable` 无 TODO/FIXME 残留。
 
-**已知未做**（文档已标 🟡/🔧，不是遗漏）：`f3255de76` 的窗口化视图 / `ConversationTranscript` / 删
-`watchEvents`；`e5c6182ba` / `6c2fd73b0` 分组提交与节流落盘 + 「采纳时发布」；`b3a29f111` 只剩
-`runFailure.first`（§4.19 已做完主体）；`35dfa7573` 的 `idleOrder` 索引与 `wake()` 睡眠集合；
-P4（tui）全部 13 项（等语料生成链）。
+**已知未做**（截至 §4.26，其余都已落地）：`e5c6182ba`（分组提交 + 批量 `Storage.commit`）、`6c2fd73b0`
+（节流提交延迟落盘）、`da412b039`（`appendText`：chord 侧等价物已在——`Change.Append` 直接记追加 op，
+durable 侧还差增量 JSON 解析器）；P4（tui）余 11 项（等语料生成链，已做两项不改字节的见 §4.26）；
+P2 的六行「目录数据」（需先移植 `generate-models` 脚本）。
 
 **已知测试噪声**：全量并行满载时，watch/reopen 与计时类用例（`SessionTests.Watch*`、`HarnessViewTests`、
 `HarnessSleepTests`、`HarnessTaskGraphTests`、`ToolsTests.Bash_*`）每轮随机 1–2 例超时，单跑全绿。
@@ -680,9 +685,9 @@ P4（tui）全部 13 项（等语料生成链）。
 **发现并修掉的一处隐患**：`HarnessRestartTests` 里「同一 checkpoint 再提交不算进展」的用例原先断言
 `TaskInspection.Blocked("restart_limit")`，改语义后必然失败——已改为断言到限 faulted（这正是上游的意图）。
 
-**已知未做**（更新）：`f3255de76` 的窗口化视图 + `ConversationTranscript` + 删 `watchEvents`（下一批）；
-`e5c6182ba` / `6c2fd73b0` 分组提交与节流落盘（工具输出在崩溃前是否落盘就取决于它，本批工具用例因此只断言
-诊断码而不部分输出）；`35dfa7573` 的 `idleOrder` 索引与 `wake()` 睡眠集合；P4（tui）13 项等语料链。
+**当时已知未做**（后续批次已补齐）：`f3255de76` 的窗口化视图 + `ConversationTranscript` + 删 `watchEvents`
+（§4.21/§4.22）、`35dfa7573` 的 `idleOrder` 索引与 `wake()` 睡眠集合（§4.23）、`e5c6182ba` / `6c2fd73b0`
+分组提交与节流落盘（**仍未做**，工具输出在崩溃前是否落盘取决于它，所以本批工具用例只断言诊断码而不部分输出）。
 
 ### 4.21 P6 第十三批：窗口化视图与 `ConversationTranscript`（`f3255de76` 前半）
 
