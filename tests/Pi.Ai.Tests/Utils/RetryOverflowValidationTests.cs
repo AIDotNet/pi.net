@@ -281,7 +281,8 @@ public class ValidationTests
         var error = Assert.Throws<InvalidOperationException>(() => Validation.ValidateToolArguments(
             ReadTool(), new ToolCallContent("call-1", "read", new JsonObject { ["count"] = 1 })));
         Assert.Contains("Validation failed for tool \"read\"", error.Message);
-        Assert.Contains("Expected required property path", error.Message);
+        // 1.5.0 起错误文案来自 pi-schema 的 explain.ts：路径指向缺失的键，文案是 "missing"。
+        Assert.Contains("  - path: missing", error.Message);
         Assert.Contains("Received arguments:", error.Message);
     }
 
@@ -290,7 +291,7 @@ public class ValidationTests
     {
         var error = Assert.Throws<InvalidOperationException>(() => Validation.ValidateToolArguments(
             ReadTool(), new ToolCallContent("call-1", "read", new JsonObject { ["path"] = "/x", ["extra"] = 1 })));
-        Assert.Contains("Expected no additional properties", error.Message);
+        Assert.Contains("  - extra: unknown field", error.Message);
     }
 
     [Fact]

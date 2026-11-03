@@ -18,5 +18,8 @@
     <!-- 4e-2c-0: the message-content union (`string | (TextContent | ImageContent)[]`) captured by
          tools/gen-ai-message-content-corpus.mjs. -->
     <None Include="message-content-corpus.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- P0: pi-schema coercion + error-message vectors captured from the TypeScript original by
+         tools/schema-oracle/gen.mjs. -->
+    <None Include="Fixtures\schema-validation-corpus.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

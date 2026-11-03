@@ -46,13 +46,14 @@
 
 | 变更 | 上游位置 | 端口现状 | 处置 |
 | --- | --- | --- | --- |
-| 纯 JSON Schema 工具也做强制转换（数字字符串、单值包成数组、null→缺省） | `coerce.ts` | `Validation.Convert` 已有同类逻辑，但规则表未逐条对齐 | 🔧 P0 |
-| 校验失败文案改成 `- path: missing` / `- limit: expected number, got string` | `explain.ts` | 仍是 TypeBox 文案（`Expected number` / `Expected required property`） | 🔧 P0 |
-| 错误路径 JSON Pointer → 点号路径 | `utils/validation.ts:formatValidationPath` | 端口已是点号路径 | ✅ |
-| 悬空 `$ref` 只在该位置拒绝，不让整个工具调用失败 | `compile(..., {unresolvedRefs:"reject"})` | 未核 | 🔧 P0 |
-| 每个 schema 编译一次并缓存（WeakMap） | `utils/validation.ts:getValidator` | 端口每次调用现算 | 🔧 P0（性能） |
+| 纯 JSON Schema 工具也做强制转换（数字字符串、单值包成数组、null→缺省） | `coerce.ts` | 已按三遍管线逐条对齐（`SchemaCoercer`） | ✅ P0 |
+| 校验失败文案改成 `- path: missing` / `- limit: expected number, got string` | `explain.ts` | 已逐条复刻（`SchemaExplainer`） | ✅ P0 |
+| 错误路径 JSON Pointer → 点号路径 | `utils/validation.ts:formatValidationPath` | `Validation.FormatPath` 与上游一致 | ✅ |
+| 悬空 `$ref` 只在该位置拒绝，不让整个工具调用失败 | `compile(..., {unresolvedRefs:"reject"})` | `SchemaResolver` 固定 reject 模式，文案 `unresolved reference #/…` | ✅ P0 |
+| 每个 schema 编译一次并缓存（WeakMap） | `utils/validation.ts:getValidator` | `ConditionalWeakTable<ToolSchema, ToolSchemaValidator>` | ✅ P0（性能） |
+| `format` 参与校验（`compile` 传 `formats`） | `formats/typebox/*` | 19 个 format 已移植（见 §4.2 的缺口） | ✅ P0 |
 
-> 注：`packages/schema` 的 `builders.ts` / `annotations.ts` / `typebox-static.ts` 是 TS 侧的 schema 构造 API，端口用不上；`compiler.ts` 的闭包编译策略在 C# 侧等价物是「预编译的检查器对象」，随 P0 一起做。
+> 注：`packages/schema` 的 `builders.ts` / `annotations.ts` / `typebox-static.ts` 是 TS 侧的 schema 构造 API，端口用不上；`compiler.ts` 的闭包编译策略在 C# 侧的等价物是「预编译的检查器对象 + 引用身份缓存」，已在 P0 落地。
 
 ### 2.2 ai（P2）
 
@@ -196,7 +197,7 @@
 
 | 批次 | 范围 | 规模 | 验收 |
 | --- | --- | --- | --- |
-| **P0** | pi-schema 校验/转换/文案对齐（`Validation.cs` 重写 + 编译缓存 + 悬空 `$ref`） | ~600 行 | 上游 `schema` 与 `validation` 测试向量逐条对拍；工具调用错误文案快照 |
+| **P0** | pi-schema 校验/转换/文案对齐（`Validation.cs` 重写 + 编译缓存 + 悬空 `$ref`） | ~1,500 行 | 已过：368 条上游语料差分全绿（见 §4.2） |
 | **P1** | 本轮已落地的小修集（见 §4） | ~80 行 | 已过 |
 | **P2** | ai wire 层：增量解析、Gemini const、Kimi K3、Bedrock strict、GPT-5.x 顶层工具、OpenCode 端点、Anthropic 两条、exec 三条、grep CR、模型目录数据 | ~1,200 行 | 每项一个 SSE/纯函数回归；目录生成脚本 diff 为空 |
 | **P3** | coding-agent：扩展 changelog、自更新命令、device-code 确认、`blocked`、`keyHint` 注入、trust/路径大小写/写盘一致性/分支摘要/启动容错等 ~18 项 | ~900 行 | `InteractiveModeTests` + 新增定向用例；全量 0 失败 |
@@ -237,8 +238,51 @@
 - `Pi.Ai.Tests` 的 `AnthropicFederationWireTests` / `OpenAiCompletionsTests` 与 `Pi.Tui.Tests` 的
   `AltScreenCorpusTests` 在**三个套件并行**时偶发失败（SSE 时序、StringBuilder 容量），单跑全绿。
 
-## 5. 不跟的项与理由
+### 4.2 P0 已落地：pi-schema 校验语义
 
+**新增（`src/Pi.Ai/Utils/Schema/`，约 1,500 行）**
+
+| 文件 | 内容 | 上游对应 |
+| --- | --- | --- |
+| `SchemaJson.cs` | JS 值语义：`typeof`/`Number.isInteger`/`Object.is`、JSON Pointer 转义、`deepEqual`、`String(number)`（ECMAScript `Number::toString`）、`JSON.stringify`（含 `, null, 2` 缩进） | `checks.ts` 的谓词 + JS 运行时 |
+| `SchemaResolver.cs` | `$id`/`$anchor` 索引、JSON Pointer 解析、`unresolvedRefs: "reject"` | `resolver.ts` |
+| `SchemaChecker.cs` | 布尔检查：type/enum/const/字符串/数值/对象/数组各组关键字、`allOf`/`anyOf`/`oneOf`/`not`/`if`/`$ref`、`isMultiple`（十进制 BigInt 算法） | `compiler.ts` + `checks.ts` |
+| `SchemaCoercer.cs` | coerce 三遍管线：可选 null 丢弃 → TypeBox 1.3.27 转换（`tryString/tryNumber/tryBoolean/tryNull`、`convertLiteral/convertEnum/convertUnion/convertMembers`、单值包数组） → 按 `type` 的原语强制；含 `reenter`/`memo` 防递归 | `coerce.ts` |
+| `SchemaExplainer.cs` | 错误遍历与文案（`expected X, got Y`、`missing`、`unknown field`、`matches more than one alternative`、枚举截断、tagged union 归因、`$ref` memo） | `explain.ts` |
+| `SchemaFormats.cs` + `.Regexes.cs` | 19 个 format（正则由 `tools/schema-oracle/formats.mjs` 从 TypeBox 源码生成，`\d`→`[0-9]`、尾 `$`→`\z`） | `formats/typebox/*` |
+| `ToolSchemaValidator.cs` | `Compile` / `Check` / `Coerce` / `Errors` / `Parse`，对应 `compile(schema, {formats, coerce:true, unresolvedRefs:"reject"})` | `validator.ts` |
+| `Validation.cs`（重写） | 门面：`ConditionalWeakTable` 按 `ToolSchema` 缓存编译结果；错误拼成 `  - path: message` | `utils/validation.ts` |
+
+**差分验证（语料 + 重跑方式）**
+
+- 语料：`tests/Pi.Ai.Tests/Fixtures/schema-validation-corpus.json`，**368 条**（222 通过 / 146 失败 / 154 条错误）。
+- 生成器：`tools/schema-oracle/gen.mjs`（`tools/` 不入库）。它把上游 `packages/schema/src` 拷进沙盒，
+  用 Node 22 直接跑 `.ts`，对每个 `(schema, value)` 记录 `parse()` 的 `{ok, value}` 或 `errors`，
+  并断言「`parse` 成功 ⇒ `check(coerced)` 为真」。
+- 覆盖：coerce 每条规则（含 `"0x10"`、`"1,5"`、`"Infinity"`、`true/false/null` 互换、单值包数组、
+  可选 null 丢弃/保留、`$ref` 递归树、悬空 `$ref`）；全部错误关键字（27 类）；19 个 format 各 4~5 例；
+  31 组 `String(number)` 量级（`1e21`/`1e-7`/`5e-324`/`2^53` 等）；5 个真实工具 schema（edit/bash/read/grep/union/ref）。
+- 重跑：`node --no-warnings tools/schema-oracle/gen.mjs` → 重新生成语料 → `dotnet build tests/Pi.Ai.Tests` →
+  `Pi.Ai.Tests.exe --filter-class "*SchemaValidationCorpusTests*"`。
+- **负控已做**：手工改坏一条期望文案后该用例立刻失败（1 失败 / 368 通过），确认语料有判别力。
+
+**已知缺口（有意为之，记录在案）**
+
+| 缺口 | 后果 | 理由 |
+| --- | --- | --- |
+| `unevaluatedProperties` / `unevaluatedItems` | 当作注解（不校验），比上游宽松 | 需要整套 annotation 收集机制；无工具 schema 使用；端口历来如此 |
+| `$dynamicRef` | 当作注解 | 同上（上游只在 bookended `$dynamicRef` 时启用动态作用域） |
+| `format: hostname` / `idn-hostname` | 当作注解（接受任意值） | TypeBox 走 IDNA 标签表（punycode + bidi 规则，509 行）；无内置工具使用 |
+| `format: iri` / `iri-reference` / `url` | 用 `Uri.TryCreate` 近似 `URL.canParse` | .NET 没有 WHATWG URL 解析器；差异集中在畸形输入 |
+| `pattern` 的方言 | 用 .NET 正则（`\d`/`\w`/`\s` 是 Unicode 类，`$` 也匹配末尾换行前） | 与 1.4.x 端口一致；`ECMAScript` 选项会拒绝部分合法模式 |
+| `type: "bytes"` | 恒假（JSON 里没有 `Uint8Array`） | 上游专有类型 |
+| `draft: "7"` | 只实现 2020-12 语义 | 端口只编译工具 schema，不跑 JSON-Schema-Test-Suite |
+
+**验证**：`dotnet build Pi.slnx -m:1` 0 警告 0 错误；`Pi.Ai.Tests` 932 例（2 例既有 flaky 单跑全绿）、
+`Pi.CodingAgent.Tests` 5118 例 1 失败（既有 typebox 语料问题，见下）、`Pi.Agent.Tests` 36 例、
+`Pi.Durable.Tests` 515 例。
+
+## 5. 不跟的项与理由
 - **`v1.5.0..HEAD` 的 49 个提交**：按 1.4.0 期定的策略「上游未发布提交先不跟」，等下一个 tag。唯一例外是修真实计费/安全错误的提交，按需单独评估。
 - **Chord v2**（`packages/chord/src/next`，~37k 行）：实验性，未进 `exports`。
 - **`sandbox/` 原生扩展示例**：上游已删除，端口从未移植。

@@ -1,0 +1,6458 @@
+{
+	"generatedBy": "tools/schema-oracle/gen.mjs",
+	"vectors": [
+		{
+			"name": "coerce/num/0",
+			"schema": {
+				"type": "number"
+			},
+			"value": "42",
+			"ok": true,
+			"coerced": 42
+		},
+		{
+			"name": "coerce/num/1",
+			"schema": {
+				"type": "number"
+			},
+			"value": " 42 ",
+			"ok": true,
+			"coerced": 42
+		},
+		{
+			"name": "coerce/num/2",
+			"schema": {
+				"type": "number"
+			},
+			"value": "",
+			"ok": true,
+			"coerced": 0
+		},
+		{
+			"name": "coerce/num/3",
+			"schema": {
+				"type": "number"
+			},
+			"value": "   ",
+			"ok": true,
+			"coerced": 0
+		},
+		{
+			"name": "coerce/num/4",
+			"schema": {
+				"type": "number"
+			},
+			"value": "abc",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/num/5",
+			"schema": {
+				"type": "number"
+			},
+			"value": "1e3",
+			"ok": true,
+			"coerced": 1000
+		},
+		{
+			"name": "coerce/num/6",
+			"schema": {
+				"type": "number"
+			},
+			"value": "0x10",
+			"ok": true,
+			"coerced": 16
+		},
+		{
+			"name": "coerce/num/7",
+			"schema": {
+				"type": "number"
+			},
+			"value": "Infinity",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/num/8",
+			"schema": {
+				"type": "number"
+			},
+			"value": "-0",
+			"ok": true,
+			"coerced": 0
+		},
+		{
+			"name": "coerce/num/9",
+			"schema": {
+				"type": "number"
+			},
+			"value": "1.5",
+			"ok": true,
+			"coerced": 1.5
+		},
+		{
+			"name": "coerce/num/10",
+			"schema": {
+				"type": "number"
+			},
+			"value": "1,5",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/num/11",
+			"schema": {
+				"type": "number"
+			},
+			"value": true,
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "coerce/num/12",
+			"schema": {
+				"type": "number"
+			},
+			"value": false,
+			"ok": true,
+			"coerced": 0
+		},
+		{
+			"name": "coerce/num/13",
+			"schema": {
+				"type": "number"
+			},
+			"value": null,
+			"ok": true,
+			"coerced": 0
+		},
+		{
+			"name": "coerce/num/14",
+			"schema": {
+				"type": "number"
+			},
+			"value": 42,
+			"ok": true,
+			"coerced": 42
+		},
+		{
+			"name": "coerce/num/15",
+			"schema": {
+				"type": "number"
+			},
+			"value": 42.5,
+			"ok": true,
+			"coerced": 42.5
+		},
+		{
+			"name": "coerce/num/16",
+			"schema": {
+				"type": "number"
+			},
+			"value": [
+				1
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got array"
+				}
+			]
+		},
+		{
+			"name": "coerce/num/17",
+			"schema": {
+				"type": "number"
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got object"
+				}
+			]
+		},
+		{
+			"name": "coerce/num/18",
+			"schema": {
+				"type": "number"
+			},
+			"value": "-",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/num/19",
+			"schema": {
+				"type": "number"
+			},
+			"value": "+7",
+			"ok": true,
+			"coerced": 7
+		},
+		{
+			"name": "coerce/num/20",
+			"schema": {
+				"type": "number"
+			},
+			"value": ".5",
+			"ok": true,
+			"coerced": 0.5
+		},
+		{
+			"name": "coerce/num/21",
+			"schema": {
+				"type": "number"
+			},
+			"value": "5.",
+			"ok": true,
+			"coerced": 5
+		},
+		{
+			"name": "coerce/int/0",
+			"schema": {
+				"type": "integer"
+			},
+			"value": "42",
+			"ok": true,
+			"coerced": 42
+		},
+		{
+			"name": "coerce/int/1",
+			"schema": {
+				"type": "integer"
+			},
+			"value": "42.9",
+			"ok": true,
+			"coerced": 42
+		},
+		{
+			"name": "coerce/int/2",
+			"schema": {
+				"type": "integer"
+			},
+			"value": "42.0",
+			"ok": true,
+			"coerced": 42
+		},
+		{
+			"name": "coerce/int/3",
+			"schema": {
+				"type": "integer"
+			},
+			"value": 42.9,
+			"ok": true,
+			"coerced": 42
+		},
+		{
+			"name": "coerce/int/4",
+			"schema": {
+				"type": "integer"
+			},
+			"value": "abc",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected integer, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/int/5",
+			"schema": {
+				"type": "integer"
+			},
+			"value": true,
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "coerce/int/6",
+			"schema": {
+				"type": "integer"
+			},
+			"value": false,
+			"ok": true,
+			"coerced": 0
+		},
+		{
+			"name": "coerce/int/7",
+			"schema": {
+				"type": "integer"
+			},
+			"value": null,
+			"ok": true,
+			"coerced": 0
+		},
+		{
+			"name": "coerce/int/8",
+			"schema": {
+				"type": "integer"
+			},
+			"value": 42,
+			"ok": true,
+			"coerced": 42
+		},
+		{
+			"name": "coerce/int/9",
+			"schema": {
+				"type": "integer"
+			},
+			"value": "0x10",
+			"ok": true,
+			"coerced": 16
+		},
+		{
+			"name": "coerce/int/10",
+			"schema": {
+				"type": "integer"
+			},
+			"value": "-0",
+			"ok": true,
+			"coerced": 0
+		},
+		{
+			"name": "coerce/bool/0",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "true",
+			"ok": true,
+			"coerced": true
+		},
+		{
+			"name": "coerce/bool/1",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "TRUE",
+			"ok": true,
+			"coerced": true
+		},
+		{
+			"name": "coerce/bool/2",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "True",
+			"ok": true,
+			"coerced": true
+		},
+		{
+			"name": "coerce/bool/3",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "1",
+			"ok": true,
+			"coerced": true
+		},
+		{
+			"name": "coerce/bool/4",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "0",
+			"ok": true,
+			"coerced": false
+		},
+		{
+			"name": "coerce/bool/5",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": 1,
+			"ok": true,
+			"coerced": true
+		},
+		{
+			"name": "coerce/bool/6",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": 0,
+			"ok": true,
+			"coerced": false
+		},
+		{
+			"name": "coerce/bool/7",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": 2,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected boolean, got integer"
+				}
+			]
+		},
+		{
+			"name": "coerce/bool/8",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": null,
+			"ok": true,
+			"coerced": false
+		},
+		{
+			"name": "coerce/bool/9",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected boolean, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/bool/10",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "false",
+			"ok": true,
+			"coerced": false
+		},
+		{
+			"name": "coerce/bool/11",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "yes",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected boolean, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/bool/12",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": true,
+			"ok": true,
+			"coerced": true
+		},
+		{
+			"name": "coerce/bool/13",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": false,
+			"ok": true,
+			"coerced": false
+		},
+		{
+			"name": "coerce/null/0",
+			"schema": {
+				"type": "null"
+			},
+			"value": "",
+			"ok": true,
+			"coerced": null
+		},
+		{
+			"name": "coerce/null/1",
+			"schema": {
+				"type": "null"
+			},
+			"value": "0",
+			"ok": true,
+			"coerced": null
+		},
+		{
+			"name": "coerce/null/2",
+			"schema": {
+				"type": "null"
+			},
+			"value": "null",
+			"ok": true,
+			"coerced": null
+		},
+		{
+			"name": "coerce/null/3",
+			"schema": {
+				"type": "null"
+			},
+			"value": "NULL",
+			"ok": true,
+			"coerced": null
+		},
+		{
+			"name": "coerce/null/4",
+			"schema": {
+				"type": "null"
+			},
+			"value": "undefined",
+			"ok": true,
+			"coerced": null
+		},
+		{
+			"name": "coerce/null/5",
+			"schema": {
+				"type": "null"
+			},
+			"value": "x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected null, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/null/6",
+			"schema": {
+				"type": "null"
+			},
+			"value": 0,
+			"ok": true,
+			"coerced": null
+		},
+		{
+			"name": "coerce/null/7",
+			"schema": {
+				"type": "null"
+			},
+			"value": 1,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected null, got integer"
+				}
+			]
+		},
+		{
+			"name": "coerce/null/8",
+			"schema": {
+				"type": "null"
+			},
+			"value": false,
+			"ok": true,
+			"coerced": null
+		},
+		{
+			"name": "coerce/null/9",
+			"schema": {
+				"type": "null"
+			},
+			"value": true,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected null, got boolean"
+				}
+			]
+		},
+		{
+			"name": "coerce/null/10",
+			"schema": {
+				"type": "null"
+			},
+			"value": null,
+			"ok": true,
+			"coerced": null
+		},
+		{
+			"name": "coerce/str/0",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1,
+			"ok": true,
+			"coerced": "1"
+		},
+		{
+			"name": "coerce/str/1",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1.5,
+			"ok": true,
+			"coerced": "1.5"
+		},
+		{
+			"name": "coerce/str/2",
+			"schema": {
+				"type": "string"
+			},
+			"value": true,
+			"ok": true,
+			"coerced": "true"
+		},
+		{
+			"name": "coerce/str/3",
+			"schema": {
+				"type": "string"
+			},
+			"value": false,
+			"ok": true,
+			"coerced": "false"
+		},
+		{
+			"name": "coerce/str/4",
+			"schema": {
+				"type": "string"
+			},
+			"value": null,
+			"ok": true,
+			"coerced": "null"
+		},
+		{
+			"name": "coerce/str/5",
+			"schema": {
+				"type": "string"
+			},
+			"value": "x",
+			"ok": true,
+			"coerced": "x"
+		},
+		{
+			"name": "coerce/str/6",
+			"schema": {
+				"type": "string"
+			},
+			"value": [
+				1
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected string, got array"
+				}
+			]
+		},
+		{
+			"name": "coerce/str/7",
+			"schema": {
+				"type": "string"
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected string, got object"
+				}
+			]
+		},
+		{
+			"name": "coerce/str/8",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1e+21,
+			"ok": true,
+			"coerced": "1e+21"
+		},
+		{
+			"name": "coerce/str/9",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1e-7,
+			"ok": true,
+			"coerced": "1e-7"
+		},
+		{
+			"name": "coerce/str/10",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0.30000000000000004,
+			"ok": true,
+			"coerced": "0.30000000000000004"
+		},
+		{
+			"name": "coerce/str/11",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0,
+			"ok": true,
+			"coerced": "0"
+		},
+		{
+			"name": "coerce/str/12",
+			"schema": {
+				"type": "string"
+			},
+			"value": 123456789012345680000,
+			"ok": true,
+			"coerced": "123456789012345680000"
+		},
+		{
+			"name": "coerce/strNeg/0",
+			"schema": {
+				"type": "string"
+			},
+			"value": -1,
+			"ok": true,
+			"coerced": "-1"
+		},
+		{
+			"name": "coerce/strNeg/1",
+			"schema": {
+				"type": "string"
+			},
+			"value": -1.5,
+			"ok": true,
+			"coerced": "-1.5"
+		},
+		{
+			"name": "coerce/strNeg/2",
+			"schema": {
+				"type": "string"
+			},
+			"value": -1e-7,
+			"ok": true,
+			"coerced": "-1e-7"
+		},
+		{
+			"name": "coerce/strNeg/3",
+			"schema": {
+				"type": "string"
+			},
+			"value": -0.000001,
+			"ok": true,
+			"coerced": "-0.000001"
+		},
+		{
+			"name": "coerce/arr/wrap-string",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "string"
+				}
+			},
+			"value": "a",
+			"ok": true,
+			"coerced": [
+				"a"
+			]
+		},
+		{
+			"name": "coerce/arr/wrap-number",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "number"
+				}
+			},
+			"value": "42",
+			"ok": true,
+			"coerced": [
+				42
+			]
+		},
+		{
+			"name": "coerce/arr/wrap-object",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"a": {
+							"type": "number"
+						}
+					}
+				}
+			},
+			"value": {
+				"a": "1"
+			},
+			"ok": true,
+			"coerced": [
+				{
+					"a": 1
+				}
+			]
+		},
+		{
+			"name": "coerce/arr/wrap-null",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "string"
+				}
+			},
+			"value": null,
+			"ok": true,
+			"coerced": [
+				"null"
+			]
+		},
+		{
+			"name": "coerce/arr/wrap-array-item",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "array",
+					"items": {
+						"type": "number"
+					}
+				}
+			},
+			"value": [
+				[
+					"1",
+					2
+				],
+				"3"
+			],
+			"ok": true,
+			"coerced": [
+				[
+					1,
+					2
+				],
+				[
+					3
+				]
+			]
+		},
+		{
+			"name": "coerce/arr/list",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "string"
+				}
+			},
+			"value": [
+				"a",
+				1,
+				null,
+				true
+			],
+			"ok": true,
+			"coerced": [
+				"a",
+				"1",
+				"null",
+				"true"
+			]
+		},
+		{
+			"name": "coerce/arr/no-items",
+			"schema": {
+				"type": "array"
+			},
+			"value": "a",
+			"ok": true,
+			"coerced": [
+				"a"
+			]
+		},
+		{
+			"name": "coerce/arr/no-items-list",
+			"schema": {
+				"type": "array"
+			},
+			"value": [
+				"a",
+				1
+			],
+			"ok": true,
+			"coerced": [
+				"a",
+				1
+			]
+		},
+		{
+			"name": "coerce/arr/tuple",
+			"schema": {
+				"type": "array",
+				"items": [
+					{
+						"type": "string"
+					},
+					{
+						"type": "number"
+					}
+				]
+			},
+			"value": [
+				"a",
+				"1"
+			],
+			"ok": true,
+			"coerced": [
+				"a",
+				1
+			]
+		},
+		{
+			"name": "coerce/arr/tuple-extra",
+			"schema": {
+				"type": "array",
+				"items": [
+					{
+						"type": "string"
+					}
+				]
+			},
+			"value": [
+				"a",
+				"b"
+			],
+			"ok": true,
+			"coerced": [
+				"a",
+				"b"
+			]
+		},
+		{
+			"name": "coerce/arr/tuple-not-array",
+			"schema": {
+				"type": "array",
+				"items": [
+					{
+						"type": "string"
+					},
+					{
+						"type": "number"
+					}
+				]
+			},
+			"value": "a",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected array, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/arr/prefix-items",
+			"schema": {
+				"type": "array",
+				"prefixItems": [
+					{
+						"type": "string"
+					}
+				],
+				"items": {
+					"type": "number"
+				}
+			},
+			"value": [
+				"a",
+				"1",
+				"2"
+			],
+			"ok": true,
+			"coerced": [
+				"a",
+				1,
+				2
+			]
+		},
+		{
+			"name": "coerce/arr/prefix-items-only",
+			"schema": {
+				"type": "array",
+				"prefixItems": [
+					{
+						"type": "number"
+					}
+				]
+			},
+			"value": [
+				"1",
+				"2"
+			],
+			"ok": true,
+			"coerced": [
+				1,
+				"2"
+			]
+		},
+		{
+			"name": "coerce/arr/nested-wrap",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"xs": {
+						"type": "array",
+						"items": {
+							"type": "integer"
+						}
+					}
+				}
+			},
+			"value": {
+				"xs": "7"
+			},
+			"ok": true,
+			"coerced": {
+				"xs": [
+					7
+				]
+			}
+		},
+		{
+			"name": "coerce/obj/basic",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "number"
+					},
+					"b": {
+						"type": "boolean"
+					},
+					"c": {
+						"type": "string"
+					}
+				}
+			},
+			"value": {
+				"a": "1",
+				"b": "true",
+				"c": 5
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1,
+				"b": true,
+				"c": "5"
+			}
+		},
+		{
+			"name": "coerce/obj/partial",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "number"
+					},
+					"b": {
+						"type": "boolean"
+					},
+					"c": {
+						"type": "string"
+					}
+				}
+			},
+			"value": {
+				"a": "1"
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1
+			}
+		},
+		{
+			"name": "coerce/obj/extra",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "number"
+					},
+					"b": {
+						"type": "boolean"
+					},
+					"c": {
+						"type": "string"
+					}
+				}
+			},
+			"value": {
+				"a": "1",
+				"z": 1
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1,
+				"z": 1
+			}
+		},
+		{
+			"name": "coerce/obj/not-object",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "number"
+					},
+					"b": {
+						"type": "boolean"
+					},
+					"c": {
+						"type": "string"
+					}
+				}
+			},
+			"value": "x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected object, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/obj/additional",
+			"schema": {
+				"type": "object",
+				"additionalProperties": {
+					"type": "number"
+				}
+			},
+			"value": {
+				"a": "1",
+				"b": "x"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/b",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/obj/pattern",
+			"schema": {
+				"type": "object",
+				"patternProperties": {
+					"^x": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"xa": "1",
+				"y": "2"
+			},
+			"ok": true,
+			"coerced": {
+				"xa": 1,
+				"y": "2"
+			}
+		},
+		{
+			"name": "coerce/obj/pattern-and-additional",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"p": {
+						"type": "boolean"
+					}
+				},
+				"patternProperties": {
+					"^x": {
+						"type": "number"
+					}
+				},
+				"additionalProperties": {
+					"type": "string"
+				}
+			},
+			"value": {
+				"p": "true",
+				"xa": "1",
+				"y": 2
+			},
+			"ok": true,
+			"coerced": {
+				"p": true,
+				"xa": 1,
+				"y": "2"
+			}
+		},
+		{
+			"name": "coerce/obj/inferred-from-properties",
+			"schema": {
+				"properties": {
+					"a": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"a": "1"
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1
+			}
+		},
+		{
+			"name": "coerce/obj/inferred-from-items",
+			"schema": {
+				"items": {
+					"type": "number"
+				}
+			},
+			"value": [
+				"1",
+				"2"
+			],
+			"ok": true,
+			"coerced": [
+				1,
+				2
+			]
+		},
+		{
+			"name": "coerce/null/drop-optional",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "string"
+					}
+				}
+			},
+			"value": {
+				"a": null
+			},
+			"ok": true,
+			"coerced": {}
+		},
+		{
+			"name": "coerce/null/keep-required",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"a"
+				]
+			},
+			"value": {
+				"a": null
+			},
+			"ok": true,
+			"coerced": {
+				"a": "null"
+			}
+		},
+		{
+			"name": "coerce/null/keep-nullable",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": [
+							"string",
+							"null"
+						]
+					}
+				}
+			},
+			"value": {
+				"a": null
+			},
+			"ok": true,
+			"coerced": {
+				"a": null
+			}
+		},
+		{
+			"name": "coerce/null/keep-ref",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"$ref": "#/$defs/S"
+					}
+				},
+				"$defs": {
+					"S": {
+						"type": "string"
+					}
+				}
+			},
+			"value": {
+				"a": null
+			},
+			"ok": true,
+			"coerced": {
+				"a": "null"
+			}
+		},
+		{
+			"name": "coerce/null/drop-nested",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"o": {
+						"type": "object",
+						"properties": {
+							"a": {
+								"type": "number"
+							}
+						}
+					}
+				}
+			},
+			"value": {
+				"o": {
+					"a": null,
+					"b": 1
+				}
+			},
+			"ok": true,
+			"coerced": {
+				"o": {
+					"b": 1
+				}
+			}
+		},
+		{
+			"name": "coerce/null/drop-in-items",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"a": {
+							"type": "number"
+						}
+					}
+				}
+			},
+			"value": [
+				{
+					"a": null
+				},
+				{
+					"a": "1"
+				}
+			],
+			"ok": true,
+			"coerced": [
+				{},
+				{
+					"a": 1
+				}
+			]
+		},
+		{
+			"name": "coerce/null/drop-in-tuple",
+			"schema": {
+				"type": "array",
+				"items": [
+					{
+						"type": "object",
+						"properties": {
+							"a": {
+								"type": "number"
+							}
+						}
+					}
+				]
+			},
+			"value": [
+				{
+					"a": null
+				}
+			],
+			"ok": true,
+			"coerced": [
+				{}
+			]
+		},
+		{
+			"name": "coerce/null/keep-in-additional",
+			"schema": {
+				"type": "object",
+				"additionalProperties": {
+					"type": "number"
+				}
+			},
+			"value": {
+				"a": null
+			},
+			"ok": true,
+			"coerced": {
+				"a": 0
+			}
+		},
+		{
+			"name": "coerce/null/keep-unknown-key",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"b": null
+			},
+			"ok": true,
+			"coerced": {
+				"b": null
+			}
+		},
+		{
+			"name": "coerce/null/keep-enum-null",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"enum": [
+							null,
+							"x"
+						]
+					}
+				}
+			},
+			"value": {
+				"a": null
+			},
+			"ok": true,
+			"coerced": {
+				"a": null
+			}
+		},
+		{
+			"name": "coerce/null/const-null",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"const": null
+					}
+				}
+			},
+			"value": {
+				"a": null
+			},
+			"ok": true,
+			"coerced": {
+				"a": null
+			}
+		},
+		{
+			"name": "coerce/null/drop-then-coerce",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "number"
+					},
+					"b": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"a": null,
+				"b": "2"
+			},
+			"ok": true,
+			"coerced": {
+				"b": 2
+			}
+		},
+		{
+			"name": "coerce/enum/str-hit",
+			"schema": {
+				"enum": [
+					"a",
+					"b"
+				]
+			},
+			"value": "a",
+			"ok": true,
+			"coerced": "a"
+		},
+		{
+			"name": "coerce/enum/str-miss",
+			"schema": {
+				"enum": [
+					"a",
+					"b"
+				]
+			},
+			"value": "c",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "enum",
+					"message": "expected one of [\"a\",\"b\"]"
+				}
+			]
+		},
+		{
+			"name": "coerce/enum/num-from-str",
+			"schema": {
+				"enum": [
+					1,
+					2
+				]
+			},
+			"value": "1",
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "coerce/enum/num-miss",
+			"schema": {
+				"enum": [
+					1,
+					2
+				]
+			},
+			"value": "3",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "enum",
+					"message": "expected one of [1,2]"
+				}
+			]
+		},
+		{
+			"name": "coerce/enum/bool-from-str",
+			"schema": {
+				"enum": [
+					true
+				]
+			},
+			"value": "true",
+			"ok": true,
+			"coerced": true
+		},
+		{
+			"name": "coerce/enum/null-from-str",
+			"schema": {
+				"enum": [
+					null
+				]
+			},
+			"value": "null",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "enum",
+					"message": "expected one of [null]"
+				}
+			]
+		},
+		{
+			"name": "coerce/enum/mixed",
+			"schema": {
+				"enum": [
+					"1",
+					2,
+					true
+				]
+			},
+			"value": 1,
+			"ok": true,
+			"coerced": "1"
+		},
+		{
+			"name": "coerce/enum/object-member",
+			"schema": {
+				"enum": [
+					{
+						"a": 1
+					},
+					"x"
+				]
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1
+			}
+		},
+		{
+			"name": "coerce/const/str",
+			"schema": {
+				"const": "x"
+			},
+			"value": "x",
+			"ok": true,
+			"coerced": "x"
+		},
+		{
+			"name": "coerce/const/str-from-num",
+			"schema": {
+				"const": "1"
+			},
+			"value": 1,
+			"ok": true,
+			"coerced": "1"
+		},
+		{
+			"name": "coerce/const/num-from-str",
+			"schema": {
+				"const": 1
+			},
+			"value": "1",
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "coerce/const/num-miss",
+			"schema": {
+				"const": 1
+			},
+			"value": "2",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "const",
+					"message": "expected 1"
+				}
+			]
+		},
+		{
+			"name": "coerce/const/bool-from-str",
+			"schema": {
+				"const": true
+			},
+			"value": "true",
+			"ok": true,
+			"coerced": true
+		},
+		{
+			"name": "coerce/const/null-from-str",
+			"schema": {
+				"const": null
+			},
+			"value": "null",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "const",
+					"message": "expected null"
+				}
+			]
+		},
+		{
+			"name": "coerce/const/object",
+			"schema": {
+				"const": {
+					"a": 1
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1
+			}
+		},
+		{
+			"name": "coerce/anyOf/string-or-number-str",
+			"schema": {
+				"anyOf": [
+					{
+						"type": "string"
+					},
+					{
+						"type": "number"
+					}
+				]
+			},
+			"value": "1",
+			"ok": true,
+			"coerced": "1"
+		},
+		{
+			"name": "coerce/anyOf/string-or-number-num",
+			"schema": {
+				"anyOf": [
+					{
+						"type": "string"
+					},
+					{
+						"type": "number"
+					}
+				]
+			},
+			"value": 1,
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "coerce/anyOf/num-first",
+			"schema": {
+				"anyOf": [
+					{
+						"type": "number"
+					},
+					{
+						"type": "string"
+					}
+				]
+			},
+			"value": "1",
+			"ok": true,
+			"coerced": "1"
+		},
+		{
+			"name": "coerce/anyOf/object-branch",
+			"schema": {
+				"anyOf": [
+					{
+						"type": "object",
+						"properties": {
+							"a": {
+								"type": "number"
+							}
+						}
+					},
+					{
+						"type": "string"
+					}
+				]
+			},
+			"value": {
+				"a": "1"
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1
+			}
+		},
+		{
+			"name": "coerce/oneOf/num-or-str",
+			"schema": {
+				"oneOf": [
+					{
+						"type": "number"
+					},
+					{
+						"type": "string"
+					}
+				]
+			},
+			"value": "1",
+			"ok": true,
+			"coerced": "1"
+		},
+		{
+			"name": "coerce/oneOf/no-match",
+			"schema": {
+				"oneOf": [
+					{
+						"type": "number"
+					},
+					{
+						"type": "boolean"
+					}
+				]
+			},
+			"value": "x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/allOf/merge",
+			"schema": {
+				"allOf": [
+					{
+						"type": "object",
+						"properties": {
+							"a": {
+								"type": "number"
+							}
+						}
+					},
+					{
+						"type": "object",
+						"properties": {
+							"b": {
+								"type": "boolean"
+							}
+						}
+					}
+				]
+			},
+			"value": {
+				"a": "1",
+				"b": "true"
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1,
+				"b": true
+			}
+		},
+		{
+			"name": "coerce/allOf/scalars",
+			"schema": {
+				"allOf": [
+					{
+						"type": "number"
+					},
+					{
+						"minimum": 5
+					}
+				]
+			},
+			"value": "7",
+			"ok": true,
+			"coerced": 7
+		},
+		{
+			"name": "coerce/allOf/min-fail",
+			"schema": {
+				"allOf": [
+					{
+						"type": "number"
+					},
+					{
+						"minimum": 5
+					}
+				]
+			},
+			"value": "3",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "minimum",
+					"message": "expected >= 5"
+				}
+			]
+		},
+		{
+			"name": "coerce/ref/simple",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"x": {
+						"$ref": "#/$defs/N"
+					}
+				},
+				"$defs": {
+					"N": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"x": "1"
+			},
+			"ok": true,
+			"coerced": {
+				"x": 1
+			}
+		},
+		{
+			"name": "coerce/ref/definitions",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"x": {
+						"$ref": "#/definitions/N"
+					}
+				},
+				"definitions": {
+					"N": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"x": "1"
+			},
+			"ok": true,
+			"coerced": {
+				"x": 1
+			}
+		},
+		{
+			"name": "coerce/ref/dangling",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"x": {
+						"$ref": "#/$defs/Missing"
+					}
+				}
+			},
+			"value": {
+				"x": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/x",
+					"keyword": "$ref",
+					"message": "unresolved reference #/$defs/Missing"
+				}
+			]
+		},
+		{
+			"name": "coerce/ref/dangling-absent",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"x": {
+						"$ref": "#/$defs/Missing"
+					}
+				}
+			},
+			"value": {},
+			"ok": true,
+			"coerced": {}
+		},
+		{
+			"name": "coerce/ref/recursive-tree",
+			"schema": {
+				"$defs": {
+					"Node": {
+						"type": "object",
+						"properties": {
+							"value": {
+								"type": "number"
+							},
+							"children": {
+								"type": "array",
+								"items": {
+									"$ref": "#/$defs/Node"
+								}
+							}
+						}
+					}
+				},
+				"$ref": "#/$defs/Node"
+			},
+			"value": {
+				"value": "1",
+				"children": [
+					{
+						"value": "2",
+						"children": []
+					}
+				]
+			},
+			"ok": true,
+			"coerced": {
+				"value": 1,
+				"children": [
+					{
+						"value": 2,
+						"children": []
+					}
+				]
+			}
+		},
+		{
+			"name": "coerce/ref/recursive-bad",
+			"schema": {
+				"$defs": {
+					"Node": {
+						"type": "object",
+						"properties": {
+							"value": {
+								"type": "number"
+							},
+							"children": {
+								"type": "array",
+								"items": {
+									"$ref": "#/$defs/Node"
+								}
+							}
+						}
+					}
+				},
+				"$ref": "#/$defs/Node"
+			},
+			"value": {
+				"value": "1",
+				"children": [
+					{
+						"value": "x"
+					}
+				]
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/children/0/value",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "coerce/ref/union-with-ref",
+			"schema": {
+				"$defs": {
+					"A": {
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "a"
+							},
+							"n": {
+								"type": "number"
+							}
+						}
+					}
+				},
+				"anyOf": [
+					{
+						"$ref": "#/$defs/A"
+					}
+				]
+			},
+			"value": {
+				"kind": "a",
+				"n": "1"
+			},
+			"ok": true,
+			"coerced": {
+				"kind": "a",
+				"n": 1
+			}
+		},
+		{
+			"name": "coerce/ref/root-pointer",
+			"schema": {
+				"$defs": {
+					"S": {
+						"type": "string"
+					}
+				},
+				"type": "array",
+				"items": {
+					"$ref": "#/$defs/S"
+				}
+			},
+			"value": [
+				1,
+				true
+			],
+			"ok": true,
+			"coerced": [
+				"1",
+				"true"
+			]
+		},
+		{
+			"name": "check/type/string",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1,
+			"ok": true,
+			"coerced": "1"
+		},
+		{
+			"name": "check/type/number",
+			"schema": {
+				"type": "number"
+			},
+			"value": "x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "check/type/integer",
+			"schema": {
+				"type": "integer"
+			},
+			"value": 1.5,
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "check/type/boolean",
+			"schema": {
+				"type": "boolean"
+			},
+			"value": "x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected boolean, got string"
+				}
+			]
+		},
+		{
+			"name": "check/type/null",
+			"schema": {
+				"type": "null"
+			},
+			"value": 1,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected null, got integer"
+				}
+			]
+		},
+		{
+			"name": "check/type/array",
+			"schema": {
+				"type": "array"
+			},
+			"value": {},
+			"ok": true,
+			"coerced": [
+				{}
+			]
+		},
+		{
+			"name": "check/type/object",
+			"schema": {
+				"type": "object"
+			},
+			"value": [],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected object, got array"
+				}
+			]
+		},
+		{
+			"name": "check/type/multi",
+			"schema": {
+				"type": [
+					"string",
+					"number"
+				]
+			},
+			"value": true,
+			"ok": true,
+			"coerced": "true"
+		},
+		{
+			"name": "check/type/multi-integer",
+			"schema": {
+				"type": [
+					"integer",
+					"null"
+				]
+			},
+			"value": 1.5,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected integer or null, got number"
+				}
+			]
+		},
+		{
+			"name": "check/type/integer-float",
+			"schema": {
+				"type": "integer"
+			},
+			"value": 1.5,
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "check/type/integer-ok",
+			"schema": {
+				"type": "integer"
+			},
+			"value": 1,
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "check/required/one",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "string"
+					},
+					"b": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"b"
+				]
+			},
+			"value": {
+				"a": "x"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/b",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/required/two",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "string"
+					},
+					"b": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"a",
+					"b"
+				]
+			},
+			"value": {},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a",
+					"keyword": "required",
+					"message": "missing"
+				},
+				{
+					"path": "/b",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/required/nested",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"o": {
+						"type": "object",
+						"properties": {
+							"a": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"a"
+						]
+					}
+				}
+			},
+			"value": {
+				"o": {}
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/o/a",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/required/in-items",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"required": [
+						"a"
+					]
+				}
+			},
+			"value": [
+				{},
+				{
+					"a": 1
+				}
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "/0/a",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/required/with-null-value",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"a"
+				]
+			},
+			"value": {
+				"a": null
+			},
+			"ok": true,
+			"coerced": {
+				"a": "null"
+			}
+		},
+		{
+			"name": "check/required/escaped",
+			"schema": {
+				"type": "object",
+				"required": [
+					"a/b",
+					"c~d"
+				]
+			},
+			"value": {},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a~1b",
+					"keyword": "required",
+					"message": "missing"
+				},
+				{
+					"path": "/c~0d",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/additional/false",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false
+			},
+			"value": {
+				"a": "x",
+				"b": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/b",
+					"keyword": "additionalProperties",
+					"message": "unknown field"
+				}
+			]
+		},
+		{
+			"name": "check/additional/false-nested",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"o": {
+						"type": "object",
+						"additionalProperties": false
+					}
+				}
+			},
+			"value": {
+				"o": {
+					"z": 1
+				}
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/o/z",
+					"keyword": "additionalProperties",
+					"message": "unknown field"
+				}
+			]
+		},
+		{
+			"name": "check/additional/schema",
+			"schema": {
+				"type": "object",
+				"additionalProperties": {
+					"type": "number"
+				}
+			},
+			"value": {
+				"a": "x"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "check/additional/pattern-covered",
+			"schema": {
+				"type": "object",
+				"patternProperties": {
+					"^x": {
+						"type": "number"
+					}
+				},
+				"additionalProperties": false
+			},
+			"value": {
+				"xa": 1,
+				"b": 2
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/b",
+					"keyword": "additionalProperties",
+					"message": "unknown field"
+				}
+			]
+		},
+		{
+			"name": "check/propertyNames",
+			"schema": {
+				"type": "object",
+				"propertyNames": {
+					"pattern": "^[a-z]+$"
+				}
+			},
+			"value": {
+				"A": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/A",
+					"keyword": "propertyNames",
+					"message": "invalid property name"
+				}
+			]
+		},
+		{
+			"name": "check/minProperties",
+			"schema": {
+				"type": "object",
+				"minProperties": 2
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "minProperties",
+					"message": "expected at least 2 properties"
+				}
+			]
+		},
+		{
+			"name": "check/maxProperties",
+			"schema": {
+				"type": "object",
+				"maxProperties": 1
+			},
+			"value": {
+				"a": 1,
+				"b": 2
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "maxProperties",
+					"message": "expected at most 1 properties"
+				}
+			]
+		},
+		{
+			"name": "check/dependentRequired",
+			"schema": {
+				"type": "object",
+				"dependentRequired": {
+					"a": [
+						"b"
+					]
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/b",
+					"keyword": "dependentRequired",
+					"message": "required when a is present"
+				}
+			]
+		},
+		{
+			"name": "check/dependentSchemas",
+			"schema": {
+				"type": "object",
+				"dependentSchemas": {
+					"a": {
+						"required": [
+							"b"
+						]
+					}
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/b",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/dependencies-array",
+			"schema": {
+				"type": "object",
+				"dependencies": {
+					"a": [
+						"b"
+					]
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/b",
+					"keyword": "dependentRequired",
+					"message": "required when a is present"
+				}
+			]
+		},
+		{
+			"name": "check/dependencies-schema",
+			"schema": {
+				"type": "object",
+				"dependencies": {
+					"a": {
+						"required": [
+							"b"
+						]
+					}
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/b",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/enum/short",
+			"schema": {
+				"enum": [
+					"a",
+					"b"
+				]
+			},
+			"value": "c",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "enum",
+					"message": "expected one of [\"a\",\"b\"]"
+				}
+			]
+		},
+		{
+			"name": "check/enum/nums",
+			"schema": {
+				"enum": [
+					1,
+					2,
+					3
+				]
+			},
+			"value": 4,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "enum",
+					"message": "expected one of [1,2,3]"
+				}
+			]
+		},
+		{
+			"name": "check/enum/long",
+			"schema": {
+				"enum": [
+					"v0",
+					"v1",
+					"v2",
+					"v3",
+					"v4",
+					"v5",
+					"v6",
+					"v7",
+					"v8",
+					"v9",
+					"v10",
+					"v11",
+					"v12",
+					"v13",
+					"v14",
+					"v15",
+					"v16",
+					"v17",
+					"v18",
+					"v19",
+					"v20",
+					"v21",
+					"v22",
+					"v23",
+					"v24"
+				]
+			},
+			"value": "nope",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "enum",
+					"message": "expected one of [\"v0\",\"v1\",\"v2\",\"v3\",\"v4\",\"v5\",\"v6\",\"v7\",\"v8\",\"v9\",\"v10\",\"v11\",\"v12\",\"v13\",\"v14\",\"v15\",\"v16\",\"v17\",\"v18\",\"v19\", ... and 5 more]"
+				}
+			]
+		},
+		{
+			"name": "check/enum/objects",
+			"schema": {
+				"enum": [
+					{
+						"a": 1
+					},
+					{
+						"b": 2
+					}
+				]
+			},
+			"value": {
+				"c": 3
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "enum",
+					"message": "expected one of [{\"a\":1},{\"b\":2}]"
+				}
+			]
+		},
+		{
+			"name": "check/const/str",
+			"schema": {
+				"const": "x"
+			},
+			"value": "y",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "const",
+					"message": "expected \"x\""
+				}
+			]
+		},
+		{
+			"name": "check/const/num",
+			"schema": {
+				"const": 1
+			},
+			"value": 2,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "const",
+					"message": "expected 1"
+				}
+			]
+		},
+		{
+			"name": "check/const/object",
+			"schema": {
+				"const": {
+					"a": 1,
+					"b": [
+						1,
+						2
+					]
+				}
+			},
+			"value": {
+				"a": 1,
+				"b": [
+					1,
+					3
+				]
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "const",
+					"message": "expected {\"a\":1,\"b\":[1,2]}"
+				}
+			]
+		},
+		{
+			"name": "check/minLength",
+			"schema": {
+				"type": "string",
+				"minLength": 3
+			},
+			"value": "ab",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "minLength",
+					"message": "expected at least 3 characters"
+				}
+			]
+		},
+		{
+			"name": "check/maxLength",
+			"schema": {
+				"type": "string",
+				"maxLength": 2
+			},
+			"value": "abc",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "maxLength",
+					"message": "expected at most 2 characters"
+				}
+			]
+		},
+		{
+			"name": "check/minLength-emoji",
+			"schema": {
+				"type": "string",
+				"minLength": 2
+			},
+			"value": "😀",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "minLength",
+					"message": "expected at least 2 characters"
+				}
+			]
+		},
+		{
+			"name": "check/pattern",
+			"schema": {
+				"type": "string",
+				"pattern": "^a+$"
+			},
+			"value": "b",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "pattern",
+					"message": "expected to match ^a+$"
+				}
+			]
+		},
+		{
+			"name": "check/pattern-anchored",
+			"schema": {
+				"type": "string",
+				"pattern": "^\\d{3}$"
+			},
+			"value": "1234",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "pattern",
+					"message": "expected to match ^\\d{3}$"
+				}
+			]
+		},
+		{
+			"name": "check/format/email",
+			"schema": {
+				"type": "string",
+				"format": "email"
+			},
+			"value": "nope",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format email"
+				}
+			]
+		},
+		{
+			"name": "check/format/date",
+			"schema": {
+				"type": "string",
+				"format": "date"
+			},
+			"value": "2021-02-30",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format date"
+				}
+			]
+		},
+		{
+			"name": "check/format/date-ok",
+			"schema": {
+				"type": "string",
+				"format": "date"
+			},
+			"value": "2020-02-29",
+			"ok": true,
+			"coerced": "2020-02-29"
+		},
+		{
+			"name": "check/format/unknown",
+			"schema": {
+				"type": "string",
+				"format": "made-up"
+			},
+			"value": "anything",
+			"ok": true,
+			"coerced": "anything"
+		},
+		{
+			"name": "check/minimum",
+			"schema": {
+				"type": "number",
+				"minimum": 5
+			},
+			"value": 4,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "minimum",
+					"message": "expected >= 5"
+				}
+			]
+		},
+		{
+			"name": "check/maximum",
+			"schema": {
+				"type": "number",
+				"maximum": 5
+			},
+			"value": 6,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "maximum",
+					"message": "expected <= 5"
+				}
+			]
+		},
+		{
+			"name": "check/exclusiveMinimum",
+			"schema": {
+				"type": "number",
+				"exclusiveMinimum": 5
+			},
+			"value": 5,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "exclusiveMinimum",
+					"message": "expected > 5"
+				}
+			]
+		},
+		{
+			"name": "check/exclusiveMaximum",
+			"schema": {
+				"type": "number",
+				"exclusiveMaximum": 5
+			},
+			"value": 5,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "exclusiveMaximum",
+					"message": "expected < 5"
+				}
+			]
+		},
+		{
+			"name": "check/multipleOf",
+			"schema": {
+				"type": "number",
+				"multipleOf": 3
+			},
+			"value": 4,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "multipleOf",
+					"message": "expected a multiple of 3"
+				}
+			]
+		},
+		{
+			"name": "check/multipleOf-decimal",
+			"schema": {
+				"type": "number",
+				"multipleOf": 0.0001
+			},
+			"value": 0.0075,
+			"ok": true,
+			"coerced": 0.0075
+		},
+		{
+			"name": "check/multipleOf-decimal-bad",
+			"schema": {
+				"type": "number",
+				"multipleOf": 0.0001
+			},
+			"value": 0.00751,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "multipleOf",
+					"message": "expected a multiple of 0.0001"
+				}
+			]
+		},
+		{
+			"name": "check/minItems",
+			"schema": {
+				"type": "array",
+				"minItems": 2
+			},
+			"value": [
+				1
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "minItems",
+					"message": "expected at least 2 items"
+				}
+			]
+		},
+		{
+			"name": "check/maxItems",
+			"schema": {
+				"type": "array",
+				"maxItems": 1
+			},
+			"value": [
+				1,
+				2
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "maxItems",
+					"message": "expected at most 1 items"
+				}
+			]
+		},
+		{
+			"name": "check/uniqueItems",
+			"schema": {
+				"type": "array",
+				"uniqueItems": true
+			},
+			"value": [
+				1,
+				2,
+				1
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "uniqueItems",
+					"message": "expected unique items"
+				}
+			]
+		},
+		{
+			"name": "check/uniqueItems-objects",
+			"schema": {
+				"type": "array",
+				"uniqueItems": true
+			},
+			"value": [
+				{
+					"a": 1
+				},
+				{
+					"a": 1
+				}
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "uniqueItems",
+					"message": "expected unique items"
+				}
+			]
+		},
+		{
+			"name": "check/uniqueItems-ok",
+			"schema": {
+				"type": "array",
+				"uniqueItems": true
+			},
+			"value": [
+				{
+					"a": 1
+				},
+				{
+					"a": 2
+				}
+			],
+			"ok": true,
+			"coerced": [
+				{
+					"a": 1
+				},
+				{
+					"a": 2
+				}
+			]
+		},
+		{
+			"name": "check/contains",
+			"schema": {
+				"type": "array",
+				"contains": {
+					"type": "number"
+				}
+			},
+			"value": [
+				"a",
+				"b"
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "contains",
+					"message": "expected at least 1 matching item"
+				}
+			]
+		},
+		{
+			"name": "check/contains-minContains",
+			"schema": {
+				"type": "array",
+				"contains": {
+					"type": "number"
+				},
+				"minContains": 2
+			},
+			"value": [
+				1,
+				"a"
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "contains",
+					"message": "expected at least 2 matching items"
+				}
+			]
+		},
+		{
+			"name": "check/contains-maxContains",
+			"schema": {
+				"type": "array",
+				"contains": {
+					"type": "number"
+				},
+				"maxContains": 1
+			},
+			"value": [
+				1,
+				2
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "contains",
+					"message": "expected between 1 and 1 matching items"
+				}
+			]
+		},
+		{
+			"name": "check/items-nested",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"a": {
+							"type": "number"
+						}
+					},
+					"required": [
+						"a"
+					]
+				}
+			},
+			"value": [
+				{
+					"a": 1
+				},
+				{
+					"a": "x"
+				},
+				{}
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "/1/a",
+					"keyword": "type",
+					"message": "expected number, got string"
+				},
+				{
+					"path": "/2/a",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/not",
+			"schema": {
+				"not": {
+					"type": "string"
+				}
+			},
+			"value": "x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "not",
+					"message": "must not match the schema in not"
+				}
+			]
+		},
+		{
+			"name": "check/if-then",
+			"schema": {
+				"if": {
+					"type": "object",
+					"properties": {
+						"k": {
+							"const": "a"
+						}
+					},
+					"required": [
+						"k"
+					]
+				},
+				"then": {
+					"required": [
+						"n"
+					]
+				}
+			},
+			"value": {
+				"k": "a"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/n",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/if-else",
+			"schema": {
+				"if": {
+					"type": "object",
+					"properties": {
+						"k": {
+							"const": "a"
+						}
+					},
+					"required": [
+						"k"
+					]
+				},
+				"else": {
+					"required": [
+						"m"
+					]
+				}
+			},
+			"value": {
+				"k": "b"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/m",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/anyOf-none",
+			"schema": {
+				"anyOf": [
+					{
+						"type": "string"
+					},
+					{
+						"type": "number"
+					}
+				]
+			},
+			"value": true,
+			"ok": true,
+			"coerced": "true"
+		},
+		{
+			"name": "check/anyOf-deepest",
+			"schema": {
+				"anyOf": [
+					{
+						"type": "object",
+						"properties": {
+							"a": {
+								"type": "object",
+								"properties": {
+									"b": {
+										"type": "string"
+									}
+								}
+							}
+						}
+					},
+					{
+						"type": "object",
+						"properties": {
+							"c": {
+								"type": "number"
+							}
+						}
+					}
+				]
+			},
+			"value": {
+				"a": {
+					"b": 1
+				}
+			},
+			"ok": true,
+			"coerced": {
+				"a": {
+					"b": 1
+				}
+			}
+		},
+		{
+			"name": "check/oneOf-both",
+			"schema": {
+				"oneOf": [
+					{
+						"type": "number"
+					},
+					{
+						"type": "integer"
+					}
+				]
+			},
+			"value": 1,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "oneOf",
+					"message": "matches more than one alternative"
+				}
+			]
+		},
+		{
+			"name": "check/oneOf-none",
+			"schema": {
+				"oneOf": [
+					{
+						"type": "number"
+					},
+					{
+						"type": "boolean"
+					}
+				]
+			},
+			"value": "x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "check/allOf-fail",
+			"schema": {
+				"allOf": [
+					{
+						"type": "object",
+						"required": [
+							"a"
+						]
+					},
+					{
+						"type": "object",
+						"required": [
+							"b"
+						]
+					}
+				]
+			},
+			"value": {},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a",
+					"keyword": "required",
+					"message": "missing"
+				},
+				{
+					"path": "/b",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "check/false-schema",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": false
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a",
+					"keyword": "false",
+					"message": "no value is allowed here"
+				}
+			]
+		},
+		{
+			"name": "check/true-schema",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": true
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1
+			}
+		},
+		{
+			"name": "check/tagged/pick-a",
+			"schema": {
+				"oneOf": [
+					{
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "a"
+							},
+							"n": {
+								"type": "number"
+							}
+						},
+						"required": [
+							"kind",
+							"n"
+						]
+					},
+					{
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "b"
+							},
+							"s": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"s"
+						]
+					}
+				]
+			},
+			"value": {
+				"kind": "a",
+				"n": "x"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/n",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "check/tagged/pick-b",
+			"schema": {
+				"oneOf": [
+					{
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "a"
+							},
+							"n": {
+								"type": "number"
+							}
+						},
+						"required": [
+							"kind",
+							"n"
+						]
+					},
+					{
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "b"
+							},
+							"s": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"s"
+						]
+					}
+				]
+			},
+			"value": {
+				"kind": "b",
+				"s": 1
+			},
+			"ok": true,
+			"coerced": {
+				"kind": "b",
+				"s": "1"
+			}
+		},
+		{
+			"name": "check/tagged/unknown-tag",
+			"schema": {
+				"oneOf": [
+					{
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "a"
+							},
+							"n": {
+								"type": "number"
+							}
+						},
+						"required": [
+							"kind",
+							"n"
+						]
+					},
+					{
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "b"
+							},
+							"s": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"s"
+						]
+					}
+				]
+			},
+			"value": {
+				"kind": "c"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/kind",
+					"keyword": "oneOf",
+					"message": "expected one of [\"a\",\"b\"]"
+				}
+			]
+		},
+		{
+			"name": "check/tagged/missing-tag",
+			"schema": {
+				"oneOf": [
+					{
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "a"
+							},
+							"n": {
+								"type": "number"
+							}
+						},
+						"required": [
+							"kind",
+							"n"
+						]
+					},
+					{
+						"type": "object",
+						"properties": {
+							"kind": {
+								"const": "b"
+							},
+							"s": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"s"
+						]
+					}
+				]
+			},
+			"value": {},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/kind",
+					"keyword": "oneOf",
+					"message": "expected one of [\"a\",\"b\"]"
+				}
+			]
+		},
+		{
+			"name": "check/path/nested",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"o": {
+						"type": "object",
+						"properties": {
+							"a": {
+								"type": "number"
+							}
+						}
+					}
+				}
+			},
+			"value": {
+				"o": {
+					"a": "x"
+				}
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/o/a",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "check/path/array-index",
+			"schema": {
+				"type": "array",
+				"items": {
+					"type": "array",
+					"items": {
+						"type": "number"
+					}
+				}
+			},
+			"value": [
+				[
+					1
+				],
+				[
+					"x"
+				]
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "/1/0",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "check/path/escaped-key",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a/b": {
+						"type": "number"
+					},
+					"c~d": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"a/b": "x",
+				"c~d": "y"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a~1b",
+					"keyword": "type",
+					"message": "expected number, got string"
+				},
+				{
+					"path": "/c~0d",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "check/path/multiple-errors",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "number"
+					},
+					"b": {
+						"type": "number"
+					}
+				},
+				"required": [
+					"c"
+				]
+			},
+			"value": {
+				"a": "x",
+				"b": "y"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/c",
+					"keyword": "required",
+					"message": "missing"
+				},
+				{
+					"path": "/a",
+					"keyword": "type",
+					"message": "expected number, got string"
+				},
+				{
+					"path": "/b",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "tool/edit/ok",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Path to the file to edit"
+					},
+					"edits": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"oldText": {
+									"type": "string"
+								},
+								"newText": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"oldText",
+								"newText"
+							]
+						}
+					}
+				},
+				"required": [
+					"path",
+					"edits"
+				]
+			},
+			"value": {
+				"path": "a.ts",
+				"edits": [
+					{
+						"oldText": "a",
+						"newText": "b"
+					}
+				]
+			},
+			"ok": true,
+			"coerced": {
+				"path": "a.ts",
+				"edits": [
+					{
+						"oldText": "a",
+						"newText": "b"
+					}
+				]
+			}
+		},
+		{
+			"name": "tool/edit/wrap-edits",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Path to the file to edit"
+					},
+					"edits": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"oldText": {
+									"type": "string"
+								},
+								"newText": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"oldText",
+								"newText"
+							]
+						}
+					}
+				},
+				"required": [
+					"path",
+					"edits"
+				]
+			},
+			"value": {
+				"path": "a.ts",
+				"edits": {
+					"oldText": "a",
+					"newText": "b"
+				}
+			},
+			"ok": true,
+			"coerced": {
+				"path": "a.ts",
+				"edits": [
+					{
+						"oldText": "a",
+						"newText": "b"
+					}
+				]
+			}
+		},
+		{
+			"name": "tool/edit/missing-newText",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Path to the file to edit"
+					},
+					"edits": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"oldText": {
+									"type": "string"
+								},
+								"newText": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"oldText",
+								"newText"
+							]
+						}
+					}
+				},
+				"required": [
+					"path",
+					"edits"
+				]
+			},
+			"value": {
+				"path": "a.ts",
+				"edits": [
+					{
+						"oldText": "a"
+					}
+				]
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/edits/0/newText",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "tool/edit/missing-path",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Path to the file to edit"
+					},
+					"edits": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"oldText": {
+									"type": "string"
+								},
+								"newText": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"oldText",
+								"newText"
+							]
+						}
+					}
+				},
+				"required": [
+					"path",
+					"edits"
+				]
+			},
+			"value": {
+				"edits": []
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/path",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "tool/edit/string-index",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Path to the file to edit"
+					},
+					"edits": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"oldText": {
+									"type": "string"
+								},
+								"newText": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"oldText",
+								"newText"
+							]
+						}
+					}
+				},
+				"required": [
+					"path",
+					"edits"
+				]
+			},
+			"value": {
+				"path": "a.ts",
+				"edits": [
+					{
+						"oldText": 1,
+						"newText": null
+					}
+				]
+			},
+			"ok": true,
+			"coerced": {
+				"path": "a.ts",
+				"edits": [
+					{
+						"oldText": "1",
+						"newText": "null"
+					}
+				]
+			}
+		},
+		{
+			"name": "tool/bash/ok",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"command": {
+						"type": "string"
+					},
+					"timeout": {
+						"type": "number"
+					},
+					"background": {
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"command"
+				],
+				"additionalProperties": false
+			},
+			"value": {
+				"command": "ls"
+			},
+			"ok": true,
+			"coerced": {
+				"command": "ls"
+			}
+		},
+		{
+			"name": "tool/bash/coerce-all",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"command": {
+						"type": "string"
+					},
+					"timeout": {
+						"type": "number"
+					},
+					"background": {
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"command"
+				],
+				"additionalProperties": false
+			},
+			"value": {
+				"command": "ls",
+				"timeout": "5000",
+				"background": "true"
+			},
+			"ok": true,
+			"coerced": {
+				"command": "ls",
+				"timeout": 5000,
+				"background": true
+			}
+		},
+		{
+			"name": "tool/bash/unknown-key",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"command": {
+						"type": "string"
+					},
+					"timeout": {
+						"type": "number"
+					},
+					"background": {
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"command"
+				],
+				"additionalProperties": false
+			},
+			"value": {
+				"command": "ls",
+				"cwd": "/tmp"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/cwd",
+					"keyword": "additionalProperties",
+					"message": "unknown field"
+				}
+			]
+		},
+		{
+			"name": "tool/bash/bad-timeout",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"command": {
+						"type": "string"
+					},
+					"timeout": {
+						"type": "number"
+					},
+					"background": {
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"command"
+				],
+				"additionalProperties": false
+			},
+			"value": {
+				"command": "ls",
+				"timeout": "soon"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/timeout",
+					"keyword": "type",
+					"message": "expected number, got string"
+				}
+			]
+		},
+		{
+			"name": "tool/bash/null-optional",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"command": {
+						"type": "string"
+					},
+					"timeout": {
+						"type": "number"
+					},
+					"background": {
+						"type": "boolean"
+					}
+				},
+				"required": [
+					"command"
+				],
+				"additionalProperties": false
+			},
+			"value": {
+				"command": "ls",
+				"timeout": null,
+				"background": null
+			},
+			"ok": true,
+			"coerced": {
+				"command": "ls"
+			}
+		},
+		{
+			"name": "tool/read/coerce",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string"
+					},
+					"offset": {
+						"type": "integer",
+						"minimum": 1
+					},
+					"limit": {
+						"type": "integer",
+						"minimum": 1
+					}
+				},
+				"required": [
+					"path"
+				]
+			},
+			"value": {
+				"path": "a",
+				"offset": "1",
+				"limit": "10"
+			},
+			"ok": true,
+			"coerced": {
+				"path": "a",
+				"offset": 1,
+				"limit": 10
+			}
+		},
+		{
+			"name": "tool/read/float-offset",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string"
+					},
+					"offset": {
+						"type": "integer",
+						"minimum": 1
+					},
+					"limit": {
+						"type": "integer",
+						"minimum": 1
+					}
+				},
+				"required": [
+					"path"
+				]
+			},
+			"value": {
+				"path": "a",
+				"offset": 1.5
+			},
+			"ok": true,
+			"coerced": {
+				"path": "a",
+				"offset": 1
+			}
+		},
+		{
+			"name": "tool/read/min-offset",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string"
+					},
+					"offset": {
+						"type": "integer",
+						"minimum": 1
+					},
+					"limit": {
+						"type": "integer",
+						"minimum": 1
+					}
+				},
+				"required": [
+					"path"
+				]
+			},
+			"value": {
+				"path": "a",
+				"offset": 0
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/offset",
+					"keyword": "minimum",
+					"message": "expected >= 1"
+				}
+			]
+		},
+		{
+			"name": "tool/grep/coerce",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"pattern": {
+						"type": "string",
+						"minLength": 1
+					},
+					"path": {
+						"type": "string"
+					},
+					"glob": {
+						"type": "string"
+					},
+					"ignoreCase": {
+						"type": "boolean"
+					},
+					"output": {
+						"type": "string",
+						"enum": [
+							"content",
+							"files_with_matches",
+							"count"
+						]
+					}
+				},
+				"required": [
+					"pattern"
+				]
+			},
+			"value": {
+				"pattern": "x",
+				"ignoreCase": "true",
+				"output": "count"
+			},
+			"ok": true,
+			"coerced": {
+				"pattern": "x",
+				"ignoreCase": true,
+				"output": "count"
+			}
+		},
+		{
+			"name": "tool/grep/bad-enum",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"pattern": {
+						"type": "string",
+						"minLength": 1
+					},
+					"path": {
+						"type": "string"
+					},
+					"glob": {
+						"type": "string"
+					},
+					"ignoreCase": {
+						"type": "boolean"
+					},
+					"output": {
+						"type": "string",
+						"enum": [
+							"content",
+							"files_with_matches",
+							"count"
+						]
+					}
+				},
+				"required": [
+					"pattern"
+				]
+			},
+			"value": {
+				"pattern": "x",
+				"output": "all"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/output",
+					"keyword": "enum",
+					"message": "expected one of [\"content\",\"files_with_matches\",\"count\"]"
+				}
+			]
+		},
+		{
+			"name": "tool/grep/empty-pattern",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"pattern": {
+						"type": "string",
+						"minLength": 1
+					},
+					"path": {
+						"type": "string"
+					},
+					"glob": {
+						"type": "string"
+					},
+					"ignoreCase": {
+						"type": "boolean"
+					},
+					"output": {
+						"type": "string",
+						"enum": [
+							"content",
+							"files_with_matches",
+							"count"
+						]
+					}
+				},
+				"required": [
+					"pattern"
+				]
+			},
+			"value": {
+				"pattern": ""
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/pattern",
+					"keyword": "minLength",
+					"message": "expected at least 1 characters"
+				}
+			]
+		},
+		{
+			"name": "tool/union/read",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"action": {
+						"oneOf": [
+							{
+								"type": "object",
+								"properties": {
+									"kind": {
+										"const": "read"
+									},
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"path"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"kind": {
+										"const": "write"
+									},
+									"path": {
+										"type": "string"
+									},
+									"body": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"path",
+									"body"
+								]
+							}
+						]
+					}
+				},
+				"required": [
+					"action"
+				]
+			},
+			"value": {
+				"action": {
+					"kind": "read",
+					"path": "a"
+				}
+			},
+			"ok": true,
+			"coerced": {
+				"action": {
+					"kind": "read",
+					"path": "a"
+				}
+			}
+		},
+		{
+			"name": "tool/union/write-missing-body",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"action": {
+						"oneOf": [
+							{
+								"type": "object",
+								"properties": {
+									"kind": {
+										"const": "read"
+									},
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"path"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"kind": {
+										"const": "write"
+									},
+									"path": {
+										"type": "string"
+									},
+									"body": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"path",
+									"body"
+								]
+							}
+						]
+					}
+				},
+				"required": [
+					"action"
+				]
+			},
+			"value": {
+				"action": {
+					"kind": "write",
+					"path": "a"
+				}
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/action/body",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "tool/union/bad-kind",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"action": {
+						"oneOf": [
+							{
+								"type": "object",
+								"properties": {
+									"kind": {
+										"const": "read"
+									},
+									"path": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"path"
+								]
+							},
+							{
+								"type": "object",
+								"properties": {
+									"kind": {
+										"const": "write"
+									},
+									"path": {
+										"type": "string"
+									},
+									"body": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"path",
+									"body"
+								]
+							}
+						]
+					}
+				},
+				"required": [
+					"action"
+				]
+			},
+			"value": {
+				"action": {
+					"kind": "delete",
+					"path": "a"
+				}
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/action/kind",
+					"keyword": "oneOf",
+					"message": "expected one of [\"read\",\"write\"]"
+				}
+			]
+		},
+		{
+			"name": "tool/ref/ok",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"items": {
+						"type": "array",
+						"items": {
+							"$ref": "#/$defs/Item"
+						}
+					}
+				},
+				"required": [
+					"items"
+				],
+				"$defs": {
+					"Item": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "integer"
+							},
+							"tags": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							}
+						},
+						"required": [
+							"id"
+						],
+						"additionalProperties": false
+					}
+				}
+			},
+			"value": {
+				"items": [
+					{
+						"id": 1,
+						"tags": [
+							"a"
+						]
+					}
+				]
+			},
+			"ok": true,
+			"coerced": {
+				"items": [
+					{
+						"id": 1,
+						"tags": [
+							"a"
+						]
+					}
+				]
+			}
+		},
+		{
+			"name": "tool/ref/coerce",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"items": {
+						"type": "array",
+						"items": {
+							"$ref": "#/$defs/Item"
+						}
+					}
+				},
+				"required": [
+					"items"
+				],
+				"$defs": {
+					"Item": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "integer"
+							},
+							"tags": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							}
+						},
+						"required": [
+							"id"
+						],
+						"additionalProperties": false
+					}
+				}
+			},
+			"value": {
+				"items": [
+					{
+						"id": "1",
+						"tags": "a"
+					}
+				]
+			},
+			"ok": true,
+			"coerced": {
+				"items": [
+					{
+						"id": 1,
+						"tags": [
+							"a"
+						]
+					}
+				]
+			}
+		},
+		{
+			"name": "tool/ref/missing-id",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"items": {
+						"type": "array",
+						"items": {
+							"$ref": "#/$defs/Item"
+						}
+					}
+				},
+				"required": [
+					"items"
+				],
+				"$defs": {
+					"Item": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "integer"
+							},
+							"tags": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							}
+						},
+						"required": [
+							"id"
+						],
+						"additionalProperties": false
+					}
+				}
+			},
+			"value": {
+				"items": [
+					{
+						"tags": []
+					}
+				]
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/items/0/id",
+					"keyword": "required",
+					"message": "missing"
+				}
+			]
+		},
+		{
+			"name": "tool/ref/unknown-field",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"items": {
+						"type": "array",
+						"items": {
+							"$ref": "#/$defs/Item"
+						}
+					}
+				},
+				"required": [
+					"items"
+				],
+				"$defs": {
+					"Item": {
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "integer"
+							},
+							"tags": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							}
+						},
+						"required": [
+							"id"
+						],
+						"additionalProperties": false
+					}
+				}
+			},
+			"value": {
+				"items": [
+					{
+						"id": 1,
+						"extra": true
+					}
+				]
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/items/0/extra",
+					"keyword": "additionalProperties",
+					"message": "unknown field"
+				}
+			]
+		},
+		{
+			"name": "format/date/0",
+			"schema": {
+				"type": "string",
+				"format": "date"
+			},
+			"value": "2020-02-29",
+			"ok": true,
+			"coerced": "2020-02-29"
+		},
+		{
+			"name": "format/date/1",
+			"schema": {
+				"type": "string",
+				"format": "date"
+			},
+			"value": "2021-02-29",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format date"
+				}
+			]
+		},
+		{
+			"name": "format/date/2",
+			"schema": {
+				"type": "string",
+				"format": "date"
+			},
+			"value": "2020-13-01",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format date"
+				}
+			]
+		},
+		{
+			"name": "format/date/3",
+			"schema": {
+				"type": "string",
+				"format": "date"
+			},
+			"value": "2020-1-1",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format date"
+				}
+			]
+		},
+		{
+			"name": "format/date/4",
+			"schema": {
+				"type": "string",
+				"format": "date"
+			},
+			"value": "not-a-date",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format date"
+				}
+			]
+		},
+		{
+			"name": "format/date-time/0",
+			"schema": {
+				"type": "string",
+				"format": "date-time"
+			},
+			"value": "2020-12-12T20:20:40+00:00",
+			"ok": true,
+			"coerced": "2020-12-12T20:20:40+00:00"
+		},
+		{
+			"name": "format/date-time/1",
+			"schema": {
+				"type": "string",
+				"format": "date-time"
+			},
+			"value": "2020-12-12T20:20:40Z",
+			"ok": true,
+			"coerced": "2020-12-12T20:20:40Z"
+		},
+		{
+			"name": "format/date-time/2",
+			"schema": {
+				"type": "string",
+				"format": "date-time"
+			},
+			"value": "2020-12-12 20:20:40Z",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format date-time"
+				}
+			]
+		},
+		{
+			"name": "format/date-time/3",
+			"schema": {
+				"type": "string",
+				"format": "date-time"
+			},
+			"value": "2020-12-12T20:20:40",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format date-time"
+				}
+			]
+		},
+		{
+			"name": "format/duration/0",
+			"schema": {
+				"type": "string",
+				"format": "duration"
+			},
+			"value": "P1Y2M3DT4H5M6S",
+			"ok": true,
+			"coerced": "P1Y2M3DT4H5M6S"
+		},
+		{
+			"name": "format/duration/1",
+			"schema": {
+				"type": "string",
+				"format": "duration"
+			},
+			"value": "P3W",
+			"ok": true,
+			"coerced": "P3W"
+		},
+		{
+			"name": "format/duration/2",
+			"schema": {
+				"type": "string",
+				"format": "duration"
+			},
+			"value": "P",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format duration"
+				}
+			]
+		},
+		{
+			"name": "format/duration/3",
+			"schema": {
+				"type": "string",
+				"format": "duration"
+			},
+			"value": "1Y",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format duration"
+				}
+			]
+		},
+		{
+			"name": "format/duration/4",
+			"schema": {
+				"type": "string",
+				"format": "duration"
+			},
+			"value": "PT",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format duration"
+				}
+			]
+		},
+		{
+			"name": "format/email/0",
+			"schema": {
+				"type": "string",
+				"format": "email"
+			},
+			"value": "a@b.co",
+			"ok": true,
+			"coerced": "a@b.co"
+		},
+		{
+			"name": "format/email/1",
+			"schema": {
+				"type": "string",
+				"format": "email"
+			},
+			"value": "a.b+c@sub.example.com",
+			"ok": true,
+			"coerced": "a.b+c@sub.example.com"
+		},
+		{
+			"name": "format/email/2",
+			"schema": {
+				"type": "string",
+				"format": "email"
+			},
+			"value": "a@b",
+			"ok": true,
+			"coerced": "a@b"
+		},
+		{
+			"name": "format/email/3",
+			"schema": {
+				"type": "string",
+				"format": "email"
+			},
+			"value": "@b.co",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format email"
+				}
+			]
+		},
+		{
+			"name": "format/email/4",
+			"schema": {
+				"type": "string",
+				"format": "email"
+			},
+			"value": "a b@c.co",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format email"
+				}
+			]
+		},
+		{
+			"name": "format/idn-email/0",
+			"schema": {
+				"type": "string",
+				"format": "idn-email"
+			},
+			"value": "user@例え.jp",
+			"ok": true,
+			"coerced": "user@例え.jp"
+		},
+		{
+			"name": "format/idn-email/1",
+			"schema": {
+				"type": "string",
+				"format": "idn-email"
+			},
+			"value": "a@b.co",
+			"ok": true,
+			"coerced": "a@b.co"
+		},
+		{
+			"name": "format/idn-email/2",
+			"schema": {
+				"type": "string",
+				"format": "idn-email"
+			},
+			"value": "a@-b.co",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format idn-email"
+				}
+			]
+		},
+		{
+			"name": "format/ipv4/0",
+			"schema": {
+				"type": "string",
+				"format": "ipv4"
+			},
+			"value": "192.168.0.1",
+			"ok": true,
+			"coerced": "192.168.0.1"
+		},
+		{
+			"name": "format/ipv4/1",
+			"schema": {
+				"type": "string",
+				"format": "ipv4"
+			},
+			"value": "256.1.1.1",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format ipv4"
+				}
+			]
+		},
+		{
+			"name": "format/ipv4/2",
+			"schema": {
+				"type": "string",
+				"format": "ipv4"
+			},
+			"value": "1.2.3",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format ipv4"
+				}
+			]
+		},
+		{
+			"name": "format/ipv4/3",
+			"schema": {
+				"type": "string",
+				"format": "ipv4"
+			},
+			"value": "01.2.3.4",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format ipv4"
+				}
+			]
+		},
+		{
+			"name": "format/ipv6/0",
+			"schema": {
+				"type": "string",
+				"format": "ipv6"
+			},
+			"value": "::1",
+			"ok": true,
+			"coerced": "::1"
+		},
+		{
+			"name": "format/ipv6/1",
+			"schema": {
+				"type": "string",
+				"format": "ipv6"
+			},
+			"value": "2001:db8::8a2e:370:7334",
+			"ok": true,
+			"coerced": "2001:db8::8a2e:370:7334"
+		},
+		{
+			"name": "format/ipv6/2",
+			"schema": {
+				"type": "string",
+				"format": "ipv6"
+			},
+			"value": ":::",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format ipv6"
+				}
+			]
+		},
+		{
+			"name": "format/ipv6/3",
+			"schema": {
+				"type": "string",
+				"format": "ipv6"
+			},
+			"value": "1.2.3.4",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format ipv6"
+				}
+			]
+		},
+		{
+			"name": "format/iri/0",
+			"schema": {
+				"type": "string",
+				"format": "iri"
+			},
+			"value": "https://example.com/ü",
+			"ok": true,
+			"coerced": "https://example.com/ü"
+		},
+		{
+			"name": "format/iri/1",
+			"schema": {
+				"type": "string",
+				"format": "iri"
+			},
+			"value": "http://例え.jp/",
+			"ok": true,
+			"coerced": "http://例え.jp/"
+		},
+		{
+			"name": "format/iri/2",
+			"schema": {
+				"type": "string",
+				"format": "iri"
+			},
+			"value": "ht tp://x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format iri"
+				}
+			]
+		},
+		{
+			"name": "format/iri/3",
+			"schema": {
+				"type": "string",
+				"format": "iri"
+			},
+			"value": "//example.com",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format iri"
+				}
+			]
+		},
+		{
+			"name": "format/iri-reference/0",
+			"schema": {
+				"type": "string",
+				"format": "iri-reference"
+			},
+			"value": "/path",
+			"ok": true,
+			"coerced": "/path"
+		},
+		{
+			"name": "format/iri-reference/1",
+			"schema": {
+				"type": "string",
+				"format": "iri-reference"
+			},
+			"value": "../a?b#c",
+			"ok": true,
+			"coerced": "../a?b#c"
+		},
+		{
+			"name": "format/iri-reference/2",
+			"schema": {
+				"type": "string",
+				"format": "iri-reference"
+			},
+			"value": "http://x/y",
+			"ok": true,
+			"coerced": "http://x/y"
+		},
+		{
+			"name": "format/iri-reference/3",
+			"schema": {
+				"type": "string",
+				"format": "iri-reference"
+			},
+			"value": "ht//x",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format iri-reference"
+				}
+			]
+		},
+		{
+			"name": "format/iri-reference/4",
+			"schema": {
+				"type": "string",
+				"format": "iri-reference"
+			},
+			"value": "/a b",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format iri-reference"
+				}
+			]
+		},
+		{
+			"name": "format/json-pointer/0",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer"
+			},
+			"value": "/a/b",
+			"ok": true,
+			"coerced": "/a/b"
+		},
+		{
+			"name": "format/json-pointer/1",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer"
+			},
+			"value": "",
+			"ok": true,
+			"coerced": ""
+		},
+		{
+			"name": "format/json-pointer/2",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer"
+			},
+			"value": "/a~0b",
+			"ok": true,
+			"coerced": "/a~0b"
+		},
+		{
+			"name": "format/json-pointer/3",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer"
+			},
+			"value": "a/b",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format json-pointer"
+				}
+			]
+		},
+		{
+			"name": "format/json-pointer/4",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer"
+			},
+			"value": "/a~2",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format json-pointer"
+				}
+			]
+		},
+		{
+			"name": "format/json-pointer-uri-fragment/0",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer-uri-fragment"
+			},
+			"value": "#/a/b",
+			"ok": true,
+			"coerced": "#/a/b"
+		},
+		{
+			"name": "format/json-pointer-uri-fragment/1",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer-uri-fragment"
+			},
+			"value": "#",
+			"ok": true,
+			"coerced": "#"
+		},
+		{
+			"name": "format/json-pointer-uri-fragment/2",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer-uri-fragment"
+			},
+			"value": "/a/b",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format json-pointer-uri-fragment"
+				}
+			]
+		},
+		{
+			"name": "format/json-pointer-uri-fragment/3",
+			"schema": {
+				"type": "string",
+				"format": "json-pointer-uri-fragment"
+			},
+			"value": "#/a~1b",
+			"ok": true,
+			"coerced": "#/a~1b"
+		},
+		{
+			"name": "format/regex/0",
+			"schema": {
+				"type": "string",
+				"format": "regex"
+			},
+			"value": "^a+$",
+			"ok": true,
+			"coerced": "^a+$"
+		},
+		{
+			"name": "format/regex/1",
+			"schema": {
+				"type": "string",
+				"format": "regex"
+			},
+			"value": "([a-z]",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format regex"
+				}
+			]
+		},
+		{
+			"name": "format/regex/2",
+			"schema": {
+				"type": "string",
+				"format": "regex"
+			},
+			"value": "a{2,1}",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format regex"
+				}
+			]
+		},
+		{
+			"name": "format/relative-json-pointer/0",
+			"schema": {
+				"type": "string",
+				"format": "relative-json-pointer"
+			},
+			"value": "0",
+			"ok": true,
+			"coerced": "0"
+		},
+		{
+			"name": "format/relative-json-pointer/1",
+			"schema": {
+				"type": "string",
+				"format": "relative-json-pointer"
+			},
+			"value": "1/a",
+			"ok": true,
+			"coerced": "1/a"
+		},
+		{
+			"name": "format/relative-json-pointer/2",
+			"schema": {
+				"type": "string",
+				"format": "relative-json-pointer"
+			},
+			"value": "0#",
+			"ok": true,
+			"coerced": "0#"
+		},
+		{
+			"name": "format/relative-json-pointer/3",
+			"schema": {
+				"type": "string",
+				"format": "relative-json-pointer"
+			},
+			"value": "01/a",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format relative-json-pointer"
+				}
+			]
+		},
+		{
+			"name": "format/relative-json-pointer/4",
+			"schema": {
+				"type": "string",
+				"format": "relative-json-pointer"
+			},
+			"value": "-1",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format relative-json-pointer"
+				}
+			]
+		},
+		{
+			"name": "format/time/0",
+			"schema": {
+				"type": "string",
+				"format": "time"
+			},
+			"value": "20:20:40Z",
+			"ok": true,
+			"coerced": "20:20:40Z"
+		},
+		{
+			"name": "format/time/1",
+			"schema": {
+				"type": "string",
+				"format": "time"
+			},
+			"value": "20:20:40+01:00",
+			"ok": true,
+			"coerced": "20:20:40+01:00"
+		},
+		{
+			"name": "format/time/2",
+			"schema": {
+				"type": "string",
+				"format": "time"
+			},
+			"value": "20:20:40",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format time"
+				}
+			]
+		},
+		{
+			"name": "format/time/3",
+			"schema": {
+				"type": "string",
+				"format": "time"
+			},
+			"value": "24:00:00Z",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format time"
+				}
+			]
+		},
+		{
+			"name": "format/time/4",
+			"schema": {
+				"type": "string",
+				"format": "time"
+			},
+			"value": "20:60:00Z",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format time"
+				}
+			]
+		},
+		{
+			"name": "format/uri/0",
+			"schema": {
+				"type": "string",
+				"format": "uri"
+			},
+			"value": "https://example.com/a?b#c",
+			"ok": true,
+			"coerced": "https://example.com/a?b#c"
+		},
+		{
+			"name": "format/uri/1",
+			"schema": {
+				"type": "string",
+				"format": "uri"
+			},
+			"value": "mailto:a@b.co",
+			"ok": true,
+			"coerced": "mailto:a@b.co"
+		},
+		{
+			"name": "format/uri/2",
+			"schema": {
+				"type": "string",
+				"format": "uri"
+			},
+			"value": "/relative",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format uri"
+				}
+			]
+		},
+		{
+			"name": "format/uri/3",
+			"schema": {
+				"type": "string",
+				"format": "uri"
+			},
+			"value": "http://",
+			"ok": true,
+			"coerced": "http://"
+		},
+		{
+			"name": "format/uri/4",
+			"schema": {
+				"type": "string",
+				"format": "uri"
+			},
+			"value": "urn:x:y",
+			"ok": true,
+			"coerced": "urn:x:y"
+		},
+		{
+			"name": "format/uri-reference/0",
+			"schema": {
+				"type": "string",
+				"format": "uri-reference"
+			},
+			"value": "/relative",
+			"ok": true,
+			"coerced": "/relative"
+		},
+		{
+			"name": "format/uri-reference/1",
+			"schema": {
+				"type": "string",
+				"format": "uri-reference"
+			},
+			"value": "../a?b#c",
+			"ok": true,
+			"coerced": "../a?b#c"
+		},
+		{
+			"name": "format/uri-reference/2",
+			"schema": {
+				"type": "string",
+				"format": "uri-reference"
+			},
+			"value": "https://x/y",
+			"ok": true,
+			"coerced": "https://x/y"
+		},
+		{
+			"name": "format/uri-reference/3",
+			"schema": {
+				"type": "string",
+				"format": "uri-reference"
+			},
+			"value": "a b",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format uri-reference"
+				}
+			]
+		},
+		{
+			"name": "format/uri-reference/4",
+			"schema": {
+				"type": "string",
+				"format": "uri-reference"
+			},
+			"value": "http://x/%zz",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format uri-reference"
+				}
+			]
+		},
+		{
+			"name": "format/uri-template/0",
+			"schema": {
+				"type": "string",
+				"format": "uri-template"
+			},
+			"value": "http://x/{id}",
+			"ok": true,
+			"coerced": "http://x/{id}"
+		},
+		{
+			"name": "format/uri-template/1",
+			"schema": {
+				"type": "string",
+				"format": "uri-template"
+			},
+			"value": "{/list*}",
+			"ok": true,
+			"coerced": "{/list*}"
+		},
+		{
+			"name": "format/uri-template/2",
+			"schema": {
+				"type": "string",
+				"format": "uri-template"
+			},
+			"value": "http://x/{",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format uri-template"
+				}
+			]
+		},
+		{
+			"name": "format/uri-template/3",
+			"schema": {
+				"type": "string",
+				"format": "uri-template"
+			},
+			"value": "{}",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format uri-template"
+				}
+			]
+		},
+		{
+			"name": "format/url/0",
+			"schema": {
+				"type": "string",
+				"format": "url"
+			},
+			"value": "https://example.com/a",
+			"ok": true,
+			"coerced": "https://example.com/a"
+		},
+		{
+			"name": "format/url/1",
+			"schema": {
+				"type": "string",
+				"format": "url"
+			},
+			"value": "http://例え.jp/",
+			"ok": true,
+			"coerced": "http://例え.jp/"
+		},
+		{
+			"name": "format/url/2",
+			"schema": {
+				"type": "string",
+				"format": "url"
+			},
+			"value": "not a url",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format url"
+				}
+			]
+		},
+		{
+			"name": "format/url/3",
+			"schema": {
+				"type": "string",
+				"format": "url"
+			},
+			"value": "/relative",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format url"
+				}
+			]
+		},
+		{
+			"name": "format/url/4",
+			"schema": {
+				"type": "string",
+				"format": "url"
+			},
+			"value": "mailto:a@b.co",
+			"ok": true,
+			"coerced": "mailto:a@b.co"
+		},
+		{
+			"name": "format/uuid/0",
+			"schema": {
+				"type": "string",
+				"format": "uuid"
+			},
+			"value": "123e4567-e89b-12d3-a456-426614174000",
+			"ok": true,
+			"coerced": "123e4567-e89b-12d3-a456-426614174000"
+		},
+		{
+			"name": "format/uuid/1",
+			"schema": {
+				"type": "string",
+				"format": "uuid"
+			},
+			"value": "123E4567-E89B-12D3-A456-426614174000",
+			"ok": true,
+			"coerced": "123E4567-E89B-12D3-A456-426614174000"
+		},
+		{
+			"name": "format/uuid/2",
+			"schema": {
+				"type": "string",
+				"format": "uuid"
+			},
+			"value": "123e4567e89b12d3a456426614174000",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format uuid"
+				}
+			]
+		},
+		{
+			"name": "format/uuid/3",
+			"schema": {
+				"type": "string",
+				"format": "uuid"
+			},
+			"value": "123e4567-e89b-12d3-a456-42661417400",
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "format",
+					"message": "expected format uuid"
+				}
+			]
+		},
+		{
+			"name": "number/string/0",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0,
+			"ok": true,
+			"coerced": "0"
+		},
+		{
+			"name": "number/string/1",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0,
+			"ok": true,
+			"coerced": "0"
+		},
+		{
+			"name": "number/string/2",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1,
+			"ok": true,
+			"coerced": "1"
+		},
+		{
+			"name": "number/string/3",
+			"schema": {
+				"type": "string"
+			},
+			"value": -1,
+			"ok": true,
+			"coerced": "-1"
+		},
+		{
+			"name": "number/string/4",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1.5,
+			"ok": true,
+			"coerced": "1.5"
+		},
+		{
+			"name": "number/string/5",
+			"schema": {
+				"type": "string"
+			},
+			"value": -1.5,
+			"ok": true,
+			"coerced": "-1.5"
+		},
+		{
+			"name": "number/string/6",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0.30000000000000004,
+			"ok": true,
+			"coerced": "0.30000000000000004"
+		},
+		{
+			"name": "number/string/7",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1e-7,
+			"ok": true,
+			"coerced": "1e-7"
+		},
+		{
+			"name": "number/string/8",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0.000001,
+			"ok": true,
+			"coerced": "0.000001"
+		},
+		{
+			"name": "number/string/9",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0.00001,
+			"ok": true,
+			"coerced": "0.00001"
+		},
+		{
+			"name": "number/string/10",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0.000001234,
+			"ok": true,
+			"coerced": "0.000001234"
+		},
+		{
+			"name": "number/string/11",
+			"schema": {
+				"type": "string"
+			},
+			"value": 100000000000000000000,
+			"ok": true,
+			"coerced": "100000000000000000000"
+		},
+		{
+			"name": "number/string/12",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1e+21,
+			"ok": true,
+			"coerced": "1e+21"
+		},
+		{
+			"name": "number/string/13",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1.2345e+21,
+			"ok": true,
+			"coerced": "1.2345e+21"
+		},
+		{
+			"name": "number/string/14",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1e-21,
+			"ok": true,
+			"coerced": "1e-21"
+		},
+		{
+			"name": "number/string/15",
+			"schema": {
+				"type": "string"
+			},
+			"value": 9007199254740991,
+			"ok": true,
+			"coerced": "9007199254740991"
+		},
+		{
+			"name": "number/string/16",
+			"schema": {
+				"type": "string"
+			},
+			"value": 9007199254740992,
+			"ok": true,
+			"coerced": "9007199254740992"
+		},
+		{
+			"name": "number/string/17",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0.3333333333333333,
+			"ok": true,
+			"coerced": "0.3333333333333333"
+		},
+		{
+			"name": "number/string/18",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0.6666666666666666,
+			"ok": true,
+			"coerced": "0.6666666666666666"
+		},
+		{
+			"name": "number/string/19",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1e+100,
+			"ok": true,
+			"coerced": "1e+100"
+		},
+		{
+			"name": "number/string/20",
+			"schema": {
+				"type": "string"
+			},
+			"value": 5e-324,
+			"ok": true,
+			"coerced": "5e-324"
+		},
+		{
+			"name": "number/string/21",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1.7976931348623157e+308,
+			"ok": true,
+			"coerced": "1.7976931348623157e+308"
+		},
+		{
+			"name": "number/string/22",
+			"schema": {
+				"type": "string"
+			},
+			"value": 123456789,
+			"ok": true,
+			"coerced": "123456789"
+		},
+		{
+			"name": "number/string/23",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1234567890123456800,
+			"ok": true,
+			"coerced": "1234567890123456800"
+		},
+		{
+			"name": "number/string/24",
+			"schema": {
+				"type": "string"
+			},
+			"value": 0.5,
+			"ok": true,
+			"coerced": "0.5"
+		},
+		{
+			"name": "number/string/25",
+			"schema": {
+				"type": "string"
+			},
+			"value": 100,
+			"ok": true,
+			"coerced": "100"
+		},
+		{
+			"name": "number/string/26",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1000,
+			"ok": true,
+			"coerced": "1000"
+		},
+		{
+			"name": "number/string/27",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1000000000000000,
+			"ok": true,
+			"coerced": "1000000000000000"
+		},
+		{
+			"name": "number/string/28",
+			"schema": {
+				"type": "string"
+			},
+			"value": 10000000000000000,
+			"ok": true,
+			"coerced": "10000000000000000"
+		},
+		{
+			"name": "number/string/29",
+			"schema": {
+				"type": "string"
+			},
+			"value": 1.1e-10,
+			"ok": true,
+			"coerced": "1.1e-10"
+		},
+		{
+			"name": "number/string/30",
+			"schema": {
+				"type": "string"
+			},
+			"value": 3.141592653589793,
+			"ok": true,
+			"coerced": "3.141592653589793"
+		},
+		{
+			"name": "ref/pointer-into-properties",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"type": "number"
+					},
+					"b": {
+						"$ref": "#/properties/a"
+					}
+				}
+			},
+			"value": {
+				"a": 1,
+				"b": "2"
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1,
+				"b": 2
+			}
+		},
+		{
+			"name": "ref/sibling-keywords",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"$ref": "#/$defs/N",
+						"minimum": 5
+					}
+				},
+				"$defs": {
+					"N": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"a": "3"
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a",
+					"keyword": "minimum",
+					"message": "expected >= 5"
+				}
+			]
+		},
+		{
+			"name": "ref/chain",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"$ref": "#/$defs/A"
+					}
+				},
+				"$defs": {
+					"A": {
+						"$ref": "#/$defs/B"
+					},
+					"B": {
+						"type": "number"
+					}
+				}
+			},
+			"value": {
+				"a": "1"
+			},
+			"ok": true,
+			"coerced": {
+				"a": 1
+			}
+		},
+		{
+			"name": "ref/chain-broken",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"$ref": "#/$defs/A"
+					}
+				},
+				"$defs": {
+					"A": {
+						"$ref": "#/$defs/Missing"
+					}
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a",
+					"keyword": "$ref",
+					"message": "unresolved reference #/$defs/Missing"
+				}
+			]
+		},
+		{
+			"name": "ref/array-items",
+			"schema": {
+				"type": "array",
+				"items": {
+					"$ref": "#/$defs/S"
+				},
+				"$defs": {
+					"S": {
+						"type": "string",
+						"minLength": 2
+					}
+				}
+			},
+			"value": [
+				1,
+				"ab",
+				"c"
+			],
+			"ok": false,
+			"errors": [
+				{
+					"path": "/0",
+					"keyword": "minLength",
+					"message": "expected at least 2 characters"
+				},
+				{
+					"path": "/2",
+					"keyword": "minLength",
+					"message": "expected at least 2 characters"
+				}
+			]
+		},
+		{
+			"name": "ref/in-anyOf",
+			"schema": {
+				"$defs": {
+					"A": {
+						"type": "number"
+					},
+					"B": {
+						"type": "string"
+					}
+				},
+				"anyOf": [
+					{
+						"$ref": "#/$defs/A"
+					},
+					{
+						"$ref": "#/$defs/B"
+					}
+				]
+			},
+			"value": true,
+			"ok": true,
+			"coerced": 1
+		},
+		{
+			"name": "ref/anchor-missing",
+			"schema": {
+				"type": "object",
+				"properties": {
+					"a": {
+						"$ref": "#nope"
+					}
+				}
+			},
+			"value": {
+				"a": 1
+			},
+			"ok": false,
+			"errors": [
+				{
+					"path": "/a",
+					"keyword": "$ref",
+					"message": "unresolved reference #nope"
+				}
+			]
+		},
+		{
+			"name": "if/then-only-mismatch",
+			"schema": {
+				"if": {
+					"type": "string"
+				},
+				"then": {
+					"minLength": 2
+				}
+			},
+			"value": 5,
+			"ok": true,
+			"coerced": 5
+		},
+		{
+			"name": "if/else-only-match",
+			"schema": {
+				"if": {
+					"type": "string"
+				},
+				"else": {
+					"minimum": 5
+				}
+			},
+			"value": 3,
+			"ok": false,
+			"errors": [
+				{
+					"path": "",
+					"keyword": "minimum",
+					"message": "expected >= 5"
+				}
+			]
+		},
+		{
+			"name": "if/no-branch",
+			"schema": {
+				"if": {
+					"type": "string"
+				}
+			},
+			"value": 5,
+			"ok": true,
+			"coerced": 5
+		}
+	]
+}
