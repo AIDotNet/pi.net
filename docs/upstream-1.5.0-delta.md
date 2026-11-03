@@ -155,14 +155,14 @@
 | --- | --- | --- |
 | `f6a9db1d8` | 每会话 turn limit | ✅ 本批（持久化 `runFailure` 记录随 `f3255de76` 落地） |
 | `fb524dd2e` | continue 提交 | ✅ 本批 |
-| `7e15f9601` | run-end tasks + `afterRun` hook | 🟡 核心已落地（`finish`/`drain` + `run.afterRun`，见 §4.17）；`run.first` 与重启上限中断未做 |
+| `7e15f9601` | run-end tasks + `afterRun` hook | ✅ `finish`/`drain` + `run.afterRun`（§4.17）；`run.first` 与重启越限收场已补（§4.19） |
 | `65fba65b2` | hook/task 的 entry reads | ✅ 本批 |
 | `cc9c52310` | `submit(tx, draft)` 在调用方提交内接纳 | 🔧 P6 |
 | `6a2825113` | `whenIdle` 拒绝空闲会话的输入 | ✅ 本批 |
 | `1c6928b30` | 未提供的工具调用按 tool task 跑 | ✅ 本批 |
 | `87eff524f` | `afterTool` 在每个 tool task 结果上跑 | ✅ 本批 |
 | `d280e1ffa` | `beforeProviderRequest` 生成钩子 | ✅ 本批（端口原有 `BeforeRequest` 是消息层，这是请求体层，两者并存） |
-| `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | 🟡 `runFailure` 已落地（`15d315f`，见 §4.11）；窗口化视图、`ConversationTranscript`、删 `watchEvents` 未做 |
+| `f3255de76` | 窗口化会话视图 + `ConversationTranscript` + `runFailure`；删除 `watchEvents` | ✅ `runFailure`（§4.11）、窗口化视图与转录（§4.21）、删 `watchEvents`（§4.22） |
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
 | `be14d9732` | 只读打开 Harness | ✅ 本批 |
 | `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6 |
