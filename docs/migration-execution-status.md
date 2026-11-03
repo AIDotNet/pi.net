@@ -403,3 +403,12 @@ Stage 15 定向验证：`dotnet build .\tests\Pi.CodingAgent.Tests\Pi.CodingAgen
 
 `watchEvents` 删除（同批）：`Events.cs` 1062 行、`ViewObserver.Publication` 与 `HarnessEventsTests` 一并移除，
 durable 554 例全绿。
+
+### P6 第十四批：`wake()` 睡眠集合与空闲过期索引（2026-11-03）
+
+上游 `35dfa7573` 的收尾（脏集合已在此前落地）：`_sleeping` 让 `Wake()` 的最早睡眠只走睡眠任务，`ComputeActive`
+在有调用/待重算时直接为真；`_idleOrder`（+ `_idleSinceById` 镜像、`_idleNewest`）让保留上下文的过期与「下次过期」
+只看队首，时钟回退时整体重排；保留为零的分支与作用域化的空闲等待者一并按上游对齐。所有 `_contexts` 写点改走
+`MarkIdleLocked` / `ForgetIdleLocked` / `DropContextLocked`。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 554 全绿（行为不变）。

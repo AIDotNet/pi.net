@@ -166,7 +166,7 @@
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
 | `be14d9732` | 只读打开 Harness | ✅ 本批 |
 | `e5c6182ba` / `6c2fd73b0` / `da412b039` | 分组提交、批量 `Storage.commit`、节流提交延迟落盘、`appendText` | 🔧 P6 |
-| `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | 🟡 脏集合 + 全量回退已落地（见 §4.15）；`idleOrder` 索引与 `wake()` 睡眠集合未做（端口热点本就不在那两处） |
+| `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | ✅ 脏集合 + 全量回退（§4.15）+ `idleOrder` 索引与睡眠集合（§4.23） |
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | 🔧 P5 |
 | `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
 | `38ff99177` | 工具交接后继续运行 | ✅ 本批 |
@@ -729,3 +729,21 @@ P4（tui）全部 13 项（等语料生成链）。
   + `ConversationTranscript.Merge`，缺口交给 `FillGapAsync`，更早的历史交给 `LoadEarlierAsync`。
 
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **554** 全绿（删掉的 2 例就是事件流用例）。
+
+### 4.23 `wake()` 睡眠集合与空闲过期索引（`35dfa7573` 收尾）
+
+§4.15 已落地「按脏集合重估 + 链加载未知时全量」；这次补齐剩下两处，都是把「每次扫描全部」换成「只看相关的」：
+
+| 变更 | 上游落点 | 端口落点 |
+| --- | --- | --- |
+| `wake()` 的最早睡眠只走睡眠集合 | `#sleeping`（`advance()` 与 `open()` 维护） | `_sleeping`（`NoteSleeping` 在 `OpenAsync` 载入与 `Observe` 更新时登记，终态移除）；`ComputeEarliestSleep` 只遍历它，读记录时再核对状态与 `AbortRequested` |
+| 有调用在跑时不再扫存活任务 | `#runsNow(now)` 只在 `active` 为假时调用 | `ComputeActive` 在 `_invocations.Count > 0 \|\| _reconcileScheduled` 时直接为真 |
+| 空闲过期不扫 `#contexts` | `#idleOrder`（按 `idleSince` 有序）+ `#idleNewest` | `_idleOrder`（`SortedSet<(IdleSince, ConversationId)>`）+ `_idleSinceById` 镜像（O(1) 移除）+ `_idleNewest`；`ExpireContextsLocked` 只看队首，`ScheduleContextExpiryLocked` 用队首算下次定时器 |
+| 时钟回退仍保持有序 | `#markIdle` 发现比最新更旧就重排 | `MarkIdleLocked` 同结构：按当时的 `_contexts` 重建索引并重算 `_idleNewest` |
+| 保留为零丢掉所有空闲范围 | `#settleIdle` 的 `retention <= 0` 分支 | `SettleContextCache` 同分支（`DropContextLocked`） |
+| 空闲等待者按作用域结算 | `#resolveIdleWaiters(scopes)` | `ResolveIdleWaiters(HashSet<ConversationId>?)`；`Observe` 传脏集合，`Reconcile` 的收尾传 `null`（那一遍可能终结任务而没走发布路径） |
+
+**所有 `_contexts` 写点都改走** `MarkIdleLocked` / `ForgetIdleLocked` / `DropContextLocked`（读路径记录范围时也
+一样），否则索引会与保留集合脱节。**行为不变**：睡眠/空闲/保留上下文的既有用例（`HarnessSleepTests` 的
+`Wake().At` 断言、`HarnessContextCacheTests` 的定时过期与保留为零、`HarnessIdleScopesTests` 的脏集合）
+全部照旧通过，durable 554 例全绿。
