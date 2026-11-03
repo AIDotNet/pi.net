@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Pi.Ai.Models;
 using Pi.Ai.Types;
@@ -363,6 +364,64 @@ public static class GoogleShared
         return result;
     }
 
+    /// <summary>值把名字映射到子 schema 的关键字，因此它们的键本身不是 schema 关键字。</summary>
+    private static readonly HashSet<string> JsonSchemaNameMaps = new(StringComparer.Ordinal)
+    {
+        "properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependencies",
+    };
+
+    /// <summary>值含子 schema（或子 schema 数组）的关键字，不是字面量数据。</summary>
+    private static readonly HashSet<string> JsonSchemaSubschemas = new(StringComparer.Ordinal)
+    {
+        "additionalProperties", "unevaluatedProperties", "propertyNames", "items", "prefixItems",
+        "additionalItems", "unevaluatedItems", "contains", "allOf", "anyOf", "oneOf", "not",
+        "if", "then", "else", "contentSchema",
+    };
+
+    /// <summary>
+    /// 把字符串/数字的 <c>const</c> 改写成单值 <c>enum</c>：Gemini 在 <c>parametersJsonSchema</c> 里
+    /// 忽略 <c>const</c>，但认 <c>enum</c>。只下钻含子 schema 的关键字，<c>default</c>/<c>examples</c>/
+    /// <c>enum</c> 里的字面量原样保留（上游 #11308）。对应 TS <c>rewriteConstAsEnum</c>。
+    /// </summary>
+    public static JsonNode? RewriteConstAsEnum(JsonNode? schema, bool isNameMap = false)
+    {
+        if (schema is JsonArray array)
+        {
+            var items = new JsonArray();
+            foreach (var item in array) items.Add(RewriteConstAsEnum(item));
+            return items;
+        }
+        if (schema is not JsonObject obj) return schema?.DeepClone();
+
+        var result = new JsonObject();
+        foreach (var (key, value) in obj)
+        {
+            if (isNameMap || JsonSchemaSubschemas.Contains(key))
+            {
+                result[key] = RewriteConstAsEnum(value);
+            }
+            else if (JsonSchemaNameMaps.Contains(key))
+            {
+                result[key] = RewriteConstAsEnum(value, true);
+            }
+            else
+            {
+                result[key] = value?.DeepClone();
+            }
+        }
+        if (!isNameMap && result.ContainsKey("const") && !result.ContainsKey("enum"))
+        {
+            var constant = result["const"];
+            if (constant is JsonValue literal
+                && literal.GetValueKind() is JsonValueKind.String or JsonValueKind.Number)
+            {
+                result.Remove("const");
+                result["enum"] = new JsonArray(constant!.DeepClone());
+            }
+        }
+        return result;
+    }
+
     /// <summary>
     /// 工具 → Gemini 函数声明。缺省用 <c>parametersJsonSchema</c>（完整 JSON Schema）；
     /// <paramref name="useParameters"/> 为 true 时用旧 <c>parameters</c> 字段
@@ -388,7 +447,7 @@ public static class GoogleShared
             }
             else
             {
-                declaration["parametersJsonSchema"] = parameters?.DeepClone();
+                declaration["parametersJsonSchema"] = RewriteConstAsEnum(parameters);
             }
             declarations.Add(declaration);
         }
