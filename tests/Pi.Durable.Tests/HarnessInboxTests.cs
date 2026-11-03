@@ -598,7 +598,7 @@ public sealed class HarnessInboxTests
     // ─── 6. 工具请求 handoff / terminate ─────────────────────────────────────
 
     [Fact]
-    public async Task EndsTheRunWithAPiResetEntryWhenAToolRequestsAHandoff()
+    public async Task ContinuesTheRunInANewContextWhenAToolRequestsAHandoff()
     {
         var provider = new HarnessTestSupport.ScriptedProvider();
         var setup = HarnessTestSupport.NewChatSetup(provider);
@@ -609,21 +609,25 @@ public sealed class HarnessInboxTests
             Content = [],
             Control = new ToolControl { Handoff = "continue here" },
         });
-        provider.SetResponses(HarnessTestSupport.FakeStep.Of(Hold));
+        provider.SetResponses(
+            HarnessTestSupport.FakeStep.Of(Hold),
+            HarnessTestSupport.FakeStep.Of(Answer("after handoff")));
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
         try
         {
             var settled = await (await root.SubmitAsync(
                 new SubmissionDraft.Input { Content = [new TextContent("a")] }, Ctx)).WaitAsync(Ctx);
             var entries = await HarnessTestSupport.AllEntriesAsync(root);
-            var calling = entries.First(entry => entry.Kind == "pi.assistant");
-            Assert.Equal(SubmissionStatus.Done, ((SubmissionRecord.InputRecord)settled.Record).Status);
-            Assert.Equal(calling.Id, ((SubmissionRecord.InputRecord)settled.Record).Answer);
+            var record = (SubmissionRecord.InputRecord)settled.Record;
+            // 交接不结束运行：模型在新上下文里又被问了一次并回答。
+            Assert.Equal(SubmissionStatus.Done, record.Status);
+            Assert.Equal(entries[^1].Id, record.Answer);
             Assert.Equal(
-                ["pi.user:a", "pi.assistant", "pi.tool-result", "pi.reset:continue here"],
+                ["pi.user:a", "pi.assistant", "pi.tool-result", "pi.reset:continue here", "pi.assistant:after handoff"],
                 Transcript(entries));
-            Assert.Equal(entries[^1].Id, entries[^1].Head);
-            Assert.Equal(1, provider.CallCount);
+            var reset = entries.Single(entry => entry.Kind == DurableEntries.ResetEntry.Kind);
+            Assert.Equal(reset.Id, reset.Head);
+            Assert.Equal(2, provider.CallCount);
             Assert.Empty((await harness.SnapshotAsync(Live.LiveDoc, root.Id, Ctx))!);
         }
         finally
@@ -668,7 +672,7 @@ public sealed class HarnessInboxTests
     }
 
     [Fact]
-    public async Task WritesTheLastHandoffInCallOrderAndThenRunsQueuedFollowUpsInTheNewContext()
+    public async Task WritesOnlyTheLastHandoffInCallOrderAndRunsQueuedFollowUpsAfterTheContinuingRun()
     {
         var provider = new HarnessTestSupport.ScriptedProvider();
         var setup = HarnessTestSupport.NewChatSetup(provider);
@@ -696,6 +700,7 @@ public sealed class HarnessInboxTests
         };
         provider.SetResponses(
             HarnessTestSupport.FakeStep.Of(round),
+            HarnessTestSupport.FakeStep.Of(Answer("after handoff")),
             HarnessTestSupport.FakeStep.Of(Answer("follow-up")));
         var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
         try
@@ -707,10 +712,17 @@ public sealed class HarnessInboxTests
             await ToolSlotAsync(harness, root, 1, "done");
             firstGate.Resolve();
             await f.WaitAsync(Ctx);
-            Assert.Equal(SubmissionStatus.Done, StatusOf(await StatusAsync(input)));
+            var entries = await HarnessTestSupport.AllEntriesAsync(root);
+            // handoff 不终止：排队的 follow-up 留在队列里，运行先在新上下文回答一次，该答案的 final 边界
+            // 才放置 follow-up 并继续。
             Assert.Equal(
-                ["pi.tool-result", "pi.reset:two", "pi.user:f", "pi.assistant:follow-up"],
-                Transcript(await HarnessTestSupport.AllEntriesAsync(root))[^4..]);
+                ["pi.user:a", "pi.assistant", "pi.tool-result", "pi.tool-result", "pi.reset:two",
+                 "pi.assistant:after handoff", "pi.user:f", "pi.assistant:follow-up"],
+                Transcript(entries));
+            var answers = entries.Where(entry => entry.Kind == "pi.assistant").ToList();
+            var record = (SubmissionRecord.InputRecord)await StatusAsync(input);
+            Assert.Equal(SubmissionStatus.Done, record.Status);
+            Assert.Equal(answers[1].Id, record.Answer);
         }
         finally
         {

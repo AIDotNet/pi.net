@@ -1205,19 +1205,20 @@ public static partial class Generation
             var live = await tx.DocAsync(Live.LiveDoc, conversationId).ConfigureAwait(false);
             var now = runtime.Now();
             var turns = Live.RunTurns(live, runtime.TaskId);
-            if (terminate || handoff is not null)
+            if (handoff is not null)
             {
-                if (handoff is not null)
-                {
-                    var resetEntry = await tx.AppendEntryAsync(
-                        DurableEntries.ResetEntry, conversationId,
-                        new TypedEntryDraft<object?>
-                        {
-                            HeadIsSelf = true, Model = [new UserMessage([new TextContent(handoff)], now)],
-                        }).ConfigureAwait(false);
-                    boundary.Head = resetEntry.Id;
-                }
+                // handoff 的重置先于每个排队项：排队的写入与被选中的 steer 都落进它的新上下文。
+                var resetEntry = await tx.AppendEntryAsync(
+                    DurableEntries.ResetEntry, conversationId,
+                    new TypedEntryDraft<object?>
+                    {
+                        HeadIsSelf = true, Model = [new UserMessage([new TextContent(handoff)], now)],
+                    }).ConfigureAwait(false);
+                boundary.Head = resetEntry.Id;
+            }
 
+            if (terminate)
+            {
                 var final = await Inbox.ApplyBoundaryAsync(tx, boundary, BoundaryAt.Final, now).ConfigureAwait(false);
                 Live.EndRun(tx, live, runtime.TaskId, new SubmissionSettlement.Done(assistant));
                 if (final.Users.Count > 0)
