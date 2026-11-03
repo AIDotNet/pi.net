@@ -57,6 +57,59 @@ public class HarnessContinueTests
     }
 
     [Fact]
+    public async Task ContinueKeepsTheFailedRunsFirstEntryForItsAfterRunHooks()
+    {
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewChatSetup(provider);
+        // 第一次回答以错误收场：运行没有回答就结束，留下 runFailure。
+        provider.SetResponses(HarnessTestSupport.FakeStep.Of(new AssistantMessage([])
+        {
+            StopReason = StopReason.Error,
+            ErrorMessage = "503 Service Unavailable",
+            Model = "faux-1",
+            Provider = "faux",
+            UsageStats = new Pi.Ai.Types.Usage(0, 0),
+        }));
+        var asked = new List<RunSummary>();
+        HarnessTestSupport.AddHooks(
+            setup.Registry, "pi.generation", new HarnessTestSupport.RunEndHooksImpl(run =>
+            {
+                asked.Add(run);
+                return [];
+            }));
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            var failed = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("hi")] }, Ctx);
+            var record = Assert.IsType<SubmissionRecord.InputRecord>((await failed.WaitAsync(Ctx)).Record);
+            Assert.Equal(SubmissionStatus.Unanswered, record.Status);
+
+            var userEntry = (await HarnessTestSupport.AllEntriesAsync(root)).First(entry => entry.Kind == "pi.user");
+            var live = await harness.SnapshotAsync(Live.LiveDoc, root.Id, Ctx);
+            var failure = Assert.IsAssignableFrom<JsonDict>(live!["runFailure"]);
+            // 失败运行记下自己的第一个条目，供 continue 起的运行接着看它的历史。
+            Assert.Equal(userEntry.Id.Value, Convert.ToInt64(failure["first"]));
+
+            // 续跑：这一次回答了，afterRun 钩子拿到的 first 仍是失败那段历史的起点，而不是本次运行的答案。
+            provider.SetResponses(HarnessTestSupport.FakeStep.Of(HarnessTestSupport.AssistantReply("done")));
+            var continuation = await root.SubmitAsync(new SubmissionDraft.Continue(), Ctx);
+            var continued = Assert.IsType<SubmissionRecord.ContinueRecord>((await continuation.WaitAsync(Ctx)).Record);
+            Assert.Equal(SubmissionStatus.Done, continued.Status);
+            await harness.WaitForIdleAsync(Ctx);
+
+            var run = Assert.Single(asked);
+            Assert.Equal("answer", run.Reason);
+            Assert.Equal(userEntry.Id, run.First);
+            Assert.NotEqual(run.Answer, run.First);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    [Fact]
     public async Task ContinueOnABusyConversationIsRejectedWithoutWriting()
     {
         var provider = new FakeProvider("faux", _ => HarnessTestSupport.AssistantReply("never"), block: true);

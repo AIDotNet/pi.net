@@ -285,7 +285,8 @@ public static class Live
     /// 最近一次没有回答就结束的运行及其原因，写进结束它的那个提交。对应 TS <c>live.runFailure</c>。
     /// </summary>
     public static void SetRunFailure(
-        TxDocChange live, TaskId<object?> taskId, IReadOnlyList<SubmissionId> inputs, string reason, object? detail)
+        TxDocChange live, TaskId<object?> taskId, IReadOnlyList<SubmissionId> inputs, string reason, object? detail,
+        EntryId? first = null)
     {
         var failure = new Dictionary<string, object?>
         {
@@ -295,8 +296,19 @@ public static class Live
             ["reason"] = reason,
         };
         if (detail is not null) failure["detail"] = detail;
+        // 失败运行的 run.first：continue 起的运行据此让 afterRun 钩子也看到那段历史。
+        if (first is { } firstEntry) failure["first"] = firstEntry.Value;
         live.Set(RunFailurePath, failure);
     }
+
+    /// <summary>失败运行的 <c>run.first</c>（若有）。对应 TS <c>live.runFailure?.first</c>。</summary>
+    public static EntryId? RunFailureFirst(TxDocChange live)
+        => live.Draft.TryGetValue("runFailure", out var value)
+            && value is IReadOnlyDictionary<string, object?> failure
+            && failure.TryGetValue("first", out var first)
+            && first is not null
+                ? EntryId.From(Convert.ToInt64(first))
+                : null;
 
     /// <summary>清掉 <c>runFailure</c>：一次新的运行开始（除非它结束的那次失败要留着）。对应 TS <c>delete live.runFailure</c>。</summary>
     public static void DeleteRunFailure(TxDocChange live) => live.Delete(RunFailurePath);
@@ -455,7 +467,10 @@ public static class Live
                 // 没有回答就结束的运行留下原因，供运行结束后展示；开始新运行时清掉（见 StartRunAsync）。
                 if (settlement is SubmissionSettlement.Unanswered unanswered)
                 {
-                    SetRunFailure(live, taskId, settledInputs, unanswered.Reason, unanswered.Detail);
+                    // 记下这次运行的第一个条目，供 continue 起的运行接着看它的历史。
+                    SetRunFailure(
+                        live, taskId, settledInputs, unanswered.Reason, unanswered.Detail,
+                        first: RunFirst(live));
                 }
             }
 

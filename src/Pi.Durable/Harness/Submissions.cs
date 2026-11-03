@@ -195,10 +195,12 @@ public static class Admission
             // 上一次失败运行按 afterFailedRun: "keep" 留在队列里的项先被放置，并一起并入这次运行。
             var appliedContinue = await Inbox.ApplyBoundaryAsync(tx, continueBoundary, BoundaryAt.Final, now)
                 .ConfigureAwait(false);
-            // continue 自己不落条目：运行第一个条目是它放置的第一个排队项，没有则以首个工具轮答案补。
+            // continue 自己不落条目：运行第一个条目是失败运行记下的那个（接着看它的历史），否则是它放置的
+            // 第一个排队项，再没有则以首个工具轮答案补。必须在 StartRunAsync 清掉 runFailure 之前读。
+            var continuedFirst = Live.RunFailureFirst(live) ?? appliedContinue.First;
             await Generation.StartRunAsync(
                 tx, conversationId, live, [.. appliedContinue.Users, admittedContinue.Id],
-                first: appliedContinue.First).ConfigureAwait(false);
+                first: continuedFirst).ConfigureAwait(false);
             return admittedContinue.Id;
         }
 
