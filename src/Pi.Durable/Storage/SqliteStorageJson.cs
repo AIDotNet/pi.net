@@ -210,6 +210,16 @@ internal static class SqliteStorageJson
                     Reason = reason,
                     Detail = detail,
                 },
+                "continue" => new SubmissionRecord.ContinueRecord
+                {
+                    Id = id,
+                    ConversationId = conversationId,
+                    RequestId = requestId,
+                    Status = status,
+                    Answer = OptionalId<EntryId>(root, "answer"),
+                    Reason = reason,
+                    Detail = detail,
+                },
                 "write" => new SubmissionRecord.WriteRecord
                 {
                     Id = id,
@@ -243,6 +253,13 @@ internal static class SqliteStorageJson
                     WriteOptionalId(writer, "answer", input.Answer);
                     WriteOptionalString(writer, "reason", input.Reason);
                     WriteOptionalValue(writer, "detail", input.Detail, options);
+                    break;
+                case SubmissionRecord.ContinueRecord continuation:
+                    writer.WritePropertyName("status");
+                    JsonSerializer.Serialize(writer, continuation.Status, options);
+                    WriteOptionalId(writer, "answer", continuation.Answer);
+                    WriteOptionalString(writer, "reason", continuation.Reason);
+                    WriteOptionalValue(writer, "detail", continuation.Detail, options);
                     break;
                 case SubmissionRecord.WriteRecord write:
                     writer.WritePropertyName("status");

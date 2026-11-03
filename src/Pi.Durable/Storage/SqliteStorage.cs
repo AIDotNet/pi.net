@@ -1263,6 +1263,7 @@ public sealed class SqliteStorage : IStorage, IAsyncDisposable
     {
         SubmissionRecord.InputRecord input => input.Status,
         SubmissionRecord.WriteRecord write => write.Status,
+        SubmissionRecord.ContinueRecord continuation => continuation.Status,
         _ => throw new ArgumentOutOfRangeException(nameof(record)),
     };
 

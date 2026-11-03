@@ -34,6 +34,20 @@ public abstract record SubmissionCreate
         public object? Detail { get; init; }
     }
 
+    /// <summary>continue 提交的创建形状：不落条目，从不排队。</summary>
+    public sealed record ContinueCreate : SubmissionCreate
+    {
+        public override string Type => "continue";
+
+        public required SubmissionStatus Status { get; init; }
+
+        public EntryId? Answer { get; init; }
+
+        public string? Reason { get; init; }
+
+        public object? Detail { get; init; }
+    }
+
     /// <summary>被动条目写入提交的创建形状。</summary>
     public sealed record WriteCreate : SubmissionCreate
     {

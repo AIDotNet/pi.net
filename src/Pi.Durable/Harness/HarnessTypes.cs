@@ -53,6 +53,17 @@ public abstract record SubmissionDraft
         public string? WhenIdle { get; init; }
     }
 
+    /// <summary>
+    /// continue 提交：不为对话追加用户消息，直接在现有上下文上起一次运行。只在空闲时受理——忙碌对话以
+    /// <see cref="ConversationBusy"/> 拒绝，它从不排队；<c>pi.inbox</c> 里留着的排队项先被放置并一起并入这次运行。
+    /// 上下文没有可回答的东西（空的，或以上一次回答结尾）时，运行不发送请求就以 <c>nothing_to_answer</c> 结算为
+    /// unanswered。对应 TS <c>{ type: "continue" }</c>。
+    /// </summary>
+    public sealed record Continue : SubmissionDraft
+    {
+        public override string Type => "continue";
+    }
+
     /// <summary>被动条目写入提交。</summary>
     public sealed record Write : SubmissionDraft
     {

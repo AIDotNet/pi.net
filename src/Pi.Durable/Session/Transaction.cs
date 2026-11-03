@@ -62,12 +62,14 @@ internal static class SubmissionChanges
 
     private static bool IsSettled(SubmissionRecord record)
         => record is SubmissionRecord.InputRecord { Status: SubmissionStatus.Done or SubmissionStatus.Unanswered }
-            or SubmissionRecord.WriteRecord { Status: SubmissionStatus.Done or SubmissionStatus.Unanswered };
+            or SubmissionRecord.WriteRecord { Status: SubmissionStatus.Done or SubmissionStatus.Unanswered }
+            or SubmissionRecord.ContinueRecord { Status: SubmissionStatus.Done or SubmissionStatus.Unanswered };
 
     private static SubmissionStatus StatusOf(SubmissionRecord record) => record switch
     {
         SubmissionRecord.InputRecord input => input.Status,
         SubmissionRecord.WriteRecord write => write.Status,
+        SubmissionRecord.ContinueRecord continuation => continuation.Status,
         _ => throw new InvalidOperationException("Unknown submission record kind"),
     };
 
@@ -94,6 +96,13 @@ internal static class SubmissionChanges
                 Entry = entry ?? write.Entry,
                 Reason = reason ?? write.Reason,
                 Detail = detail ?? write.Detail,
+            },
+            SubmissionRecord.ContinueRecord continuation => continuation with
+            {
+                Status = status,
+                Answer = answer ?? continuation.Answer,
+                Reason = reason ?? continuation.Reason,
+                Detail = detail ?? continuation.Detail,
             },
             _ => throw new InvalidOperationException("Unknown submission record kind"),
         };
@@ -545,6 +554,16 @@ public sealed class Transaction : ITx
                     Answer = input.Answer,
                     Reason = input.Reason,
                     Detail = input.Detail,
+                },
+                SubmissionCreate.ContinueCreate continuation => new SubmissionRecord.ContinueRecord
+                {
+                    Id = id,
+                    ConversationId = continuation.ConversationId,
+                    RequestId = continuation.RequestId,
+                    Status = continuation.Status,
+                    Answer = continuation.Answer,
+                    Reason = continuation.Reason,
+                    Detail = continuation.Detail,
                 },
                 SubmissionCreate.WriteCreate write => new SubmissionRecord.WriteRecord
                 {

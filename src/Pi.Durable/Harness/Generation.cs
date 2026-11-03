@@ -236,6 +236,15 @@ public static partial class Generation
         }
 
         var view = await runtime.ContextAsync(conversationId, context).ConfigureAwait(false);
+        // 模型只对以用户消息或工具结果结尾的上下文有应答义务；系统消息不算。否则（空的，或以上一次回答结尾，
+        // 例如回答之后的 continue）在发出任何请求之前就结束运行。对应 TS 的 failNothingToAnswer()。
+        var lastAnswerable = view.Messages.LastOrDefault(message => message is not SystemMessage);
+        if (lastAnswerable is not (UserMessage or ToolResultMessage))
+        {
+            await FailNothingToAnswerAsync(runtime, context).ConfigureAwait(false);
+            return;
+        }
+
         var shown = Prompt.ReplaySections(view.Messages);
         var report = new Action<Exception>(error => runtime.Report(error));
         IExecutionEnv? env = null;
@@ -572,6 +581,36 @@ public static partial class Generation
         {
             await StartRunAsync(tx, conversationId, live, applied.Users, keepFailure: true).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// 不发请求就结束运行：上下文里没有模型会回答的东西。与失败同路（<c>afterFailedRun</c> 决定排队项），
+    /// 结算为 <c>nothing_to_answer</c>。对应 TS <c>failNothingToAnswer()</c>。
+    /// </summary>
+    private static async Task FailNothingToAnswerAsync(ITaskRuntime runtime, Context context)
+    {
+        const string text = "The conversation has nothing to answer";
+        await runtime.CommitAsync(async (tx, _) =>
+        {
+            var failure = await PrepareFailureAsync(tx, runtime).ConfigureAwait(false);
+            var live = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
+            await EndFailedRunAsync(
+                tx, runtime, live, failure, new SubmissionSettlement.Unanswered("nothing_to_answer", text))
+                .ConfigureAwait(false);
+            return new TaskState
+            {
+                Status = TaskStatus.Terminal,
+                Outcome = new TaskOutcome
+                {
+                    Status = TaskOutcomeStatus.Failed,
+                    Error = new TaskOutcomeError
+                    {
+                        Message = text,
+                        Detail = new Dictionary<string, object?> { ["reason"] = "nothing_to_answer" },
+                    },
+                },
+            };
+        }, context).ConfigureAwait(false);
     }
 
     /// <summary>把运行的输入以 <c>model_error</c> 结算为 unanswered 并以 <paramref name="text"/> 失败。</summary>

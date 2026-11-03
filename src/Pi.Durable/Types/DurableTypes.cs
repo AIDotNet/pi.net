@@ -477,6 +477,20 @@ public abstract record SubmissionRecord
         public object? Detail { get; init; }
     }
 
+    /// <summary>continue 提交：不落条目；只有被回答、未应答或（受理后）placed 三种。</summary>
+    public sealed record ContinueRecord : SubmissionRecord
+    {
+        public override string Type => "continue";
+
+        public required SubmissionStatus Status { get; init; }
+
+        public EntryId? Answer { get; init; }
+
+        public string? Reason { get; init; }
+
+        public object? Detail { get; init; }
+    }
+
     /// <summary>被动条目写入提交。</summary>
     public sealed record WriteRecord : SubmissionRecord
     {

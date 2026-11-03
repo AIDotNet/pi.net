@@ -1282,6 +1282,7 @@ public sealed class MemoryStorage : IStorage
     {
         SubmissionRecord.InputRecord input => input.Status,
         SubmissionRecord.WriteRecord write => write.Status,
+        SubmissionRecord.ContinueRecord continuation => continuation.Status,
         _ => null,
     };
 
@@ -1328,6 +1329,7 @@ public sealed class MemoryStorage : IStorage
     {
         SubmissionRecord.InputRecord input => input with { Detail = Json.DeepClone(input.Detail) },
         SubmissionRecord.WriteRecord write => write with { Detail = Json.DeepClone(write.Detail) },
+        SubmissionRecord.ContinueRecord continuation => continuation with { Detail = Json.DeepClone(continuation.Detail) },
         _ => record,
     };
 

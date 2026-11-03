@@ -87,6 +87,7 @@ public sealed class Submissions
             var status = record switch
             {
                 SubmissionRecord.InputRecord input => input.Status,
+                SubmissionRecord.ContinueRecord continuation => continuation.Status,
                 SubmissionRecord.WriteRecord write => write.Status,
                 _ => (SubmissionStatus?)null,
             };
@@ -112,8 +113,13 @@ public sealed class Submissions
     }
 
     internal static bool IsSettled(SubmissionRecord record)
-        => record is SubmissionRecord.InputRecord input ? IsTerminal(input.Status)
-            : record is SubmissionRecord.WriteRecord write && IsTerminal(write.Status);
+        => record switch
+        {
+            SubmissionRecord.InputRecord input => IsTerminal(input.Status),
+            SubmissionRecord.WriteRecord write => IsTerminal(write.Status),
+            SubmissionRecord.ContinueRecord continuation => IsTerminal(continuation.Status),
+            _ => false,
+        };
 
     private static bool IsTerminal(SubmissionStatus status) => status is SubmissionStatus.Done or SubmissionStatus.Unanswered;
 
@@ -172,6 +178,26 @@ public static class Admission
         if (!busy && draft is SubmissionDraft.Input { WhenIdle: "reject" })
         {
             throw new ConversationIdle(conversationId);
+        }
+
+        if (draft is SubmissionDraft.Continue)
+        {
+            // 从不排队：能不能续跑取决于当前运行怎么结束。因此在任何写之前就拒绝忙碌的。
+            if (busy) throw new ConversationBusy(conversationId);
+            var continueBoundary = await Inbox.PrepareBoundaryAsync(
+                tx, conversationId, steeringMode, followUpMode).ConfigureAwait(false);
+            var admittedContinue = await tx.CreateSubmissionAsync(new SubmissionCreate.ContinueCreate
+            {
+                ConversationId = conversationId,
+                RequestId = draft.RequestId,
+                Status = SubmissionStatus.Placed,
+            }).ConfigureAwait(false);
+            // 上一次失败运行按 afterFailedRun: "keep" 留在队列里的项先被放置，并一起并入这次运行。
+            var appliedContinue = await Inbox.ApplyBoundaryAsync(tx, continueBoundary, BoundaryAt.Final, now)
+                .ConfigureAwait(false);
+            await Generation.StartRunAsync(
+                tx, conversationId, live, [.. appliedContinue.Users, admittedContinue.Id]).ConfigureAwait(false);
+            return admittedContinue.Id;
         }
 
         // 边界读表，因此它在首次表写之前准备；忙碌的无需边界。
@@ -264,6 +290,12 @@ public static class Admission
         => draft switch
         {
             SubmissionDraft.Input input => new SubmissionCreate.InputCreate
+            {
+                ConversationId = conversationId,
+                RequestId = draft.RequestId,
+                Status = status,
+            },
+            SubmissionDraft.Continue => new SubmissionCreate.ContinueCreate
             {
                 ConversationId = conversationId,
                 RequestId = draft.RequestId,
