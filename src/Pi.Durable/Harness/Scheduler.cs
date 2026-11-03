@@ -2340,6 +2340,12 @@ public sealed class TaskScheduler
             };
         }
 
+        public Task<Page<EntryRecord>> EntriesAsync(
+            EntryRange range, int limit, JsonDict? cursor, Context context)
+            => scheduler.ReadAsync(invocation, () => scheduler._session.ReadOnLineAsync(
+                () => scheduler._storage.ScanEntriesAsync(
+                    HarnessUtil.ConversationEntries(invocation.ConversationId, range), limit, cursor)));
+
         private Task<StoredEntry?> ReadStoredEntryAsync(EntryId id, Context context)
             => scheduler.ReadAsync(invocation, () => scheduler._session.ReadOnLineAsync(
                 () => scheduler._storage.GetEntryAsync(invocation.ConversationId, id)));

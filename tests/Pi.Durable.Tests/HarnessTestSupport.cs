@@ -627,9 +627,15 @@ internal static class HarnessTestSupport
 
         public Task AfterResponse(AssistantMessage message, IHookApi api, Context context) => Task.CompletedTask;
 
+        /// <summary>带 <see cref="IHookApi"/> 的 onYield：钩子要在其中读条目历史。对应 TS <c>onYield(answer, api, ctx)</c>。</summary>
+        public Func<AssistantMessage, IHookApi, Context, Task<(IReadOnlyList<ContentBlock> Continue, bool ContinueRun)?>>?
+            OnYieldAsync { get; init; }
+
         public Task<(IReadOnlyList<ContentBlock> Continue, bool ContinueRun)?> OnYield(
             AssistantMessage answer, IHookApi api, Context context)
-            => Task.FromResult(OnYieldHandler?.Invoke(answer));
+            => OnYieldAsync is { } handler
+                ? handler(answer, api, context)
+                : Task.FromResult(OnYieldHandler?.Invoke(answer));
 
         public Task AfterTools(
             EntryId assistant, IReadOnlyList<EntryId> results, IHookApi api, Context context)

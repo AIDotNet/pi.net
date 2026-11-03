@@ -93,6 +93,27 @@ public sealed class Waiters<K, T> where K : notnull
 /// <summary>杂项助手。对应 TS <c>harness/util.ts</c> 的其余自由函数。</summary>
 public static class HarnessUtil
 {
+    /// <summary>
+    /// 把 <paramref name="query"/> 收敛到某对话的历史扫描上：不带调用方可能多塞的字段（例如另一个
+    /// <c>ConversationId</c>）。对应 TS <c>conversationEntries()</c>。
+    /// </summary>
+    public static EntryQuery ConversationEntries(ConversationId conversationId, EntryQuery query) => new()
+    {
+        ConversationId = conversationId,
+        MinEntryId = query.MinEntryId,
+        MaxEntryId = query.MaxEntryId,
+        Order = query.Order,
+    };
+
+    /// <summary>同上，输入是钩子/任务侧的区间（不含对话）。</summary>
+    public static EntryQuery ConversationEntries(ConversationId conversationId, EntryRange range) => new()
+    {
+        ConversationId = conversationId,
+        MinEntryId = range.MinEntryId,
+        MaxEntryId = range.MaxEntryId,
+        Order = range.Order,
+    };
+
     /// <summary>按页序返回分页扫描的全部条目。对应 TS <c>scanAll</c>。</summary>
     public static async Task<System.Collections.Generic.IReadOnlyList<T>> ScanAllAsync<T>(
         Func<IReadOnlyDictionary<string, object?>?, Task<Page<T>>> scan)

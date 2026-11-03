@@ -118,12 +118,7 @@ internal sealed class ConversationImpl : IConversation
     public Task<Page<EntryRecord>> EntriesAsync(
         EntryQuery query, int limit, JsonDict? cursor, Context context)
     {
-        var bounded = new EntryQuery
-        {
-            ConversationId = Id,
-            MinEntryId = query.MinEntryId,
-            MaxEntryId = query.MaxEntryId,
-        };
+        var bounded = HarnessUtil.ConversationEntries(Id, query);
         return _host.Harness.ReadOnLineAsync(
             () => _host.Storage.ScanEntriesAsync(bounded, limit, cursor));
     }

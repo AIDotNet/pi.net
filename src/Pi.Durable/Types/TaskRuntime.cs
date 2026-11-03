@@ -82,11 +82,20 @@ public interface ITaskRuntime : IDocumentObserver, IDocumentReader, IHookApi
     /// </summary>
     Task<IConversationHandle?> ConversationAsync(ConversationId id, Context context);
 
+    // 这三条与 IHookApi 的同名成员是同一份契约（钩子拿到的就是任务运行时），这里重新声明是为了把
+    // 面向任务的文档放在任务侧；实现只需一份。
     /// <summary>任务对话可见的已提交条目；不存在 / 不可见为 null。</summary>
-    Task<EntryRecord?> EntryAsync(EntryId id, Context context);
+    new Task<EntryRecord?> EntryAsync(EntryId id, Context context);
 
     /// <summary>条目不存在、不可见或种类不符为 null。</summary>
-    Task<TypedEntry<TData>?> EntryAsync<TData>(Entry<TData> token, EntryId id, Context context);
+    new Task<TypedEntry<TData>?> EntryAsync<TData>(Entry<TData> token, EntryId id, Context context);
+
+    /// <summary>
+    /// 任务对话的已提交原始历史（fork 感知，同 <c>Conversation.EntriesAsync</c>）。压缩从不改动条目，因此由条目 ID
+    /// 界定的区间在压缩前后、以及重跑之间读到的是同一段。对应 TS <c>TaskRuntime.entries()</c>。
+    /// </summary>
+    new Task<Page<EntryRecord>> EntriesAsync(
+        EntryRange range, int limit, IReadOnlyDictionary<string, object?>? cursor, Context context);
 
     /// <summary>已提交的原始活动转录与模型上下文；可在可见条目 <paramref name="at"/> 处截断。</summary>
     Task<ContextView> ContextAsync(ConversationId conversationId, Context context, EntryId? at = null);

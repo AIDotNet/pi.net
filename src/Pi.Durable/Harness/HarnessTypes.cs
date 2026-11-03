@@ -1218,6 +1218,19 @@ public interface IHookApi : IDocumentReader
     Task<object?> MemoAsync(string name, Context context);
 
     Task<object> MemoAsync(string name, object candidate, Context context);
+
+    /// <summary>任务对话可见的已提交条目，同 <see cref="ITaskRuntime.EntryAsync(EntryId, Context)"/>。</summary>
+    Task<EntryRecord?> EntryAsync(EntryId id, Context context);
+
+    /// <summary>条目不存在、不可见或种类不符为 null。</summary>
+    Task<TypedEntry<TData>?> EntryAsync<TData>(Entry<TData> token, EntryId id, Context context);
+
+    /// <summary>
+    /// 任务对话的已提交原始历史，同 <see cref="ITaskRuntime.EntriesAsync"/>。钩子拿到的是**运行时的**已提交状态，
+    /// 所以崩溃后重跑的钩子可能看到更多；区间也可能含别人的条目（展示型写入、压缩摘要、其他任务的条目），按 kind 过滤。
+    /// </summary>
+    Task<Page<EntryRecord>> EntriesAsync(
+        EntryRange range, int limit, IReadOnlyDictionary<string, object?>? cursor, Context context);
 }
 
 /// <summary>钩子回调。对应 TS <c>HookResult&lt;T&gt;</code> 的函数形状。</summary>

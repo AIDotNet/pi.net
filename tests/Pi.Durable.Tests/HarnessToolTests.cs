@@ -320,6 +320,12 @@ public class ToolTaskTests
         public Task<TypedEntry<TData>?> EntryAsync<TData>(Entry<TData> token, EntryId id, Context context)
             => _session.CommitAsync(tx => tx.GetEntryAsync(token, id), context);
 
+        public Task<Page<EntryRecord>> EntriesAsync(
+            EntryRange range, int limit, IReadOnlyDictionary<string, object?>? cursor, Context context)
+            => _session.CommitAsync(
+                tx => tx.ScanEntriesAsync(
+                    HarnessUtil.ConversationEntries(ConversationId, range), limit, cursor), context);
+
         public Task<ContextView> ContextAsync(ConversationId conversationId, Context context, EntryId? at = null)
             => throw new NotSupportedException();
 

@@ -260,6 +260,22 @@ public sealed record ConversationQuery
 }
 
 /// <summary>一个对话 fork 感知历史的最新优先扫描的含界 ID 范围。对应 TS <c>EntryQuery</c>。</summary>
+/// <summary>
+/// 条目区间：钩子与任务读自己对话的历史时用（对话已由调用方确定，不能另选）。对应 TS
+/// <c>Omit&lt;EntryQuery, "conversationId"&gt;</c>。
+/// </summary>
+public sealed record EntryRange
+{
+    /// <summary>缺省按最新优先（ID 降序）扫描。</summary>
+    public ScanOrder? Order { get; init; }
+
+    /// <summary>可返回的最旧条目 ID。</summary>
+    public EntryId? MinEntryId { get; init; }
+
+    /// <summary>可返回的最新条目 ID。</summary>
+    public EntryId? MaxEntryId { get; init; }
+}
+
 public sealed record EntryQuery
 {
     public required ConversationId ConversationId { get; init; }
