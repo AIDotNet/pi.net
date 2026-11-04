@@ -1100,3 +1100,21 @@ break;                                                        // 只有真正命
     生成 partial 的 `PartialThrottle` 与工具输出节流改用 `Deferred`。
 11. 用例：延迟提交后 `subscribeCommits` 一次都没收到、watch 立刻看到内容、下一次读/写该文档时落盘一次（带 seq）、
     `close()` 落盘、`Infinity` 只在读/写或关闭时落盘；以及「非 latest/迁移/含表写入」都会立刻落盘。
+
+**第二阶段的一次尝试（已回退，`7b579b9` 之后）**
+
+按上面 11 条实现过一版（Session 字段/构造/`CommitOptions` 贯穿 `ISession` → `ITaskRuntime` → `Scheduler.GatedAsync`、
+持有与落盘、定时器、`Publish` 拆分、`ObserveCommits` 与四个消费者、关闭/卸载/重载前落盘、`ProgressPolicy.PersistWithinMs`、
+partial 用 `Live.ProgressCommit`），构建绿。临时诊断确认**选项确实传到了 Session**：
+
+```
+[diag] commit options=Deferred within=1000
+```
+
+但 `Transaction.Holdable()` 对 `pi.live` 的 partial 提交返回了 null，于是没有任何提交被持有，
+`ObserveCommits` 收不到 `IsMemory` 的提交（用 `PersistWithinMs = int.MaxValue` 的用例直接暴露）。因为已到本轮预算边界，
+整体回退到 `7b579b9`（工作区干净、`Pi.Durable.Tests` 566 全绿），没有留下半成品。
+
+下次接着做时，**先给 `Holdable()` 的四个 `return null` 分别加断言/日志**（`_writes` 含非 `document.change`、
+`plan.Content`/`plan.Change.Loaded` 为 null、`History`/`Fork` 不符、`StoredVersion != Version`），
+确定 `pi.live` 卡在哪一条再动手——选项管道与 Session 侧机制这次已经验证可用。
