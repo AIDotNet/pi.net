@@ -42,6 +42,38 @@ internal sealed class DocumentObservationSink
 }
 
 /// <summary>
+/// 文档追随器的观察者出口：每帧直达宿主的 <see cref="IObserver{T}"/>，由 <see cref="GuardedObserver{T}"/>
+/// 兜住抛出并负责摘下。关闭时按上游 <c>closeEnds</c> 以「session closed」的失败结束，
+/// 好让它能跟上下一个 Session。对应 TS <c>guardObserver</c> + <c>endGuarded</c>。
+/// </summary>
+internal sealed class GuardedDocumentObserver : IObservationSink
+{
+    private readonly GuardedObserver<IReadOnlyDictionary<string, object?>?> _guarded;
+
+    public GuardedDocumentObserver(
+        ISessionObserver<IReadOnlyDictionary<string, object?>?> observer, Action detach, Action<Exception> report) =>
+        _guarded = new GuardedObserver<IReadOnlyDictionary<string, object?>?>(observer, detach, report);
+
+    public void Advance(
+        IReadOnlyDictionary<string, object?>? value,
+        IReadOnlyList<DeltaOp> ops,
+        bool retired,
+        Context context) =>
+        _guarded.Advance(new WatchCall<IReadOnlyDictionary<string, object?>?>.Value(value, ops, retired), context);
+
+    /// <summary>owner 任务转终态：观察者以「已结束」收尾。对应 TS <c>endGuarded</c>。</summary>
+    public void EndAfterDelivery() => _guarded.End(new WatchEnd.Ended());
+
+    public void EndWith(Exception? failure) =>
+        _guarded.End(failure is null
+            ? new WatchEnd.Failed(new InvalidOperationException("session closed"))
+            : new WatchEnd.Failed(failure));
+
+    /// <summary>观察的摘下动作：幂等，摘下之后不再有推进或结束。</summary>
+    public void Detach() => _guarded.Detach();
+}
+
+/// <summary>
 /// 绑定到一个文档化身或对话视图的串行化精确帧 watch。其源显式结束它：退休文档用
 /// <see cref="Retire"/>，关闭或失败的 Session 用 <see cref="EndWith"/>。终止会丢弃该 watch 持有的
 /// 每个指向其源的引用，因此一个仍被引用的已停止 watch 只保留其最后一个值。

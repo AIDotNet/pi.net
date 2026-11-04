@@ -412,6 +412,109 @@ public class DurableSession : ISession
         return watch;
     }
 
+    // ─── Observe ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 在 Session 线上原子地附着 <paramref name="observer"/>：它拿到附着之后的每一帧（不折叠），退休投
+    /// 「最后的值 + 空 ops + retired」，同一地址上的新化身投根替换。文档不存在时返回 <see langword="null"/>。
+    /// 对应 TS <c>Session.observeDoc()</c>（<c>8b0caefc2</c>）。
+    /// </summary>
+    /// <remarks>
+    /// 差异 C232：上游按令牌的类型给出 <c>Observer&lt;Readonly&lt;T&gt;&gt;</c>；端口的文档 watch 本来就是
+    /// 无类型字典（<see cref="IDocumentWatch{T}"/>），这里沿用同一形状，免得为观察再物化一次强类型值。
+    /// </remarks>
+    public Task<Observation<IReadOnlyDictionary<string, object?>?>?> ObserveDocAsync<T>(
+        DocToken<T> token,
+        ISessionObserver<IReadOnlyDictionary<string, object?>?> observer,
+        Context context)
+        where T : class, IReadOnlyDictionary<string, object?>
+        => ObserveDocCoreAsync(DurableDocuments.Erase(token.Definition), [], observer, context);
+
+    /// <inheritdoc cref="ObserveDocAsync{T}(DocToken{T}, IObserver{IReadOnlyDictionary{string, object}}, Context)"/>
+    public Task<Observation<IReadOnlyDictionary<string, object?>?>?> ObserveDocAsync<T>(
+        DocToken<T> token,
+        ConversationId conversationId,
+        ISessionObserver<IReadOnlyDictionary<string, object?>?> observer,
+        Context context)
+        where T : class, IReadOnlyDictionary<string, object?>
+        => ObserveDocCoreAsync(DurableDocuments.Erase(token.Definition), [conversationId.Value], observer, context);
+
+    /// <inheritdoc cref="ObserveDocAsync{T}(DocToken{T}, IObserver{IReadOnlyDictionary{string, object}}, Context)"/>
+    public Task<Observation<IReadOnlyDictionary<string, object?>?>?> ObserveDocAsync<T>(
+        DocToken<T> token,
+        TaskId<object?> taskId,
+        ISessionObserver<IReadOnlyDictionary<string, object?>?> observer,
+        Context context)
+        where T : class, IReadOnlyDictionary<string, object?>
+        => ObserveDocCoreAsync(DurableDocuments.Erase(token.Definition), [taskId.Value], observer, context);
+
+    /// <inheritdoc cref="ObserveDocAsync{T}(DocToken{T}, IObserver{IReadOnlyDictionary{string, object}}, Context)"/>
+    public Task<Observation<IReadOnlyDictionary<string, object?>?>?> ObserveDocAsync<T, TSeed>(
+        DocFamilyToken<T, TSeed> token,
+        string key,
+        ISessionObserver<IReadOnlyDictionary<string, object?>?> observer,
+        Context context)
+        where T : class, IReadOnlyDictionary<string, object?>
+        => ObserveDocCoreAsync(DurableDocuments.Erase(token.Definition), [key], observer, context);
+
+    /// <inheritdoc cref="ObserveDocAsync{T}(DocToken{T}, IObserver{IReadOnlyDictionary{string, object}}, Context)"/>
+    public Task<Observation<IReadOnlyDictionary<string, object?>?>?> ObserveDocAsync<T, TSeed>(
+        DocFamilyToken<T, TSeed> token,
+        ConversationId conversationId,
+        string key,
+        ISessionObserver<IReadOnlyDictionary<string, object?>?> observer,
+        Context context)
+        where T : class, IReadOnlyDictionary<string, object?>
+        => ObserveDocCoreAsync(
+            DurableDocuments.Erase(token.Definition), [conversationId.Value, key], observer, context);
+
+    /// <inheritdoc cref="ObserveDocAsync{T}(DocToken{T}, IObserver{IReadOnlyDictionary{string, object}}, Context)"/>
+    public Task<Observation<IReadOnlyDictionary<string, object?>?>?> ObserveDocAsync<T, TSeed>(
+        DocFamilyToken<T, TSeed> token,
+        TaskId<object?> taskId,
+        string key,
+        ISessionObserver<IReadOnlyDictionary<string, object?>?> observer,
+        Context context)
+        where T : class, IReadOnlyDictionary<string, object?>
+        => ObserveDocCoreAsync(DurableDocuments.Erase(token.Definition), [taskId.Value, key], observer, context);
+
+    private async Task<Observation<IReadOnlyDictionary<string, object?>?>?> ObserveDocCoreAsync(
+        DurableDocuments.AnyDocDefinition definition,
+        object?[] args,
+        ISessionObserver<IReadOnlyDictionary<string, object?>?> observer,
+        Context context)
+    {
+        AssertUsable();
+        var resolved = DurableDocuments.ResolveAddress(definition, args);
+        var signal = context.AbortSignal;
+        var cancelled = signal?.IsCancellationRequested ?? false;
+        using var registration = signal?.Register(() => cancelled = true);
+        var attached = await Enqueue(async () =>
+        {
+            AssertHealthy();
+            if (cancelled) throw CancellationError(signal!.Value);
+            var loaded = await LoadDocumentAsync(definition, resolved.Id, resolved.Address, context)
+                .ConfigureAwait(false);
+            if (cancelled) throw CancellationError(signal!.Value);
+            if (loaded is null) return null;
+            IReadOnlyDictionary<string, object?>? attachedValue = null;
+            var sink = ObserveDocument(definition, loaded, (value, detach, report) =>
+            {
+                attachedValue = value;
+                return new GuardedDocumentObserver(observer, detach, report);
+            });
+            return new Observation<IReadOnlyDictionary<string, object?>?>(attachedValue, sink.Detach);
+        }).ConfigureAwait(false);
+        if (attached is null) return null;
+        if (cancelled)
+        {
+            attached.Detach();
+            throw CancellationError(signal!.Value);
+        }
+
+        return attached;
+    }
+
     // ─── 历史快照 ───────────────────────────────────────────────────────────
 
     /// <inheritdoc />

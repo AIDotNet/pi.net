@@ -645,6 +645,144 @@ public class SessionTests
         Assert.IsType<WatchEnd.Stopped>(await watch.Stop());
     }
 
+    [Fact]
+    public async Task ObserveDocDeliversEveryFrameWithoutFolding()
+    {
+        var test = OpenTestSession();
+        var conversationId = await CreateConversationAsync(test.Session);
+        await test.Session.CommitAsync(async tx =>
+        {
+            var change = await tx.DocAsync(NotesDoc, conversationId);
+            change.Set(Path.Root.Append(Seg.Key("text")), "one");
+        }, Ctx);
+        var observer = new RecordingObserver();
+        var observation = await test.Session.ObserveDocAsync(NotesDoc, conversationId, observer, Ctx);
+        Assert.NotNull(observation);
+        // 附着那一刻的值就是观察的起点，之后每一帧都以它为起点。
+        Assert.Equal("""{"text":"one"}""", Json(observation.Value));
+
+        await test.Session.CommitAsync(async tx =>
+        {
+            var change = await tx.DocAsync(NotesDoc, conversationId);
+            change.Set(Path.Root.Append(Seg.Key("text")), "two");
+        }, Ctx);
+        await test.Session.CommitAsync(async tx =>
+        {
+            var change = await tx.DocAsync(NotesDoc, conversationId);
+            change.Set(Path.Root.Append(Seg.Key("text")), "three");
+        }, Ctx);
+        await WaitUntilAsync(() => observer.FrameCount == 2);
+        // 观察者不折叠：两次提交就是两次调用。
+        Assert.Equal([("""{"text":"two"}""", 1), ("""{"text":"three"}""", 1)], observer.FramesSnapshot());
+
+        observation.Detach();
+        await test.Session.CommitAsync(async tx =>
+        {
+            var change = await tx.DocAsync(NotesDoc, conversationId);
+            change.Set(Path.Root.Append(Seg.Key("text")), "four");
+        }, Ctx);
+        await Task.Delay(50);
+        Assert.Equal(2, observer.FrameCount);
+        Assert.Equal(0, observer.EndCount);
+    }
+
+    [Fact]
+    public async Task ObserveDocContainsAThrowingObserverAndDetachesIt()
+    {
+        var test = OpenTestSession();
+        var conversationId = await CreateConversationAsync(test.Session);
+        await test.Session.CommitAsync(tx => tx.DocAsync(NotesDoc, conversationId), Ctx);
+        var observer = new RecordingObserver();
+        var observation = await test.Session.ObserveDocAsync(NotesDoc, conversationId, observer, Ctx);
+        Assert.NotNull(observation);
+        observer.ThrowOnNextAdvance = new InvalidOperationException("observer boom");
+
+        // 观察者抛出不能传给提交方：提交照常成功。
+        await test.Session.CommitAsync(async tx =>
+        {
+            var change = await tx.DocAsync(NotesDoc, conversationId);
+            change.Set(Path.Root.Append(Seg.Key("text")), "one");
+        }, Ctx);
+        await WaitUntilAsync(() => observer.EndCount == 1);
+        var end = Assert.IsType<WatchEnd.ListenerError>(Assert.Single(observer.EndsSnapshot()));
+        Assert.Equal("observer boom", end.Error.Message);
+
+        // 出错即摘下：此后的提交不再到达它。
+        await test.Session.CommitAsync(async tx =>
+        {
+            var change = await tx.DocAsync(NotesDoc, conversationId);
+            change.Set(Path.Root.Append(Seg.Key("text")), "two");
+        }, Ctx);
+        await Task.Delay(50);
+        Assert.Equal(1, observer.EndCount);
+    }
+
+    [Fact]
+    public async Task ObserveDocReturnsNullWhenTheDocumentIsMissing()
+    {
+        var test = OpenTestSession();
+        var conversationId = await CreateConversationAsync(test.Session);
+        var observer = new RecordingObserver();
+        Assert.Null(await test.Session.ObserveDocAsync(NotesDoc, conversationId, observer, Ctx));
+        Assert.Equal(0, observer.FrameCount);
+    }
+
+    /// <summary>记录每一帧与终局的观察者；可在下一次推进时按需抛出。</summary>
+    private sealed class RecordingObserver : ISessionObserver<IReadOnlyDictionary<string, object?>?>
+    {
+        private readonly object _gate = new();
+        private readonly List<(string? Value, int Ops)> _frames = [];
+        private readonly List<WatchEnd> _ends = [];
+
+        public Exception? ThrowOnNextAdvance { get; set; }
+
+        public int FrameCount
+        {
+            get
+            {
+                lock (_gate) return _frames.Count;
+            }
+        }
+
+        public int EndCount
+        {
+            get
+            {
+                lock (_gate) return _ends.Count;
+            }
+        }
+
+        public List<(string? Value, int Ops)> FramesSnapshot()
+        {
+            lock (_gate) return [.. _frames];
+        }
+
+        public List<WatchEnd> EndsSnapshot()
+        {
+            lock (_gate) return [.. _ends];
+        }
+
+        public void Advance(WatchCall<IReadOnlyDictionary<string, object?>?> call, Context context)
+        {
+            if (ThrowOnNextAdvance is { } error)
+            {
+                ThrowOnNextAdvance = null;
+                throw error;
+            }
+
+            if (call is WatchCall<IReadOnlyDictionary<string, object?>?>.Value value)
+            {
+                var text = value.NewValue is null ? null : Json(value.NewValue);
+                lock (_gate) _frames.Add((text, value.Ops.Count));
+            }
+        }
+
+        public void End(WatchEnd end)
+        {
+            lock (_gate) _ends.Add(end);
+        }
+    }
+
     // ─── 生命周期 ───────────────────────────────────────────────────────────
 
     [Fact]
