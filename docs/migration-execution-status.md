@@ -514,3 +514,25 @@ alt-screen 回归用例需要「录制终端 + 全屏渲染」设施，端口没
 判定标准：失败集合每次不同、且单跑能过 → 记为噪声；固定不变的只有 `UpstreamTypeScriptExampleTests`（typebox 语料，
 与 1.5.0 无关，见 §3）。本轮改动（`2ce9d527d` / `0f21a3319` / `deb12d78e` / `6c2fd73b0` / `b5fc6dc84` / `f6ee9ce9c` /
 `6fed3cfb9` / `7391dbb0f`）均未引入新失败。
+
+## 2026-11-04 审计：模糊匹配排序 + 文档追随器回 1.5.0 语义
+
+**怎么发现的**：把台账里所有仍标 🔧 的行逐个对回代码，找出「只出现在初次评估表、此后任何批次都没提过」的行。
+两条命中：`b9e3eef6c`（核对后确认早已落地，`ApplyToolLoadout` 的 `currentActiveNames` 且调用点已接线）；
+`8c03fef4d` 的 tui 主项（真缺口）。另外发现 §4.7 末尾「仍归 P6」的三件事在后续 P6 批次里从未落地。
+
+**三处改动**
+
+| 项 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 模糊匹配对「每段连续出现」计分取最优 | `8c03fef4d` | `Pi.Tui/Fuzzy.cs`：抽出 `ScorePositions`，`MatchQuery` 收齐 positions 后再遍历连续出现；字符串查找显式 `Ordinal` | `FuzzyTests` +3（分值由上游 TS 实跑取得）、`ModelSearchRankingTests` 2 例 |
+| 文档追随器回 1.5.0 语义（退休/按地址跟随/owner 终态） | `#observeDocument` | `Session.ObserveDocument(..., create)` + `AtAddress`；删除 1.4.0 的 `CommittedWatch.Retire` / `RetirementOperations` | `WatchFollowsTheAddressAcrossRetirementAndRecreation` |
+| `Session.observeDoc` | `8b0caefc2` | `Observers.cs`（`ISessionObserver` / `Observation` / `GuardedObserver`）+ `ObserveDocAsync` 六个重载 | `ObserveDoc*` 3 例 |
+
+**仍未做**：`Harness.observeConversation` / `Harness.observeTaskGraph`（把已有的 `AttachAsync` 用 `GuardedObserver`
+包一层即可，详见 `upstream-1.5.0-delta.md` §6.4）。这两件与 §6.1（分组提交）/ §6.2（工具参数增量）不同——它们
+是公开 API 缺口，不是写入成本。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` **23963** 全绿；`Pi.CodingAgent.Tests` **5194**
+（1 既有 typebox 失败 / 3 跳过；`SessionSelectorTests.PageDownMovesByMaxVisible` 偶发，单跑 22/22 绿）；
+`Pi.Durable.Tests` **569** 全绿。

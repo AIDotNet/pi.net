@@ -1206,6 +1206,33 @@ OAuth 选择器、自动补全、llama、`pi models` CLI），改 `Match` 即全
 （symlink 特权 ×2、Windows 上的 POSIX 进程组）；`SessionSelectorTests.PageDownMovesByMaxVisible` 本轮偶发失败，
 单跑 22/22 全绿，判为时序噪声。
 
+### 4.40 文档追随器回 1.5.0 语义 + `Session.observeDoc`
+
+§4.7 把 `8b0caefc2` 的三件事记作「仍归 P6」，此后再无落地记录。审计（§6.4）确认三件全缺，且端口的退休语义
+还是 **1.4.0** 的：`RETIREMENT_OPERATIONS`（`[["r", null]]`）在 `v1.5.0` 已被删除。
+
+**两块改动**
+
+| 块 | 上游 | 落点 |
+| --- | --- | --- |
+| 追随器重写 | `#observeDocument` | `Session.ObserveDocument(definition, loaded, create)`：退休投「最后的值 + 空 ops + `retired`」且 watch 不结束；同地址新化身作根替换；另一定义版本的值整体替换；仅迁移的 base（ops 为空）不投递；owner 任务转终态时退订、解除 pin、以「已结束」收尾。`AtAddress` 逐字段比较 kind/key/scope |
+| observe 出口 | `guardObserver` / `observation` / `endGuarded` / `closeEnds` | `Observers.cs`：`ISessionObserver<T>`、`Observation<T>`、`GuardedObserver<T>`；`GuardedDocumentObserver` 把 sink 动词转给 guard；`Session.ObserveDocAsync` 六个重载 |
+
+**为什么退休要改**：1.4.0 的 watch 在文档退休时投一帧 `<null, [["r",null]]>` 然后 `ended`；1.5.0 改成投
+「最后的值 + 空 ops + `retired:true`」并**保持打开**——同一地址上重建的化身随后以根替换到达，watch 与观察者
+都不断。端口原来的实现会在这条路径上直接终止 watch，等于把「文档重建」当成「文档消失」。
+
+**用例**：`WatchFollowsTheAddressAcrossRetirementAndRecreation`（退休帧形状 + watch 不关闭 + 根替换到达）、
+`ObserveDocDeliversEveryFrameWithoutFolding`（每帧直达、附着起点值、摘下后无帧无终局）、
+`ObserveDocContainsAThrowingObserverAndDetachesIt`（抛出被兜住、提交照常成功、end 为 `listener_error`、
+此后不再收帧）、`ObserveDocReturnsNullWhenTheDocumentIsMissing`。删掉直接钉 1.4.0 `Retire` 形状的旧例。
+
+**差异记录**：C231——TS 的 `advance` 允许返回 promise、其拒绝由 guard 上报；端口 `Advance` 是 `void`，
+同步抛出照旧兜住，异步错误由宿主自理。C232——上游按令牌给 `Observer<Readonly<T>>`，端口沿用文档 watch 的
+无类型字典形状，免得为观察再物化一次强类型值。
+
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **569** 全绿（566 − 1 删 + 1 改 + 3 增）。
+
 ## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
 
 用户口径：「只同步到 1.5.0 正式版」。据此把 `v1.4.0..v1.5.0` 全量重扫了一遍——**原来的台账是按精选清单写的，
@@ -1404,14 +1431,19 @@ UI 看到的中间参数与上游逐段 append 的结果相同，只是每次提
 
 | 项 | 端口现状 | 判定 |
 | --- | --- | --- |
-| `Harness.observeConversation` → `views.observe(id, observer, context, window)` | 只有工厂式 `ConversationViews.AttachAsync(id, create, context, window)`（上游的 `attach`），没有 `observe` 那一层 | 🔧 缺 |
-| `Harness.observeTaskGraph` → `taskGraph.observe(observer, context)` | 只有 `TaskGraphViews.AttachAsync` 与 `WatchTaskGraphAsync` | 🔧 缺 |
-| `Session.observeDoc` 的 5 个重载 → `#observeDocument(..., create)` | 只有 `WatchDocAsync`（watch 出口），`#observeDocument` 的 `create` 缝没留 | 🔧 缺 |
+| `Harness.observeConversation` → `views.observe(id, observer, context, window)` | 只有工厂式 `ConversationViews.AttachAsync(id, create, context, window)`（上游的 `attach`），`observe` 那一层没做 | 🔧 缺（§4.40 已备好 `GuardedObserver`，只差包一层） |
+| `Harness.observeTaskGraph` → `taskGraph.observe(observer, context)` | 只有 `TaskGraphViews.AttachAsync` 与 `WatchTaskGraphAsync` | 🔧 缺（同上） |
+| `Session.observeDoc` 的 5 个重载 → `#observeDocument(..., create)` | ✅ §4.40：`ObserveDocAsync` 六个重载 + `GuardedObserver`；`#observeDocument` 的 `create` 缝在 §4.39 的追随器重写里留出 | ✅ |
 
-三者都是 **v1.5.0 新增**（`git grep` 在 `v1.4.0` 上为 0 次，`v1.5.0` 上 18/7/6 次），所以确实在本轮范围内，不是历史遗留。
+这三件都是 **v1.5.0 新增**（`git grep` 在 `v1.4.0` 上为 0 次，`v1.5.0` 上 18/7/6 次），所以确实在本轮范围内，不是历史遗留。
 它们与 §6.1 / §6.2 不同：**这是公开 API 的缺口，不是写入成本**。`attach` 与 `observe` 共用同一处挂载线路，缺的正是
-`Observer`/`guardObserver`/`Observation` 那一层（上游 559 行 `session.ts` 里的 `contained` + `guardObserver` +
-`observation`，语义：观察者抛错或被拒绝时经 `report` 上报、自行 detach、并以 `listener_error` 结束，绝不污染提交方）。
+`Observer`/`guardObserver`/`Observation` 那一层（语义：观察者抛错时经 `report` 上报、自行 detach、并以
+`listener_error` 结束，绝不污染提交方）。
 
-**下一步**：按 `guardObserver` → `#observeDocument` 的 `create` 缝 → 两个 `Harness.observe*` 的顺序补齐，并照抄上游
-`observe*` 用例。在这三件落地之前，上面 §6.3 的「功能对齐完成」只对 §6.1 / §6.2 两项成立。
+**已补一半**：§4.39 重写了文档追随器（退休语义 + 按地址跟随 + owner 终态），§4.40 补上 `GuardedObserver` 与
+`ObserveDocAsync`——三条里 `Session.observeDoc` 已齐。**余下** `Harness.observeConversation` /
+`Harness.observeTaskGraph`：两者只需把已有的 `ConversationViews.AttachAsync` / `TaskGraphViews.AttachAsync` 用
+`GuardedObserver` 包一层，`IHarness` 仅有 `HarnessImpl` 一个实现者，改动面可控，但本轮未做。
+
+**下一步**：`ConversationViews.ObserveAsync` / `TaskGraphViews.ObserveAsync` → `HarnessImpl` 的两个方法 →
+`IHarness` 声明，并照抄上游 `observe*` 用例。在这两件落地之前，上面 §6.3 的「功能对齐完成」只对 §6.1 / §6.2 两项成立。
