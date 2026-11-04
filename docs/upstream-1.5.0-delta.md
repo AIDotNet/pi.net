@@ -1170,3 +1170,88 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **567** 全绿；`Pi.CodingAgent.Tests` 与基线一致
 （5208：1 既有失败 / 3 跳过）。
+
+## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
+
+用户口径：「只同步到 1.5.0 正式版」。据此把 `v1.4.0..v1.5.0` 全量重扫了一遍——**原来的台账是按精选清单写的，
+漏了 44 个 feat/fix 提交**。下面按范围分好类，端口相关的那 17 条给了判定。
+
+方法（可复现）：从 `docs/upstream-1.5.0-delta.md` 抽出所有 9 位短哈希，与
+`git log --name-only v1.4.0..v1.5.0` 里触及 `packages/{coding-agent,durable,tui,ai,env,mcp}` 的提交比对，差集即漏项。
+
+**端口相关（待评估）**（17）
+
+- `a6bde34bb` feat(schema): benchmark against ata-validator, Ajv and Zod
+- `c2760d32c` fix(coding-agent): name the package manager in pi update only when it owns the install (#11628)
+- `6fed3cfb9` fix(coding-agent): let the SDK stream resolve auth for summaries (#11556)
+- `b5fc6dc84` fix(coding-agent): strip private-parameter CSI sequences in stripAnsi
+- `018fdcf43` fix(durable): pi.live version 3 gives a stored run without turns a count of 0
+- `f6ee9ce9c` fix(coding-agent): summarize union and multi-line codemode output types in tool descriptions (#11513)
+- `7391dbb0f` fix(coding-agent): show model scope in the fullscreen header instead of the shell (#11512)
+- `bb65e3e49` fix(durable): import toCodemodeIdentifier from pi-codemode/declarations
+- `531340f10` fix(ai): remove unused root bedrock-provider shims
+- `a6a7bac86` fix(coding-agent): hidden thinking with an empty label renders no rows (#11470)
+- `f049787d9` fix(coding-agent): default openai provider to gpt-6.1-sol (#11467)
+- `c17be1e98` fix: skip custom-message runs in prompt-url-widget
+- `1e42501bb` fix(durable): keep pi.live cached in the partial-commit cost test
+- `3953e9ef4` fix(examples): todo renderResult returns undefined on validation errors
+- `c8ec752cf` fix(coding-agent): skip fd/rg downloads on unsupported architectures
+- `476a303c1` fix(coding-agent): drop min-release-age override from managed npm ci (#11270)
+- `5884ee681` feat(coding-agent): let /ir import a session file from a .jsonl URL
+
+**chord v2（端口只跟 chord v1，超范围）**（16）
+
+- `513f6f1ce` fix: keep Chord example dependencies out of releases
+- `20362c155` fix(chord): widen the origin-record heap bound for CI noise
+- `cc08278a6` fix(chord): slice 10 http builds without DOM types
+- `8959ad6e6` feat(chord): Chord v2 slice 10, HTTP and workers
+- `a14cdf90f` feat(chord): v2 slice 7c, plugins component and per-plugin load and reload
+- `4b535d57e` feat(chord): slice 7b, reload in the kernel
+- `339847eb1` feat(chord): Chord v2 slice 7a, the dependency model
+- `5ec241882` feat(chord): hostAddress instead of placement, required on remote types; only hosts with an address serve remote types
+- `6eb99ad65` feat(chord): Chord v2 slice 8, registries and host.root
+- `391e83fb1` fix(chord): Chord v2 follows its design where the audit of slices 1-6a found it did not
+- `14b4c56e5` feat(chord,durable): Chord v2 slice 6b, Durable and jobs on the store
+- `a92283056` fix(chord): Delta's tracker holds its one open change without a WeakRef
+- `5f312dac4` feat(chord,durable): failures are watch calls; one vocabulary for watches, observers and reports
+- `973b74c55` fix(chord): keep the workerd runCounted probe row outside the bulk range
+- `bdb151774` fix(chord): give the PendingOps fuzz tests room on loaded CI runners
+- `92ab53602` feat: Durable storage adopt callback inside the commit, watch types in Chord, explicit watch retirement
+
+**构建/依赖/CI（N/A）**（9）
+
+- `7ef8680ab` fix: sync esbuild platform package dev flags in lockfile
+- `b4c2e92ac` fix: remove vulnerable dependency chains
+- `66c2fa3d7` fix(coding-agent): update undici to 8.12.3 for security advisories
+- `0eea54f11` fix: normalize path separators in check-entry-graphs on Windows (#11399)
+- `911fbab32` fix: unset all supported provider env vars in pi-test.sh --no-env (#11395)
+- `a1836b06c` fix: handle npm 12 pack --json output in preview-packages
+- `906e1302f` fix(coding-agent): build standalone binaries with Bun 1.4.4 (#11319)
+- `74f468640` fix: trust robopipi[bot] in PR gate
+- `2685de7a1` fix: update deps for security advisories
+
+**只动测试（N/A）**（2）
+
+- `068e972c7` fix(ai): remove adaptive thinking metadata test that duplicated generator logic
+- `ed76cca69` fix(coding-agent): test forkFrom copied content instead of fs calls
+**17 条「端口相关」的判定**
+
+| 提交 | 判定 |
+| --- | --- |
+| `b5fc6dc84` stripAnsi 私有参数 CSI | ✅ 已移植（本节批次）：`AnsiText.CsiStart` 只在真 CSI 引导符后接受 `<`/`=`/`>`，`ESC=`/`ESC>` 后面的数字仍是正文；用例 `AnsiTextPrivateCsiTests` 照抄上游 8 条断言 |
+| `018fdcf43` `pi.live` v3：存储里没 `turns` 的运行记 0 | ➖ 判定不适用：端口的 `pi.live` 是 v1，写 `run` 时一直带 `turns`，没有「v2 写了却没 turns」的历史数据可迁 |
+| `f049787d9` 默认 openai 模型改 `gpt-6.1-sol` | ⏳ 归到 P2「目录数据」一起做（同一份 models 目录，单改一处会和目录不一致） |
+| `a6a7bac86` 隐藏思考块空标签不渲染行 | ⏳ 待做（71 行，coding-agent 渲染） |
+| `7391dbb0f` 全屏标题栏显示模型 scope | ⏳ 待做（86 行） |
+| `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ⏳ 待做（74 行，随 `da412b039` 的类型推导一起做更省） |
+| `6fed3cfb9` SDK 流在摘要时解析 auth | ⏳ 待做（142 行） |
+| `c8ec752cf` 不支持的架构上跳过 fd/rg 下载 | ⏳ 待核（端口是否还有下载路径） |
+| `c2760d32c` `pi update` 只在自管安装时点名包管理器 | ⏳ 待核 |
+| `5884ee681` `/ir` 从 `.jsonl` URL 导入会话 | ⏳ 待做（新功能） |
+| `a6bde34bb` schema 基准（Ajv/Zod 对比） | ➖ 开发工具，端口不需要 |
+| `bb65e3e49` 从 `pi-codemode/declarations` 导入 | ➖ 纯导入整理，端口无对应模块边界 |
+| `531340f10` 删 bedrock shim | ➖ 端口没有这些 shim |
+| `1e42501bb` partial 成本测试里保住 pi.live 缓存 | ➖ 只动测试 |
+| `c17be1e98` prompt-url-widget 跳过自定义消息 | ➖ examples/开发脚本 |
+| `3953e9ef4` examples 的 todo renderResult | ➖ examples |
+| `476a303c1` 去掉 managed npm ci 的 min-release-age | ➖ 发布/CI |

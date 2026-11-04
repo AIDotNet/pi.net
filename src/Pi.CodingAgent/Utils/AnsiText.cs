@@ -23,8 +23,11 @@ public static class AnsiText
     private const string OscStart = @"\u001B\]";
 
     // CSI and related: ESC/C1, optional intermediates, optional params (supports ; and :), then final byte.
+    // A private prefix (<, =, >) is accepted only right after a real CSI introducer (ESC [ or 0x9B), so
+    // ESC[<35;59;1M (an SGR mouse report) is stripped whole. After a bare ESC those bytes stay final bytes:
+    // ESC = and ESC > (keypad modes) must not swallow the digits of the text that follows (`b5fc6dc84`).
     // JS `\d` is [0-9]; .NET `\d` would also match other Unicode decimal digits.
-    private const string CsiStart = @"[\u001B\u009B][\[\]()#;?]*(?:[0-9]{1,4}(?:[;:][0-9]{0,4})*)?";
+    private const string CsiStart = @"(?:(?:\u001B\[|\u009B)[<=>]|[\u001B\u009B][\[\]()#;?]*)(?:[0-9]{1,4}(?:[;:][0-9]{0,4})*)?";
     private const string CsiFinal = @"[0-9A-PR-TZcf-nq-uy=><~]";
 
     // Complete sequences. OSC is non-greedy until the first ST.
