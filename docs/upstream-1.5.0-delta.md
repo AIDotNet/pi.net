@@ -1242,7 +1242,7 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 | `018fdcf43` `pi.live` v3：存储里没 `turns` 的运行记 0 | ➖ 判定不适用：端口的 `pi.live` 是 v1，写 `run` 时一直带 `turns`，没有「v2 写了却没 turns」的历史数据可迁 |
 | `f049787d9` 默认 openai 模型改 `gpt-6.1-sol` | ⏳ 归到 P2「目录数据」一起做（同一份 models 目录，单改一处会和目录不一致） |
 | `a6a7bac86` 隐藏思考块空标签不渲染行 | ✅ 端口早已实现（懒加 Spacer + 隐藏且空标签直接 `continue`）；本轮补上上游两例 `AssistantMessage_RendersNothingForHiddenThinkingWithAnEmptyLabel` / `…KeepsLabelRowAndSpacingForHiddenThinkingWithALabel` |
-| `7391dbb0f` 全屏标题栏显示模型 scope | ⏳ 待做（已核：端口仍只在 shell 打 `Model scope:`，全屏路径没有；86 行，动 `InteractiveMode` 生命周期） |
+| `7391dbb0f` 全屏标题栏显示模型 scope | ✅ 本批：`GetModelScopeNotice` / `FormatModelScopeNotice` 抽出提示，启动时只在 `_ui.Mode != Fullscreen` 打印；全屏在头部挂 `ThemedText` + `Spacer(1)`（见 §5.1），用例 `InteractiveModeModelScopeTests` |
 | `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ⏳ 待做（已核：端口没有；74 行，随 `da412b039` 的类型推导一起做更省） |
 | `6fed3cfb9` SDK 流在摘要时解析 auth | ⏳ 待做（已核：端口没有；142 行） |
 | `c8ec752cf` 不支持的架构上跳过 fd/rg 下载 | ⏳ 待核（端口是否还有下载路径） |
@@ -1255,3 +1255,19 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 | `c17be1e98` prompt-url-widget 跳过自定义消息 | ➖ examples/开发脚本 |
 | `3953e9ef4` examples 的 todo renderResult | ➖ examples |
 | `476a303c1` 去掉 managed npm ci 的 min-release-age | ➖ 发布/CI |
+
+
+### 5.1 全屏的模型 scope 提示（`7391dbb0f`）
+
+全屏画在备用屏，启动时往 `stdout` 打的 `Model scope: …` 会在退出后残留在 shell 里。上有的做法是：把提示抽成
+`getModelScopeNotice()`，常规模式照旧打印，全屏改在初始化时挂到 `headerContainer`（`ThemedText` + `Spacer(1)`）。
+
+| 上游 | 端口落点 |
+| --- | --- |
+| `getModelScopeNotice()` | `InteractiveMode.GetModelScopeNotice()` + 可测的静态 `FormatModelScopeNotice(scopedModels, showDetails, getKeys)` |
+| `if (renderer.mode !== "fullscreen") console.log(notice)` | `InitAsync` 里 `if (_ui.Mode != TuiMode.Fullscreen) Console.WriteLine(notice)` |
+| `showFullscreenModelScopeNotice()` | `ShowFullscreenModelScopeNotice()`：头部追加 `ThemedText(() => notice, 1, 0)` + `Spacer(1)`，在头部初始化末尾、`RequestRender()` 之前调用（该路径每次会话只跑一次，不会重复追加） |
+
+用例（照抄上游 `interactive-mode-model-scope.test.ts` 的意图，改成纯格式化函数，避开原型 `.call` 那种 JS 专用手段）：
+`model-a:high` + `model-b` + `ctrl+p` → 去 ANSI 后含 `Model scope: model-a:high, model-b (Ctrl+P to cycle)`；
+启动详情被隐藏或没有 scope → null。

@@ -66,17 +66,11 @@ public partial class InteractiveMode
         _changelogMarkdown = GetChangelogForDisplay();
         _extensionChangelogUpdates = GetExtensionChangelogUpdates();
 
-        if (Session.ScopedModels.Count > 0 && ShouldShowStartupDetails())
+        // Fullscreen 画在备用屏：这里打印到 stdout 会在退出后残留在 shell 里；全屏改到头部显示（#11508，`7391dbb0f`）。
+        if (_ui.Mode != TuiMode.Fullscreen)
         {
-            var modelList = string.Join(", ", Session.ScopedModels.Select(sm =>
-                $"{sm.Model.Id}{(sm.ThinkingLevel is { } level ? $":{Pi.Ai.Types.ThinkingLevelText.ToText(level)}" : "")}"));
-            var cycleKeys = GlobalKeybindings.Get().GetKeys("app.model.cycleForward").ToList();
-            var cycleHint = cycleKeys.Count > 0
-                ? ThemeRuntime.Current.Fg(
-                    "muted",
-                    $" ({KeybindingHints.FormatKeyText(string.Join("/", cycleKeys), new KeyTextFormatOptions { Capitalize = true })} to cycle)")
-                : "";
-            Console.WriteLine(ThemeRuntime.Current.Fg("dim", $"Model scope: {modelList}{cycleHint}"));
+            var modelScopeNotice = GetModelScopeNotice();
+            if (modelScopeNotice is not null) Console.WriteLine(modelScopeNotice);
         }
 
         // Keep one component tree and remount it when changing renderers.
@@ -209,6 +203,8 @@ public partial class InteractiveMode
             _headerContainer.AddChild(_builtInHeader);
         }
 
+        // 全屏模式下头部才需要这条提示；常规模式在启动时已经打到 stdout 了。
+        if (_ui.Mode == TuiMode.Fullscreen) ShowFullscreenModelScopeNotice();
         _ui.RequestRender();
 
         // Ensure fd and rg are available after mounting the TUI (downloads if missing, adds to PATH via getBinDir)
@@ -269,6 +265,36 @@ public partial class InteractiveMode
     /// <summary>Startup details (model scope, loaded resources). Hidden by quietStartup: true or "header".</summary>
     internal bool ShouldShowStartupDetails() =>
         _options.Verbose == true || SettingsManager.GetQuietStartup() == "false";
+
+    /// <summary>模型 scope 的启动提示；没有 scope 或启动详情被隐藏时为 null。对应 TS <c>getModelScopeNotice()</c>。</summary>
+    internal string? GetModelScopeNotice()
+        => FormatModelScopeNotice(Session.ScopedModels, ShouldShowStartupDetails());
+
+    /// <summary>纯格式化助手（便于测试）：scope 列表 + 循环键提示，带主题色。</summary>
+    internal static string? FormatModelScopeNotice(
+        IReadOnlyList<ScopedModel> scopedModels,
+        bool showDetails,
+        Func<string, IReadOnlyList<string>>? getKeys = null)
+    {
+        if (scopedModels.Count == 0 || !showDetails) return null;
+        var modelList = string.Join(", ", scopedModels.Select(sm =>
+            $"{sm.Model.Id}{(sm.ThinkingLevel is { } level ? $":{ThinkingLevelText.ToText(level)}" : "")}"));
+        var cycleKeys = (getKeys ?? (id => GlobalKeybindings.Get().GetKeys(id).ToList()))("app.model.cycleForward");
+        var cycleHint = cycleKeys.Count > 0
+            ? ThemeRuntime.Current.Fg(
+                "muted",
+                $" ({KeybindingHints.FormatKeyText(string.Join("/", cycleKeys), new KeyTextFormatOptions { Capitalize = true })} to cycle)")
+            : "";
+        return ThemeRuntime.Current.Fg("dim", $"Model scope: {modelList}{cycleHint}");
+    }
+
+    /// <summary>全屏时把提示挂到头部（而不是打到 shell）。对应 TS <c>showFullscreenModelScopeNotice()</c>。</summary>
+    internal void ShowFullscreenModelScopeNotice()
+    {
+        if (GetModelScopeNotice() is null) return;
+        _headerContainer.AddChild(new ThemedText(() => GetModelScopeNotice() ?? "", 1, 0));
+        _headerContainer.AddChild(new Spacer(1));
+    }
 
     // ---------------------------------------------------------------- changelog / telemetry (L1324-1368)
 
