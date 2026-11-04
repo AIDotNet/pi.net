@@ -143,7 +143,7 @@
 | `8a2ebd385` | 嵌套引用不再指数膨胀（`width < 3` 直接渲染子节点） | 已有 | ✅ |
 | `3bae85274` | `tui.select.pageUp/pageDown` 作用于所有列表；全屏下翻页键翻列表而不是滚 transcript；`capturesViewportInput` | 无 | 🔧 P4 |
 | `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding | ✅ 本批（`IsWhitespaceToken` / 丢弃空白时把码留在本行 / 行尾关删除线 / 长词前先 trim；上游六个定向用例照抄；187 例语料按不变量重算，见 §4.33） |
-| `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | 结论：需要，但**卡在语料**——实现已试过并回退（§4.28 末），43 个 `editor-corpus` 用例期望把 F13+ 当成文本插入，那正是 1.4.x 的旧行为 | 🔧 P4（等语料链） |
+| `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | ✅ 本批（F1–F12 内部码点 / `CSI P/Q/S` / `:3`、`:2` 事件 / f 键修饰键匹配 / F13+ 私用区拒绝；276 例 `editor-corpus` 场景按「只允许私用区字符消失」守卫重算，见 §4.36） |
 | `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
 | `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
 | `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | ✅ 块级复用已落地（§4.31）；**代码高亮复用与 `Text.setText` 折行缓存未做**（见该节「未移植」） |
@@ -1016,3 +1016,27 @@ break;                                                        // 只有真正命
 
 只接受满足该条件的用例：32 例按「旧行宽超过内容宽」判定通过，另 10 例的旧输出是**已折行**的版式（行宽看不出超宽），
 改用「原始标记出现」判定后一并通过。42 例全部写回，插桩撤回。
+
+### 4.36 Kitty 功能键（`deb12d78e`）
+
+上一轮试做过、被 43 例语料挡住（§4.28 末），这轮用新方法落地。
+
+| 上游要点 | 端口落点 |
+| --- | --- |
+| `FUNCTIONAL_CODEPOINTS` 增加 `f1`…`f12`（-21…-32），`~` 编号 11–15、17–21、23、24 映射到它们（16、22 不占位） | `Keys.CpF1`…`CpF12` + `ParseKittySequence` 的 `keyNum` 分支 |
+| `CSI P/Q/S` 与 `CSI 1;<mod>[:event] P/Q/S` 解析成 F1/F2/F4（F3 仍走 `CSI 13~`，因为 `CSI 1;<n>R` 与光标位置报告冲突） | 新增 `F1F2F4Regex` 与解析分支 |
+| `matchesKey` 的 `f1`…`f12` 允许修饰键：无修饰键先比传统序列，否则走 `matchesKittySequence` | `FunctionKeyCodepoints` 表 + `Keys.MatchesKey` |
+| `isKeyRelease` / `isKeyRepeat` 认出 `:3P/:3Q/:3S` 与 `:2P…`（否则 F1/F2/F4 释放会二次触发快捷键） | 两个判定函数各加三个后缀 |
+| 键名格式化输出 `f1`…`f12` | `FormatParsedKey` 的 `>= CpF12 and <= CpF1` 分支 |
+| `decodeKittyPrintable` 拒绝功能键私用区（57344–63743），否则编辑器插入不可见的 U+E020+ | 同一判定，`KittyFunctionalPuaStart/End` |
+
+**用例**：`KeysAndUtilTests.ParseKey_RecognisesKittyFunctionKeys`——F1/F2/F4 的三种形式、`~` 编号、F3 不被光标报告混淆、
+带修饰键的 `ctrl+f1` / `ctrl+f5` / `shift+f2`、释放与重复事件、私用区不当文本。
+
+**语料重算**：`editor-corpus.json` **276** 例受影响（`f13`+ 不再插入私用区字符）。守卫按这次改动的语义定：
+
+> 每一步的行文本（`L`）只允许**少掉 U+E000–U+F8FF 私用区字符**；光标列（`C`）的减少量必须等于该步少掉的字符数；
+> `A`/`P`/`M` 不变；`changes` 只能减少，且减少量不超过少掉的字符数。
+
+最后一条放宽过一次：原本要求「每少一个字符就少一次 change」，但有 42 例是「连按两次同一个 F13 键」——旧语料
+记 2 次 change、新行为只记 1 次（第二次按键既没文字也没改动），这条等式不成立。放宽后 276 例全部通过并写回。

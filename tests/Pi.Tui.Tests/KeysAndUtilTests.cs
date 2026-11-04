@@ -59,6 +59,33 @@ public class KeysAndUtilTests
         Assert.True(Keys.MatchesKey("+", "+"));
     }
 
+    /// <summary>
+    /// Kitty 键盘协议下的功能键（`deb12d78e`）：F1/F2/F4 走 CSI P/Q/S，带修饰键的 F 键走 `CSI n;mod ~`，
+    /// F13 以上落在功能键私用区、不能被当成文本；释放/重复事件同样要认出 `:3` / `:2`。
+    /// </summary>
+    [Fact]
+    public void ParseKey_RecognisesKittyFunctionKeys()
+    {
+        Assert.Equal("f1", Keys.ParseKey("\x1b[P"));
+        Assert.Equal("f2", Keys.ParseKey("\x1b[Q"));
+        Assert.Equal("f4", Keys.ParseKey("\x1b[S"));
+        Assert.Equal("f1", Keys.ParseKey("\x1b[11~"));
+        Assert.Equal("f5", Keys.ParseKey("\x1b[15~"));
+        Assert.Equal("f12", Keys.ParseKey("\x1b[24~"));
+        // F3 只走 `~` 形式：`CSI 1;<n>R` 与光标位置报告冲突。
+        Assert.Equal("f3", Keys.ParseKey("\x1b[13~"));
+        Assert.Equal("ctrl+f1", Keys.ParseKey("\x1b[1;5P"));
+        Assert.Equal("ctrl+f5", Keys.ParseKey("\x1b[15;5~"));
+        Assert.True(Keys.MatchesKey("\x1b[15;5~", "ctrl+f5"));
+        Assert.True(Keys.MatchesKey("\x1b[1;2Q", "shift+f2"));
+        Assert.True(Keys.IsKeyRelease("\x1b[1;5:3P"));
+        Assert.True(Keys.IsKeyRelease("\x1b[1;5:3S"));
+        Assert.True(Keys.IsKeyRepeat("\x1b[1;5:2Q"));
+        // 功能键私用区不是文本（否则编辑器插入不可见的 U+E020+）。
+        Assert.Null(Keys.DecodeKittyPrintable("\x1b[57376u"));
+        Assert.Equal("a", Keys.DecodeKittyPrintable("\x1b[97u"));
+    }
+
     [Fact]
     public void MatchesKey_NormalizesShiftedSymbolKeybindings()
     {

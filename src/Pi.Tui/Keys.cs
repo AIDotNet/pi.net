@@ -48,6 +48,24 @@ public static partial class Keys
     private const int CpHome = -14;
     private const int CpEnd = -15;
 
+    // 功能键的内部码点（Kitty 用负值表示非字符键）。对应 TS `FUNCTIONAL_CODEPOINTS` 的 `f1`…`f12`（`deb12d78e`）。
+    private const int CpF1 = -21;
+    private const int CpF2 = -22;
+    private const int CpF3 = -23;
+    private const int CpF4 = -24;
+    private const int CpF5 = -25;
+    private const int CpF6 = -26;
+    private const int CpF7 = -27;
+    private const int CpF8 = -28;
+    private const int CpF9 = -29;
+    private const int CpF10 = -30;
+    private const int CpF11 = -31;
+    private const int CpF12 = -32;
+
+    // Kitty 用这段私用区表示功能键（F13–F35、媒体键、修饰键……）：落在这里的 CSI-u 码点永远不是文本。
+    private const int KittyFunctionalPuaStart = 57344;
+    private const int KittyFunctionalPuaEnd = 63743;
+
     private static readonly HashSet<string> SymbolKeys = new()
     {
         "`", "-", "=", "[", "]", "\\", ";", "'", ",", ".", "/", "!", "@", "#", "$", "%", "^",
@@ -156,6 +174,13 @@ public static partial class Keys
 
     private static readonly string[] FunctionKeys = { "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12" };
 
+    /// <summary>功能键名到内部码点（带修饰键的 Kitty 序列按它匹配）。</summary>
+    private static readonly Dictionary<string, int> FunctionKeyCodepoints = new(StringComparer.Ordinal)
+    {
+        ["f1"] = CpF1, ["f2"] = CpF2, ["f3"] = CpF3, ["f4"] = CpF4, ["f5"] = CpF5, ["f6"] = CpF6,
+        ["f7"] = CpF7, ["f8"] = CpF8, ["f9"] = CpF9, ["f10"] = CpF10, ["f11"] = CpF11, ["f12"] = CpF12,
+    };
+
     [GeneratedRegex(@"^\x1b\[([0-9]+)(?::([0-9]*))?(?::([0-9]+))?(?:;([0-9]+))?(?::([0-9]+))?u$")]
     private static partial Regex CsiURegex();
 
@@ -167,6 +192,9 @@ public static partial class Keys
 
     [GeneratedRegex(@"^\x1b\[1;([0-9]+)(?::([0-9]+))?([HF])$")]
     private static partial Regex HomeEndRegex();
+
+    [GeneratedRegex(@"^\x1b\[(?:1;([0-9]+)(?::([0-9]+))?)?([PQS])$")]
+    private static partial Regex F1F2F4Regex();
 
     [GeneratedRegex(@"^\x1b\[27;([0-9]+);([0-9]+)~$")]
     private static partial Regex ModifyOtherKeysRegex();
@@ -216,7 +244,9 @@ public static partial class Keys
             return false;
         }
         return data.Contains(":3u") || data.Contains(":3~") || data.Contains(":3A") || data.Contains(":3B")
-            || data.Contains(":3C") || data.Contains(":3D") || data.Contains(":3H") || data.Contains(":3F");
+            || data.Contains(":3C") || data.Contains(":3D") || data.Contains(":3H") || data.Contains(":3F")
+            // F1/F2/F4 走 CSI P/Q/S，释放事件也带 `:3`（否则它们会二次触发快捷键）。
+            || data.Contains(":3P") || data.Contains(":3Q") || data.Contains(":3S");
     }
 
     /// <summary>Check if input carries a Kitty key-repeat event (flag 2).</summary>
@@ -227,7 +257,8 @@ public static partial class Keys
             return false;
         }
         return data.Contains(":2u") || data.Contains(":2~") || data.Contains(":2A") || data.Contains(":2B")
-            || data.Contains(":2C") || data.Contains(":2D") || data.Contains(":2H") || data.Contains(":2F");
+            || data.Contains(":2C") || data.Contains(":2D") || data.Contains(":2H") || data.Contains(":2F")
+            || data.Contains(":2P") || data.Contains(":2Q") || data.Contains(":2S");
     }
 
     private static KeyEventType ParseEventType(string? eventTypeStr)
@@ -283,12 +314,35 @@ public static partial class Keys
                 6 => CpPageDown,
                 7 => CpHome,
                 8 => CpEnd,
+                11 => CpF1,
+                12 => CpF2,
+                13 => CpF3,
+                14 => CpF4,
+                15 => CpF5,
+                17 => CpF6,
+                18 => CpF7,
+                19 => CpF8,
+                20 => CpF9,
+                21 => CpF10,
+                23 => CpF11,
+                24 => CpF12,
                 _ => null,
             };
             if (code is { } c)
             {
                 return new KittySequence(c, null, null, modValue - 1, eventType);
             }
+        }
+
+        // F1/F2/F4：`\x1b[P/Q/S`、`\x1b[1;<mod>P/Q/S`、`\x1b[1;<mod>:<event>P/Q/S`。
+        // F3 不在其中：`\x1b[1;<n>R` 与光标位置报告冲突，Kitty 改发 `\x1b[13~`。
+        var fKey = F1F2F4Regex().Match(data);
+        if (fKey.Success)
+        {
+            var modValue = fKey.Groups[1].Success ? int.Parse(fKey.Groups[1].Value) : 1;
+            var eventType = ParseEventType(fKey.Groups[2].Success ? fKey.Groups[2].Value : null);
+            var code = fKey.Groups[3].Value switch { "P" => CpF1, "Q" => CpF2, _ => CpF4 };
+            return new KittySequence(code, null, null, modValue - 1, eventType);
         }
 
         var homeEnd = HomeEndRegex().Match(data);
@@ -681,11 +735,12 @@ public static partial class Keys
 
         if (FunctionKeys.Contains(key))
         {
-            if (modifier != 0)
+            // 无修饰键先按传统序列比；带修饰键（ctrl+f5 等）走 Kitty 序列。
+            if (modifier == 0 && MatchesLegacySequence(data, LegacyKeySequences[key]))
             {
-                return false;
+                return true;
             }
-            return MatchesLegacySequence(data, LegacyKeySequences[key]);
+            return MatchesKittySequence(data, FunctionKeyCodepoints[key], modifier);
         }
 
         // Single letter/digit/symbol keys.
@@ -760,6 +815,7 @@ public static partial class Keys
             CpEnd => "end",
             CpPageUp => "pageUp",
             CpPageDown => "pageDown",
+            >= CpF12 and <= CpF1 => $"f{CpF1 - effectiveCodepoint + 1}",
             CpUp => "up",
             CpDown => "down",
             CpLeft => "left",
@@ -904,6 +960,11 @@ public static partial class Keys
         }
         effectiveCodepoint = NormalizeKittyFunctionalCodepoint(effectiveCodepoint);
         if (effectiveCodepoint < 32)
+        {
+            return null;
+        }
+        // 未映射的 Kitty 功能键（F13–F35、媒体键……）不是文本：否则编辑器会插入不可见的 U+E020+ 字符。
+        if (effectiveCodepoint is >= KittyFunctionalPuaStart and <= KittyFunctionalPuaEnd)
         {
             return null;
         }
