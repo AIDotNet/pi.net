@@ -1539,3 +1539,31 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 **取证工具已入库**：`tools/audit-module-coverage.py`（模块级）、`tools/gen-ai-json-repair-corpus.mjs`（差分语料）。
 两者都可复跑，后续每次上游升级都能用同一套手段复核。
 
+### 7.3 telemetry 缺口的根因：不是「AI 没接」，是 telemetry 包没移植完
+
+顺着 `ai/telemetry.ts` 往下查，缺口比 7.1 记的更深一层：
+
+| 上游 | 端口 | 结论 |
+| --- | --- | --- |
+| `TelemetryContext.metrics?: TelemetryMetrics` | `ITelemetryContext` 没有该成员 | `ai/telemetry.ts` 的 `options.telemetry.metrics` 无处可取 |
+| `TelemetrySpan.addLink(link)` | `ITelemetrySpan` 没有该方法（只有 `StoredSpanLink` 类型） | span 的 link 能力缺失 |
+| `NOOP_TELEMETRY_METRICS` | 没有对应的 noop 实现 | 无遥测时的默认 metrics 缺失 |
+| — | `Pi.Ai.csproj` 引用了 `Pi.Telemetry`，但 `Pi.Ai` 里 **0 行**使用它 | 移植时预留了引用，接线没做 |
+
+**为什么判定「现在不补」**（不是「不需要」，而是「不该这样补」）：
+
+1. **收益为零**：上游 `observeModelRequest` 只在 `models.ts` 内部被调用——宿主传了 `options.telemetry` 才有 span。
+   端口全仓**没有任何 telemetry 生产消费方**（只有 `Pi.Telemetry.Tests`），`Pi.Server` / `Pi.Cli` / `Pi.DurableHost`
+   都不用它。即便补完 AI 侧，也没有调用方给手柄，spans 不会产生。
+2. **成本不对称**：要按顺序补 ①`ITelemetryContext.Metrics` ②`ITelemetrySpan.AddLink` ③`NoopTelemetryMetrics`
+   ④`InMemoryTelemetryContext` 的 metrics 记录 ⑤更新 374 行的 adapter conformance ⑥AI 侧 schema + observer +
+   `LazyStream` 观察者钩子 + `Models.Stream` 接线 + 用例。约 400 行、跨 8 个文件，且要改 telemetry 包的公开接口
+   （4 个实现者）。
+3. **风险**：这是接口契约变更，不是照抄文件；在批次末尾仓促动手最容易留下「接口改了、实现没齐」的半成品。
+
+**验收口径（将来要做时）**：`ITelemetryContext.Metrics` / `ITelemetrySpan.AddLink` / `NoopTelemetryMetrics` 与上游
+接口一一对应；`AiTelemetry.Schema` 与 `ai/telemetry.ts` 的 span/metric 定义逐项一致（可用 JSON 序列化比对）；
+`ObserveModelRequest` 在 `InMemoryTelemetryContext` 下产出 `pi.ai.request` span、`pi.ai.first_chunk` /
+`pi.ai.block` 事件、4 个指标点；`addLink` 在 conformance 里有用例。`RemoteTerminal` 另计（依赖未移植的 chord
+`connection` 层，见 7.1）。
+
