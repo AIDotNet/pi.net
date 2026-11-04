@@ -1277,6 +1277,27 @@ OAuth 选择器、自动补全、llama、`pi models` CLI），改 `Match` 即全
 
 **验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Ai.Tests` **1008**（0 失败 / 1 跳过：Unix 权限位）。
 
+### 4.43 工具参数按增量写（`da412b039` 收口）
+
+把 §4.42 的解析器接到 partial 提交上：每个工具调用一个解析器，逐段吃原文，提交时按变更写参数。
+
+| 变更 | 上游 | 落点 |
+| --- | --- | --- |
+| 跟踪每个工具调用 | `PartialChanges.observe` | `PartialChanges`：`toolcall_start` 建 `StreamingJsonParser`，`toolcall_delta` 攒 `JsonChange`，`toolcall_end` 停止；**根不是对象**（或根变更不是 `set`）时放弃跟踪、退回整段赋值 |
+| 参数不参与整消息赋值 | `take()` + `commit()` | `Commit` 改为实例方法：块数不变时，被跟踪的块只写除 `arguments` 外的字段，参数按变更应用——对象成员走 Chord 的 `appendText`，数组元素整体重赋并在同一提交内叠加（`appendText` 只收对象成员） |
+| 块数变化时的重建 | `commit()` 的 `index >= committedBlocks && committed` 分支 | 整段写内容块后：已提交过参数的调用用**解析器快照**重建，新出现的调用先清空再按变更重建——否则与块同批到达的首段会丢 |
+
+**为什么用解析器快照而不是 `block.arguments`**：上游的快照来自 pi-ai 已经增量解析过的 partial 消息；端口的
+provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接取 `StreamingJsonParser.Snapshot()` 更可靠。
+
+**用例**（`Pi.CodingAgent.Tests/PartialChangesTests`，4 例）：参数无整对象重赋（只有建根的空对象）、字符串按
+`append` 写、后续批次只写新增段（`"lo"`）、非对象根停止跟踪、文本仍按追加。放在 coding-agent 测试工程是因为
+`Pi.Durable` 的 `InternalsVisibleTo` 已包含它；给 `Pi.Durable.Tests` 开放 internal 会连带暴露内部的
+`Pi.Durable.Testing.Assert`，与 xUnit 的 `Assert` 在 20 多个文件里撞名。
+
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **571**（1 例既有并行时序噪声，单跑绿）；
+新增 4 例全绿。
+
 ## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
 
 用户口径：「只同步到 1.5.0 正式版」。据此把 `v1.4.0..v1.5.0` 全量重扫了一遍——**原来的台账是按精选清单写的，
@@ -1439,32 +1460,27 @@ OAuth 选择器、自动补全、llama、`pi models` CLI），改 `Match` 即全
 全部存储测试；③ 收益是吞吐，端口的定位是语义等价的可读移植，这部分留在 C 编号偏差里更合适（若将来要压吞吐，
 按上面四条分步做，先做批量提交、再做去线独占）。
 
-### 6.2 `da412b039` 的工具参数增量（前置已落地，差接线）
+### 6.2 `da412b039` 的工具参数增量（已完成）
 
-已经落地的部分：**文本与思考块的追加写**（`HarnessPartialAppendTests` 钉着，一次提交只花新增文本的长度）。
+**已落地（§4.42 + §4.43）**：`StreamingJsonParser` + `ToolCallArgumentsStream`（`src/Pi.Ai/Utils/StreamingJson.cs`），
+以及 `PartialChanges` 的工具调用跟踪与增量提交。文本与工具参数现在都按增量写：一次 partial 提交只花新增内容的
+长度，参数不再整段重赋。
 
-还差的：**工具调用参数**按增量写。上游用 `StreamingJsonParser` 每个 `toolcall_delta` 喂一小段原始参数文本，
-拿到 `JsonChange`（`set` / `append` / 路径），提交时把这些变更按序应用到已提交的参数上，参数本身不参与整消息赋值。
+用例：`StreamingJsonTests` 32 例 + `PartialChangesTests` 4 例（`Pi.Durable.Tests` 571 全绿）。
 
-**前置已落地（§4.42）**：`src/Pi.Ai/Utils/StreamingJson.cs` 的 `StreamingJsonParser` +
-`ToolCallArgumentsStream`，32 例（期望值由上游 TS 实跑取得），`Pi.Ai.Tests` 1008 全绿。
+**遗留（非行为差异）**：上游 `partial-changes.ts` 的 `restore()`（提交失败时把变更放回，供下一次提交重放）端口
+没有对应物——现有文本增量同样没有，属既有设计；失败时那批增量会丢，由下一次提交的整段写入修正。
 
-**剩下的是接线**：把 provider 的 `toolcall_delta` 与 `PartialChanges` 的 tool-call 状态机接到这条增量上
-（上游 `partial-changes.ts` 166 行 + 213 行用例）。这一步与 durable 的提交形状耦合，是独立的一批。
+### 6.3 结论：1.5.0 只剩一项（`e5c6182ba` 分组提交）
 
-**注意它的性质**：和 6.1 一样是**写入形状 / 性能**，不是行为缺口——端口每个 partial 提交把参数整段 `set` 一次，
-UI 看到的中间参数与上游逐段 append 的结果相同，只是每次提交写的字节数随参数长度增长（上游只写新增那段）。
-
-### 6.3 结论：1.5.0 的功能对齐已完成
-
-把 §6.1 与 §6.2 一起看，1.5.0 到端口之间剩下的两处都是「同样的可观察状态、不同的写入成本」：
+`da412b039` 已于 §4.42 + §4.43 收口（解析器 + 接线 + 用例）。现在 1.5.0 到端口之间只剩一处：
 
 | 项 | 可观察行为 | 差的是 |
 | --- | --- | --- |
 | `e5c6182ba` 分组提交 | 一致（提交原子、按线序发布） | 吞吐（5 vs 440 run/s）、`IStorage` 契约形状 |
-| `da412b039` 工具参数 | 一致（中间参数照样可见） | 每次提交写多少字节 |
 
-所以「同步到 1.5.0 正式版」在**功能层面到此为止**；这两项作为性能债记录在案，需要时按 §6.1 / §6.2 的步骤单独开工。
+它是**架构 / 吞吐**项（81 个文件 +8623/−1472，要换 `IStorage` 契约并改三个存储后端），判定「不做」的理由见 §6.1。
+除此之外「同步到 1.5.0 正式版」在功能与写入形状两个层面都已完成。
 
 ### 6.4 上面这条结论的更正：还有第三块（`8b0caefc2` 的三个同步 observer）
 

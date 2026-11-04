@@ -568,3 +568,17 @@ alt-screen 回归用例需要「录制终端 + 全屏渲染」设施，端口没
 
 **下一批**：把 provider 的 `toolcall_delta` 与 `PartialChanges` 的 tool-call 状态机接到这条增量上
 （`partial-changes.ts` 166 行 + 213 行用例），才是 `da412b039` 的行为收益。
+
+## 2026-11-04 `da412b039` 收口：工具参数按增量写
+
+`PartialChanges` 现在跟踪每个工具调用：`toolcall_start` 建一个 `StreamingJsonParser`，`toolcall_delta` 攒
+`JsonChange`，`toolcall_end` 停止；根不是对象时放弃跟踪、退回整段赋值。提交时块数不变只写除 `arguments` 外的
+字段，参数按变更应用（对象成员走 `appendText`，数组元素整体重赋并在同一提交内叠加）；块数变化时整段写内容块，
+已提交过参数的调用用解析器快照重建，新出现的调用先清空再按变更重建（否则与块同批到达的首段会丢）。
+
+用例 `Pi.CodingAgent.Tests/PartialChangesTests` 4 例（放在这个工程是因为 durable 的 `InternalsVisibleTo` 已含它；
+给 `Pi.Durable.Tests` 开放 internal 会暴露内部的 `Pi.Durable.Testing.Assert`，与 xUnit 的 `Assert` 撞名）。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 571（1 例既有并行时序噪声，单跑绿）。
+
+**1.5.0 现在只剩 `e5c6182ba`（分组提交，吞吐/架构，按既定结论不做）。**
