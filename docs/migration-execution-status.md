@@ -490,3 +490,27 @@ alt-screen 回归用例需要「录制终端 + 全屏渲染」设施，端口没
 
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` **23955** 全绿；`Pi.CodingAgent.Tests` 5208（1 既有失败/3 跳过，
 与基线一致）。
+
+## 2026-11-04 全仓验证矩阵（收尾核对）
+
+`dotnet build Pi.slnx` 0 警告 0 错误；14 个测试项目逐个跑过（本机 Windows，未做 CPU 亲和性限制）：
+
+| 项目 | 总数 | 结果 |
+| --- | --- | --- |
+| `Pi.Tui.Tests` | 23960 | 全绿（偶发 2 例计时噪声，重跑即绿） |
+| `Pi.CodingAgent.Tests` | 5216 | 5211 绿 + **1 既有失败**（`UpstreamTypeScriptExampleTests` typebox 语料）+ 1 例并行噪声 + 3 跳过 |
+| `Pi.Durable.Tests` | 567 | 全绿（偶发 `ToolsTests.Bash_*` 超时，单跑绿） |
+| `Pi.Ai.Tests` | 976 | 972 绿 + **2~3 例计时噪声**（Anthropic 流式 / Mistral 超时，集合每次不同、单跑均绿）+ 1 跳过（Unix 权限位） |
+| `Pi.Agent.Tests` | 36 | 全绿 |
+| `Pi.Chord.Tests` | 135 | 全绿 |
+| `Pi.Codemode.Tests` | 57 | 全绿 |
+| `Pi.Env.Tests` | 53 | 50 绿 + 3 跳过 |
+| `Pi.Mcp.Tests` | 58 | 全绿 |
+| `Pi.Protocol.Tests` | 14 | 全绿 |
+| `Pi.Server.Tests` | 33 | 全绿 |
+| `Pi.Telemetry.Tests` | 24 | 全绿 |
+| `Pi.Evals.Tests` | 56 | 54 绿 + 2 跳过 |
+
+判定标准：失败集合每次不同、且单跑能过 → 记为噪声；固定不变的只有 `UpstreamTypeScriptExampleTests`（typebox 语料，
+与 1.5.0 无关，见 §3）。本轮改动（`2ce9d527d` / `0f21a3319` / `deb12d78e` / `6c2fd73b0` / `b5fc6dc84` / `f6ee9ce9c` /
+`6fed3cfb9` / `7391dbb0f`）均未引入新失败。
