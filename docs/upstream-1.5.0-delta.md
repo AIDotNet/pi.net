@@ -1063,3 +1063,40 @@ break;                                                        // 只有真正命
 
 **上游 editor 那 30 行用例没有单独移植**：它验证的是「编辑器自动补全关闭后视口键回到转录」，走的是编辑器内嵌的
 `SelectList`（已声明截获）+ 关闭后 `SetFocus` 回到编辑器两条既有路径，端口第 3 例已经覆盖同一路由分支。
+
+### 4.38 `6c2fd73b0` 延迟落盘：第一阶段的落地与第二阶段的清单
+
+**已完成（`39d733f`，行为不变）**
+
+- 公共类型：`CommitPersistence`（`Immediate` / `Deferred{WithinMs}`）、`CommitOptions`、`ObservedCommit`
+  （`Seq` 为空 = 只在内存采纳）。上游是判别联合，端口用一个记录 + `IsMemory` 表达，消费者只需读 `Changes`。
+- 事务侧：`HeldDocument`、`AdoptedDocuments`、`DocumentPlan.Held`；`Adopt` 同时给出 `Observed` 与 `Stored`；
+  `Holdable()`（前置条件：全部写入都是 `document.change`，每个计划都改一个**已存在**的 `latest`/`initial` 对话文档，
+  且 `StoredVersion == Version`——版本落后说明是迁移，要立刻写 base）、`AdoptHeld()`（只按指针交换 tracker，
+  不动 `StoredVersion` 与 `DeltasSinceBase`）、`TakeHeld()`（把持有排在本次自有写入之前，**插在同化身的退役写入前面**，
+  并解析只读计划的属主）、`StoreHeld()`（`PendingOps` 折叠持有 + 本次 ops；溢出成 `Replace` 或持有里选过 base 时写 base）。
+
+**第二阶段（Session 侧，尚未做）**：
+
+1. 字段：`Dictionary<DocumentId, Hold> _holds`（`Hold` 包 `HeldDocument` + `Deadline` + `Unpin`）、`HoldTimer? _holdTimer`、
+   `HashSet<Action<ObservedCommit, Context>> _observedListeners`、`Func<double> _persistWithinMs`；构造参数 `persistWithinMs`。
+2. 提交入口：`CommitAsync`/`CommitWithAsync` 增加 `CommitOptions?`；`Deferral()` 把 `Deferred.WithinMs` 校验成
+   `>= 0`（无效抛 `ArgumentException`），`null` 时用 `PersistWithin`（缺省 1000ms，`Infinity` 表示只等读/写或关闭）。
+3. `RunCommitAsync(..., int? withinMs)`：只读检查之后，`withinMs` 非空且 `tx.Holdable()` 非 null → `Hold()`（`tx.AdoptHeld()`
+   的发布只发给 `_observedListeners`）+ `SweepDocuments()` + 返回；否则 `tx.TakeHeld(id => _holds.GetValueOrDefault(id)?.Held)`
+   在**Storage 受理前的最后一步**取走，采纳成功后 `Release(taken)`。
+4. `Hold()`：合并进已有 `Hold`（`Pending.Push(ops)`、`Base |= base`、`Deadline = min`），首次持有要 `PinDocument`。
+5. `StoreHoldsAsync(holds, context)`：为每个持有构造 `document.change`（`StoreHeld(hold.Held, [], value, ValueVersion)`），
+   一次 `_storage.CommitAsync`，采纳回调里按 base/delta 调整 `DeltasSinceBase`，然后 `Release`，只发给 `_commitListeners`
+   （宿主监听器只该看到真正落盘的东西）。
+6. `ArmHoldTimer()`：取最早 `Deadline`，`_closing` 与 `_fired` 时不再重排（照 `ScheduleDocumentSweep` 的写法：
+   `System.Threading.Timer` + `Enqueue`）。
+7. `Publish` 拆分：`_observedListeners` 拿 `ObservedCommit`（含 `Seq`），`_commitListeners` 拿 `CommitPublication`；
+   这次同时落了持有变更时，宿主的文档变更要带上 `Held.Ops`（持有在前），而内存观察者只看本次自己的。
+8. `ObserveCommits(...)` 内部订阅，`ConversationView` / `Scheduler` / `Submissions` / `TaskGraphView` 从
+   `SubscribeCommits` 切过去（它们跟随内存，不能等落盘）；宿主 `SubscribeCommits` 语义不变。
+9. 关闭 / `UnloadDocuments` / `LoadDocument` 重载前都要先 `StoreHoldsAsync`（否则内容随缓存消失）。
+10. 调用方：`ProgressPolicy` 增加 `PersistWithinMs`（缺省 1000），`TaskRuntime.CommitAsync` 增加 `CommitOptions?`，
+    生成 partial 的 `PartialThrottle` 与工具输出节流改用 `Deferred`。
+11. 用例：延迟提交后 `subscribeCommits` 一次都没收到、watch 立刻看到内容、下一次读/写该文档时落盘一次（带 seq）、
+    `close()` 落盘、`Infinity` 只在读/写或关闭时落盘；以及「非 latest/迁移/含表写入」都会立刻落盘。
