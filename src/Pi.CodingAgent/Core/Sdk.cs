@@ -817,6 +817,9 @@ public static class Sdk
         else
         {
             // 新会话记录初始模型与思考档位，便于下次恢复。
+        // 这个流函数自己经 modelRuntime 解析 auth：摘要不能传预解析的凭据（#11520，`6fed3cfb9`）。
+        AgentSession.MarkRuntimeStreamFunction(agent.StreamFunction, modelRuntime);
+
             if (model is not null)
             {
                 sessionManager.AppendModelChange(model.Provider, model.Id);

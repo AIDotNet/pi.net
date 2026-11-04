@@ -925,6 +925,13 @@ public partial class AgentSession
                 required.Model, required.ApiKey, required.Headers, required.Env, thinkingLevel);
         }
 
+        if (UsesRuntimeStreamFunction())
+        {
+            // 流函数自己会经 _modelRuntime 解析 auth：这里再传预解析的凭据，会被它当成显式 API key，
+            // 把存储的 OAuth 登录顶掉（#11520，`6fed3cfb9`）。
+            return new SummarizationRequestAuth(model, null, null, null, thinkingLevel);
+        }
+
         try
         {
             var result = await _modelRuntime.GetAuthAsync(model, new ModelRuntimeAuthOverrides { Signal = signal })
@@ -964,6 +971,30 @@ public partial class AgentSession
     /// </remarks>
     private bool UsesDefaultStreamFunction()
         => Pi.Agent.DefaultStreamFn.IsConfigured && _agent.StreamFunction == Pi.Agent.DefaultStreamFn.Get();
+
+    /// <summary>
+    /// 已经「自己解析 auth」的流式函数 → 它绑定的运行时。上游用 <c>WeakMap</c>，端口用
+    /// <see cref="System.Runtime.CompilerServices.ConditionalWeakTable{TKey,TValue}"/>（同样是弱键）。
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Pi.Ai.Types.StreamFn, ModelRuntime>
+        RuntimeStreamFunctions = new();
+
+    /// <summary>标记 <paramref name="streamFn"/> 会自己经 <paramref name="modelRuntime"/> 解析 auth。</summary>
+    public static void MarkRuntimeStreamFunction(Pi.Ai.Types.StreamFn streamFn, ModelRuntime modelRuntime)
+        => RuntimeStreamFunctions.AddOrUpdate(streamFn, modelRuntime);
+
+    /// <summary>
+    /// 当前流式函数是否是「自己解析 auth 且绑定的就是这个运行时」。对应 TS
+    /// <c>runtimeStreamFunctions.get(this.agent.streamFunction) === this._modelRuntime</c>。
+    /// </summary>
+    internal bool UsesRuntimeStreamFunction() => IsRuntimeStreamFunction(_agent.StreamFunction, _modelRuntime);
+
+    /// <summary>可测的映射查询：这个流式函数是否标记为「经这个运行时自己解析 auth」。</summary>
+    internal static bool IsRuntimeStreamFunction(Pi.Ai.Types.StreamFn? streamFn, ModelRuntime? modelRuntime)
+        => streamFn is not null
+            && modelRuntime is not null
+            && RuntimeStreamFunctions.TryGetValue(streamFn, out var runtime)
+            && ReferenceEquals(runtime, modelRuntime);
 
     /// <summary>
     /// 把 <see cref="WithoutDeletedHeaders"/> 的结果（值非空）转成可空值字典——即

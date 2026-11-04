@@ -1244,7 +1244,7 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 | `a6a7bac86` 隐藏思考块空标签不渲染行 | ✅ 端口早已实现（懒加 Spacer + 隐藏且空标签直接 `continue`）；本轮补上上游两例 `AssistantMessage_RendersNothingForHiddenThinkingWithAnEmptyLabel` / `…KeepsLabelRowAndSpacingForHiddenThinkingWithALabel` |
 | `7391dbb0f` 全屏标题栏显示模型 scope | ✅ 本批：`GetModelScopeNotice` / `FormatModelScopeNotice` 抽出提示，启动时只在 `_ui.Mode != Fullscreen` 打印；全屏在头部挂 `ThemedText` + `Spacer(1)`（见 §5.1），用例 `InteractiveModeModelScopeTests` |
 | `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ✅ 本批：`const` 字段写值、`anyOf`/`oneOf` 列每个分支的字段、放不进一行的类型改成指向 `describeTool()`（见 §5.2），用例 `CodemodeDescriptionsSummarizeUnionsAndMultiLineOutputTypes` |
-| `6fed3cfb9` SDK 流在摘要时解析 auth | ⏳ 待做（已核：端口没有；要确认 `AgentSession` 的摘要路径与 `StreamFn`↔`ModelRuntime` 的绑定方式） |
+| `6fed3cfb9` SDK 流在摘要时解析 auth | ✅ 本批：`ConditionalWeakTable<StreamFn, ModelRuntime>` 记「这个流式函数自己解析 auth」，摘要路径短路成不传凭据（见 §5.3），用例 `AgentSessionRuntimeStreamAuthTests` |
 | `c8ec752cf` 不支持的架构上跳过 fd/rg 下载 | ⏳ 待核（端口是否还有下载路径） |
 | `c2760d32c` `pi update` 只在自管安装时点名包管理器 | ⏳ 待核 |
 | `5884ee681` `/ir` 从 `.jsonl` URL 导入会话 | ➖ 不适用：改动只在 `.pi/extensions/import-repro.ts`（仓库自用的本地扩展，不随包发布），端口没有对应物 |
@@ -1287,3 +1287,20 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 - union 的 `process` → `` `{ action: "start", process } | { action: "list", processes, truncated? }` ``
 - 数组对象的 `entries` → `` a value; `await describeTool("entries")` shows its type ``
 - `number` 的 `count` → `` `number` ``
+
+
+### 5.3 摘要不传预解析凭据（`6fed3cfb9`）
+
+`createAgentSession` 装的那个 `streamFunction` 自己会经 `modelRuntime` 解析 auth。摘要若再塞一份预解析的 API key，
+运行时会把 key 当成**显式**凭据，顶掉存储的 OAuth 登录（#11520）。
+
+| 上游 | 端口落点 |
+| --- | --- |
+| `const runtimeStreamFunctions = new WeakMap<StreamFn, ModelRuntime>()` + `markRuntimeStreamFunction()` | `ConditionalWeakTable<Pi.Ai.Types.StreamFn, ModelRuntime>` + `AgentSession.MarkRuntimeStreamFunction`（同样是弱键，避免挂住流函数） |
+| `_getSummarizationRequestAuth` 里 `runtimeStreamFunctions.get(streamFunction) === _modelRuntime` 时直接返回 `{ model, thinkingLevel }` | `UsesRuntimeStreamFunction()` 判定后返回 `new SummarizationRequestAuth(model, null, null, null, thinkingLevel)`，位置在 `UsesDefaultStreamFunction()` 分支之后、`GetAuthAsync` 之前 |
+| `createAgentSession` 构造完 agent 后 `markRuntimeStreamFunction(agent.streamFunction, modelRuntime)` | `Sdk.cs` 里 agent 构造语句之后调用同一方法 |
+
+**坑**：端口的 `StreamFn` 委托在 `Pi.Ai.Types`（不是 `Pi.Agent`），写错命名空间会报 CS0234。
+
+用例：`AgentSessionRuntimeStreamAuthTests` —— 标记前为 false、标记后为 true；未标记的流式函数、null 流式函数、null 运行时
+一律 false（对应上游那条「摘要不带 api key」的集成用例的可测内核）。
