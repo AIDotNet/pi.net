@@ -121,6 +121,36 @@ public sealed class MessageComponentsTests : IDisposable
     }
 
     [Fact]
+    public void AssistantMessage_RendersNothingForHiddenThinkingWithAnEmptyLabel()
+    {
+        // 隐藏且标签为空 → 整段不渲染，也不留空行（`a6a7bac86`，上游 assistant-message.test.ts 两例）。
+        var thinkingOnly = new AssistantMessageComponent(
+            CreateAssistantMessage(
+                [new ThinkingContent("reasoning"), new ToolCallContent("tool-1", "read", new { path = "file.txt" })],
+                StopReason.ToolUse),
+            hideThinkingBlock: true,
+            hiddenThinkingLabel: "");
+        Assert.Empty(thinkingOnly.Render(80));
+
+        var withText = new AssistantMessageComponent(
+            CreateAssistantMessage([new ThinkingContent("reasoning"), new TextContent("answer")]),
+            hideThinkingBlock: true,
+            hiddenThinkingLabel: "");
+        Assert.Equal(["", "answer"], withText.Render(80).Select(line => AnsiText.StripAnsi(line).Trim()));
+    }
+
+    [Fact]
+    public void AssistantMessage_KeepsLabelRowAndSpacingForHiddenThinkingWithALabel()
+    {
+        var component = new AssistantMessageComponent(
+            CreateAssistantMessage([new ThinkingContent("reasoning"), new TextContent("answer")]),
+            hideThinkingBlock: true);
+        Assert.Equal(
+            ["", "Thinking...", "", "answer"],
+            component.Render(80).Select(line => AnsiText.StripAnsi(line).Trim()));
+    }
+
+    [Fact]
     public void AssistantMessage_CoalescesAdjacentThinkingBlocksIntoOneHiddenLabel()
     {
         var component = new AssistantMessageComponent(

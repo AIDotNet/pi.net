@@ -1241,13 +1241,13 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 | `b5fc6dc84` stripAnsi 私有参数 CSI | ✅ 已移植（本节批次）：`AnsiText.CsiStart` 只在真 CSI 引导符后接受 `<`/`=`/`>`，`ESC=`/`ESC>` 后面的数字仍是正文；用例 `AnsiTextPrivateCsiTests` 照抄上游 8 条断言 |
 | `018fdcf43` `pi.live` v3：存储里没 `turns` 的运行记 0 | ➖ 判定不适用：端口的 `pi.live` 是 v1，写 `run` 时一直带 `turns`，没有「v2 写了却没 turns」的历史数据可迁 |
 | `f049787d9` 默认 openai 模型改 `gpt-6.1-sol` | ⏳ 归到 P2「目录数据」一起做（同一份 models 目录，单改一处会和目录不一致） |
-| `a6a7bac86` 隐藏思考块空标签不渲染行 | ⏳ 待做（71 行，coding-agent 渲染） |
-| `7391dbb0f` 全屏标题栏显示模型 scope | ⏳ 待做（86 行） |
-| `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ⏳ 待做（74 行，随 `da412b039` 的类型推导一起做更省） |
-| `6fed3cfb9` SDK 流在摘要时解析 auth | ⏳ 待做（142 行） |
+| `a6a7bac86` 隐藏思考块空标签不渲染行 | ✅ 端口早已实现（懒加 Spacer + 隐藏且空标签直接 `continue`）；本轮补上上游两例 `AssistantMessage_RendersNothingForHiddenThinkingWithAnEmptyLabel` / `…KeepsLabelRowAndSpacingForHiddenThinkingWithALabel` |
+| `7391dbb0f` 全屏标题栏显示模型 scope | ⏳ 待做（已核：端口仍只在 shell 打 `Model scope:`，全屏路径没有；86 行，动 `InteractiveMode` 生命周期） |
+| `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ⏳ 待做（已核：端口没有；74 行，随 `da412b039` 的类型推导一起做更省） |
+| `6fed3cfb9` SDK 流在摘要时解析 auth | ⏳ 待做（已核：端口没有；142 行） |
 | `c8ec752cf` 不支持的架构上跳过 fd/rg 下载 | ⏳ 待核（端口是否还有下载路径） |
 | `c2760d32c` `pi update` 只在自管安装时点名包管理器 | ⏳ 待核 |
-| `5884ee681` `/ir` 从 `.jsonl` URL 导入会话 | ⏳ 待做（新功能） |
+| `5884ee681` `/ir` 从 `.jsonl` URL 导入会话 | ⏳ 待做（已核：端口没有；新功能） |
 | `a6bde34bb` schema 基准（Ajv/Zod 对比） | ➖ 开发工具，端口不需要 |
 | `bb65e3e49` 从 `pi-codemode/declarations` 导入 | ➖ 纯导入整理，端口无对应模块边界 |
 | `531340f10` 删 bedrock shim | ➖ 端口没有这些 shim |
