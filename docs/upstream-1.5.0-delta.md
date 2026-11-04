@@ -1118,3 +1118,33 @@ partial 用 `Live.ProgressCommit`），构建绿。临时诊断确认**选项确
 下次接着做时，**先给 `Holdable()` 的四个 `return null` 分别加断言/日志**（`_writes` 含非 `document.change`、
 `plan.Content`/`plan.Change.Loaded` 为 null、`History`/`Fork` 不符、`StoredVersion != Version`），
 确定 `pi.live` 卡在哪一条再动手——选项管道与 Session 侧机制这次已经验证可用。
+
+**第二阶段的第二次尝试（也已回退）：机制通了，卡在视图投递计数**
+
+这次把 11 条全部实现了一遍，并用临时探针验证到「持有真的发生了」：
+
+```
+[commit] within=600000 writes=[DocumentChange] plans=[... loaded=pi.live stored=1 version=1 content=DocumentChange history=Latest fork=Initial]
+[hold] docs=1 listeners=5
+```
+
+沿途确认并修掉两个真问题（下次直接带上）：
+
+1. **`HarnessImpl` 必须读活的设置来源**：原来写 `options.Settings?.Progress?.PersistWithinMs`，而测试夹具用的是
+   `SettingsSource = () => setup.Settings`（`Settings` 为 null），于是会话永远拿缺省的 1000ms。
+   正确写法：`(options.SettingsSource?.Invoke() ?? options.Settings)?.Progress?.PersistWithinMs`。
+2. **内部监听器抛出不该毒化会话**：视图自己会把监听器错误折成 `WatchEnd.ListenerError`，`PublishObserved` 里若
+   `_poison = error` 就会让后续提交全部失败（`HarnessViewTests` 立刻红）。
+
+剩下两条 `HarnessViewTests` 失败是**同一批上游改动里的测试期望**，不是新 bug：
+
+- `SharesUnchangedParts…SkipsCommitsThatTouchNothingMounted`：`frames.Count` 期望 2、实际 1；
+- `SharesOneMountBetweenConcurrentObservers…`：同样期望 2、实际 1。
+
+原因方向：视图现在会收到 `Seq` 为 null 的内存提交（`ToPublication()` 把它们折成 `Seq = default`），
+它的投递记账（已投递 seq / 合并窗口）需要按上游那样区分「内存提交」与「落盘提交」——这正是 `6c2fd73b0`
+在 durable 测试里同步改的部分。两次尝试都在这里耗尽预算，已回退到 `aa31071`（工作区干净、`Pi.Durable.Tests` 566 全绿）。
+
+**下次的顺序建议**：先照上面两条把机制接上 → 再看那两个视图用例，按「内存提交不参与 seq 记账、只按 ops 合并」改
+视图的投递逻辑 → 最后补 `DeferredPersistenceTests`（延迟窗口用 600000，断言「有 `IsMemory` 提交」「关闭后宿主看见落盘」；
+`PersistWithinMs = int.MaxValue` 会走 `(int)` 转换，别用它）。
