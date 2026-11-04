@@ -554,3 +554,17 @@ alt-screen 回归用例需要「录制终端 + 全屏渲染」设施，端口没
 单跑均绿，判为噪声。
 
 至此 1.5.0 只剩 `e5c6182ba`（分组提交，吞吐）与 `da412b039` 的工具参数增量（写入字节数）两项性能债。
+
+## 2026-11-04 `streaming-json.ts` 落地（da412b039 的前置）
+
+`src/Pi.Ai/Utils/StreamingJson.cs`：`StreamingJsonParser` + `ToolCallArgumentsStream`，32 例，`Pi.Ai.Tests` 1008 全绿。
+
+- 快照复制 open path、共享已完成子树，靠「拷贝信用」（每次追加 256 + 8/字符）让超大打开容器只让预览滞后；
+  未结束的字符串/容器/字面量/数字按上游规则显示；畸形文本宽容读取且从不抛出；变更序列 `set`/`append`；
+  深度 ≤ 32 才上报路径
+- 值用 `object?` 树而非 `JsonNode`：`JsonNode` 不允许一个节点挂两个父节点，而快照共享正是核心（差异 C233）
+- 期望值由上游 TS 实跑取得；上游依赖 JS 运行时的用例（差分模糊 / 分配量测量 / JSONTestSuite 语料）换成
+  等价确定性用例，另加一组与 `System.Text.Json` 的完整文档差分
+
+**下一批**：把 provider 的 `toolcall_delta` 与 `PartialChanges` 的 tool-call 状态机接到这条增量上
+（`partial-changes.ts` 166 行 + 213 行用例），才是 `da412b039` 的行为收益。

@@ -1255,6 +1255,28 @@ OAuth 选择器、自动补全、llama、`pi models` CLI），改 `Match` 即全
 > 的用例在整套并行跑时偶发失败，且**每轮失败集合不同**（单跑均绿），判为并行负载下的时序噪声；本轮改动未新增
 > 任何后台循环，也未触及这些路径。
 
+### 4.42 流式 JSON 增量解析器（`streaming-json.ts`，`da412b039` 的前置）
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 增量、宽容的 JSON 解析器 | `StreamingJsonParser` | `src/Pi.Ai/Utils/StreamingJson.cs`：`Append` 每段文本只读一次，`Snapshot` 复制 open path、共享已完成子树，靠「拷贝信用」（每次追加 256 + 8/字符）让超大打开容器只让预览略微滞后；未结束的字符串/容器/字面量/数字各按上游规则显示；畸形文本按 `repairJson` 的方式宽容读取，**从不抛出**；变更序列 `set`/`append` 供写入方打补丁，深度 ≤ 32 才上报路径（更深者在关闭时整体上报一次） | `StreamingJsonTests` 32 例 |
+| 一次流式工具调用的参数 | `ToolCallArgumentsStream` | 同一文件：原文累积、partial 参数（非对象根显示为空参数）、`Replace` 的前缀续写与「重新开始」、`Finish` 走既有 `ParseToolCallArguments` | 同上 |
+
+**值表示为什么不用 `JsonNode`**：快照共享是这个模块的核心（已完成子树在多个快照间共享），而
+`System.Text.Json.Nodes` 的 `JsonNode` 不允许一个节点挂两个父节点。因此值用 `object?` 树
+（`Dictionary<string, object?>` / `List<object?>` / `string` / `bool` / `double` / `null`），`JsonObject` 只在
+`Finish` 时由既有 `ParseToolCallArguments` 产出。对应的差异编号：**C233**。
+
+**用例口径**：期望值全部由上游 TS 实跑取得（不是手算）。上游那几类依赖 JS 运行时的用例——对
+`parseStreamingJson` 的差分模糊、`process.memoryUsage` 的分配量测量、JSONTestSuite 语料——换成等价的确定性
+用例：分片不变性（1/2/3/7 字符一片）、逐段快照、变更序列、32 层上报边界，并额外加一组「完整文档与
+`System.Text.Json` 解析结果一致」（每种分片大小）。所以是 32 例而不是上游的 40+ 例，覆盖面按规则矩阵对齐。
+
+**未做（属下一批）**：把 provider 的 `toolcall_delta` 与 `PartialChanges` 的 tool-call 状态机接到这条增量上
+（`partial-changes.ts` 166 行 + 213 行用例）——那才是 `da412b039` 的行为收益部分。
+
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Ai.Tests` **1008**（0 失败 / 1 跳过：Unix 权限位）。
+
 ## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
 
 用户口径：「只同步到 1.5.0 正式版」。据此把 `v1.4.0..v1.5.0` 全量重扫了一遍——**原来的台账是按精选清单写的，
@@ -1417,19 +1439,18 @@ OAuth 选择器、自动补全、llama、`pi models` CLI），改 `Match` 即全
 全部存储测试；③ 收益是吞吐，端口的定位是语义等价的可读移植，这部分留在 C 编号偏差里更合适（若将来要压吞吐，
 按上面四条分步做，先做批量提交、再做去线独占）。
 
-### 6.2 `da412b039` 的工具参数增量（缺一个前置：流式 JSON 解析器）
+### 6.2 `da412b039` 的工具参数增量（前置已落地，差接线）
 
 已经落地的部分：**文本与思考块的追加写**（`HarnessPartialAppendTests` 钉着，一次提交只花新增文本的长度）。
 
 还差的：**工具调用参数**按增量写。上游用 `StreamingJsonParser` 每个 `toolcall_delta` 喂一小段原始参数文本，
 拿到 `JsonChange`（`set` / `append` / 路径），提交时把这些变更按序应用到已提交的参数上，参数本身不参与整消息赋值。
-前置是这个解析器：
 
-- `packages/ai/src/utils/streaming-json.ts` **559 行**（容错规则、快照共享、open-path 拷贝信用、32 层深度上限都在文档注释里写清了）
-- `packages/ai/test/streaming-json.test.ts` **848 行**
+**前置已落地（§4.42）**：`src/Pi.Ai/Utils/StreamingJson.cs` 的 `StreamingJsonParser` +
+`ToolCallArgumentsStream`，32 例（期望值由上游 TS 实跑取得），`Pi.Ai.Tests` 1008 全绿。
 
-**判定：暂不做。** 它是有明确规格的独立模块，适合单独一个批次：先移植解析器 + 照抄 848 行用例（这一步与 durable 无关，
-可以先做完），再把 `PartialChanges` 的 tool-call 状态机接上（上游 `partial-changes.ts` 166 行 + 213 行用例）。
+**剩下的是接线**：把 provider 的 `toolcall_delta` 与 `PartialChanges` 的 tool-call 状态机接到这条增量上
+（上游 `partial-changes.ts` 166 行 + 213 行用例）。这一步与 durable 的提交形状耦合，是独立的一批。
 
 **注意它的性质**：和 6.1 一样是**写入形状 / 性能**，不是行为缺口——端口每个 partial 提交把参数整段 `set` 一次，
 UI 看到的中间参数与上游逐段 append 的结果相同，只是每次提交写的字节数随参数长度增长（上游只写新增那段）。
