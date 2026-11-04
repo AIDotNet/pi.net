@@ -24,6 +24,44 @@ public static partial class Fuzzy
     [GeneratedRegex("[\\f\\n\\r\\t\\v\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff/]+")]
     private static partial Regex TokenSplitRegex();
 
+    /// <summary>
+    /// TS <c>scorePositions</c>：按命中位置逐个算分（连续命中加分、跳字罚分、词边界加分、越靠后轻微罚分）。
+    /// </summary>
+    private static double ScorePositions(string textLower, IReadOnlyList<int> positions)
+    {
+        double score = 0;
+        var lastMatchIndex = -1;
+        var consecutiveMatches = 0;
+
+        foreach (var i in positions)
+        {
+            if (lastMatchIndex == i - 1)
+            {
+                consecutiveMatches++;
+                score -= consecutiveMatches * 5;
+            }
+            else
+            {
+                consecutiveMatches = 0;
+                if (lastMatchIndex >= 0)
+                {
+                    score += (i - lastMatchIndex - 1) * 2;
+                }
+            }
+
+            if (i == 0 || WordBoundaryRegex().IsMatch(textLower[i - 1].ToString()))
+            {
+                score -= 10;
+            }
+
+            score += i * 0.1;
+
+            lastMatchIndex = i;
+        }
+
+        return score;
+    }
+
     public static FuzzyMatch Match(string query, string text)
     {
         var queryLower = JsString.ToLowerCase(query);
@@ -40,49 +78,37 @@ public static partial class Fuzzy
                 return new FuzzyMatch(false, 0);
             }
 
-            var queryIndex = 0;
-            double score = 0;
+            // 贪心对齐：每个 query 字符取上一个命中之后的首次出现。
+            var positions = new List<int>(normalizedQuery.Length);
             var lastMatchIndex = -1;
-            var consecutiveMatches = 0;
-
-            while (queryIndex < normalizedQuery.Length)
+            for (var queryIndex = 0; queryIndex < normalizedQuery.Length; queryIndex++)
             {
                 var i = textLower.IndexOf(normalizedQuery[queryIndex], lastMatchIndex + 1);
                 if (i == -1)
                 {
-                    break;
+                    return new FuzzyMatch(false, 0);
                 }
 
-                var isWordBoundary = i == 0 || WordBoundaryRegex().IsMatch(textLower[i - 1].ToString());
-
-                if (lastMatchIndex == i - 1)
-                {
-                    consecutiveMatches++;
-                    score -= consecutiveMatches * 5;
-                }
-                else
-                {
-                    consecutiveMatches = 0;
-                    if (lastMatchIndex >= 0)
-                    {
-                        score += (i - lastMatchIndex - 1) * 2;
-                    }
-                }
-
-                if (isWordBoundary)
-                {
-                    score -= 10;
-                }
-
-                score += i * 0.1;
-
+                positions.Add(i);
                 lastMatchIndex = i;
-                queryIndex++;
             }
 
-            if (queryIndex < normalizedQuery.Length)
+            var score = ScorePositions(textLower, positions);
+
+            // 贪心对齐可能把 query 撒在更早的无关片段上——例如 "opus" 命中
+            // "openrouter openrouter/anthropic/claude-opus-4.1" 时，o/p/u 取自 "openrouter"。
+            // 因此对每段**连续出现**也计分，取最优（TS <c>8c03fef4d</c>）。
+            var contiguous = new int[positions.Count];
+            for (var start = textLower.IndexOf(normalizedQuery, StringComparison.Ordinal);
+                 start != -1;
+                 start = textLower.IndexOf(normalizedQuery, start + 1, StringComparison.Ordinal))
             {
-                return new FuzzyMatch(false, 0);
+                for (var k = 0; k < contiguous.Length; k++)
+                {
+                    contiguous[k] = start + k;
+                }
+
+                score = Math.Min(score, ScorePositions(textLower, contiguous));
             }
 
             if (normalizedQuery == textLower)

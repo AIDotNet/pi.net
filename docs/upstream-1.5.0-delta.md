@@ -65,14 +65,14 @@
 | 上游提交 | 变更 | 端口现状 | 处置 |
 | --- | --- | --- | --- |
 | `f715a15c1` | 流式工具调用参数**增量解析**（不再每个 delta 重解析累计串） | **已有**：`JsonParse.ParseStreamingJson` 用在 OpenAI/Anthropic/Bedrock/Mistral/PiMessages 五处流式点 | ✅ |
-| `363ad78bf` | GPT-6.1 Terra（OpenAI / Azure Responses / Codex，tool search、会话中改 thinking、`off`） | 默认模型已是 `gpt-6.1-sol`；Terra 的能力位在目录数据里 | 🔧 P2（数据） |
-| `2e0f175bd` | provider 定义重构 + 目录升到 models.dev v2 | 目录是 1.4.0 期快照（42 个 JSON，`src/Pi.Ai/ModelData/`）；`tools/` 里没有生成脚本 | 🔧 P2（数据，需先移植 `generate-models.ts`） |
+| `363ad78bf` | GPT-6.1 Terra（OpenAI / Azure Responses / Codex，tool search、会话中改 thinking、`off`） | ✅ P2（目录重导后 `gpt-6.1-terra` 覆盖 9 份目录，能力位随之到位；见 §4.3） |
+| `2e0f175bd` | provider 定义重构 + 目录升到 models.dev v2 | ✅ P2（42 份目录已按 1.5.0 生成器重导，`a8db1eb`；不移植生成器，见 §4.3） |
 | `7314819f0` + `a7b94a03f` | Gemini 工具 schema 的 `const` 改单值 `enum`，且不改写 defaults/examples/enum 里的字面量 | 本轮落地 `GoogleShared.RewriteConstAsEnum` | ✅ P2 |
-| `1de2d7ade` | Kimi K3.1 Pro 按 K3 家族发请求 | 家族判定在 `generate-models.ts`（目录数据） | 🔧 P2（数据） |
+| `1de2d7ade` | Kimi K3.1 Pro 按 K3 家族发请求 | ✅ P2（家族判定在目录数据里，`k3.1` 已覆盖 6 份；见 §4.3） |
 | `842c73170` | Bedrock strict 工具超限时重试一次（preferred 放宽、required 保持 strict） | 本轮落地：两个助手抽到 `ConstrainedSampling.PrefersJsonSchemaStrictSampling` / `IsStrictToolLimitErrorMessage`；`ConvertToolConfig` 回报 `HasPreferredStrictTools`；`BedrockConverseStream.Stream` 命中 400 后降级重发一次并记 `bedrock_strict_tools_fallback` 诊断 | ✅ P2 |
-| `81d6759fc` | GPT-5.4/5.5 工具声明放顶层（修 `Missing namespace for function_call`） | 能力位来自目录数据（`supportsAdditionalTools`） | 🔧 P2（数据） |
-| `177e2ad7e` | OpenCode Zen/Go 用各自协议端点 | 端点来自目录数据（`providers/opencode.ts` 仅 1 行） | 🔧 P2（数据） |
-| `44f6851b7` | OpenRouter `~anthropic/claude-*-latest` 走 Anthropic Messages | 同上（`generate-models.ts` + `openrouter-catalog.ts`） | 🔧 P2（数据） |
+| `81d6759fc` | GPT-5.4/5.5 工具声明放顶层（修 `Missing namespace for function_call`） | ✅ P2（能力位 `supportsAdditionalTools` 来自重导后的目录） |
+| `177e2ad7e` | OpenCode Zen/Go 用各自协议端点 | ✅ P2（`opencode.json` / `opencode-go.json` 由重导的目录携带端点） |
+| `44f6851b7` | OpenRouter `~anthropic/claude-*-latest` 走 Anthropic Messages | ✅ P2（`openrouter.json` 重导后带上该别名与协议） |
 | `e3bc05e87` | Anthropic 逐消息 effort 时顶层固定发 `low` | **已有**：`AnthropicMessages.cs:331`，注释已写明「组织可设上限」的理由 | ✅ |
 | `3bc6eebac` | Anthropic system 更新要越过被丢弃的空/纯推理 assistant 消息 | **已有**：`AnthropicMessages.cs:598-601`（`blocks.Count == 0` 之后再 flush） | ✅ |
 | `89c921d8b` | 不可信 URL / 终端文本 / 流式数据的加固 | ai 侧本轮收口：`OAuthHttp.TrustedHttpUrl` 成为唯一实现（Copilot / Kimi / Meta 三处私有副本删除，Kimi 现在按规范化后的形式保存）；`Cli.SaveAuth` 写 `auth.json` 用 0600 并先收紧旧文件；`PiMessages.ValidateContentIndex` 已在。tui / coding-agent / durable 三块分别在 P4 / P3 / P6 | ✅ P2（ai 侧） |
@@ -108,7 +108,7 @@
 | 上游提交 | 变更 | 处置 |
 | --- | --- | --- |
 | `31ade0e0d` | `trust.json` 里保存的「不信任」优先于自动信任 | 🔧 P3 |
-| `b9e3eef6c` | `setActiveTools` 同一组工具换顺序不再触发系统提示词更新 | 🔧 P3 |
+| `b9e3eef6c` | `setActiveTools` 同一组工具换顺序不再触发系统提示词更新 | ✅ 早已落地：`AgentSessionCore.ApplyToolLoadout` 的 `currentActiveNames` 参数按「留任者保序、新增者追加」排序，调用点传 `GetActiveToolNames()`（§4.39 补核对） |
 | `1be312b46` | Windows 路径比较忽略大小写（skills 重复加载 / trust 重问 / `--continue` 丢会话） | 🔧 P3 |
 | `88ffcdc73` | 工作目录被删除时给提示，不再 `uv_cwd` 崩栈 | 🔧 P3 |
 | `807a5c051` | 会话写盘失败时内存与文件保持一致（不再产生悬空 parent） | 🔧 P3 |
@@ -129,7 +129,7 @@
 | `984cf6643` | `--model <provider>/<id>` 支持 provider id 含斜杠 | 🔧 P3 |
 | `8ddc44ec8` | fork 会话单 fd 写入（打开文件昂贵的文件系统） | 🔧 P2（待核） |
 | `8c03fef4d` | `/resume` 搜索：名称/目录模糊，ID 与消息正文只做子串 | ✅ `2ac34ad`（`SessionSelectorSearch` 51 例，见 §4.6） |
-| `8c03fef4d` | `/model` 搜索排序：连续匹配优先 | 🔧 P3 |
+| `8c03fef4d` | `/model` 搜索排序：连续匹配优先 | ✅ 本批：`Fuzzy.Match` 补「对每段连续出现计分取最优」；上游 `fuzzy.test.ts` 3 例 + `model-search.test.ts` 2 例照抄（§4.39） |
 | `be15fe3c1` | `pi mcp login/logout -l` | ✅ `4afb050`（`local` flag、作用域校验、拼写建议；见 §4.5） |
 | `908aa7b74` | MCP OAuth 默认用 Client ID Metadata Document，否则动态注册（`oauth.clientRegistration: auto/dcr`） | ✅ `2ac34ad`（`McpClientRegistration.Auto` + `McpClientRegistrationTests` 10 例；见 §4.6） |
 | `1c720d285` / `9359adf0c` | HTML 导出：数千条目不空白；包含 system prompt/tools | ✅ `2ac34ad`（1.5.0 模板，见 §4.6） |
@@ -1171,6 +1171,41 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **567** 全绿；`Pi.CodingAgent.Tests` 与基线一致
 （5208：1 既有失败 / 3 跳过）。
 
+### 4.39 审计：`8c03fef4d` 的 tui 主项（连续匹配优先）此前从未落地
+
+**怎么发现的**：把 §2 里所有还标 🔧 的行逐个对回代码（§2 的行会落后于 §4，前十四条都能在某个批次里找到落地记录），
+只有两行在整份台账里「只出现在初次评估表、之后再无提及」：`b9e3eef6c` 与 `8c03fef4d` 的 `/model` 排序。前者核对后
+确认早已落地（`ApplyToolLoadout` 的 `currentActiveNames`，调用点传 `GetActiveToolNames()`）；后者是真缺口。
+
+**上游改动**（`packages/tui/src/fuzzy.ts`）：`matchQuery` 原来只按「每个 query 字符取上一次命中之后的首次出现」的贪心
+对齐算分。贪心会把 query 撒在更早的无关片段上——`"opus"` 在 `"openrouter openrouter/anthropic/claude-opus-4.1"` 里从
+`"openrouter"` 取了 o/p/u，于是真正含 opus 的那个模型分数比 sonnet 还差。上游改成：贪心结果仍算一次，另外对文本里
+**每段** `normalizedQuery` 的连续出现（`indexOf` 逐个前推）各算一次，取最小值。
+
+**落点**（`src/Pi.Tui/Fuzzy.cs`）：
+
+| 改动 | 说明 |
+| --- | --- |
+| 抽出 `ScorePositions(textLower, positions)` | 与 TS 同名函数一一对应：连续命中递增加分、跳字罚分、词边界加分、位置轻微罚分 |
+| `MatchQuery` 先收 `positions` 再补连续出现循环 | 用可复用的 `int[]` buffer（TS 原地改 `positions`），`Math.Min` 取最优 |
+| 字符串查找一律 `StringComparison.Ordinal` | JS `indexOf` 是序数语义；.NET 的 `IndexOf(string, int)` 默认是**区域性敏感**比较，不显式指定会引入 ligature/大小写折叠类偏差 |
+
+**影响面**：`Fuzzy.Filter` 有 9 个调用方（`/model`、`/scoped-models`、`/resume` 的 name/cwd 分档、设置列表、思考档位、
+OAuth 选择器、自动补全、llama、`pi models` CLI），改 `Match` 即全局一致。`/resume` 的 `SessionSelectorSearch` 早在 §4.6
+就按 tier 分档落地（字段分开匹配、无位置罚分、消息文本按会话缓存），这次只借 `Match` 的修正把分数对齐上游。
+
+**用例**：`FuzzyTests` 补 3 例，分值全部由上游 TS 在 Node 里实跑取得（不是手算）：`opus` 对三条 openrouter 文本
+`-23.8 / 41.6 / 41.1`；`xxopus opus` 与 `xxxxxx opus` 同为 `-36.6`（取最优而非第一段）；`astra` 对四条 radius 文本的
+排序为 `[3,0,1,2]`。新增 `ModelSearchRankingTests` 2 例，照抄 `packages/coding-agent/test/model-search.test.ts` 全文
+（`opus` 前两名是 `claude-opus-4-1` / `anthropic/claude-opus-4.1`；`firerouter` 排第一）。既有 20 例钉死分值全部不变
+——说明只有「存在更优连续出现」的输入才会变分。
+
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` **23963** 全绿（基线 23960 + 新增 3）；
+`Pi.CodingAgent.Tests` **5194**（`--filter-not-class "*PackageManagerTests*"`）：1 既有失败
+（`UpstreamTypeScriptExampleTests.UpstreamExamplesLoadAndHandleEvents`，typebox 语料）、3 跳过
+（symlink 特权 ×2、Windows 上的 POSIX 进程组）；`SessionSelectorTests.PageDownMovesByMaxVisible` 本轮偶发失败，
+单跑 22/22 全绿，判为时序噪声。
+
 ## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
 
 用户口径：「只同步到 1.5.0 正式版」。据此把 `v1.4.0..v1.5.0` 全量重扫了一遍——**原来的台账是按精选清单写的，
@@ -1360,3 +1395,23 @@ UI 看到的中间参数与上游逐段 append 的结果相同，只是每次提
 | `da412b039` 工具参数 | 一致（中间参数照样可见） | 每次提交写多少字节 |
 
 所以「同步到 1.5.0 正式版」在**功能层面到此为止**；这两项作为性能债记录在案，需要时按 §6.1 / §6.2 的步骤单独开工。
+
+### 6.4 上面这条结论的更正：还有第三块（`8b0caefc2` 的三个同步 observer）
+
+同一轮审计里发现 §4.7 末尾写「仍归 P6」的三件事——**「采纳时发布提交」、「按地址跟随的 watch」、三个同步 observer
+（`Session.observeDoc` / `Harness.observeConversation` / `Harness.observeTaskGraph`）**——在后面的 P6 批次里都没有落地记录，
+而 §4.38 的落地清单也不含它们。逐条对回代码：
+
+| 项 | 端口现状 | 判定 |
+| --- | --- | --- |
+| `Harness.observeConversation` → `views.observe(id, observer, context, window)` | 只有工厂式 `ConversationViews.AttachAsync(id, create, context, window)`（上游的 `attach`），没有 `observe` 那一层 | 🔧 缺 |
+| `Harness.observeTaskGraph` → `taskGraph.observe(observer, context)` | 只有 `TaskGraphViews.AttachAsync` 与 `WatchTaskGraphAsync` | 🔧 缺 |
+| `Session.observeDoc` 的 5 个重载 → `#observeDocument(..., create)` | 只有 `WatchDocAsync`（watch 出口），`#observeDocument` 的 `create` 缝没留 | 🔧 缺 |
+
+三者都是 **v1.5.0 新增**（`git grep` 在 `v1.4.0` 上为 0 次，`v1.5.0` 上 18/7/6 次），所以确实在本轮范围内，不是历史遗留。
+它们与 §6.1 / §6.2 不同：**这是公开 API 的缺口，不是写入成本**。`attach` 与 `observe` 共用同一处挂载线路，缺的正是
+`Observer`/`guardObserver`/`Observation` 那一层（上游 559 行 `session.ts` 里的 `contained` + `guardObserver` +
+`observation`，语义：观察者抛错或被拒绝时经 `report` 上报、自行 detach、并以 `listener_error` 结束，绝不污染提交方）。
+
+**下一步**：按 `guardObserver` → `#observeDocument` 的 `create` 缝 → 两个 `Harness.observe*` 的顺序补齐，并照抄上游
+`observe*` 用例。在这三件落地之前，上面 §6.3 的「功能对齐完成」只对 §6.1 / §6.2 两项成立。

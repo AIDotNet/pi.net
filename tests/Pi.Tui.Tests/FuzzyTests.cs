@@ -89,6 +89,36 @@ public class FuzzyTests
     }
 
     [Fact]
+    public void ScoresContiguousOccurrenceInsteadOfEarlierScatteredAlignment()
+    {
+        // #11220：贪心对齐从 "openrouter" 里取了 o/p/u，真正的 "opus" 反而排到最后。
+        var opus = Fuzzy.Match("opus", "openrouter openrouter/anthropic/claude-opus-4.1");
+        var sonnet = Fuzzy.Match("opus", "openrouter openrouter/anthropic/claude-sonnet-4.5");
+        var gptOss = Fuzzy.Match("opus", "openrouter openrouter/openai/gpt-oss-120b");
+
+        Assert.True(opus.Matches);
+        Assert.True(opus.Score < sonnet.Score);
+        Assert.True(opus.Score < gptOss.Score);
+
+        // 分值由上游 TS 实跑取得。
+        Assert.Equal(-23.8, opus.Score, 6);
+        Assert.Equal(41.6, sonnet.Score, 6);
+        Assert.Equal(41.1, gptOss.Score, 6);
+    }
+
+    [Fact]
+    public void UsesBestContiguousOccurrenceNotTheFirst()
+    {
+        // "xxopus opus" 里第一段连续出现嵌在词中（无词边界加分），要与 "xxxxxx opus" 同分——
+        // 说明取的是**最优**连续出现，而不是第一段。
+        var embeddedFirst = Fuzzy.Match("opus", "xxopus opus");
+        var boundaryOnly = Fuzzy.Match("opus", "xxxxxx opus");
+
+        Assert.Equal(boundaryOnly.Score, embeddedFirst.Score, 6);
+        Assert.Equal(-36.6, boundaryOnly.Score, 6);
+    }
+
+    [Fact]
     public void MatchesSwappedAlphaNumericTokens()
     {
         var result = Fuzzy.Match("codex52", "gpt-5.2-codex");
@@ -208,6 +238,23 @@ public class FuzzyTests
     {
         var items = new[] { "zlib", "alibaba", "a/b", "b a" };
         Assert.Equal(new[] { "a/b", "b a", "alibaba" }, Fuzzy.Filter(items, "a/b", x => x));
+    }
+
+    [Fact]
+    public void RanksContiguousMatchAboveSharedProviderPrefix()
+    {
+        // #11220："radius radius/gpt" 里含 a,s,t,r,a 的顺序子序列，于是每个 radius 模型都命中，
+        // 真正含 "astra" 的那个反而垫底。
+        var items = new[]
+        {
+            "radius radius/gpt-5.4 radius gpt-5.4 GPT 5.4",
+            "radius radius/agentic radius agentic Agentic",
+            "radius radius/gpt-6-sol radius gpt-6-sol GPT 6 Sol",
+            "radius radius/gpt-6-astra radius gpt-6-astra GPT 6 Astra",
+        };
+        var result = Fuzzy.Filter(items, "astra", x => x);
+
+        Assert.Equal(new[] { items[3], items[0], items[1], items[2] }, result);
     }
 
     private sealed record ModelItem(string Name, int Id);
