@@ -291,7 +291,7 @@ public sealed partial class Models
             var (requestModel, requestOptions) = await ApplyAuthAsync(model, MergeIdentity(options), CancellationToken.None)
                 .ConfigureAwait(false);
             return provider.StreamSimple(requestModel, context, requestOptions);
-        });
+        }, Api.AiTelemetry.ObserveRequest(model, options, poll: false));
 
     /// <summary>
     /// 完整选项流式：同步返回事件流，认证解析与 provider 分派在其后运行。
@@ -305,7 +305,7 @@ public sealed partial class Models
             var (requestModel, requestOptions) = await ApplyAuthAsync(model, MergeIdentity(options), CancellationToken.None)
                 .ConfigureAwait(false);
             return provider.Stream(requestModel, context, requestOptions);
-        });
+        }, Api.AiTelemetry.ObserveRequest(model, options, poll: false));
 
     /// <summary>完整选项补全：等待终态并返回最终消息。对应 TS <c>complete()</c>。</summary>
     public async Task<AssistantMessage> CompleteAsync(ModelSpec model, IReadOnlyList<ChatMessage> context,
@@ -358,7 +358,7 @@ public sealed partial class Models
             return provider.StreamDeferred(requestModel, handle, requestOptions)
                 ?? throw new ModelsError(ModelsErrorCode.Provider,
                     $"Provider {model.Provider} does not support deferred responses");
-        });
+        }, Api.AiTelemetry.ObserveRequest(model, options, poll: true));
 
     /// <summary>续取延后响应并等待终态。对应 TS <c>fetchDeferred()</c>。</summary>
     public async Task<AssistantMessage> FetchDeferredAsync(ModelSpec model, DeferredHandle handle,

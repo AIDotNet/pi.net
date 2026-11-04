@@ -48,6 +48,47 @@ public interface ITelemetryMetrics
 }
 
 /// <summary>
+/// Inert metrics used when the host provides none. Mirrors TS <c>NOOP_TELEMETRY_METRICS</c>.
+/// </summary>
+public static class NoopTelemetryMetrics
+{
+    /// <summary>Singleton adapter whose instruments discard every measurement.</summary>
+    public static readonly ITelemetryMetrics Instance = new Noop();
+
+    private sealed class Noop : ITelemetryMetrics
+    {
+        public ITelemetryCounter Counter(string name, InstrumentOptions? options = null) => NoopCounter.Instance;
+
+        public ITelemetryUpDownCounter UpDownCounter(string name, InstrumentOptions? options = null)
+            => NoopUpDownCounter.Instance;
+
+        public ITelemetryHistogram Histogram(string name, HistogramOptions? options = null)
+            => NoopHistogram.Instance;
+    }
+
+    private sealed class NoopCounter : ITelemetryCounter
+    {
+        public static readonly NoopCounter Instance = new();
+
+        public void Add(double value, SpanAttributes? attributes = null) { }
+    }
+
+    private sealed class NoopUpDownCounter : ITelemetryUpDownCounter
+    {
+        public static readonly NoopUpDownCounter Instance = new();
+
+        public void Add(double value, SpanAttributes? attributes = null) { }
+    }
+
+    private sealed class NoopHistogram : ITelemetryHistogram
+    {
+        public static readonly NoopHistogram Instance = new();
+
+        public void Record(double value, SpanAttributes? attributes = null, ITelemetryContext? context = null) { }
+    }
+}
+
+/// <summary>
 /// Metrics bound to one or more schemas: instrument names, kinds and metadata come from the schema
 /// rather than the call site. Mirrors TS <c>TypedTelemetryMetrics</c>.
 /// </summary>

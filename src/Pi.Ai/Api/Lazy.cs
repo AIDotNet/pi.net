@@ -6,6 +6,19 @@ using Pi.Ai.Utils;
 namespace Pi.Ai.Api;
 
 /// <summary>
+/// 延迟流的旁路观察者：每个事件与终态各一次回调。对应 TS <c>LazyStreamObserver</c>，
+/// 供遥测在不改动流语义的前提下收集 span 与指标。
+/// </summary>
+public interface ILazyStreamObserver
+{
+    /// <summary>转发一个事件之前调用。</summary>
+    void OnEvent(AssistantMessageEvent @event);
+
+    /// <summary>流结束：<paramref name="message"/> 为终态消息；准备阶段失败时为 <see langword="null"/>。</summary>
+    void OnResult(AssistantMessage? message);
+}
+
+/// <summary>
 /// 延迟流：同步返回事件流，异步准备工作（认证解析、模块加载）在其后运行；
 /// 准备失败以 error 终态事件终止流。对应 TS <c>api/lazy.ts</c> 的 <c>lazyStream</c>。
 /// </summary>
@@ -31,7 +44,7 @@ public static class LazyStream
     /// <c>forwardStream</c>：逐事件 push，随后以 <c>WaitForDoneAsync</c> 取终态收尾。
     /// </summary>
     public static IAssistantMessageEventStream Run(
-        ModelSpec model, Func<Task<IAssistantMessageEventStream>> setup)
+        ModelSpec model, Func<Task<IAssistantMessageEventStream>> setup, ILazyStreamObserver? observer = null)
     {
         var startedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var outer = new AssistantMessageEventStream();
@@ -42,13 +55,19 @@ public static class LazyStream
                 var inner = await setup().ConfigureAwait(false);
                 await foreach (var @event in inner.ConfigureAwait(false))
                 {
+                    observer?.OnEvent(@event);
                     outer.Push(@event);
                 }
-                outer.End(await inner.WaitForDoneAsync().ConfigureAwait(false));
+
+                var final = await inner.WaitForDoneAsync().ConfigureAwait(false);
+                // 先让观察者收尾（span 在此期间结算），再结束外层流。
+                observer?.OnResult(final);
+                outer.End(final);
             }
             catch (Exception error)
             {
                 var message = SetupErrorMessage(model, error, startedAt);
+                observer?.OnResult(null);
                 outer.Push(new AssistantMessageEvent.Error(message.StopReason, message.ErrorMessage!, message));
                 outer.End(message);
             }

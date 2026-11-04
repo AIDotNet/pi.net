@@ -5,13 +5,13 @@ namespace Pi.Telemetry;
 /// A span is itself a <see cref="ITelemetryContext"/>, so child spans are started
 /// through <see cref="StartSpanAsync{T}"/>.
 /// </summary>
-public interface ITelemetrySpan
+public interface ITelemetrySpan : ITelemetryContext
 {
-    /// <summary>Starts a child span whose parent is this span.</summary>
-    Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback);
-
     /// <summary>Records an ordered, timestamped event on this span.</summary>
     void AddEvent(string name, SpanAttributes? attributes = null);
+
+    /// <summary>Links this span to another span without parenting it. Mirrors TS <c>addLink()</c>.</summary>
+    void AddLink(StoredSpanLink link);
 
     /// <summary>Merges attributes onto this span; last write wins per key.</summary>
     void SetAttributes(SpanAttributes attributes);
@@ -35,6 +35,12 @@ public interface ITelemetrySpan
 /// </summary>
 public interface ITelemetryContext
 {
+    /// <summary>
+    /// Optional metrics adapter of this context. Mirrors TS <c>TelemetryContext.metrics?</c>:
+    /// absent for a context that records no metrics.
+    /// </summary>
+    ITelemetryMetrics? Metrics => null;
+
     /// <summary>Starts a span and runs <paramref name="callback"/> inside its lifetime.</summary>
     Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback);
 }
@@ -61,13 +67,18 @@ public static class NoopTelemetryContext
             }
         }
 
+        public ITelemetryMetrics Metrics => NoopTelemetryMetrics.Instance;
+
         public void AddEvent(string name, SpanAttributes? attributes = null) { }
+        public void AddLink(StoredSpanLink link) { }
         public void SetAttributes(SpanAttributes attributes) { }
         public void SetStatus(SpanStatus status) { }
     }
 
     private sealed class NoopContext : ITelemetryContext
     {
+        public ITelemetryMetrics Metrics => NoopTelemetryMetrics.Instance;
+
         public Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback)
             => NoopSpan.Instance.StartSpanAsync(options, callback);
     }

@@ -1298,6 +1298,42 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 **验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **571**（1 例既有并行时序噪声，单跑绿）；
 新增 4 例全绿。
 
+### 4.44 AI 层遥测（`ai/telemetry.ts`）+ telemetry 包的接口补齐
+
+§7.3 发现「AI 没接遥测」的根因是 `Pi.Telemetry` 自己没移植完。本批按依赖顺序补齐。
+
+**`Pi.Telemetry`（接口对齐上游）**
+
+- `ITelemetryContext.Metrics`（可选成员，默认 `null`）——上游 `TelemetryContext.metrics?`
+- `ITelemetrySpan : ITelemetryContext`——上游 `TelemetrySpan extends TelemetryContext`；顺带去掉重复声明的
+  `StartSpanAsync`
+- `ITelemetrySpan.AddLink(StoredSpanLink)`——上游 `addLink()`；`InMemoryTelemetryContext` 把它记进
+  `RecordedTelemetrySpan.Links`（`GetStoredSpans()` 也一并填充，此前注释写着「links 永远为空」）
+- `NoopTelemetryMetrics`——上游 `NOOP_TELEMETRY_METRICS`
+- `InMemoryTelemetryContext.Metrics` + `GetMeasurements()`——录制每次测量（kind/name/value/attributes），
+  对应上游内存实现的 `measurements`
+
+**`Pi.Ai`（本批的功能面）**
+
+- `AiTelemetry.Schema`：`pi.ai.request` / `pi.ai.poll` 两个 span（父任意、起止属性、`pi.ai.first_chunk` 与
+  `pi.ai.block` 事件、状态策略），四个指标（两个直方图 + token/成本计数器），逐项照抄 `AI_TELEMETRY_SCHEMA`
+- `AiTelemetry.ObserveRequest(model, options, poll)`：首个事件记 `pi.ai.first_chunk`；文本/思维块结束时记
+  `pi.ai.block`（type/index/chars），工具调用块按 delta 累计字符数；终态写 `stop`、四个 usage、`cost.total`、
+  `response.id`，错误停止原因写 `provider_error`（消息截断 500 字符）并计一次 `pi.ai.request.duration`；
+  非 poll 或非 pending/deferred 时再加 token 与成本计数
+- `ILazyStreamObserver` + `LazyStream.Run(..., observer)`：旁路观察每个事件与终态，先让观察者收尾再结束外层流
+- `Models.Stream` / `StreamSimple`（`poll: false`）与 `StreamDeferred`（`poll: true`）接线
+
+**差异记录 C234**：上游 `options.telemetry` 是类型化字段；端口选项是字典，用同名键 `"telemetry"` 承载
+`ITelemetryContext`。没有手柄时返回无操作实现。
+
+**用例**：`AiTelemetryTests` 3 例——span 名/属性/事件/指标、无手柄时的无操作路径、延后响应产出 `pi.ai.poll`。
+
+**未做（另计）**：`TelemetryPropagation` / carrier；`DURABLE_TELEMETRY_SCHEMA`（要把 span 织进 submit/task 生命周期）。
+
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Telemetry.Tests` 24 全绿；`Pi.Ai.Tests` **1012**
+（0 失败 / 1 跳过；整套并行时 `OpenAiCompletionsTests` 偶发流式计时噪声，单跑 5/5 绿，与既有口径一致）。
+
 ## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
 
 用户口径：「只同步到 1.5.0 正式版」。据此把 `v1.4.0..v1.5.0` 全量重扫了一遍——**原来的台账是按精选清单写的，
@@ -1550,20 +1586,17 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 | `NOOP_TELEMETRY_METRICS` | 没有对应的 noop 实现 | 无遥测时的默认 metrics 缺失 |
 | — | `Pi.Ai.csproj` 引用了 `Pi.Telemetry`，但 `Pi.Ai` 里 **0 行**使用它 | 移植时预留了引用，接线没做 |
 
-**为什么判定「现在不补」**（不是「不需要」，而是「不该这样补」）：
+**已补（`§4.44`）**：先按依赖顺序补齐 telemetry 包，再接 AI 侧。改动与验收如下：
 
-1. **收益为零**：上游 `observeModelRequest` 只在 `models.ts` 内部被调用——宿主传了 `options.telemetry` 才有 span。
-   端口全仓**没有任何 telemetry 生产消费方**（只有 `Pi.Telemetry.Tests`），`Pi.Server` / `Pi.Cli` / `Pi.DurableHost`
-   都不用它。即便补完 AI 侧，也没有调用方给手柄，spans 不会产生。
-2. **成本不对称**：要按顺序补 ①`ITelemetryContext.Metrics` ②`ITelemetrySpan.AddLink` ③`NoopTelemetryMetrics`
-   ④`InMemoryTelemetryContext` 的 metrics 记录 ⑤更新 374 行的 adapter conformance ⑥AI 侧 schema + observer +
-   `LazyStream` 观察者钩子 + `Models.Stream` 接线 + 用例。约 400 行、跨 8 个文件，且要改 telemetry 包的公开接口
-   （4 个实现者）。
-3. **风险**：这是接口契约变更，不是照抄文件；在批次末尾仓促动手最容易留下「接口改了、实现没齐」的半成品。
+| 层 | 改动 |
+| --- | --- |
+| `Pi.Telemetry` | `ITelemetryContext.Metrics`（可选，默认 `null`）；`ITelemetrySpan` 改为继承 `ITelemetryContext`（与上游 `TelemetrySpan extends TelemetryContext` 一致）；`ITelemetrySpan.AddLink`；`NoopTelemetryMetrics`；`InMemoryTelemetryContext` 增加 measurements 录制与 link 记录（`RecordedTelemetrySpan.Links`） |
+| `Pi.Ai` | `AiTelemetry.Schema`（`pi.ai.request` / `pi.ai.poll` 两个 span、四个指标，事件与属性逐项照抄）；`AiTelemetry.ObserveRequest`；`ILazyStreamObserver` + `LazyStream.Run` 观察者钩子；`Models.Stream` / `StreamSimple` / `StreamDeferred` 接线 |
 
-**验收口径（将来要做时）**：`ITelemetryContext.Metrics` / `ITelemetrySpan.AddLink` / `NoopTelemetryMetrics` 与上游
-接口一一对应；`AiTelemetry.Schema` 与 `ai/telemetry.ts` 的 span/metric 定义逐项一致（可用 JSON 序列化比对）；
-`ObserveModelRequest` 在 `InMemoryTelemetryContext` 下产出 `pi.ai.request` span、`pi.ai.first_chunk` /
-`pi.ai.block` 事件、4 个指标点；`addLink` 在 conformance 里有用例。`RemoteTerminal` 另计（依赖未移植的 chord
-`connection` 层，见 7.1）。
+**差异记录 C234**：上游 `options.telemetry` 是类型化字段；端口的请求选项是 `IReadOnlyDictionary<string, object?>`，
+所以用同名键 `"telemetry"` 承载 `ITelemetryContext`。没有手柄时 `ObserveRequest` 返回无操作实现，开销为零。
+
+**仍未移植（另计，不在本批）**：`TelemetryPropagation` / carrier（上游 `pi-telemetry` 的上下文传播），以及
+`durable/harness/telemetry.ts` 的 `DURABLE_TELEMETRY_SCHEMA`——后者要把 span 织进 submit/task 生命周期，属独立一批。
+`RemoteTerminal` 依赖未移植的 chord `connection` 层，见 7.1。
 

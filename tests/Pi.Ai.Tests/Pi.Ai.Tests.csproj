@@ -10,6 +10,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pi.Ai\Pi.Ai.csproj" />
+    <ProjectReference Include="..\..\src\Pi.Telemetry\Pi.Telemetry.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Differential corpus captured from the TypeScript originals by

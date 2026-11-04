@@ -582,3 +582,21 @@ alt-screen 回归用例需要「录制终端 + 全屏渲染」设施，端口没
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 571（1 例既有并行时序噪声，单跑绿）。
 
 **1.5.0 现在只剩 `e5c6182ba`（分组提交，吞吐/架构，按既定结论不做）。**
+
+## 2026-11-04 AI 遥测落地（§4.44）：先补 telemetry 包再接线
+
+§7.3 认定「AI 没接遥测」的根因是 `Pi.Telemetry` 没移植完，本批按依赖顺序补齐。
+
+**Pi.Telemetry**：`ITelemetryContext.Metrics`（可选）、`ITelemetrySpan : ITelemetryContext`（对齐上游
+`TelemetrySpan extends TelemetryContext`）、`AddLink`、`NoopTelemetryMetrics`、
+`InMemoryTelemetryContext.Metrics` + `GetMeasurements()` 录制、`RecordedTelemetrySpan.Links`。
+
+**Pi.Ai**：`AiTelemetry.Schema`（`pi.ai.request`/`pi.ai.poll` + 四个指标）、`ObserveRequest`、
+`ILazyStreamObserver` + `LazyStream.Run` 钩子、`Models.Stream/StreamSimple/StreamDeferred` 接线。
+差异 C234：上游 `options.telemetry` 是类型化字段，端口用字典同名键承载。
+
+未做：`TelemetryPropagation`/carrier、`DURABLE_TELEMETRY_SCHEMA`、`RemoteTerminal`（后者依赖未移植的
+chord `connection` 层）。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Telemetry.Tests` 24 全绿；`Pi.Ai.Tests` 1012（0 失败 / 1 跳过；
+整套并行时 `OpenAiCompletionsTests` 偶发流式计时噪声，单跑 5/5 绿）。

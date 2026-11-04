@@ -12,7 +12,15 @@ public sealed record RecordedTelemetrySpan(
     IReadOnlyList<RecordedTelemetryEvent> Events,
     SpanStatus Status,
     bool Settled,
-    int? EndSequence);
+    int? EndSequence,
+    IReadOnlyList<StoredSpanLink>? Links = null);
+
+/// <summary>One recorded metric measurement (detached snapshot).</summary>
+public sealed record RecordedTelemetryMeasurement(
+    string Kind,
+    string Name,
+    double Value,
+    IReadOnlyDictionary<string, object?> Attributes);
 
 /// <summary>
 /// Backend-neutral reference implementation that records spans in process memory.
@@ -42,10 +50,75 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
         public required long StartedMs { get; init; }
         public long? EndedMs { get; set; }
         public List<EventSlot> Events { get; } = new();
+        public List<StoredSpanLink> Links { get; } = new();
         public SpanStatus Status { get; set; } = SpanStatus.Ok.Instance;
         public bool ExplicitStatus { get; set; }
         public bool Settled { get; set; }
         public int? EndSequence { get; set; }
+    }
+
+    private readonly List<RecordedTelemetryMeasurement> _measurements = [];
+    private ITelemetryMetrics? _metrics;
+
+    /// <inheritdoc />
+    public ITelemetryMetrics Metrics => _metrics ??= new RecordingMetrics(this);
+
+    /// <summary>Detached metric measurements in recording order.</summary>
+    public IReadOnlyList<RecordedTelemetryMeasurement> GetMeasurements()
+    {
+        lock (_lock) return [.. _measurements];
+    }
+
+    private void Record(string kind, string name, double value, SpanAttributes? attributes)
+    {
+        var copy = new Dictionary<string, object?>();
+        try
+        {
+            if (attributes is not null)
+            {
+                foreach (var (key, item) in attributes)
+                {
+                    if (item is null) continue;
+                    copy[key] = SpanAttributes.CopyValue(item);
+                }
+            }
+        }
+        catch
+        {
+            // 录制是旁路行为：不可读的属性不外传。
+        }
+
+        lock (_lock) _measurements.Add(new RecordedTelemetryMeasurement(kind, name, value, copy));
+    }
+
+    /// <summary>Records every measurement in memory; instruments are created per call, as upstream does.</summary>
+    private sealed class RecordingMetrics(InMemoryTelemetryContext owner) : ITelemetryMetrics
+    {
+        public ITelemetryCounter Counter(string name, InstrumentOptions? options = null) => new CounterInstrument(owner, name);
+
+        public ITelemetryUpDownCounter UpDownCounter(string name, InstrumentOptions? options = null)
+            => new UpDownCounterInstrument(owner, name);
+
+        public ITelemetryHistogram Histogram(string name, HistogramOptions? options = null)
+            => new HistogramInstrument(owner, name);
+
+        private sealed class CounterInstrument(InMemoryTelemetryContext owner, string name) : ITelemetryCounter
+        {
+            public void Add(double value, SpanAttributes? attributes = null)
+                => owner.Record("counter", name, value, attributes);
+        }
+
+        private sealed class UpDownCounterInstrument(InMemoryTelemetryContext owner, string name) : ITelemetryUpDownCounter
+        {
+            public void Add(double value, SpanAttributes? attributes = null)
+                => owner.Record("upDownCounter", name, value, attributes);
+        }
+
+        private sealed class HistogramInstrument(InMemoryTelemetryContext owner, string name) : ITelemetryHistogram
+        {
+            public void Record(double value, SpanAttributes? attributes = null, ITelemetryContext? context = null)
+                => owner.Record("histogram", name, value, attributes);
+        }
     }
 
     /// <inheritdoc />
@@ -149,7 +222,8 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
                 span.Events.Select(slot => slot.Event with { }).ToList(),
                 span.Status,
                 span.Settled,
-                span.EndSequence)).ToList();
+                span.EndSequence,
+                span.Links.ToList())).ToList();
         }
     }
 
@@ -176,6 +250,7 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
                     .Select(slot => new StoredSpanEvent(
                         slot.Event.Name, slot.TimeMs, new SpanAttributes(slot.Event.Attributes)))
                     .ToList(),
+                Links = span.Links.ToList(),
                 Status = span.Status,
             }).ToList();
         }
@@ -183,8 +258,23 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
 
     private sealed class InMemorySpan(InMemoryTelemetryContext owner, MutableSpan recorded) : ITelemetrySpan
     {
+        public ITelemetryMetrics Metrics => owner.Metrics;
+
         public Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback)
             => owner.StartInMemorySpan(options, recorded, callback);
+
+        public void AddLink(StoredSpanLink link)
+        {
+            if (recorded.Settled) return;
+            try
+            {
+                recorded.Links.Add(link);
+            }
+            catch
+            {
+                // 记录 link 是旁路行为：不可读的载荷不外传。
+            }
+        }
 
         public void AddEvent(string name, SpanAttributes? attributes = null)
         {
