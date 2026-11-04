@@ -1055,7 +1055,7 @@ public static partial class Generation
         private async Task FlushAsync()
         {
             AssistantMessage? partial;
-            IReadOnlyList<PartialChanges.TextAppend> taken;
+            PartialChanges.Taken taken;
             lock (_gate)
             {
                 _timerScheduled = false;
@@ -1083,8 +1083,8 @@ public static partial class Generation
                 }
                 else
                 {
-                    // 逐叶赋值 + 文本按追加写：每次提交只花新增文本的长度，而不是整段消息的长度。
-                    PartialChanges.Commit(
+                    // 逐叶赋值 + 文本/参数按增量写：每次提交只花新增内容的长度，而不是整段消息的长度。
+                    _changes.Commit(
                         live, taken, tree,
                         generation.TryGetValue("message", out var committed)
                             ? committed as IReadOnlyDictionary<string, object?>
