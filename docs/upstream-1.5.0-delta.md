@@ -1244,10 +1244,10 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 | `a6a7bac86` 隐藏思考块空标签不渲染行 | ✅ 端口早已实现（懒加 Spacer + 隐藏且空标签直接 `continue`）；本轮补上上游两例 `AssistantMessage_RendersNothingForHiddenThinkingWithAnEmptyLabel` / `…KeepsLabelRowAndSpacingForHiddenThinkingWithALabel` |
 | `7391dbb0f` 全屏标题栏显示模型 scope | ✅ 本批：`GetModelScopeNotice` / `FormatModelScopeNotice` 抽出提示，启动时只在 `_ui.Mode != Fullscreen` 打印；全屏在头部挂 `ThemedText` + `Spacer(1)`（见 §5.1），用例 `InteractiveModeModelScopeTests` |
 | `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ✅ 本批：`const` 字段写值、`anyOf`/`oneOf` 列每个分支的字段、放不进一行的类型改成指向 `describeTool()`（见 §5.2），用例 `CodemodeDescriptionsSummarizeUnionsAndMultiLineOutputTypes` |
-| `6fed3cfb9` SDK 流在摘要时解析 auth | ⏳ 待做（已核：端口没有；142 行） |
+| `6fed3cfb9` SDK 流在摘要时解析 auth | ⏳ 待做（已核：端口没有；要确认 `AgentSession` 的摘要路径与 `StreamFn`↔`ModelRuntime` 的绑定方式） |
 | `c8ec752cf` 不支持的架构上跳过 fd/rg 下载 | ⏳ 待核（端口是否还有下载路径） |
 | `c2760d32c` `pi update` 只在自管安装时点名包管理器 | ⏳ 待核 |
-| `5884ee681` `/ir` 从 `.jsonl` URL 导入会话 | ⏳ 待做（已核：端口没有；新功能） |
+| `5884ee681` `/ir` 从 `.jsonl` URL 导入会话 | ➖ 不适用：改动只在 `.pi/extensions/import-repro.ts`（仓库自用的本地扩展，不随包发布），端口没有对应物 |
 | `a6bde34bb` schema 基准（Ajv/Zod 对比） | ➖ 开发工具，端口不需要 |
 | `bb65e3e49` 从 `pi-codemode/declarations` 导入 | ➖ 纯导入整理，端口无对应模块边界 |
 | `531340f10` 删 bedrock shim | ➖ 端口没有这些 shim |
