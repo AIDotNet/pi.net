@@ -65,14 +65,14 @@
 | 上游提交 | 变更 | 端口现状 | 处置 |
 | --- | --- | --- | --- |
 | `f715a15c1` | 流式工具调用参数**增量解析**（不再每个 delta 重解析累计串） | **已有**：`JsonParse.ParseStreamingJson` 用在 OpenAI/Anthropic/Bedrock/Mistral/PiMessages 五处流式点 | ✅ |
-| `363ad78bf` | GPT-6.1 Terra（OpenAI / Azure Responses / Codex，tool search、会话中改 thinking、`off`） | ✅ P2（目录重导后 `gpt-6.1-terra` 覆盖 9 份目录，能力位随之到位；见 §4.3） |
-| `2e0f175bd` | provider 定义重构 + 目录升到 models.dev v2 | ✅ P2（42 份目录已按 1.5.0 生成器重导，`a8db1eb`；不移植生成器，见 §4.3） |
+| `363ad78bf` | GPT-6.1 Terra（OpenAI / Azure Responses / Codex，tool search、会话中改 thinking、`off`） | 默认模型已是 `gpt-6.1-sol` | ✅ P2（目录重导后 `gpt-6.1-terra` 覆盖 9 份目录，能力位随之到位；见 §4.3） |
+| `2e0f175bd` | provider 定义重构 + 目录升到 models.dev v2 | 目录是 1.4.0 期快照 | ✅ P2（42 份目录已按 1.5.0 生成器重导，`a8db1eb`；不移植生成器，见 §4.3） |
 | `7314819f0` + `a7b94a03f` | Gemini 工具 schema 的 `const` 改单值 `enum`，且不改写 defaults/examples/enum 里的字面量 | 本轮落地 `GoogleShared.RewriteConstAsEnum` | ✅ P2 |
-| `1de2d7ade` | Kimi K3.1 Pro 按 K3 家族发请求 | ✅ P2（家族判定在目录数据里，`k3.1` 已覆盖 6 份；见 §4.3） |
+| `1de2d7ade` | Kimi K3.1 Pro 按 K3 家族发请求 | 家族判定在 `generate-models.ts`（目录数据） | ✅ P2（`k3.1` 已覆盖 6 份；见 §4.3） |
 | `842c73170` | Bedrock strict 工具超限时重试一次（preferred 放宽、required 保持 strict） | 本轮落地：两个助手抽到 `ConstrainedSampling.PrefersJsonSchemaStrictSampling` / `IsStrictToolLimitErrorMessage`；`ConvertToolConfig` 回报 `HasPreferredStrictTools`；`BedrockConverseStream.Stream` 命中 400 后降级重发一次并记 `bedrock_strict_tools_fallback` 诊断 | ✅ P2 |
-| `81d6759fc` | GPT-5.4/5.5 工具声明放顶层（修 `Missing namespace for function_call`） | ✅ P2（能力位 `supportsAdditionalTools` 来自重导后的目录） |
-| `177e2ad7e` | OpenCode Zen/Go 用各自协议端点 | ✅ P2（`opencode.json` / `opencode-go.json` 由重导的目录携带端点） |
-| `44f6851b7` | OpenRouter `~anthropic/claude-*-latest` 走 Anthropic Messages | ✅ P2（`openrouter.json` 重导后带上该别名与协议） |
+| `81d6759fc` | GPT-5.4/5.5 工具声明放顶层（修 `Missing namespace for function_call`） | 能力位来自目录数据（`supportsAdditionalTools`） | ✅ P2（重导后的目录携带该能力位） |
+| `177e2ad7e` | OpenCode Zen/Go 用各自协议端点 | 端点来自目录数据 | ✅ P2（`opencode.json` / `opencode-go.json` 由重导的目录携带端点） |
+| `44f6851b7` | OpenRouter `~anthropic/claude-*-latest` 走 Anthropic Messages | 同上（`generate-models.ts` + `openrouter-catalog.ts`） | ✅ P2（`openrouter.json` 重导后带上该别名与协议） |
 | `e3bc05e87` | Anthropic 逐消息 effort 时顶层固定发 `low` | **已有**：`AnthropicMessages.cs:331`，注释已写明「组织可设上限」的理由 | ✅ |
 | `3bc6eebac` | Anthropic system 更新要越过被丢弃的空/纯推理 assistant 消息 | **已有**：`AnthropicMessages.cs:598-601`（`blocks.Count == 0` 之后再 flush） | ✅ |
 | `89c921d8b` | 不可信 URL / 终端文本 / 流式数据的加固 | ai 侧本轮收口：`OAuthHttp.TrustedHttpUrl` 成为唯一实现（Copilot / Kimi / Meta 三处私有副本删除，Kimi 现在按规范化后的形式保存）；`Cli.SaveAuth` 写 `auth.json` 用 0600 并先收紧旧文件；`PiMessages.ValidateContentIndex` 已在。tui / coding-agent / durable 三块分别在 P4 / P3 / P6 | ✅ P2（ai 侧） |
@@ -94,40 +94,40 @@
 
 | 上游提交 | 变更 | 端口现状 | 处置 |
 | --- | --- | --- | --- |
-| `b4b72a351` | **扩展包更新 changelog**：读 `package.json` 的 `pi.changelogPath` 或根 `CHANGELOG.md`，下次启动在 "Extension Updates" 下显示新于上次所见版本的内容；`collapseChangelog` 折叠成一行 | 无 "Extension Updates" 渲染 | 🔧 P3 |
+| `b4b72a351` | **扩展包更新 changelog**：读 `package.json` 的 `pi.changelogPath` 或根 `CHANGELOG.md`，下次启动在 "Extension Updates" 下显示新于上次所见版本的内容；`collapseChangelog` 折叠成一行 | 无 "Extension Updates" 渲染 | ✅ P3（§4.4：changelog 解析 + “Extension Updates” 渲染） |
 | `8bc94b19f` | **自定义自更新命令**：`PI_SELF_UPDATE_COMMAND` / `selfUpdateCommand`，`{packageName}`/`{version}`/`{installSpec}` 占位 | 无 | ➖ 端口不执行自更新（§4.4） |
-| `7151099d0` | device-code 登录：回车时打开验证页并复制 code；`openBrowserOnConfirm` / `copyCodeOnConfirm` 可关 | 无 | 🔧 P3 |
-| `c1810bf70` | `ctx.ui.custom()` 的 `blocked` 选项（overlay 忽略） | 无 | 🔧 P3 |
-| `9376c8d17` | 渲染上下文注入 `keyText()` / `keyHint()`（扩展从包里 import 拿不到宿主键位） | `keyHint` 有，但未注入 render context | 🔧 P3 |
+| `7151099d0` | device-code 登录：回车时打开验证页并复制 code；`openBrowserOnConfirm` / `copyCodeOnConfirm` 可关 | 无 | ✅ P3（§4.4：`OAuthDeviceCodeInfo` 两个开关 + `LoginDialog`） |
+| `c1810bf70` | `ctx.ui.custom()` 的 `blocked` 选项（overlay 忽略） | 无 | ✅ P3（§4.4：`ExtensionCustomOptions.Blocked`） |
+| `9376c8d17` | 渲染上下文注入 `keyText()` / `keyHint()`（扩展从包里 import 拿不到宿主键位） | `keyHint` 有，但未注入 render context | ✅ P3（§4.4：三个渲染上下文的 `KeyText`/`KeyHint`） |
 | `64627838b` | `MarkdownTransformContext` 增加 `messageId` / `timestamp`（持久化条目回放时才有） | 本轮已落地 | ✅ |
-| `606af8662` | `/model`、`/scoped-models` 在名称比 ID 多词时显示名称 | 未核 | 🔧 P3 |
+| `606af8662` | `/model`、`/scoped-models` 在名称比 ID 多词时显示名称 | 未核 | ✅ P3（§4.4：`ModelSearch.GetDistinctModelName`，7 例） |
 | `705d047cb` | 系统提示词收紧 | 本轮已落地 | ✅ |
 
 **修复（按子系统）**
 
 | 上游提交 | 变更 | 处置 |
 | --- | --- | --- |
-| `31ade0e0d` | `trust.json` 里保存的「不信任」优先于自动信任 | 🔧 P3 |
+| `31ade0e0d` | `trust.json` 里保存的「不信任」优先于自动信任 | ✅ P3（§4.4：`ProjectTrust.ResolveProjectTrustedAsync`） |
 | `b9e3eef6c` | `setActiveTools` 同一组工具换顺序不再触发系统提示词更新 | ✅ 早已落地：`AgentSessionCore.ApplyToolLoadout` 的 `currentActiveNames` 参数按「留任者保序、新增者追加」排序，调用点传 `GetActiveToolNames()`（§4.39 补核对） |
-| `1be312b46` | Windows 路径比较忽略大小写（skills 重复加载 / trust 重问 / `--continue` 丢会话） | 🔧 P3 |
-| `88ffcdc73` | 工作目录被删除时给提示，不再 `uv_cwd` 崩栈 | 🔧 P3 |
-| `807a5c051` | 会话写盘失败时内存与文件保持一致（不再产生悬空 parent） | 🔧 P3 |
-| `269afc66a` | `/tree` 分支摘要传 thinking level | 🔧 P3 |
-| `d0fe21308` | 分支摘要输入应用 context edits | 🔧 P3 |
-| `7853186d1` | 对话框打开时替换扩展 editor 不再吞掉对话框 | 🔧 P3 |
-| `6dfb54678` | 配置的包安装失败不再崩启动（跳过 + 告警 + 下次重试） | 🔧 P3 |
+| `1be312b46` | Windows 路径比较忽略大小写（skills 重复加载 / trust 重问 / `--continue` 丢会话） | ✅ P3（§4.4：`Paths.GetPathComparisonKey` 等，17 例） |
+| `88ffcdc73` | 工作目录被删除时给提示，不再 `uv_cwd` 崩栈 | ✅ P3（§4.4：`Main.GetStartupCwd`） |
+| `807a5c051` | 会话写盘失败时内存与文件保持一致（不再产生悬空 parent） | ✅ P3（§4.4：`AppendEntry` 回滚后重抛） |
+| `269afc66a` | `/tree` 分支摘要传 thinking level | ✅ P3（§4.4：`GenerateBranchSummaryOptions.ThinkingLevel`） |
+| `d0fe21308` | 分支摘要输入应用 context edits | ✅ P3（§4.4：走 `ProjectContextEntry`） |
+| `7853186d1` | 对话框打开时替换扩展 editor 不再吞掉对话框 | ✅ P3（§4.4：`SetCustomEditorComponent` 的 `dialogOpen` 守卫） |
+| `6dfb54678` | 配置的包安装失败不再崩启动（跳过 + 告警 + 下次重试） | ✅（§4.4 核对：以 `ResourceDiagnostic` 呈现） |
 | `f14813e96` | 技能诊断标签 `[Skill conflicts]` → `[Skill warnings]` | 本轮已落地 ✅ |
 | `e7a0df27c` | 图片缩放取 PNG/JPEG 较小者 | 已有 ✅ |
-| `0d23d5345` | `pi update --extensions` 报「装到的版本与期望不符」 | 🔧 P3 |
-| `cd6a8f7f3` / `bec60c54b` | `-e npm:` 无版本、`-e git:...@branch` 每次启动/`/reload` 刷新 | 🔧 P3 |
+| `0d23d5345` | `pi update --extensions` 报「装到的版本与期望不符」 | ✅ P3（§4.4：`PackageManager.Updates` 的 `NpmUpdateCheck`） |
+| `cd6a8f7f3` / `bec60c54b` | `-e npm:` 无版本、`-e git:...@branch` 每次启动/`/reload` 刷新 | ✅ P3（§4.4：npm temporary 刷新 / `bec60c54b` 已落地） |
 | `5f960a0e2` | agent 目录是符号链接时 npm 用真实路径（package-lock 嵌套） | ➖ npm 专有 |
 | `e3da248ea` | Windows 上 `git clean` 失败时仍继续装依赖并下次重试 | ✅ `2ac34ad`（见 §4.6） |
-| `c466a3595` / `36be9c612` / `c60de42e9` | `pi.exec`：256 MiB 上限 + `truncated`；UTF-8 跨块解码；spawn 错误保留 stderr | 🔧 P2（`core/exec.ts` 182 行） |
+| `c466a3595` / `36be9c612` / `c60de42e9` | `pi.exec`：256 MiB 上限 + `truncated`；UTF-8 跨块解码；spawn 错误保留 stderr | ✅ P3（§4.4：`MaxBuffer`/`Truncated`/`OutputLimitExceeded`，3 例） |
 | `6454d07ec` | WSL 深目录下从 `/` 启动 `powershell.exe`/`explorer.exe`；外部编辑器失败要报状态 | ✅ `2ac34ad`（见 §4.6） |
 | `5fb9a0b11` | 安装包时屏蔽 npm audit/fund 输出 | ➖ npm 专有 |
-| `fecc19e4e` | `grep` 上下文行号在含孤立 CR 的文件里与 ripgrep 对齐 | 🔧 P2 |
-| `984cf6643` | `--model <provider>/<id>` 支持 provider id 含斜杠 | 🔧 P3 |
-| `8ddc44ec8` | fork 会话单 fd 写入（打开文件昂贵的文件系统） | 🔧 P2（待核） |
+| `fecc19e4e` | `grep` 上下文行号在含孤立 CR 的文件里与 ripgrep 对齐 | ✅（§4.4 核对已落地） |
+| `984cf6643` | `--model <provider>/<id>` 支持 provider id 含斜杠 | ✅（§4.4 核对已落地） |
+| `8ddc44ec8` | fork 会话单 fd 写入（打开文件昂贵的文件系统） | ✅（§4.4 核对已落地） |
 | `8c03fef4d` | `/resume` 搜索：名称/目录模糊，ID 与消息正文只做子串 | ✅ `2ac34ad`（`SessionSelectorSearch` 51 例，见 §4.6） |
 | `8c03fef4d` | `/model` 搜索排序：连续匹配优先 | ✅ 本批：`Fuzzy.Match` 补「对每段连续出现计分取最优」；上游 `fuzzy.test.ts` 3 例 + `model-search.test.ts` 2 例照抄（§4.39） |
 | `be15fe3c1` | `pi mcp login/logout -l` | ✅ `4afb050`（`local` flag、作用域校验、拼写建议；见 §4.5） |
@@ -141,18 +141,18 @@
 | --- | --- | --- | --- |
 | `fa1685152` | 裸 URL 在 CJK 标点处截断 | 本轮已落地 | ✅ |
 | `8a2ebd385` | 嵌套引用不再指数膨胀（`width < 3` 直接渲染子节点） | 已有 | ✅ |
-| `3bae85274` | `tui.select.pageUp/pageDown` 作用于所有列表；全屏下翻页键翻列表而不是滚 transcript；`capturesViewportInput` | ✅ 本批（`GetSelectPageIndex` + 两个列表实现分页 + `IComponent.CapturesViewportInput` 与全屏路由；上游三例照抄，见 §4.37） |
-| `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding | ✅ 本批（`IsWhitespaceToken` / 丢弃空白时把码留在本行 / 行尾关删除线 / 长词前先 trim；上游六个定向用例照抄；187 例语料按不变量重算，见 §4.33） |
-| `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | ✅ 本批（F1–F12 内部码点 / `CSI P/Q/S` / `:3`、`:2` 事件 / f 键修饰键匹配 / F13+ 私用区拒绝；276 例 `editor-corpus` 场景按「只允许私用区字符消失」守卫重算，见 §4.36） |
-| `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
-| `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
-| `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | ✅ 块级复用已落地（§4.31）；**代码高亮复用与 `Text.setText` 折行缓存未做**（见该节「未移植」） |
-| `cd1ea342a` | 显示公式超宽时回退原始 LaTeX | ✅ 本批（2D 排版的任一行宽过内容宽就整段退回源码；上游回归用例照抄；42 例语料按「出现原始标记」守卫重算，见 §4.35） |
-| `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 | ✅ 已由 `1c8cb1781` 的定界搜索覆盖（占位行不再是停止条件，只有图像行才停；见 §4.34） |
-| `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） | ✅ 本批（`TerminalWordSelectionJoiners` 加上 `+ \ ~ _ .`；端到端用例未移植，见 §4.28） |
-| `f09d01b85` | Orca 终端识别（truecolor / hyperlink / `ORCA_IMAGE_PROTOCOL=kitty`） | ✅ 本批（`DetectCapabilitiesFromEnvironment` 的 Orca 分支：`TERM_PROGRAM=Orca` 且 `ORCA_IMAGE_PROTOCOL=kitty` 才给 Kitty，否则文本回退；见 §4.26） |
-| `89c921d8b` | 终端标题/控制序列注入加固；`stripAnsi` 去掉带 `<=>` 前缀的私有 CSI | ✅ 核对完毕（§4.29）：tui 侧 `Ansi.ReplaceControlCharacters` 已用于两处 `SetTitle`、`ProgramStatus` 的 `msg` 与 `LoginDialog` 的 URL；durable 的 `__proto__` 那条是 JS 原型污染，C# 无对应物 |
-| `1c8cb1781` | 图片行搜索按最高注册图片限界 | ✅ 本批（`TerminalImage.MaxKittyImageRows` 给 `Layout.PaintBox` 的倒序搜索定界，并跳过非图像行；见 §4.26） |
+| `3bae85274` | `tui.select.pageUp/pageDown` 作用于所有列表；全屏下翻页键翻列表而不是滚 transcript；`capturesViewportInput` |  | ✅ 本批（`GetSelectPageIndex` + 两个列表实现分页 + `IComponent.CapturesViewportInput` 与全屏路由；上游三例照抄，见 §4.37） |
+| `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding |  | ✅ 本批（`IsWhitespaceToken` / 丢弃空白时把码留在本行 / 行尾关删除线 / 长词前先 trim；上游六个定向用例照抄；187 例语料按不变量重算，见 §4.33） |
+| `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 |  | ✅ 本批（F1–F12 内部码点 / `CSI P/Q/S` / `:3`、`:2` 事件 / f 键修饰键匹配 / F13+ 私用区拒绝；276 例 `editor-corpus` 场景按「只允许私用区字符消失」守卫重算，见 §4.36） |
+| `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） |  | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
+| `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 |  | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
+| `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 |  | ✅ 块级复用已落地（§4.31）；**代码高亮复用与 `Text.setText` 折行缓存未做**（见该节「未移植」） |
+| `cd1ea342a` | 显示公式超宽时回退原始 LaTeX |  | ✅ 本批（2D 排版的任一行宽过内容宽就整段退回源码；上游回归用例照抄；42 例语料按「出现原始标记」守卫重算，见 §4.35） |
+| `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 |  | ✅ 已由 `1c8cb1781` 的定界搜索覆盖（占位行不再是停止条件，只有图像行才停；见 §4.34） |
+| `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） |  | ✅ 本批（`TerminalWordSelectionJoiners` 加上 `+ \ ~ _ .`；端到端用例未移植，见 §4.28） |
+| `f09d01b85` | Orca 终端识别（truecolor / hyperlink / `ORCA_IMAGE_PROTOCOL=kitty`） |  | ✅ 本批（`DetectCapabilitiesFromEnvironment` 的 Orca 分支：`TERM_PROGRAM=Orca` 且 `ORCA_IMAGE_PROTOCOL=kitty` 才给 Kitty，否则文本回退；见 §4.26） |
+| `89c921d8b` | 终端标题/控制序列注入加固；`stripAnsi` 去掉带 `<=>` 前缀的私有 CSI |  | ✅ 核对完毕（§4.29）：tui 侧 `Ansi.ReplaceControlCharacters` 已用于两处 `SetTitle`、`ProgramStatus` 的 `msg` 与 `LoginDialog` 的 URL；durable 的 `__proto__` 那条是 JS 原型污染，C# 无对应物 |
+| `1c8cb1781` | 图片行搜索按最高注册图片限界 |  | ✅ 本批（`TerminalImage.MaxKittyImageRows` 给 `Layout.PaintBox` 的倒序搜索定界，并跳过非图像行；见 §4.26） |
 
 ### 2.5 durable（P6）
 
@@ -171,8 +171,8 @@
 | `044148392` | Code Mode 脚本 `read` 返回图片块 | ➖ durable 的 Code Mode 按 1.4.0 的决定不采纳（见 §4.8） |
 | `be14d9732` | 只读打开 Harness | ✅ 本批 |
 | `da412b039` | `appendText`：partial 提交按追加写文本，不再重赋整段字符串 | 🟡 durable 侧文本/思维增量已按追加写（§4.27）；chord 侧端口本来就有等价物（`Change.Append` 直接记追加 op）；**工具调用参数仍整体赋值**——上游用 `StreamingJsonParser` 的增量改参数，端口没有这个解析器 |
-| `6c2fd73b0` | 节流提交延迟落盘（`persistence: {kind:"deferred", withinMs}`） | 🔧 P6 |
-| `e5c6182ba` | 分组提交 + 批量 `Storage.commit` | 🔧 P6 |
+| `6c2fd73b0` | 节流提交延迟落盘（`persistence: {kind:"deferred", withinMs}`） | ✅ P6（§4.38：`persistence: kind=deferred, withinMs`） |
+| `e5c6182ba` | 分组提交 + 批量 `Storage.commit` | ⏸ 不做（§6.1：架构/吞吐项，要换 `IStorage` 契约并改三个存储后端） |
 | `35dfa7573` | 空闲检查与 `wake()` 不再每次提交全扫 | ✅ 脏集合 + 全量回退（§4.15）+ `idleOrder` 索引与睡眠集合（§4.23） |
 | `c7372af42` / `79006f061` | 工具搜索排序与 CJK 分词 | ✅ 已在（`ToolSearch.cs` 的覆盖优先 / 名称权重 / 精确名 / 命名空间 0.5x，以及 NFC + CJK bigram 分词；见 §4.24） |
 | `d5b3de22d` | assistant 消息记录请求的 thinking level | ✅ 本批 |
