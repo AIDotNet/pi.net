@@ -265,7 +265,7 @@ public sealed class TaskScheduler
     /// 样子（它在另一个进程里跑）。</summary>
     public async Task OpenAsync(Context context)
     {
-        _session.SubscribeCommits(Observe);
+        _session.ObserveCommits((observed, context) => Observe(observed.ToPublication(), context));
         _session.SubscribeClose(Seal);
         _unsubscribeRegistry = _registry.Subscribe(() =>
         {
@@ -2293,7 +2293,8 @@ public sealed class TaskScheduler
 
     /// <summary>在线上重读任务并门控调用之后提交。</summary>
     private Task<T> GatedAsync<T>(
-        Invocation invocation, Func<Transaction, TaskRecord, Task<T>> change, Context context)
+        Invocation invocation, Func<Transaction, TaskRecord, Task<T>> change, Context context,
+        CommitOptions? options = null)
     {
         if (invocation.Ended) return Task.FromException<T>(EndedError(invocation));
         return _session.CommitWithAsync(async tx =>
@@ -2319,7 +2320,7 @@ public sealed class TaskScheduler
         }, context, new TransactionScope
         {
             ConversationId = invocation.ConversationId, TaskId = invocation.TaskId,
-        });
+        }, options);
     }
 
     /// <summary>
@@ -2366,7 +2367,8 @@ public sealed class TaskScheduler
         public Task<IExecutionEnv?> EnvAsync(Context context)
             => scheduler.ReadAsync(invocation, () => scheduler._env(invocation.ConversationId, context));
 
-        public async Task CommitAsync(Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context)
+        public async Task CommitAsync(
+            Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context, CommitOptions? options = null)
         {
             (TaskOutcomeError Error, string Reason, int Restarts)? interrupted = null;
             await scheduler.GatedAsync<object?>(invocation, async (tx, current) =>
@@ -2385,7 +2387,7 @@ public sealed class TaskScheduler
                 }
 
                 return null;
-            }, context).ConfigureAwait(false);
+            }, context, options).ConfigureAwait(false);
 
             if (interrupted is { } report)
             {

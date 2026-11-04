@@ -293,6 +293,9 @@ public sealed record ObservedCommit
 
     /// <summary>是否只在内存采纳（延迟提交）。</summary>
     public bool IsMemory => Seq is null;
+
+    /// <summary>转成宿主发布的形状（内存提交没有 seq，取 default）。</summary>
+    public CommitPublication ToPublication() => new() { Seq = Seq ?? default, Changes = Changes };
 }
 
 /// <summary>
@@ -301,10 +304,10 @@ public sealed record ObservedCommit
 /// </summary>
 public interface ISession : IDocumentReader, IDocumentObserver{
     /// <summary>在 Session 变更线上运行一次原子事务。</summary>
-    Task<TResult> CommitAsync<TResult>(Func<ITx, Task<TResult>> change, Context context);
+    Task<TResult> CommitAsync<TResult>(Func<ITx, Task<TResult>> change, Context context, CommitOptions? options = null);
 
     /// <summary>无返回值回调的重载（对应 TS 回调隐式返回 undefined）。</summary>
-    Task CommitAsync(Func<ITx, Task> change, Context context);
+    Task CommitAsync(Func<ITx, Task> change, Context context, CommitOptions? options = null);
 
     /// <summary>封闭受理、结算已受理提交，然后关闭存储。</summary>
     Task CloseAsync(Context context);

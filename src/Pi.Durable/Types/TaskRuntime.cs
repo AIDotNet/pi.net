@@ -62,7 +62,8 @@ public interface ITaskRuntime : IDocumentObserver, IDocumentReader, IHookApi
     /// <c>tx.createTask()</c> 缺省为该任务的对话。（C# 以具体 <see cref="Transaction"/> 承载回调，
     /// 因文档面辅助（边界、任务创建）需要事务级方法。）
     /// </summary>
-    Task CommitAsync(Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context);
+    Task CommitAsync(
+        Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context, CommitOptions? options = null);
 
     /// <summary>以任务对话为缺省属主创建子任务（调用内便捷入口）。</summary>
     Task<TaskId<object?>> CreateTaskAsync(AnyDurableTask task, object? input, TaskOptions options, Context context);

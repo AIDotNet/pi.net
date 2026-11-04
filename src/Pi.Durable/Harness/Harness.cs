@@ -168,7 +168,9 @@ public sealed class HarnessImpl : DurableSession, IHarness
             options.Now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
             // 每次使用时读设置（所有设置都如此），但只读这一个字段：它每次提交都要读一次。
             () => options.Settings?.DocumentRetentionMs,
-            options.ReadOnly)
+            options.ReadOnly,
+            // 活的设置来源优先（Settings 只是静态兜底）；只读这一个字段，它每次提交都要读。
+            () => (options.SettingsSource?.Invoke() ?? options.Settings)?.Progress?.PersistWithinMs)
     {
         _storage = storage;
         _options = options;

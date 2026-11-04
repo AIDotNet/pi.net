@@ -261,6 +261,12 @@ public static class Live
                 && slotJson.TryGetValue("status", out var status)
                 && status is "running");
 
+    /// <summary>流式进度提交：只在内存采纳、稍后落盘。对应 TS <c>PROGRESS_COMMIT</c>。</summary>
+    public static readonly CommitOptions ProgressCommit = new()
+    {
+        Persistence = new CommitPersistence.Deferred(),
+    };
+
     private static readonly Path RunPath = Path.Root.Append(Seg.Key("run"));
     private static readonly Path GenerationPath = Path.Root.Append(Seg.Key("generation"));
 

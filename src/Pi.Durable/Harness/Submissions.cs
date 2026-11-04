@@ -31,7 +31,7 @@ public sealed class Submissions
         _steeringMode = steeringMode;
         _followUpMode = followUpMode;
         _resume = resume;
-        session.SubscribeCommits(Observe);
+        session.ObserveCommits((observed, context) => Observe(observed.ToPublication(), context));
         session.SubscribeClose(() =>
         {
             _closed = true;

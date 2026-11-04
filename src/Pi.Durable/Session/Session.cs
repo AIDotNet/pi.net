@@ -41,6 +41,13 @@ public class DurableSession : ISession
     private DocumentSweep? _documentSweep;
     private int _sweepJobs;
     private readonly HashSet<Action<CommitPublication, Context>> _commitListeners = [];
+    /// <summary>Session 自己的观察者（调度器、提交受理）：跟随内存，先于宿主监听器运行。对应 TS <c>#internalListeners</c>。</summary>
+    private readonly HashSet<Action<ObservedCommit, Context>> _observedListeners = [];
+    /// <summary>持有还没落盘的变更，按化身；每个化身在缓存里被钉住直到落盘。对应 TS <c>#holds</c>。</summary>
+    private readonly Dictionary<DocumentId, Hold> _holds = [];
+    private HoldTimer? _holdTimer;
+    /// <summary>延迟提交的缺省窗口（毫秒）。对应 TS <c>#persistWithinMs</c>。</summary>
+    private readonly Func<double> _persistWithinMs;
     private readonly HashSet<Action> _closeListeners = [];
     private readonly ITransactionHost _host;
     private readonly object _enqueueGate = new();
@@ -66,7 +73,7 @@ public class DurableSession : ISession
     /// </summary>
     public DurableSession(
         IStorage storage, Func<long>? now = null, Func<double?>? documentRetentionMs = null,
-        bool readOnly = false)
+        bool readOnly = false, Func<double?>? persistWithinMs = null)
     {
         _storage = storage;
         _readOnly = readOnly;
@@ -93,6 +100,17 @@ public class DurableSession : ISession
                 return DocumentRetention(null);
             }
         };
+        _persistWithinMs = () =>
+        {
+            try
+            {
+                return PersistWithin(persistWithinMs?.Invoke());
+            }
+            catch (Exception)
+            {
+                return PersistWithin(null);
+            }
+        };
         _host = new SessionHost(this);
     }
 
@@ -108,6 +126,32 @@ public class DurableSession : ISession
         /// <summary>后台定时器：不拖住进程退出（对应上游 <c>unref()</c>）。</summary>
         public System.Threading.Timer? Timer { get; set; }
     }
+
+    /// <summary>一份持有的文档：持有内容、最迟落盘时刻（Session 时钟）与解除钉住。对应 TS <c>Hold</c>。</summary>
+    private sealed class Hold(HeldDocument held, double deadline, Action unpin)
+    {
+        public HeldDocument Held { get; } = held;
+
+        public double Deadline { get; set; } = deadline;
+
+        public Action Unpin { get; } = unpin;
+    }
+
+    /// <summary>已武装的持有落盘：最早截止时刻的后台定时器，<see cref="Fired"/> 表示作业已排队。</summary>
+    private sealed class HoldTimer(double at)
+    {
+        public double At { get; } = at;
+
+        public System.Threading.Timer? Timer { get; set; }
+
+        public bool Fired { get; set; }
+    }
+
+    /// <summary>延迟提交的缺省窗口：<c>settings.progress.persistWithinMs</c>。</summary>
+    private const double DefaultPersistWithinMs = 1_000;
+
+    /// <summary>延迟提交的缺省窗口；0 或更大即用它（<see cref="double.PositiveInfinity"/> 表示只等读/写或关闭）。</summary>
+    public static double PersistWithin(double? ms) => ms is { } value && value >= 0 ? value : DefaultPersistWithinMs;
 
     /// <summary>测试用：缓存里的文档数、空闲数、被钉住的化身数与迄今为止排到线上的驱逐作业数。</summary>
     public (int Cached, int Idle, int Attached, int Sweeps) DocumentCacheSizes
@@ -136,11 +180,12 @@ public class DurableSession : ISession
     }
 
     /// <inheritdoc />
-    public Task<TResult> CommitAsync<TResult>(Func<ITx, Task<TResult>> change, Context context)
-        => CommitWithAsync(tx => change(tx), context, scope: null);
+    public Task<TResult> CommitAsync<TResult>(
+        Func<ITx, Task<TResult>> change, Context context, CommitOptions? options = null)
+        => CommitWithAsync(tx => change(tx), context, scope: null, options);
 
     /// <summary>无返回值回调的重载（对应 TS 回调隐式返回 undefined）。</summary>
-    public Task CommitAsync(Func<ITx, Task> change, Context context)
+    public Task CommitAsync(Func<ITx, Task> change, Context context, CommitOptions? options = null)
         => CommitWithAsync<object?>(
             async tx =>
             {
@@ -148,7 +193,8 @@ public class DurableSession : ISession
                 return null;
             },
             context,
-            scope: null);
+            scope: null,
+            options);
 
     /// <summary>
     /// 内部提交：暴露具体事务与其内部操作（保留 ID 根引导与任务替换）。
@@ -156,17 +202,29 @@ public class DurableSession : ISession
     /// 对应 TS <c>commitWith</c>。
     /// </summary>
     public Task<TResult> CommitWithAsync<TResult>(
-        Func<Transaction, Task<TResult>> change, Context context, TransactionScope? scope = null)
+        Func<Transaction, Task<TResult>> change, Context context, TransactionScope? scope = null,
+        CommitOptions? options = null)
     {
+        int? withinMs;
         try
         {
             AssertUsable();
+            withinMs = Deferral(options?.Persistence);
         }
         catch (Exception error)
         {
             return Task.FromException<TResult>(error);
         }
-        return Enqueue(() => RunCommitAsync(change, context, scope));
+        return Enqueue(() => RunCommitAsync(change, context, scope, withinMs));
+    }
+
+    /// <summary>这次提交允许在内存里待多久再落盘；null 表示立即。对应 TS <c>#deferral()</c>。</summary>
+    private int? Deferral(CommitPersistence? persistence)
+    {
+        if (persistence is not CommitPersistence.Deferred deferred) return null;
+        if (deferred.WithinMs is not { } ms) return (int)_persistWithinMs();
+        if (ms < 0) throw new ArgumentException("CommitPersistence.WithinMs 必须是 0 或更大的毫秒数", nameof(persistence));
+        return ms;
     }
 
     /// <summary>
@@ -421,7 +479,24 @@ public class DurableSession : ISession
             _closing = Task.Run(() => OnBeforeCloseAsync())
                 .ContinueWith(_ => Enqueue<object?>(async () =>
                 {
+                    // 最后写：关闭时的写入之后、tracker 还在时。失败的 Session 什么都不写。
+                    Exception? unstored = null;
+                    if (_poison is null && _holds.Count > 0)
+                    {
+                        try
+                        {
+                            await StoreHoldsAsync([.. _holds.Values], Context.Background).ConfigureAwait(false);
+                        }
+                        catch (Exception error)
+                        {
+                            unstored = error;
+                        }
+                    }
+
+                    _holdTimer?.Timer?.Dispose();
+                    _holdTimer = null;
                     _commitListeners.Clear();
+                    _observedListeners.Clear();
                     lock (_documentCacheGate)
                     {
                         _documents.Clear();
@@ -432,6 +507,7 @@ public class DurableSession : ISession
                         _documentSweep = null;
                     }
                     await _storage.CloseAsync().ConfigureAwait(false);
+                    if (unstored is not null) throw unstored;
                     return null;
                 }), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
                 .Unwrap();
@@ -493,6 +569,17 @@ public class DurableSession : ISession
         return new Unsubscription(() => _commitListeners.Remove(listener));
     }
 
+    /// <summary>
+    /// 内部：观察**每一次**提交（含只在内存采纳的延迟提交）。Session 自己的组件用它，因为它们必须跟随内存；
+    /// 抛出只上报、不毒化会话（各组件自己把错误折进状态）。对应 TS <c>observeCommits</c>。
+    /// </summary>
+    public IDisposable ObserveCommits(Action<ObservedCommit, Context> listener)
+    {
+        AssertUsable();
+        _observedListeners.Add(listener);
+        return new Unsubscription(() => _observedListeners.Remove(listener));
+    }
+
     /// <summary>注册在 close 开始时同步调用的监听器。不得抛出、阻塞或调用 Session 操作。</summary>
     public IDisposable SubscribeClose(Action listener)
     {
@@ -505,6 +592,12 @@ public class DurableSession : ISession
     public Task UnloadDocumentsAsync()
         => Enqueue<object?>(async () =>
         {
+            // 持有变更要随缓存离开之前落盘，否则内容就没了。
+            if (_poison is null && _holds.Count > 0)
+            {
+                await StoreHoldsAsync([.. _holds.Values], Context.Background).ConfigureAwait(false);
+            }
+
             lock (_documentCacheGate)
             {
                 _documents.Clear();
@@ -655,7 +748,7 @@ public class DurableSession : ISession
     // ─── 提交执行 ───────────────────────────────────────────────────────────
 
     private async Task<TResult> RunCommitAsync<TResult>(
-        Func<Transaction, Task<TResult>> change, Context context, TransactionScope? scope)
+        Func<Transaction, Task<TResult>> change, Context context, TransactionScope? scope, int? withinMs)
     {
         AssertHealthy();
         if (context.AbortSignal is { IsCancellationRequested: true } signal)
@@ -697,6 +790,19 @@ public class DurableSession : ISession
             SweepDocuments();
             throw new ReadOnlySession("a commit with writes");
         }
+        if (withinMs is { } within && tx.Holdable() is { } held)
+        {
+            // 只在内存采纳：watch 立刻看到，落盘等到下一次读/写该文档、离开内存、关闭或最迟 withinMs。
+            HoldCommit(tx, held, within, context);
+            SweepDocuments();
+            return result;
+        }
+
+        // 落盘前的最后一步：持有变更离开队列之后，就只有 Storage 能失败了。
+        var taken = _holds.Count == 0
+            ? []
+            : tx.TakeHeld(id => _holds.TryGetValue(id, out var pending) ? pending.Held : null);
+
         // Storage 在批次持久后同步采纳（早于它的下一次提交）；这里不能让异常穿到 Storage，
         // 所以回调自己留住错误，等提交解析后再决定如何失败。
         AdoptedDocuments? adoptedDocuments = null;
@@ -752,6 +858,7 @@ public class DurableSession : ISession
             Report(adoptionError, new Harness.ReportInfo.SessionFailed());
             throw adoptionError;
         }
+        if (taken.Count > 0) ReleaseHeld(taken);
         // 刚写过的文档算一次使用：它们不会被紧接着的驱逐带走。
         foreach (var document in adoptedDocuments!.Observed)
         {
@@ -766,7 +873,7 @@ public class DurableSession : ISession
             }
         }
 
-        Publish(seq, writes, adoptedDocuments!.Observed, context);
+        Publish(seq, writes, adoptedDocuments!, context);
         SweepDocuments();
         return result;
     }
@@ -774,10 +881,9 @@ public class DurableSession : ISession
     private void Publish(
         Seq seq,
         IReadOnlyList<StorageWrite> writes,
-        IReadOnlyList<DocumentCommitChange> documents,
+        AdoptedDocuments documents,
         Context context)
     {
-        if (_commitListeners.Count == 0) return;
         var changes = new List<CommitChange>();
         foreach (var write in writes)
         {
@@ -797,17 +903,17 @@ public class DurableSession : ISession
                     break;
             }
         }
-        foreach (var document in documents)
-        {
-            changes.Add(document switch
-            {
-                DocumentCommitChange.Document changed => new CommitChange.DocumentChanged(changed),
-                DocumentCommitChange.Copy copy => new CommitChange.DocumentCopied(copy),
-                _ => throw new ArgumentOutOfRangeException(nameof(document)),
-            });
-        }
-        var publication = new CommitPublication { Seq = seq, Changes = changes };
-        // 提交已持久化：一个监听器抛出既不让提交失败，也不跳过其余监听器。对应 TS <c>publish</c>。
+
+        var tables = changes.Count;
+        changes.AddRange(ToCommitChanges(documents.Observed));
+        // Session 自己的组件跟随内存：先看到这次提交，宿主监听器只看落盘的那份。
+        PublishObserved(new ObservedCommit { Seq = seq, Changes = changes }, context);
+        if (_commitListeners.Count == 0) return;
+        // 这次同时落了持有变更时，宿主的文档变更要带上持有操作（持有在前）。
+        var storedChanges = ReferenceEquals(documents.Stored, documents.Observed)
+            ? changes
+            : [.. changes.Take(tables), .. ToCommitChanges(documents.Stored)];
+        var publication = new CommitPublication { Seq = seq, Changes = storedChanges };
         foreach (var listener in _commitListeners.ToArray())
         {
             try
@@ -819,6 +925,178 @@ public class DurableSession : ISession
                 Report(error);
             }
         }
+    }
+
+    /// <summary>把这次提交展示给 Session 自己的观察者（内存或已落盘）。</summary>
+    private void PublishObserved(ObservedCommit observed, Context context)
+    {
+        foreach (var listener in _observedListeners.ToArray())
+        {
+            try
+            {
+                listener(observed, context);
+            }
+            catch (Exception error)
+            {
+                // 视图/调度器各自把错误折进自己的状态，这里只上报不毒化会话。
+                Report(error);
+            }
+        }
+    }
+
+    /// <summary>把文档变更包成宿主发布的形状。</summary>
+    private static IEnumerable<CommitChange> ToCommitChanges(IEnumerable<DocumentCommitChange> documents)
+        => documents.Select(document => document switch
+        {
+            DocumentCommitChange.Document changed => (CommitChange)new CommitChange.DocumentChanged(changed),
+            DocumentCommitChange.Copy copy => new CommitChange.DocumentCopied(copy),
+            _ => throw new ArgumentOutOfRangeException(nameof(documents)),
+        });
+
+    /// <summary>内部：内存采纳一次被持有的提交；按最早截止时刻钉住并排队。</summary>
+    private void HoldCommit(
+        Transaction tx, List<(LoadedDocument Loaded, IReadOnlyList<DeltaOp> Ops, bool Base)> held,
+        int withinMs, Context context)
+    {
+        var documents = tx.AdoptHeld();
+        var deadline = _clock() + withinMs;
+        foreach (var (loaded, ops, isBase) in held)
+        {
+            var id = loaded.Record.Id;
+            if (!_holds.TryGetValue(id, out var hold))
+            {
+                var unpin = PinDocument(loaded.AddressId, id);
+                hold = new Hold(new HeldDocument { Loaded = loaded, Pending = new PendingOps() }, deadline, unpin);
+                _holds[id] = hold;
+            }
+
+            hold.Held.Pending.Push(ops);
+            if (isBase) hold.Held.Base = true;
+            if (deadline < hold.Deadline) hold.Deadline = deadline;
+        }
+
+        ArmHoldTimer();
+        PublishObserved(new ObservedCommit { Changes = ToCommitChanges(documents).ToList() }, context);
+    }
+
+    /// <summary>内部：把持有变更在一次 Storage 事务里落盘（线上），只发给宿主监听器。</summary>
+    private async Task StoreHoldsAsync(IReadOnlyList<Hold> holds, Context context)
+    {
+        if (holds.Count == 0) return;
+        var writes = new List<StorageWrite>(holds.Count);
+        var changes = new List<DocumentCommitChange>(holds.Count);
+        foreach (var hold in holds)
+        {
+            var loaded = hold.Held.Loaded;
+            var value = loaded.Tracker.Value;
+            var stored = Transaction.StoreHeld(hold.Held, [], value, loaded.ValueVersion);
+            writes.Add(new StorageWrite.DocumentChange(loaded.Record.Id, stored.Content));
+            var conversationId = loaded.Record.Scope is DocumentScope.ConversationScope scope
+                ? scope.ConversationId
+                : (ConversationId?)null;
+            changes.Add(new DocumentCommitChange.Document(
+                loaded.Record, conversationId, loaded.ValueVersion, value, stored.Ops));
+        }
+
+        var adopted = false;
+        void Adopt(Seq _)
+        {
+            adopted = true;
+            for (var index = 0; index < holds.Count; index++)
+            {
+                if (((StorageWrite.DocumentChange)writes[index]).Content is DocumentContent.Base)
+                    holds[index].Held.Loaded.DeltasSinceBase = 0;
+                else
+                    holds[index].Held.Loaded.DeltasSinceBase++;
+            }
+        }
+
+        var seq = await _storage.CommitAsync(
+            writes, Adopt, ContextSignals.WithoutAbortSignal(context).AbortSignal ?? default).ConfigureAwait(false);
+        if (!adopted)
+        {
+            var error = new InvalidOperationException("Storage committed without adopting the batch");
+            _poison = error;
+            Report(error, new Harness.ReportInfo.SessionFailed());
+            throw error;
+        }
+
+        Release(holds);
+        var publication = new CommitPublication { Seq = seq, Changes = ToCommitChanges(changes).ToList() };
+        foreach (var listener in _commitListeners.ToArray())
+        {
+            try
+            {
+                listener(publication, context);
+            }
+            catch (Exception error)
+            {
+                Report(error);
+            }
+        }
+    }
+
+    /// <summary>落盘之后：忘掉这些持有、解除钉住，并把定时器移到下一个截止时刻。</summary>
+    private void Release(IReadOnlyList<Hold> holds)
+    {
+        foreach (var hold in holds)
+        {
+            _holds.Remove(hold.Held.Loaded.Record.Id);
+            hold.Unpin();
+        }
+
+        ArmHoldTimer();
+    }
+
+    /// <summary>落盘之后（按 <see cref="HeldDocument"/> 标识）：忘掉持有、解除钉住，并重排定时器。</summary>
+    private void ReleaseHeld(IReadOnlyList<HeldDocument> taken)
+    {
+        foreach (var held in taken)
+        {
+            if (_holds.Remove(held.Loaded.Record.Id, out var hold)) hold.Unpin();
+        }
+
+        ArmHoldTimer();
+    }
+
+    /// <summary>最早的截止时刻武装一个后台定时器；到点把持有的文档一次全部落盘。</summary>
+    private void ArmHoldTimer()
+    {
+        if (_closing is not null) return;
+        var at = double.PositiveInfinity;
+        foreach (var hold in _holds.Values)
+        {
+            if (hold.Deadline < at) at = hold.Deadline;
+        }
+
+        var armed = _holdTimer;
+        if (armed is not null && (armed.Fired || armed.At == at)) return;
+        armed?.Timer?.Dispose();
+        _holdTimer = null;
+        if (double.IsPositiveInfinity(at)) return;
+        var timer = new HoldTimer(at);
+        _holdTimer = timer;
+        void Run()
+        {
+            timer.Fired = true;
+            _ = Enqueue<object?>(async () =>
+            {
+                if (ReferenceEquals(_holdTimer, timer)) _holdTimer = null;
+                if (_closing is not null || _poison is not null) return null;
+                await StoreHoldsAsync([.. _holds.Values], Context.Background).ConfigureAwait(false);
+                return null;
+            }).ContinueWith(static task => _ = task.Exception, TaskScheduler.Default);
+        }
+
+        var delay = at - _clock();
+        if (delay <= 0)
+        {
+            Run();
+            return;
+        }
+
+        timer.Timer = new System.Threading.Timer(
+            _ => Run(), null, TimeSpan.FromMilliseconds(delay), Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>
@@ -895,7 +1173,17 @@ public class DurableSession : ISession
             TouchDocument(addressId);
             return cached;
         }
-        if (cached is not null) DropDocument(addressId);
+        if (cached is not null)
+        {
+            // 重载必须读到内存里的内容：持有变更在 tracker 走之前落盘。
+            if (_holds.TryGetValue(cached.Record.Id, out var hold))
+            {
+                await StoreHoldsAsync([hold], context).ConfigureAwait(false);
+            }
+
+            DropDocument(addressId);
+        }
+
         var record = await _storage.FindDocumentAsync(address, new DocumentPoint.Current())
             .ConfigureAwait(false);
         if (record is null) return null;

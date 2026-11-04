@@ -40,7 +40,8 @@ public class HarnessPartialAppendTests
                         is { } text && text.Length >= index + 1)));
         var appends = new List<string>();
         var messageAssignments = 0;
-        using var subscription = harness.SubscribeCommits((publication, _) =>
+        // partial 提交现在是延迟落盘：宿主的 SubscribeCommits 只在落盘时收到折叠后的 op。
+        using var subscription = harness.ObserveCommits((publication, _) =>
         {
             foreach (var change in publication.Changes)
             {

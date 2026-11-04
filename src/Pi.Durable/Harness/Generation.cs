@@ -1092,7 +1092,7 @@ public static partial class Generation
                 }
 
                 return null;
-            }, context);
+            }, context, Live.ProgressCommit);
             lock (_gate) _inFlight = commit;
             try
             {

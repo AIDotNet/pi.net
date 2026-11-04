@@ -291,7 +291,8 @@ public class ToolTaskTests
 
         public Task<IExecutionEnv?> EnvAsync(Context context) => Task.FromResult<IExecutionEnv?>(null);
 
-        public Task CommitAsync(Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context)
+        public Task CommitAsync(
+            Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context, CommitOptions? options = null)
             => _session.CommitWithAsync(async tx =>
             {
                 var current = await tx.GetTaskAsync(TaskId).ConfigureAwait(false)
@@ -299,7 +300,7 @@ public class ToolTaskTests
                 var next = await change(tx, current).ConfigureAwait(false);
                 if (next is not null) tx.SetTask(current with { State = next });
                 return next;
-            }, context);
+            }, context, scope: null, options);
 
         public Task<object?> MemoAsync(string name, Context context) => Task.FromResult<object?>(null);
 

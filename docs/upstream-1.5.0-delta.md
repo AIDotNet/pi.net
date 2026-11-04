@@ -1148,3 +1148,25 @@ partial 用 `Live.ProgressCommit`），构建绿。临时诊断确认**选项确
 **下次的顺序建议**：先照上面两条把机制接上 → 再看那两个视图用例，按「内存提交不参与 seq 记账、只按 ops 合并」改
 视图的投递逻辑 → 最后补 `DeferredPersistenceTests`（延迟窗口用 600000，断言「有 `IsMemory` 提交」「关闭后宿主看见落盘」；
 `PersistWithinMs = int.MaxValue` 会走 `(int)` 转换，别用它）。
+
+**第三阶段尝试：落地成功（两阶段都完成）**
+
+前两次卡在「持有没发生」与「视图投递计数」，这次两条都解了：
+
+| 问题 | 结论 |
+| --- | --- |
+| 持有没发生 | 不是机制问题：`HarnessImpl` 读的是 `options.Settings`，而夹具走 `SettingsSource`（活的来源）。改成 `(options.SettingsSource?.Invoke() ?? options.Settings)?.Progress?.PersistWithinMs` 后，探针立刻看到 `[commit] within=600000 …` 与 `[hold] docs=1 listeners=5` |
+| 视图计数少 1 | **视图不该跟随内存**：`ConversationViews` / `TaskGraphViews` 是「把内容交给 UI」，原来的 `SubscribeCommits`（落盘后的那份，已带上持有 ops）就是对的。只有 `Scheduler` 与 `Submissions` 必须跟随内存，切到 `ObserveCommits` 即可 |
+| 内部监听器抛出 | 只 `Report`，不 `_poison`：视图/调度器各自把错误折进自己的状态（`WatchEnd.ListenerError`），毒化会话会让后续提交全挂 |
+
+落地清单（`ConfigureAwait`/命名与清单一致）：`CommitPersistence`/`CommitOptions`/`ObservedCommit`、`Holdable`/`AdoptHeld`/`TakeHeld`/`StoreHeld`
+（§4.38 上半）、Session 的 `_holds`/`Hold`/`HoldTimer`/`HoldCommit`/`StoreHoldsAsync`/`Release(Held)`/`ArmHoldTimer`、
+`Publish` 的 observed/stored 拆分、关闭/卸载/重载前落盘、`ObserveCommits`（调度器与提交受理）、
+`ProgressPolicy.PersistWithinMs`、`Live.ProgressCommit` 让生成 partial 走 `Deferred`。
+
+**用例**：`DeferredPersistenceTests.PartialCommitsAreDeferredAndEventuallyStored`——逐增量的假流（每个增量等它出现在
+live 文档里再发下一个，否则整段流在第一次冲刷前就结束）、窗口 10 分钟，断言「有 `IsMemory` 提交」且「关闭后宿主
+监听器看见 pi.live」。
+
+验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **567** 全绿；`Pi.CodingAgent.Tests` 与基线一致
+（5208：1 既有失败 / 3 跳过）。

@@ -741,6 +741,9 @@ public sealed record ProgressPolicy
 
     /// <summary>运行中工具输出的提交之间的最小停顿；大提交按其大小成比例停顿。</summary>
     public required int OutputIntervalMs { get; init; }
+
+    /// <summary>延迟提交最迟多久落盘；缺省 1000ms。对应 TS <c>settings.progress.persistWithinMs</c>。</summary>
+    public int? PersistWithinMs { get; init; }
 }
 
 /// <summary>压缩的原因：<c>compact()</c>、生成准备中的阈值、或上下文溢出。对应 TS <c>CompactionReason</c>。</summary>
