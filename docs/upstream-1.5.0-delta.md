@@ -1600,3 +1600,17 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 `durable/harness/telemetry.ts` 的 `DURABLE_TELEMETRY_SCHEMA`——后者要把 span 织进 submit/task 生命周期，属独立一批。
 `RemoteTerminal` 依赖未移植的 chord `connection` 层，见 7.1。
 
+### 7.4 剩下三项是**基线缺口**，不是 1.5.0 增量
+
+查证：`packages/ai/src/telemetry.ts`、`packages/durable/src/harness/telemetry.ts`、`packages/env/src/terminal.ts`
+在 **v1.4.0 就已存在**。所以它们不是本轮升级引入的差异，而是端口从 1.4.0 起就没带的表面。
+
+| 项 | 规模 / 依赖 | 判定 |
+| --- | --- | --- |
+| `TelemetryPropagation`（`inject`/`extract` + carrier） | 2 个方法；只服务于 durable 遥测（把 submit 的 trace 链接到 run） | 随 durable 遥测一起定 |
+| `DURABLE_TELEMETRY_SCHEMA` + 埋点 | 139 行 schema；埋点在 `harness.ts:468`（report 计数器/事件）与 `scheduler.ts:2233`（每次 phase 一个 span、把 span 放进 `Context`、phase 时长/活跃任务/结局指标） | **不并入本轮**：端口的 `Scheduler.cs` 2600+ 行且是任务执行核心，改的是热路径与 Context 约定；收益是零消费方的观测性。应单独立批 |
+| `RemoteTerminal` / `openTerminal` | 127 行；依赖 chord `connection`（1327 行 wire 协议，`be039fb31` 判定声明层不适用） | **不移植**：依赖缺失，且仓库内无调用方；补它等于自创协议 |
+
+**因此「1.5.0 已对齐」的准确口径是**：`v1.4.0..v1.5.0` 的增量全部落地，外加 AI 遥测这个当时唯一能安全补的基线缺口；
+durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列，需要时按上表的规模评估后开工。
+
