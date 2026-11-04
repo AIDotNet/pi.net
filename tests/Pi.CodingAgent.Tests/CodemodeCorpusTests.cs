@@ -388,6 +388,58 @@ public class CodemodeCorpusTests
             DescriptionFor(McpTools.CreateMcpResultSchema(null)));
     }
 
+    [Fact]
+    public void CodemodeDescriptionsSummarizeUnionsAndMultiLineOutputTypes()
+    {
+        // #11501（`f6ee9ce9c`）：union 输出列每个分支的字段（`const` 写值），放不进一行的类型改成
+        // 指向 describeTool()，而不是把整份类型随每次请求发出去。
+        static ToolSchema Schema(string json) => new(
+            JsonSerializer.Deserialize<Dictionary<string, object?>>(json)!);
+
+        static AgentTool OutputTool(string name, string outputSchemaJson) => new(
+            name,
+            $"{name} tool",
+            Schema("""{"type":"object","properties":{}}"""),
+            "test",
+            (_, _, _, _) => Task.FromResult(new AgentToolResult([])))
+        {
+            OutputSchema = new ToolSchema(
+                JsonSerializer.Deserialize<Dictionary<string, object?>>(outputSchemaJson)!),
+        };
+
+        var process = OutputTool("process", """
+            {"anyOf":[
+              {"type":"object","properties":{"action":{"const":"start"},"process":{"type":"object","properties":{"id":{"type":"string"},"pid":{"type":"integer"}}}},"required":["action","process"]},
+              {"type":"object","properties":{"action":{"const":"list"},"processes":{"type":"array","items":{"type":"object"}},"truncated":{"type":"boolean"}},"required":["action","processes"]}
+            ]}
+            """);
+        var entries = OutputTool("entries", """
+            {"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"size":{"type":"integer"}},"required":["id","size"]}}
+            """);
+        var count = OutputTool("count", """{"type":"number"}""");
+
+        var loadout = new FakeLoadout
+        {
+            Declared = [process, entries, count],
+            Callable = [process, entries, count],
+            Registered = [process, entries, count],
+            Exposures = new Dictionary<string, string>(StringComparer.Ordinal),
+            Namespaces = new Dictionary<string, ToolNamespace>(StringComparer.Ordinal),
+            Guidelines = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal),
+        };
+        var descriptions = CodemodeToolApi.CreateCodemodeToolDefinition().PrepareLoadout!(loadout)!.Descriptions!;
+
+        Assert.Equal(
+            "process tool\n\nCodemode: `tools.process(args)` resolves to "
+            + "`{ action: \"start\", process } | { action: \"list\", processes, truncated? }`.",
+            descriptions["process"]);
+        Assert.Equal(
+            "entries tool\n\nCodemode: `tools.entries(args)` resolves to a value; "
+            + "`await describeTool(\"entries\")` shows its type.",
+            descriptions["entries"]);
+        Assert.Equal("count tool\n\nCodemode: `tools.count(args)` resolves to `number`.", descriptions["count"]);
+    }
+
     private static IToolLoadout ReadLoadout(JsonElement loadout) => new FakeLoadout
     {
         Declared = ReadToolList(loadout.GetProperty("declared")),

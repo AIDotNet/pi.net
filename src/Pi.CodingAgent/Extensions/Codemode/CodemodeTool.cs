@@ -432,7 +432,13 @@ public static partial class CodemodeToolApi
             StringComparer.Ordinal);
         var fields = properties.Select(property =>
         {
-            var nested = depth > 0 ? DescribeFields(property.Value, depth - 1) : null;
+            // `const` 字段直接写值（`{ action: "start", id }`），比展开嵌套对象好读（`f6ee9ce9c`）。
+            var constant = (property.Value as JsonObject)?["const"];
+            var nested = constant is not null
+                ? constant.ToJsonString()
+                : depth > 0
+                    ? DescribeFields(property.Value, depth - 1)
+                    : null;
             return $"{property.Key}{(required.Contains(property.Key) ? "" : "?")}{(nested is null ? "" : $": {nested}")}";
         });
         return $"{{ {string.Join(", ", fields)} }}";
@@ -444,11 +450,25 @@ public static partial class CodemodeToolApi
             : null;
 
     /// <summary>
+    /// The field names of each variant of an <c>anyOf</c>/<c>oneOf</c> whose variants are all objects,
+    /// joined by <c>|</c>；否则 null。TS <c>describeUnionFields</c>（`f6ee9ce9c`）。
+    /// </summary>
+    private static string? DescribeUnionFields(JsonNode? schema)
+    {
+        if (schema is not JsonObject @object) return null;
+        if ((@object["anyOf"] ?? @object["oneOf"]) is not JsonArray variants || variants.Count == 0) return null;
+        var described = variants.Select(variant => DescribeFields(variant, 0)).ToList();
+        return described.All(fields => fields is not null) ? string.Join(" | ", described) : null;
+    }
+
+    /// <summary>
     /// What a script call resolves to, in one line: <c>a string</c>, the field names of an object
-    /// (see <see cref="DescribeFields"/>), or the rendered type for anything else.
+    /// (see <see cref="DescribeFields"/>), the field names of each object in a union, the rendered type
+    /// when it fits on one line, or a pointer to <c>describeTool()</c> for anything longer ——
+    /// 大 schema 的完整类型否则会随每次请求发出去（#11501，`f6ee9ce9c`）。
     /// TS <c>describeOutput</c>.
     /// </summary>
-    private static string DescribeOutput(JsonNode? schema)
+    private static string DescribeOutput(string name, JsonNode? schema)
     {
         var type = CodemodeDeclarations.RenderToolOutputType(schema);
         if (type == "string")
@@ -456,8 +476,10 @@ public static partial class CodemodeToolApi
             return "a string";
         }
 
-        var fields = DescribeFields(schema, 1);
-        return $"`{fields ?? Whitespace().Replace(type, " ")}`";
+        var fields = DescribeFields(schema, 1) ?? DescribeUnionFields(schema);
+        if (fields is not null) return $"`{fields}`";
+        if (!type.Contains('\n')) return $"`{type}`";
+        return $"a value; `await describeTool({JsonSerializer.Serialize(name)})` shows its type";
     }
 
     /// <summary>
@@ -468,7 +490,7 @@ public static partial class CodemodeToolApi
     private static string DescribeScriptCall(AgentTool tool)
     {
         var declaration = ToCodemodeDeclaration(tool);
-        return $"{tool.Description.Trim()}\n\nCodemode: `tools.{CodemodeIdentifiers.ToCodemodeIdentifier(tool.Name)}(args)` resolves to {DescribeOutput(declaration.OutputSchema)}.";
+        return $"{tool.Description.Trim()}\n\nCodemode: `tools.{CodemodeIdentifiers.ToCodemodeIdentifier(tool.Name)}(args)` resolves to {DescribeOutput(tool.Name, declaration.OutputSchema)}.";
     }
 
     /// <summary>

@@ -1243,7 +1243,7 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 | `f049787d9` 默认 openai 模型改 `gpt-6.1-sol` | ⏳ 归到 P2「目录数据」一起做（同一份 models 目录，单改一处会和目录不一致） |
 | `a6a7bac86` 隐藏思考块空标签不渲染行 | ✅ 端口早已实现（懒加 Spacer + 隐藏且空标签直接 `continue`）；本轮补上上游两例 `AssistantMessage_RendersNothingForHiddenThinkingWithAnEmptyLabel` / `…KeepsLabelRowAndSpacingForHiddenThinkingWithALabel` |
 | `7391dbb0f` 全屏标题栏显示模型 scope | ✅ 本批：`GetModelScopeNotice` / `FormatModelScopeNotice` 抽出提示，启动时只在 `_ui.Mode != Fullscreen` 打印；全屏在头部挂 `ThemedText` + `Spacer(1)`（见 §5.1），用例 `InteractiveModeModelScopeTests` |
-| `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ⏳ 待做（已核：端口没有；74 行，随 `da412b039` 的类型推导一起做更省） |
+| `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ✅ 本批：`const` 字段写值、`anyOf`/`oneOf` 列每个分支的字段、放不进一行的类型改成指向 `describeTool()`（见 §5.2），用例 `CodemodeDescriptionsSummarizeUnionsAndMultiLineOutputTypes` |
 | `6fed3cfb9` SDK 流在摘要时解析 auth | ⏳ 待做（已核：端口没有；142 行） |
 | `c8ec752cf` 不支持的架构上跳过 fd/rg 下载 | ⏳ 待核（端口是否还有下载路径） |
 | `c2760d32c` `pi update` 只在自管安装时点名包管理器 | ⏳ 待核 |
@@ -1271,3 +1271,19 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 用例（照抄上游 `interactive-mode-model-scope.test.ts` 的意图，改成纯格式化函数，避开原型 `.call` 那种 JS 专用手段）：
 `model-a:high` + `model-b` + `ctrl+p` → 去 ANSI 后含 `Model scope: model-a:high, model-b (Ctrl+P to cycle)`；
 启动详情被隐藏或没有 scope → null。
+
+
+### 5.2 codemode 输出的 union 与多行摘要（`f6ee9ce9c`）
+
+大 schema 的完整类型原本会被内联进工具描述、随每次请求发出去（#11501）。上游三处改动：
+
+| 上游 | 端口落点 |
+| --- | --- |
+| `describeFields`：`const` 字段直接写值（`{ action: "start", id }`） | `DescribeFields` 里先看 `property.Value["const"]`，有就 `ToJsonString()`，否则再递归 |
+| 新增 `describeUnionFields`：`anyOf`/`oneOf` 的分支全是对象时，各列字段并用 `\|` 连接 | `DescribeUnionFields`（`(schema["anyOf"] ?? schema["oneOf"]) as JsonArray`） |
+| `describeOutput(name, schema)`：字段 → union → 单行类型 → 否则 `a value; await describeTool("<name>") shows its type` | `DescribeOutput(string name, JsonNode? schema)`，调用点传入 `tool.Name` |
+
+用例（照抄上游 `agent-session-codemode.test.ts` 的意图，走端口的 `FakeLoadout` + `PrepareLoadout` 路径）：
+- union 的 `process` → `` `{ action: "start", process } | { action: "list", processes, truncated? }` ``
+- 数组对象的 `entries` → `` a value; `await describeTool("entries")` shows its type ``
+- `number` 的 `count` → `` `number` ``
