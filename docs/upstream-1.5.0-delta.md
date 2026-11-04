@@ -148,7 +148,7 @@
 | `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
 | `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | ✅ 块级复用已落地（§4.31）；**代码高亮复用与 `Text.setText` 折行缓存未做**（见该节「未移植」） |
 | `cd1ea342a` | 显示公式超宽时回退原始 LaTeX | 未核 | 🔧 P4 |
-| `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 | 未核 | 🔧 P4 |
+| `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 | ✅ 已由 `1c8cb1781` 的定界搜索覆盖（占位行不再是停止条件，只有图像行才停；见 §4.34） |
 | `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） | ✅ 本批（`TerminalWordSelectionJoiners` 加上 `+ \ ~ _ .`；端到端用例未移植，见 §4.28） |
 | `f09d01b85` | Orca 终端识别（truecolor / hyperlink / `ORCA_IMAGE_PROTOCOL=kitty`） | ✅ 本批（`DetectCapabilitiesFromEnvironment` 的 Orca 分支：`TERM_PROGRAM=Orca` 且 `ORCA_IMAGE_PROTOCOL=kitty` 才给 Kitty，否则文本回退；见 §4.26） |
 | `89c921d8b` | 终端标题/控制序列注入加固；`stripAnsi` 去掉带 `<=>` 前缀的私有 CSI | ✅ 核对完毕（§4.29）：tui 侧 `Ansi.ReplaceControlCharacters` 已用于两处 `SetTitle`、`ProgramStatus` 的 `msg` 与 `LoginDialog` 的 URL；durable 的 `__proto__` 那条是 JS 原型污染，C# 无对应物 |
@@ -980,3 +980,20 @@ O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/strea
 
 这次改动只允许移动空白与转义码、不允许增删文字，所以这条不变量能挡住「顺手改坏了内容」的假更新。
 187 例全部通过该检查后写回；插桩随即撤掉。`Pi.Tui.Tests` 由 23949 变为 **23955**（+6 例），全绿。
+
+### 4.34 `4464442f9` 核对：已被 `1c8cb1781` 的定界搜索覆盖
+
+`4464442f9` 的改动只有 `paintBox` 里一行停止条件：把 `if (imageLine !== "") break;` 换成
+「剥掉 SGR 后还有可见文字才 break」——目的是别让带内边距/底色的**占位行**（只有空格与 SGR）挡住向上找图像行。
+
+端口在 `1c8cb1781` 那批里已经把这整段重写成「按已注册图像的最高行数定界」的倒序搜索：
+
+```csharp
+if (!TerminalImage.IsImageLine(imageLine)) continue;          // 占位行、文字行都跳过
+if (TerminalImage.GetKittyImageMetadata(imageLine) is not { } meta) continue;
+...
+break;                                                        // 只有真正命中图像行才停
+```
+
+也就是说停止条件只剩「命中图像行」或「走到 `minRow`」，比上游那版更宽松（上游仍会在第一行非空且非图像的
+文字处停下）。`4464442f9` 想解决的问题因此已经不存在，无需再改代码。
