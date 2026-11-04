@@ -172,6 +172,7 @@ public class MarkdownCorpusTests
     // ------------------------------------------------------------------
 
 
+
     private sealed record TransformCall(string Source, int AvailableWidth);
 
     private sealed record Vector(

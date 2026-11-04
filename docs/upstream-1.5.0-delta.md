@@ -147,7 +147,7 @@
 | `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
 | `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
 | `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 | ✅ 块级复用已落地（§4.31）；**代码高亮复用与 `Text.setText` 折行缓存未做**（见该节「未移植」） |
-| `cd1ea342a` | 显示公式超宽时回退原始 LaTeX | 未核 | 🔧 P4 |
+| `cd1ea342a` | 显示公式超宽时回退原始 LaTeX | ✅ 本批（2D 排版的任一行宽过内容宽就整段退回源码；上游回归用例照抄；42 例语料按「出现原始标记」守卫重算，见 §4.35） |
 | `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 | ✅ 已由 `1c8cb1781` 的定界搜索覆盖（占位行不再是停止条件，只有图像行才停；见 §4.34） |
 | `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） | ✅ 本批（`TerminalWordSelectionJoiners` 加上 `+ \ ~ _ .`；端到端用例未移植，见 §4.28） |
 | `f09d01b85` | Orca 终端识别（truecolor / hyperlink / `ORCA_IMAGE_PROTOCOL=kitty`） | ✅ 本批（`DetectCapabilitiesFromEnvironment` 的 Orca 分支：`TERM_PROGRAM=Orca` 且 `ORCA_IMAGE_PROTOCOL=kitty` 才给 Kitty，否则文本回退；见 §4.26） |
@@ -997,3 +997,22 @@ break;                                                        // 只有真正命
 
 也就是说停止条件只剩「命中图像行」或「走到 `minRow`」，比上游那版更宽松（上游仍会在第一行非空且非图像的
 文字处停下）。`4464442f9` 想解决的问题因此已经不存在，无需再改代码。
+
+### 4.35 显示公式超宽回退原始 LaTeX（`cd1ea342a`）
+
+`$$…$$` / `\[…\]` 会排成多行 2D 版式（分子、分数线、分母各一行）。版式比内容宽度还宽时，旧代码对**每一行**各跑一次
+`wrapTextWithAnsi`：只有溢出的那行断开，下面的行整体下移，公式就错位了（`dx` 掉到分数线与分母之间）。
+
+| 上游要点 | 端口落点 |
+| --- | --- |
+| `latexBlock` 先渲染 2D 版式，任一行 `visibleWidth > width` 就退回 `token.raw.trim()`（与解析失败时的回退一致），退回后像普通文本一样折行 | `Markdown.RenderToken` 的 `latexBlock` 分支：`rendered = Latex.Render(...)`，`rendered is null || 任一行 VisibleWidth > width` 时改用 `JsString.Trim(token.Raw)` |
+
+**用例**：`MarkdownLatexFallbackTests` 逐字照抄上游回归用例的方程——宽 40 时必须是三行 2D 版式（含 `────` 分数线），
+宽 30 时首行 `\[`、末行 `\]`、没有分数线、每行 ≤ 30。
+
+**语料重算**：42 例受影响。守卫条件与前一批不同（这次**会**改变可见文字，因为输出从 2D 版式换成了源码）：
+
+> 输入含显示公式（`$$` 或 `\[`），且新输出出现原始标记（`$$`/`\[`/`\]`）而旧输出没有——即「确实发生了回退」。
+
+只接受满足该条件的用例：32 例按「旧行宽超过内容宽」判定通过，另 10 例的旧输出是**已折行**的版式（行宽看不出超宽），
+改用「原始标记出现」判定后一并通过。42 例全部写回，插桩撤回。

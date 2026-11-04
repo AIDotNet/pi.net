@@ -476,9 +476,16 @@ public sealed class Markdown : IComponent
 
             case "latexBlock":
             {
+                // 2D 排版（分式、求和）不能逐行折行：宽了就整体退回原始源码，像普通文本那样折行。
+                // 对应 TS `cd1ea342a`：`rendered === undefined || 某一行 visibleWidth > width`。
                 var rendered = token.Pending != true && _options.RenderLatex
-                    ? Latex.Render(token.Text ?? "", new RenderLatexOptions { Display = true }) ?? JsString.Trim(token.Raw)
-                    : JsString.Trim(token.Raw);
+                    ? Latex.Render(token.Text ?? "", new RenderLatexOptions { Display = true })
+                    : null;
+                if (rendered is null || rendered.Split('\n').Any(line => UnicodeWidth.VisibleWidth(line) > width))
+                {
+                    rendered = JsString.Trim(token.Raw);
+                }
+
                 foreach (var line in rendered.Split('\n'))
                 {
                     lines.Add(ApplyDefaultStyle(line));
