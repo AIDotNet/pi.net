@@ -531,19 +531,52 @@ public class SessionTests
     }
 
     [Fact]
-    public async Task WatchEndsEndedAfterTheRetirementFrameWhenDocumentRetires()
+    public async Task WatchFollowsTheAddressAcrossRetirementAndRecreation()
     {
         var test = OpenTestSession();
         var conversationId = await CreateConversationAsync(test.Session);
-        await test.Session.CommitAsync(tx => tx.DocAsync(NotesDoc, conversationId), Ctx);
+        await test.Session.CommitAsync(async tx =>
+        {
+            var change = await tx.DocAsync(NotesDoc, conversationId);
+            change.Set(Path.Root.Append(Seg.Key("text")), "before");
+        }, Ctx);
         var watch = await test.Session.WatchDocAsync(NotesDoc, conversationId, Ctx);
         Assert.NotNull(watch);
-        watch.Start((_, _, _) => Task.CompletedTask);
+        var frames = new List<(string? Value, int Ops, bool Retired)>();
+        object gate = new();
+        watch.Start((call, _) =>
+        {
+            if (call is WatchCall<IReadOnlyDictionary<string, object?>?>.Value value)
+            {
+                lock (gate) frames.Add((Json(value.NewValue), value.Ops.Count, value.Retired));
+            }
+
+            return Task.CompletedTask;
+        });
+
+        // 退休不是终态：投一帧「最后的值 + 空 ops + retired」，watch 保持打开（`8b0caefc2` 的地址跟随）。
         await test.Session.CommitAsync(tx => tx.RetireDocAsync(NotesDoc, conversationId), Ctx);
-        var end = await watch.Closed;
-        // 退休不再是一个终态：投递带 retired 标记的最后一帧后，watch 以 ended 收场。
-        Assert.IsType<WatchEnd.Ended>(end);
-        Assert.Null(watch.Value);
+        await WaitUntilAsync(() =>
+        {
+            lock (gate) return frames.Count == 1;
+        });
+        lock (gate) Assert.Equal([("""{"text":"before"}""", 0, true)], frames);
+        Assert.False(watch.Closed.IsCompleted);
+        Assert.Equal("""{"text":"before"}""", Json(watch.Value));
+
+        // 同一地址上的新化身作为根替换到达，watch 仍在。
+        await test.Session.CommitAsync(async tx =>
+        {
+            var change = await tx.DocAsync(NotesDoc, conversationId);
+            change.Set(Path.Root.Append(Seg.Key("text")), "after");
+        }, Ctx);
+        await WaitUntilAsync(() =>
+        {
+            lock (gate) return frames.Count == 2;
+        });
+        lock (gate) Assert.Equal(("""{"text":"after"}""", 1, false), frames[1]);
+        Assert.False(watch.Closed.IsCompleted);
+        Assert.IsType<WatchEnd.Stopped>(await watch.Stop());
     }
 
     [Fact]
@@ -597,7 +630,7 @@ public class SessionTests
         object? settled = null;
         _ = watch.Closed.ContinueWith(task => settled = task.Result, TaskScheduler.Default);
         // null 只是又一个值：源没有退休，watch 继续投递（一次调用覆盖一个忙碌周期，所以逐次等投递）。
-        watch.Advance(null, CommittedWatch<object?>.RetirementOperations, Ctx);
+        watch.Advance(null, [], Ctx);
         await WaitUntilAsync(() =>
         {
             lock (frames) return frames.Count == 1;
@@ -607,34 +640,9 @@ public class SessionTests
         {
             lock (frames) return frames.Count == 2;
         });
-        lock (frames) Assert.Equal([(null, 1), (2, 1)], frames);
+        lock (frames) Assert.Equal([(null, 0), (2, 1)], frames);
         Assert.Null(settled);
         Assert.IsType<WatchEnd.Stopped>(await watch.Stop());
-    }
-
-    [Fact]
-    public async Task WatchRetireDeliversTheRetirementFrameThenEndsEnded()
-    {
-        var watch = new CommittedWatch<object?>(1, () => { });
-        var frames = new List<(object? Value, IReadOnlyList<DeltaOp> Ops)>();
-        watch.Start((value, ops, _) =>
-        {
-            lock (frames) frames.Add((value, ops));
-            return Task.CompletedTask;
-        });
-        watch.Retire(Ctx);
-        Assert.IsType<WatchEnd.Ended>(await watch.Closed);
-        lock (frames)
-        {
-            var frame = Assert.Single(frames);
-            Assert.Null(frame.Value);
-            var op = Assert.IsType<DeltaOp.Replace>(Assert.Single(frame.Ops));
-            Assert.Null(op.Value);
-        }
-        // 退休之后不再有帧。
-        watch.Advance(3, [new DeltaOp.Replace(3)], Ctx);
-        await Task.Delay(50);
-        lock (frames) Assert.Single(frames);
     }
 
     // ─── 生命周期 ───────────────────────────────────────────────────────────

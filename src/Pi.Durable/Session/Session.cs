@@ -396,7 +396,10 @@ public class DurableSession : ISession
                 .ConfigureAwait(false);
             if (cancelled) throw CancellationError(signal!.Value);
             if (loaded is null) return null;
-            var inner = AttachDocument(definition, loaded);
+            var inner = ObserveDocument(
+                definition,
+                loaded,
+                (value, detach, report) => new DocumentObservationSink(value, detach, report));
             return new DocumentWatch<T>(inner);
         }).ConfigureAwait(false);
         if (watch is null) return null;
@@ -1103,60 +1106,135 @@ public class DurableSession : ISession
     /// 把一个 watch 附着到一个已提交化身：校验定义，然后转发本化身的已提交变更、它的退休与关闭。
     /// watch 的 detach 移除两个订阅。对应 TS <c>#attachDocument</c>。
     /// </summary>
-    private CommittedWatch<IReadOnlyDictionary<string, object?>?> AttachDocument(
+    /// <summary>
+    /// 跟随化身 <paramref name="loaded"/> 的地址：<paramref name="create"/> 从它的值建出观察者，之后每次提交变更都
+    /// 投给它——退休作为带 <c>retired</c> 标记、ops 为空、携带最后值的变更（退休那次提交里的变更不发布），同一地址
+    /// 上的新化身作为根替换。当提交把任务文档的 owner 任务做成终态时，此后没有提交能再改该地址：投完这一批变更后
+    /// 退订并解除 pin，观察者以「已结束」收尾。对应 TS <c>#observeDocument</c>（<c>8b0caefc2</c>）。
+    /// </summary>
+    /// <remarks>
+    /// 闭包只保留地址与当前化身 ID，不持有 <see cref="LoadedDocument"/> 的 tracker：退休之后那个化身可以被释放。
+    /// </remarks>
+    private TObserver ObserveDocument<TObserver>(
         DurableDocuments.AnyDocDefinition definition,
-        LoadedDocument loaded)
+        LoadedDocument loaded,
+        Func<IReadOnlyDictionary<string, object?>?, Action, Action<Exception>, TObserver> create)
+        where TObserver : class, IObservationSink
     {
         DurableDocuments.CheckRecordScope(definition, loaded.Record);
         DurableDocuments.CheckRecordVersion(definition, loaded.Record, loaded.StoredVersion);
+        var addressId = loaded.AddressId;
+        var address = loaded.Record;
+        DocumentId? incarnation = loaded.Record.Id;
+        var value = loaded.Tracker.Value;
+        var version = loaded.ValueVersion;
         IDisposable unsubscribeCommit = new Unsubscription(() => { });
         IDisposable unsubscribeClose = new Unsubscription(() => { });
-        // 被观察的化身留在缓存里；最后一个观察者摘下或它退休之后，它重新成为空闲。
-        var unpin = PinDocument(loaded.AddressId, loaded.Record.Id);
+        // 被跟随的化身留在缓存里；它退休或观察者摘下之后，重新成为空闲。
+        var unpin = PinDocument(addressId, loaded.Record.Id);
+        var attached = true;
         Action detach = () =>
         {
+            if (!attached) return;
+            attached = false;
             unsubscribeCommit.Dispose();
             unsubscribeClose.Dispose();
             unpin();
         };
-        CommittedWatch<IReadOnlyDictionary<string, object?>?> observer;
+        TObserver observer;
         try
         {
-            observer = new CommittedWatch<IReadOnlyDictionary<string, object?>?>(
-                loaded.Tracker.Value, detach, error => Report(error));
+            observer = create(value, detach, error => Report(error));
         }
         catch (Exception)
         {
             unpin();
             throw;
         }
-        var observed = new ObservedVersion { Version = loaded.ValueVersion };
+
         unsubscribeCommit = SubscribeCommits((publication, context) =>
         {
+            // 监听器从集合的副本上跑：另一个观察者的调用可能已经把它摘下。
+            if (!attached) return;
+            var ownerEnds = false;
             foreach (var change in publication.Changes)
             {
-                if (change is not CommitChange.DocumentChanged document
-                    || document.Change.Record.Id != loaded.Record.Id)
+                if (change is CommitChange.TaskTable task)
                 {
-                    continue;
-                }
-                if (document.Change.Value is null)
-                {
-                    // 已退休的化身不再变化：其 watch 投递退休，但不再持有任何东西。
-                    unpin();
-                    observer.Retire(context);
+                    if (address.Scope is DocumentScope.TaskScope scope
+                        && task.Value.Id == scope.TaskId
+                        && task.Value.State.Status == Pi.Durable.Types.TaskStatus.Terminal)
+                    {
+                        ownerEnds = true;
+                    }
+
                     continue;
                 }
 
-                var ops = ObservedOperations(observed, document.Change);
-                // 仅迁移的 base 对新版本的观察者没有任何改变。
-                if (ops.Count == 0) continue;
-                observer.Advance(document.Change.Value, ops, context);
+                if (change is not CommitChange.DocumentChanged document) continue;
+                var record = document.Change.Record;
+                // 被跟随的化身按定义就在该地址上；只有另一个记录才需要比较地址。
+                if (record.Id != incarnation && !AtAddress(record, address)) continue;
+                if (document.Change.Value is null)
+                {
+                    // 已退休的化身不再变化：投递一次带 retired 标记的最后值，watch 不因此结束。
+                    if (record.Id != incarnation) continue;
+                    var last = value!;
+                    incarnation = null;
+                    value = null;
+                    unpin();
+                    unpin = static () => { };
+                    observer.Advance(last, [], retired: true, context);
+                }
+                else if (record.Id != incarnation || document.Change.Version != version)
+                {
+                    // 该地址上的新化身，或另一定义版本的值（形状不同）：整体展示。
+                    if (record.Id != incarnation)
+                    {
+                        incarnation = record.Id;
+                        unpin();
+                        unpin = PinDocument(addressId, record.Id);
+                    }
+
+                    version = document.Change.Version!.Value;
+                    value = document.Change.Value;
+                    observer.Advance(value, [new DeltaOp.Replace(value)], retired: false, context);
+                }
+                else
+                {
+                    // 仅迁移的 base 对新版本的观察者没有任何改变。
+                    if (document.Change.Ops.Count == 0) continue;
+                    value = document.Change.Value;
+                    observer.Advance(value, document.Change.Ops, retired: false, context);
+                }
+
+                // 观察者可能在这次调用里摘下自己，也可能抛错而被摘下：这次提交余下的内容不属于它。
+                if (!attached) return;
             }
+
+            if (!ownerEnds) return;
+            unsubscribeCommit.Dispose();
+            unpin();
+            observer.EndAfterDelivery();
         });
         unsubscribeClose = SubscribeClose(() => observer.EndWith(_poison));
         return observer;
     }
+
+    /// <summary>记录是否是该地址上的一个化身。对应 TS <c>atAddress</c>。</summary>
+    private static bool AtAddress(DocumentRecord record, DocumentRecord address) =>
+        record.Kind == address.Kind
+        && record.Key == address.Key
+        && record.Scope switch
+        {
+            DocumentScope.SessionScope => address.Scope is DocumentScope.SessionScope,
+            DocumentScope.ConversationScope scope =>
+                address.Scope is DocumentScope.ConversationScope other && other.ConversationId == scope.ConversationId,
+            DocumentScope.TaskScope scope =>
+                address.Scope is DocumentScope.TaskScope other && other.TaskId == scope.TaskId,
+            _ => false,
+        };
+
 
     private sealed class ObservedVersion
     {
