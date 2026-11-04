@@ -1502,3 +1502,40 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 **已补完**：§4.39 重写了文档追随器（退休语义 + 按地址跟随 + owner 终态），§4.40 补上 `GuardedObserver` 与
 `Session.observeDoc`，§4.41 把两个 Harness 出口（`observeConversation` / `observeTaskGraph`）接到同一层 guard 上。
 三条全部落地，`8b0caefc2` 到此收口——**§6.3 的「功能对齐完成」现在只剩 §6.1 / §6.2 两项**。
+
+---
+
+## 7. 代码级复核（不依赖台账，2026-11-04）
+
+前一轮审计只核了「仍标 🔧 的行」，没核已标 ✅ 的行。这一轮改成**从上游代码反查端口**：
+
+| 手段 | 命令 / 位置 | 结果 |
+| --- | --- | --- |
+| 模块级覆盖 | `python tools/audit-module-coverage.py <上游仓库>` | v1.5.0 的 **750** 个非测试模块里，**62** 个在端口找不到同名对应物 |
+| ✅ 行抽样 | 随机 8 行（seed 7） | 3 行点名了符号，全部命中（`IsWhitespaceToken` / `PrefersJsonSchemaStrictSampling` / `idleOrder`）；其余 5 行只引提交号，无法用符号核 |
+| 纯函数差分 | `JsonRepairCorpusTests` + `tools/gen-ai-json-repair-corpus.mjs` | `repairJson()` **140 条语料全部一致**（此前端口与上游都没有用例，属零覆盖的生产路径） |
+| 过期标记 | — | 20 行已订正（§2.2 六行、§2.3 十三行、§2.5 一行） |
+
+### 7.1 62 个未匹配模块的分诊
+
+| 类别 | 数量 | 说明 |
+| --- | --- | --- |
+| 平台 / 类型专有 | ~40 | bun（`bun-oauth`、`bun/*`）、cloudflare（`api/cloudflare-ai-binding`、`sqlite/cloudflare`、`images/cloudflare`）、indexeddb、`native-modifiers`/`native-module-path`、`*.d.ts`（`data-json.d`、`highlight-js.d`、`photon-wasm.d`）、jiti 加载器与虚拟模块、TypeBox 的 `formats/typebox/**`（端口没有 TypeBox 声明层） |
+| 已判定不做的批次 | 2 | `session/cached-storage`（378 行）、`session/conversation-tails`（115 行）——均由 `e5c6182ba` 引入，与 §6.1 一致 |
+| 声明层已判定不适用 | 3 | `chord/contract`、`connection`、`websocket`（`be039fb31`：端口没有 `method()/remote()/local()` 声明层；`RelayRef` 在仓库内无调用方） |
+| 名字不匹配但有等价物 | 4 | `ai/utils/error-body` → `Utils/ProviderError.cs`；`tools/path-utils` → 内联；`delta/apply-immutable-trusted` → `DeltaApply.Apply`；`env/list-files` → `Durable/Env/LocalExecutionEnv.cs` |
+| **真缺口：观测性** | 2 | `ai/telemetry.ts`（210 行，`observeModelRequest` + `AI_TELEMETRY_SCHEMA`，被 `models.ts` 每次请求调用）、`durable/harness/telemetry.ts`（`DURABLE_TELEMETRY_SCHEMA`）。端口 `Pi.Ai` 完全不引用 telemetry，`Pi.Durable` 也没有 telemetry 面（§4.20 曾就 `Submissions` 提过一句，但没有作为缺口记录） |
+| **真缺口：库 API** | 1 | `env/terminal.ts`（127 行，`RemoteTerminal` / `openTerminal`）。**v1.4.0 就有**，端口一直没移植；仓库内没有调用方（只有 `env/src/index.ts` 导出） |
+
+### 7.2 结论
+
+- **功能行为**：没有发现新的行为缺口或 bug。`repairJson` 这条高风险路径的差分全绿；`tool_search`、provider 错误归一化、
+  本地执行环境、不可变 delta 应用等均有等价实现。
+- **观测性**：AI 层与 durable 层的 telemetry **确实没移植**。它不影响任何用户可见行为，但接遥测的消费方拿不到
+  span / metrics。台账此前没有把它记成缺口，**「功能已全部实现」这句话要按这个口径修正**。
+- **库 API**：`RemoteTerminal` 缺失，1.4.0 起就缺，无调用方，影响面小。
+- **台账**：已订正 20 行过期标记、补齐 12 行缺列、补记上述 3 项缺口；`✅` 抽样未发现假阳性。
+
+**取证工具已入库**：`tools/audit-module-coverage.py`（模块级）、`tools/gen-ai-json-repair-corpus.mjs`（差分语料）。
+两者都可复跑，后续每次上游升级都能用同一套手段复核。
+
