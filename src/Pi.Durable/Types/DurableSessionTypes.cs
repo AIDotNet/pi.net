@@ -252,6 +252,49 @@ public interface ITx
         where T : class, IReadOnlyDictionary<string, object?>;
 }
 
+/// <summary>提交何时写入 Storage。对应 TS <c>CommitPersistence</c>。</summary>
+public abstract record CommitPersistence
+{
+    private CommitPersistence() { }
+
+    /// <summary>默认：<c>CommitAsync</c> 解析之前写入 Storage。</summary>
+    public sealed record Immediate : CommitPersistence;
+
+    /// <summary>
+    /// 延迟：当这次提交的写入全都是「改一个已存在的、<c>history: latest</c>、<c>fork: initial</c> 的对话文档」时，
+    /// 先在内存采纳并显示给 watch，稍后落盘（下一次读/写该文档、文档离开内存、关闭、或最迟 <see cref="WithinMs"/>）。
+    /// 崩溃会丢掉还没落盘的内容，所以只有可以丢的状态（如流式进度）才该用它。
+    /// </summary>
+    public sealed record Deferred : CommitPersistence
+    {
+        /// <summary>最迟多久落盘（毫秒）；null 表示用 <c>settings.progress.persistWithinMs</c>。</summary>
+        public int? WithinMs { get; init; }
+    }
+}
+
+/// <summary>一次 Session 提交的选项。对应 TS <c>CommitOptions</c>。</summary>
+public sealed record CommitOptions
+{
+    /// <summary>提交何时写入 Storage；缺省 <see cref="CommitPersistence.Immediate"/>。</summary>
+    public CommitPersistence? Persistence { get; init; }
+}
+
+/// <summary>
+/// Session 自己的组件观察到的提交。对应 TS <c>ObservedCommit</c>：已落盘的带 <see cref="Seq"/>；
+/// 只在内存采纳的（<see cref="IsMemory"/>）没有 seq，且只含文档变更。内存永不落后：后来把持有变更落盘不会再观察一次。
+/// </summary>
+public sealed record ObservedCommit
+{
+    /// <summary>落盘提交的 seq；只在内存采纳时为 null。</summary>
+    public Seq? Seq { get; init; }
+
+    /// <summary>这次提交带来的变更，顺序未定义。</summary>
+    public required IReadOnlyList<CommitChange> Changes { get; init; }
+
+    /// <summary>是否只在内存采纳（延迟提交）。</summary>
+    public bool IsMemory => Seq is null;
+}
+
 /// <summary>
 /// 一条变更线、其记录与被跟踪文档的所有者。对应 TS <c>Session</c>。
 /// 只有已提交状态可观察；监听器在提交采纳之后异步运行。

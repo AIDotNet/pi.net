@@ -699,7 +699,7 @@ public class DurableSession : ISession
         }
         // Storage 在批次持久后同步采纳（早于它的下一次提交）；这里不能让异常穿到 Storage，
         // 所以回调自己留住错误，等提交解析后再决定如何失败。
-        List<DocumentCommitChange>? adoptedDocuments = null;
+        AdoptedDocuments? adoptedDocuments = null;
         Exception? adoptionError = null;
         var adopted = false;
         void Adopt(Seq committed)
@@ -753,7 +753,7 @@ public class DurableSession : ISession
             throw adoptionError;
         }
         // 刚写过的文档算一次使用：它们不会被紧接着的驱逐带走。
-        foreach (var document in adoptedDocuments!)
+        foreach (var document in adoptedDocuments!.Observed)
         {
             switch (document)
             {
@@ -766,7 +766,7 @@ public class DurableSession : ISession
             }
         }
 
-        Publish(seq, writes, adoptedDocuments!, context);
+        Publish(seq, writes, adoptedDocuments!.Observed, context);
         SweepDocuments();
         return result;
     }

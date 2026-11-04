@@ -204,6 +204,27 @@ internal sealed class DocumentEntry
 }
 
 /// <summary>文档计划的 prepared 变更信息。对应 TS <c>DocumentPlan["change"]</c>。</summary>
+/// <summary>
+/// 延迟提交在内存里采纳、Session 还没落盘的变更（按化身折叠）。Session 持有它；
+/// 落盘它们的提交会把它们取走。对应 TS <c>HeldDocument</c>。
+/// </summary>
+public sealed class HeldDocument
+{
+    /// <summary>被持有的缓存化身。</summary>
+    public required LoadedDocument Loaded { get; init; }
+
+    /// <summary>还没落盘的 op 队列（已折叠）。</summary>
+    public required PendingOps Pending { get; init; }
+
+    /// <summary>某个被持有的提交选过 base（<c>checkpointWhen</c>）：落盘时写整值。</summary>
+    public bool Base { get; set; }
+}
+
+/// <summary>采纳之后要发布的两份变更。对应 TS <c>AdoptedDocuments</c>。</summary>
+public sealed record AdoptedDocuments(
+    IReadOnlyList<DocumentCommitChange> Observed,
+    IReadOnlyList<DocumentCommitChange> Stored);
+
 internal sealed class PlannedChange
 {
     public required Tracker<IReadOnlyDictionary<string, object?>> Tracker { get; init; }
@@ -243,6 +264,9 @@ internal sealed class DocumentPlan
 
     /// <summary>Storage 受理前解析，采纳因此保持同步。</summary>
     public ConversationId? ConversationId { get; set; }
+
+    /// <summary>这次提交同时落盘了该化身的持有变更（<see cref="Transaction.TakeHeld"/>）。</summary>
+    public (IReadOnlyList<DeltaOp> Ops, bool Observed)? Held { get; set; }
 }
 
 /// <summary>
@@ -924,9 +948,11 @@ public sealed class Transaction : ITx
     public void Discard() => AbortChanges();
 
     /// <summary>Storage 成功后按指针交换采纳每个 prepared 变更，并描述发布。对应 TS <c>adopt</c>。</summary>
-    public List<DocumentCommitChange> Adopt(Seq seq)
+    public AdoptedDocuments Adopt(Seq seq)
     {
         var publications = new List<DocumentCommitChange>();
+        // 只有这次提交落了持有变更时，Storage 收到的才与内存采纳的不同。
+        List<DocumentCommitChange>? stored = null;
         foreach (var plan in _plans)
         {
             var committed = plan.CommittedRecord is not null;
@@ -964,26 +990,174 @@ public sealed class Transaction : ITx
                     });
                 }
             }
-            var conversationId = plan.ConversationId;
-            if (plan.Retire)
+
+            if (plan.Retire && committed) _host.Evict(plan.AddressId, record.Id);
+            if (Describe(plan, record) is not { } publication) continue;
+            if (plan.Held is not { } held)
             {
-                if (committed) _host.Evict(plan.AddressId, record.Id);
-                publications.Add(new DocumentCommitChange.Document(
-                    record, conversationId, null, null, Array.Empty<DeltaOp>()));
+                publications.Add(publication);
+                stored?.Add(publication);
+                continue;
             }
-            else if (plan.Content is StorageWrite.DocumentCopyWrite copy)
+
+            stored ??= [.. publications];
+            if (held.Observed) publications.Add(publication);
+            // 只有已加载化身的文档变更会带上持有操作。
+            stored.Add(publication is DocumentCommitChange.Document document
+                ? document with { Ops = held.Ops }
+                : publication);
+        }
+
+        return new AdoptedDocuments(publications, stored ?? publications);
+    }
+
+    /// <summary>一个被采纳计划的发布，若不发布（<see cref="Publishes"/>）则为 null。</summary>
+    private static DocumentCommitChange? Describe(DocumentPlan plan, DocumentRecord record)
+    {
+        var conversationId = plan.ConversationId;
+        if (plan.Retire)
+        {
+            return new DocumentCommitChange.Document(
+                record, conversationId, null, null, Array.Empty<DeltaOp>());
+        }
+
+        if (plan.Content is StorageWrite.DocumentCopyWrite copy)
+        {
+            return new DocumentCommitChange.Copy(record, conversationId!.Value, copy.Source);
+        }
+
+        var change = plan.Change;
+        if (change is null || !Publishes(plan)) return null;
+        var ops = change.Loaded is null ? Array.Empty<DeltaOp>() : change.Prepared.Ops;
+        return new DocumentCommitChange.Document(
+            record, conversationId, change.Version,
+            (IReadOnlyDictionary<string, object?>?)change.Prepared.Value, ops);
+    }
+
+    /// <summary>
+    /// 内部：一次延迟提交该在内存里持有什么（<see cref="CommitPersistence.Deferred"/>）——每个变更化身连同它的
+    /// 操作、以及它是否选了 base；不满足条件（必须全部是「改已存在的 latest/initial 对话文档、且版本没落后」）时
+    /// 返回 null，表示必须立刻落盘。对应 TS <c>holdable()</c>。
+    /// </summary>
+    public List<(LoadedDocument Loaded, IReadOnlyList<DeltaOp> Ops, bool Base)>? Holdable()
+    {
+        if (_writes.Any(write => write is not StorageWrite.DocumentChange)) return null;
+        var held = new List<(LoadedDocument, IReadOnlyList<DeltaOp>, bool)>();
+        foreach (var plan in _plans)
+        {
+            if (plan.Content is null && !plan.Retire) continue;
+            if (plan.Retire
+                || plan.Change is not { Loaded: { } loaded } change
+                || plan.Content is not StorageWrite.DocumentChange documentChange)
             {
-                publications.Add(new DocumentCommitChange.Copy(
-                    record, conversationId!.Value, copy.Source));
+                return null;
             }
-            else if (change is not null && Publishes(plan))
+
+            var record = loaded.Record;
+            if (record.Scope is not DocumentScope.ConversationScope
+                || record.History != ConversationHistory.Latest
+                || record.Fork != ConversationFork.Initial)
             {
-                var ops = change.Loaded is null ? Array.Empty<DeltaOp>() : change.Prepared.Ops;
-                publications.Add(new DocumentCommitChange.Document(
-                    record, conversationId, change.Version, (IReadOnlyDictionary<string, object?>?)change.Prepared.Value, ops));
+                return null;
+            }
+
+            // 迁移（落盘版本落后）立刻写 base。
+            if (loaded.StoredVersion != change.Version) return null;
+            held.Add((loaded, change.Prepared.Ops, documentChange.Content is DocumentContent.Base));
+        }
+
+        return held;
+    }
+
+    /// <summary>
+    /// 内部：只在内存里采纳一次被持有的提交（<see cref="Holdable"/>）。tracker 按指针交换前移；落盘版本与 delta
+    /// 计数保持不变（什么都没落盘）。返回给 Session 自己观察者看的发布。对应 TS <c>adoptHeld()</c>。
+    /// </summary>
+    public List<DocumentCommitChange> AdoptHeld()
+    {
+        var publications = new List<DocumentCommitChange>();
+        foreach (var plan in _plans)
+        {
+            // 被持有提交的每个计划都改或读一个已加载化身（Holdable 保证）。
+            if (plan.Change is not { } change) continue;
+            if (change.Prepared.Ops.Count == 0)
+            {
+                change.Prepared.Abort();
+                continue;
+            }
+
+            change.Tracker.Adopt(change.Prepared);
+            publications.Add(new DocumentCommitChange.Document(
+                change.Loaded!.Record, plan.ConversationId, change.Version,
+                (IReadOnlyDictionary<string, object?>)change.Prepared.Value!, change.Prepared.Ops));
+        }
+
+        return publications;
+    }
+
+    /// <summary>
+    /// 内部：把这次提交读到或写到的每个化身的持有变更排在它自己前面一起落盘，这样落盘的文档绝不会漏掉后续操作
+    /// 所依赖的操作。必须在 Storage 受理之前的最后一步调用（此前任何失败都还留着持有）。返回取走的持有。
+    /// 对应 TS <c>takeHeld()</c>。
+    /// </summary>
+    public List<HeldDocument> TakeHeld(Func<DocumentId, HeldDocument?> held)
+    {
+        var taken = new List<HeldDocument>();
+        foreach (var plan in _plans)
+        {
+            // 新化身还没有持有。
+            if (plan.CommittedRecord is not { } record) continue;
+            if (held(record.Id) is not { } hold) continue;
+            taken.Add(hold);
+            var own = plan.Content as StorageWrite.DocumentChange;
+            var change = plan.Change;
+            var value = (IReadOnlyDictionary<string, object?>?)change?.Prepared.Value ?? hold.Loaded.Tracker.Value;
+            var heldStore = StoreHeld(hold, change?.Prepared.Ops ?? Array.Empty<DeltaOp>(), value, hold.Loaded.ValueVersion);
+            // 这次提交选的 base（或必须写的 base）覆盖了持有的内容。
+            var content = own?.Content is DocumentContent.Base ? own.Content : heldStore.Content;
+            var write = new StorageWrite.DocumentChange(record.Id, content);
+            if (own is not null) _writes[_writes.IndexOf(own)] = write;
+            else InsertBeforeRetirement(write);
+            if (!plan.Retire) plan.Held = (heldStore.Ops, own is not null);
+            plan.Content = write;
+            // 被持有的文档是对话文档；这次只读到的那个还没解析属主。
+            if (record.Scope is DocumentScope.ConversationScope conversation)
+            {
+                plan.ConversationId = conversation.ConversationId;
             }
         }
-        return publications;
+
+        return taken;
+    }
+
+    /// <summary>把一次内容写入排在其退役之前。对应 TS <c>insertBeforeRetirement()</c>。</summary>
+    private void InsertBeforeRetirement(StorageWrite.DocumentChange write)
+    {
+        var at = _writes.FindIndex(candidate => candidate is StorageWrite.DocumentRetire retire && retire.Id == write.Id);
+        if (at < 0) _writes.Add(write);
+        else _writes.Insert(at, write);
+    }
+
+    /// <summary>
+    /// 取走持有的变更，把它与 <paramref name="ops"/>（这次提交自己的，叠在后面）合成一份要落盘的内容，
+    /// 以及「读落盘状态的人要应用到它」的操作：折叠后的那批，或队列溢出后的根替换（写 base），
+    /// 以及持有里选过 base 的情形。对应 TS <c>storeHeld()</c>。
+    /// </summary>
+    public static (DocumentContent Content, IReadOnlyList<DeltaOp> Ops) StoreHeld(
+        HeldDocument hold, IReadOnlyList<DeltaOp> ops, IReadOnlyDictionary<string, object?> value, int version)
+    {
+        hold.Pending.Push(ops);
+        switch (hold.Pending.Take())
+        {
+            case PendingTake.Replace:
+                return (new DocumentContent.Base(version, value), [new DeltaOp.Set(Pi.Chord.Delta.Path.Root, value)]);
+            case PendingTake.Ops taken when hold.Base:
+                return (new DocumentContent.Base(version, value), taken.Operations);
+            case PendingTake.Ops taken:
+                return (new DocumentContent.Delta(version, taken.Operations), taken.Operations);
+            default:
+                throw new InvalidOperationException("unknown pending take");
+        }
     }
 
     private async Task<List<StorageWrite>> AssembleAsync()
