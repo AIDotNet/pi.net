@@ -310,6 +310,24 @@ public class KeybindingsManager
 }
 
 /// <summary>Global keybinding registry accessor (port of <c>setKeybindings</c> / <c>getKeybindings</c>).</summary>
+public static class TuiSelectPaging
+{
+    /// <summary>选择列表的一页：`tui.select.pageUp/pageDown` 各移 <paramref name="pageSize"/> 并夹到 `0..count-1`。</summary>
+/// <remarks>
+/// 不是分页键就返回 null；空列表的分页键返回 0，调用方仍要先判列表非空再选中。
+/// 对应 TS <c>getSelectPageIndex()</c>（`3bae85274`）。
+/// </remarks>
+public static int? GetSelectPageIndex(
+        KeybindingsManager keybindings, string data, int selectedIndex, int itemCount, int pageSize)
+    {
+        int direction;
+        if (keybindings.Matches(data, TuiKeybindingIds.SelectPageUp)) direction = -1;
+        else if (keybindings.Matches(data, TuiKeybindingIds.SelectPageDown)) direction = 1;
+        else return null;
+    return Math.Max(0, Math.Min(itemCount - 1, selectedIndex + direction * pageSize));
+    }
+}
+
 public static class GlobalKeybindings
 {
     private static KeybindingsManager? _global;

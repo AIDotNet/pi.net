@@ -16,6 +16,12 @@ public interface IComponent
     }
 
     /// <summary>
+    /// 聚焦时是否截获全屏视口键（<c>tui.altScreen.*</c> 的滚动与提示符跳转）：true 表示这些键交给本组件，
+    /// 不再滚动转录，与聚焦的 overlay 一致。缺省 false。对应 TS <c>Component.capturesViewportInput</c>（`3bae85274`）。
+    /// </summary>
+    bool CapturesViewportInput => false;
+
+    /// <summary>
     /// Optional handler for normalized mouse events. Returning null means "not interested"; a result
     /// with <see cref="TuiMouseEventResult.Handled"/>, <see cref="TuiMouseEventResult.Capture"/> or
     /// <see cref="TuiMouseEventResult.Focus"/> set makes the event stop propagating.

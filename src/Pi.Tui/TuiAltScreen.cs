@@ -686,8 +686,10 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
         _flashes.Flash(message, durationMs ?? 1000);
     }
 
-    private bool ShouldDeferViewportInputToOverlay() =>
-        IsOverlayFocused() && _activeSearch?.Overlay?.IsFocused() != true;
+    /// <summary>聚焦的 overlay，以及声明截获视口键的组件，收下视口键而不是让转录滚动。</summary>
+    private bool ShouldDeferViewportInput()
+        => GetFocusedComponent()?.CapturesViewportInput == true
+            || (IsOverlayFocused() && _activeSearch?.Overlay?.IsFocused() != true);
 
     private void ClearComponentMouseGesture()
     {
@@ -805,7 +807,7 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
                 return true;
             }
         }
-        if (ShouldDeferViewportInputToOverlay())
+        if (ShouldDeferViewportInput())
         {
             return null;
         }

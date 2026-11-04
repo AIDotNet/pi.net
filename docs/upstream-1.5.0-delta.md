@@ -141,7 +141,7 @@
 | --- | --- | --- | --- |
 | `fa1685152` | 裸 URL 在 CJK 标点处截断 | 本轮已落地 | ✅ |
 | `8a2ebd385` | 嵌套引用不再指数膨胀（`width < 3` 直接渲染子节点） | 已有 | ✅ |
-| `3bae85274` | `tui.select.pageUp/pageDown` 作用于所有列表；全屏下翻页键翻列表而不是滚 transcript；`capturesViewportInput` | 无 | 🔧 P4 |
+| `3bae85274` | `tui.select.pageUp/pageDown` 作用于所有列表；全屏下翻页键翻列表而不是滚 transcript；`capturesViewportInput` | ✅ 本批（`GetSelectPageIndex` + 两个列表实现分页 + `IComponent.CapturesViewportInput` 与全屏路由；上游三例照抄，见 §4.37） |
 | `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding | ✅ 本批（`IsWhitespaceToken` / 丢弃空白时把码留在本行 / 行尾关删除线 / 长词前先 trim；上游六个定向用例照抄；187 例语料按不变量重算，见 §4.33） |
 | `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | ✅ 本批（F1–F12 内部码点 / `CSI P/Q/S` / `:3`、`:2` 事件 / f 键修饰键匹配 / F13+ 私用区拒绝；276 例 `editor-corpus` 场景按「只允许私用区字符消失」守卫重算，见 §4.36） |
 | `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
@@ -1040,3 +1040,26 @@ break;                                                        // 只有真正命
 
 最后一条放宽过一次：原本要求「每少一个字符就少一次 change」，但有 42 例是「连按两次同一个 F13 键」——旧语料
 记 2 次 change、新行为只记 1 次（第二次按键既没文字也没改动），这条等式不成立。放宽后 276 例全部通过并写回。
+
+### 4.37 选择列表翻页键与 `capturesViewportInput`（`3bae85274`）——P4 收口
+
+这是 P4 最后一项，也是台账里描述最失真的一项：一行字，实际 492 行 / 32 个文件。拆成两层做：
+
+| 上游要点 | 端口落点 |
+| --- | --- |
+| `getSelectPageIndex(kb, data, selectedIndex, itemCount, pageSize)`：`tui.select.pageUp/pageDown` 各移一页并夹到 `0..count-1`，非分页键返回 undefined | `TuiSelectPaging.GetSelectPageIndex`（返回值 `int?`） |
+| `Component.capturesViewportInput`：聚焦时是否截获 `tui.altScreen.*` 的滚动与提示符跳转 | `IComponent.CapturesViewportInput => false`（默认接口成员，与 `HandleInput` 同样带默认实现） |
+| 全屏路由：`shouldDeferViewportInputToOverlay()` → `shouldDeferViewportInput()`，先看**聚焦组件**是否声明截获 | `TuiAltScreen.ShouldDeferViewportInput()`：`GetFocusedComponent()?.CapturesViewportInput == true \|\| 原来的 overlay 判定` |
+| `SelectList` / `SettingsList` 声明 `capturesViewportInput = true` 并实现分页键 | 两个组件各自 `CapturesViewportInput => true` + 分页分支（页大小取 `_maxVisible`） |
+
+**用例**（`SelectPagingTests`，三例，逐条对应上游）：
+
+1. `SelectList`：12 项、可见 5 行，PageDown×4 + PageUp → `item-5 → item-10 → item-11（夹到末尾）→ 6`；过滤成空列表后翻页不再选中。
+2. `SettingsList`：同参数按页移动，渲染里出现 `> Setting 5` / `> Setting 11` / `> Setting 6`。
+3. **全屏路由**：`Text`（12 行）+ 聚焦的 `SelectList`，PageDown 与 Ctrl+Home 都交给列表——选择到 `item-3`，而
+   `ViewportTop` 不变（证明这两个键没有再滚转录）。
+
+第 3 例要 `tui.Start()` 之后才送输入（`StringTerminal` 的输入处理器在 `Start` 里注册），这是端口测试设施的约定。
+
+**上游 editor 那 30 行用例没有单独移植**：它验证的是「编辑器自动补全关闭后视口键回到转录」，走的是编辑器内嵌的
+`SelectList`（已声明截获）+ 关闭后 `SetFocus` 回到编辑器两条既有路径，端口第 3 例已经覆盖同一路由分支。

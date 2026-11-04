@@ -314,6 +314,9 @@ public class SettingsList : IComponent
         Render = result.Render,
     };
 
+    /// <summary>列表自己吃翻页键，不再让转录滚动。</summary>
+    public bool CapturesViewportInput => true;
+
     public void HandleInput(string data)
     {
         // If submenu is active, delegate all input to it.
@@ -342,6 +345,16 @@ public class SettingsList : IComponent
                 return;
             }
             _selectedIndex = _selectedIndex == displayItems.Count - 1 ? 0 : _selectedIndex + 1;
+        }
+        else if (TuiSelectPaging.GetSelectPageIndex(kb, data, _selectedIndex, displayItems.Count, _maxVisible) is { } page)
+        {
+            // 翻页键：按一页移动，夹在列表边界内
+            if (displayItems.Count == 0 || page == _selectedIndex)
+            {
+                return;
+            }
+
+            _selectedIndex = page;
         }
         else if (kb.Matches(data, TuiKeybindingIds.SelectConfirm) ||
                  (data == " " && (!_searchEnabled || _searchInput?.GetValue().Length == 0)))

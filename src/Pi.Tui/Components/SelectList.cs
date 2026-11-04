@@ -241,9 +241,14 @@ public class SelectList : IComponent
         return null;
     }
 
+    /// <summary>列表自己吃翻页键，不再让转录滚动。</summary>
+    public bool CapturesViewportInput => true;
+
     public void HandleInput(string keyData)
     {
         var kb = GlobalKeybindings.Get();
+        var pageIndex = TuiSelectPaging.GetSelectPageIndex(
+            kb, keyData, _selectedIndex, _filteredItems.Count, _maxVisible);
 
         // Up arrow - wrap to bottom when at top
         if (kb.Matches(keyData, TuiKeybindingIds.SelectUp))
@@ -256,6 +261,14 @@ public class SelectList : IComponent
         else if (kb.Matches(keyData, TuiKeybindingIds.SelectDown))
         {
             _selectedIndex = _selectedIndex == _filteredItems.Count - 1 ? 0 : _selectedIndex + 1;
+            NotifySelectionChange();
+        }
+
+        // 翻页键：按一页移动，夹在列表边界内
+        else if (pageIndex is { } page)
+        {
+            if (_filteredItems.Count == 0 || page == _selectedIndex) return;
+            _selectedIndex = page;
             NotifySelectionChange();
         }
 
