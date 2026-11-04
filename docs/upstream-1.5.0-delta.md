@@ -142,7 +142,7 @@
 | `fa1685152` | 裸 URL 在 CJK 标点处截断 | 本轮已落地 | ✅ |
 | `8a2ebd385` | 嵌套引用不再指数膨胀（`width < 3` 直接渲染子节点） | 已有 | ✅ |
 | `3bae85274` | `tui.select.pageUp/pageDown` 作用于所有列表；全屏下翻页键翻列表而不是滚 transcript；`capturesViewportInput` | 无 | 🔧 P4 |
-| `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding | 无 | 🔧 P4 |
+| `2ce9d527d` | 换行边界：带样式的词不再多出前导空格；删除线不渗进 padding | ✅ 本批（`IsWhitespaceToken` / 丢弃空白时把码留在本行 / 行尾关删除线 / 长词前先 trim；上游六个定向用例照抄；187 例语料按不变量重算，见 §4.33） |
 | `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 | 结论：需要，但**卡在语料**——实现已试过并回退（§4.28 末），43 个 `editor-corpus` 用例期望把 F13+ 当成文本插入，那正是 1.4.x 的旧行为 | 🔧 P4（等语料链） |
 | `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
 | `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
@@ -953,3 +953,30 @@ O(参数长度)。要做的话顺序是：先移植 `packages/ai/src/utils/strea
 **对 P4 余项的落地方式**（5 项）：逐项移植上游改动，并**照抄上游那次提交里的定向用例**（`wrap-ansi.test.ts`
 51 行、`markdown.test.ts` 16 行这类用例都用纯文本断言，不依赖主题），最后只把「确实变了」的语料用例按
 朴素样式函数重算。比整篇重生成可控得多。
+
+### 4.33 换行边界与删除线（`2ce9d527d`）
+
+上游 #11591：`splitIntoTokensWithAnsi()` 把「关闭样式」的码挂到下一个可见字符上，于是 `**commodo** consequat`
+被切成 `\x1b[1mcommodo`、`\x1b[22m `、`consequat`。旧代码用 `token.trim() === ""` 判空白，`"\x1b[22m "` 不算空白，
+于是一个**带码的空格**被当成词搬到下一行：被折断的那一行少了收尾码（样式渗进右侧 padding），下一行还多出前导空格。
+另外 `getLineEndReset()` 只关下划线，跨行折行的删除线会一路渗到 padding。
+
+| 上游要点 | 端口落点 |
+| --- | --- |
+| 判空白前先跳过转义序列（遇到第一个可见非空白就返回，不分配去码副本） | `TextLayout.IsWhitespaceToken` + `Ansi.ExtractAnsiCode` |
+| 空白在折断处被丢掉时，把它携带的码留在本行并更新 tracker | `WrapSingleLine` 的折断分支：`lineToWrap += ExtractAnsiCodes(token); UpdateTrackerFromText(token, tracker)` |
+| 比空行还宽、且带码的空白只保留码 | 新增分支：`isWhitespace && totalNeeded > width && token.Contains('\x1b')` |
+| 长词前先 `trimEnd()`，否则行尾 reset（现在含删除线）会挡住最后的 `trimEnd()` 留下尾随空格 | 长词分支加 `currentLine = currentLine.TrimEnd()` |
+| 行尾关删除线（`29m`），下一行由 `GetActiveCodes()` 重开 | `AnsiCodeTracker.GetLineEndReset` 增加 `_strikethrough` 分支 |
+
+**用例**：`WrapAnsiBoundaryTests` 六例，逐字照抄上游 `wrap-ansi.test.ts` 的期望字符串（纯文本断言，不依赖主题）——
+边界收尾码、被丢掉的空格带颜色 reset、删除线行尾关闭与下一行重开、带背景时只关删除线、超宽带码空白不越界、
+长词前 trim。这六例是这次改动的 oracle：实现不对它们就红。
+
+**语料重算**：`markdown-corpus.json` 有 **187** 例受影响（换行位置变了，行数也会变）。用一次临时插桩把这些用例的
+实际输出导出，再用一条守恒不变量把关后写回：
+
+> 去掉全部 ANSI（SGR 与 OSC 8）与全部空白后，新旧字符流必须**逐字符相同**。
+
+这次改动只允许移动空白与转义码、不允许增删文字，所以这条不变量能挡住「顺手改坏了内容」的假更新。
+187 例全部通过该检查后写回；插桩随即撤掉。`Pi.Tui.Tests` 由 23949 变为 **23955**（+6 例），全绿。

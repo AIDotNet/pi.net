@@ -131,6 +131,59 @@ public static class TextLayout
         return result.Count > 0 ? result : new List<string> { "" };
     }
 
+    /// <summary>取出文本里所有转义序列，丢掉可见字符。对应 TS <c>extractAnsiCodes()</c>。</summary>
+    private static string ExtractAnsiCodes(string text)
+    {
+        var codes = new StringBuilder();
+        var index = text.IndexOf('\x1b');
+        while (index >= 0)
+        {
+            if (Ansi.ExtractAnsiCode(text, index) is { Length: > 0 } code)
+            {
+                codes.Append(code.Code);
+                index += code.Length;
+            }
+            else
+            {
+                index++;
+            }
+
+            index = text.IndexOf('\x1b', index);
+        }
+
+        return codes.ToString();
+    }
+
+    /// <summary>
+    /// token 的可见文本是否只有空白。给样式收尾的码会挂在后面的空格上（例如 <c>"\x1b[22m "</c>），所以要跳过它们；
+    /// 遇到第一个可见非空白就返回 false，不分配一份去码副本——带样式的词每次折行都会走到这里。
+    /// 对应 TS <c>isWhitespaceToken()</c>。
+    /// </summary>
+    private static bool IsWhitespaceToken(string token)
+    {
+        var index = 0;
+        while (index < token.Length)
+        {
+            var character = token[index];
+            if (character == '\x1b')
+            {
+                // 孤立的 ESC 是可见文本。
+                if (Ansi.ExtractAnsiCode(token, index) is not { Length: > 0 } code) return false;
+                index += code.Length;
+            }
+            else if (character == ' ' || (character >= '\t' && character <= '\r') || char.IsWhiteSpace(character))
+            {
+                index++;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static List<string> WrapSingleLine(string line, int width)
     {
         if (string.IsNullOrEmpty(line))
@@ -154,12 +207,14 @@ public static class TextLayout
         foreach (var token in tokens)
         {
             var tokenVisibleLength = UnicodeWidth.VisibleWidth(token);
-            var isWhitespace = token.Trim().Length == 0;
+            var isWhitespace = IsWhitespaceToken(token);
 
             if (tokenVisibleLength > width && !isWhitespace)
             {
                 if (currentLine.Length > 0)
                 {
+                    // 先 trim 再加行尾复位：复位码会挡住最后的 trimEnd，留下尾随空格。
+                    currentLine = currentLine.TrimEnd();
                     var lineEndReset = tracker.GetLineEndReset();
                     if (lineEndReset.Length > 0)
                     {
@@ -185,6 +240,13 @@ public static class TextLayout
             if (totalNeeded > width && currentVisibleLength > 0)
             {
                 var lineToWrap = currentLine.TrimEnd();
+                if (isWhitespace)
+                {
+                    // 被丢掉的那个空白可能带着码（比如给样式收尾）。把它留在本行，样式就在这行结束、下一行不会重开。
+                    lineToWrap += ExtractAnsiCodes(token);
+                    UpdateTrackerFromText(token, tracker);
+                }
+
                 var lineEndReset = tracker.GetLineEndReset();
                 if (lineEndReset.Length > 0)
                 {
@@ -195,12 +257,17 @@ public static class TextLayout
                 {
                     currentLine = tracker.GetActiveCodes();
                     currentVisibleLength = 0;
+                    continue;
                 }
-                else
-                {
-                    currentLine = tracker.GetActiveCodes() + token;
-                    currentVisibleLength = tokenVisibleLength;
-                }
+
+                currentLine = tracker.GetActiveCodes() + token;
+                currentVisibleLength = tokenVisibleLength;
+            }
+            else if (isWhitespace && totalNeeded > width && token.Contains('\x1b'))
+            {
+                // 比空行还宽的空白：纯空格会被最后的 trimEnd 去掉，但它后面的码（如收尾 reset）会挡住 trimEnd，
+                // 让这一行超过 width。只保留码。
+                currentLine += ExtractAnsiCodes(token);
             }
             else
             {

@@ -397,6 +397,11 @@ internal sealed class AnsiCodeTracker
         {
             result += $"{Esc}[24m";
         }
+        if (_strikethrough)
+        {
+            // 删除线也要在行尾关掉，否则会渗进右侧 padding；下一行由 GetActiveCodes() 重开。
+            result += $"{Esc}[29m";
+        }
         if (_activeHyperlink is { } link)
         {
             result += FormatOsc8Close(link.Terminator);
