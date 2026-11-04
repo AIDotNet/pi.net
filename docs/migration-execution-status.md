@@ -536,3 +536,21 @@ alt-screen 回归用例需要「录制终端 + 全屏渲染」设施，端口没
 验证：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Tui.Tests` **23963** 全绿；`Pi.CodingAgent.Tests` **5194**
 （1 既有 typebox 失败 / 3 跳过；`SessionSelectorTests.PageDownMovesByMaxVisible` 偶发，单跑 22/22 绿）；
 `Pi.Durable.Tests` **569** 全绿。
+
+## 2026-11-04 收口：两个 Harness 同步观察者
+
+`8b0caefc2` 的最后两件（`Harness.observeConversation` / `observeTaskGraph`）落地，与 `Session.observeDoc` 共用
+`GuardedObserver`（宿主抛出不外传、自己摘下、以 `listener_error` 结束；关闭投 `failed "session closed"`）。
+
+- `ConversationViews.ObserveAsync` + `DispatchAdvance`/`CloseObserver` 的 `ISessionObserver<ConversationView>` 分支
+- `TaskGraphView.ObserveAsync` + `Publish`/`CloseObserver` 的 `ISessionObserver<JsonDict>` 分支
+- `IHarness` 两个方法，`HarnessImpl` 委托到 `_views` / `_taskGraph`
+
+顺带修掉 `HarnessViewTests.SharesOneMountBetweenConcurrentObserversAndIsolatesAFailingListener` 的 flaky：
+「两次提交 → 两次调用」不成立是因为**帧折叠**（两帧落在同一忙碌周期会合并），改成等第一帧落地再提交第二笔，8/8 稳定。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **571**；`Pi.CodingAgent.Tests` **5194**（1 既有 typebox 失败 / 3 跳过，
+与基线一致）。整套并行时 `HarnessPartialAppendTests` / `ResumesRetryBackoffAfterReopen` 偶发时序失败，每轮集合不同、
+单跑均绿，判为噪声。
+
+至此 1.5.0 只剩 `e5c6182ba`（分组提交，吞吐）与 `da412b039` 的工具参数增量（写入字节数）两项性能债。

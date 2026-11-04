@@ -224,6 +224,36 @@ public sealed class TaskGraphView
         return observer;
     }
 
+    /// <summary>
+    /// 在 Session 线上原子地附着图的同步观察者：它拿到附着之后的每一帧（不折叠），Session 关闭时以
+    /// 「session closed」的失败收尾。返回附着那一刻的值与幂等的摘下动作。对应 TS <c>#taskGraph.observe()</c>
+    /// （<c>8b0caefc2</c>）。
+    /// </summary>
+    public async Task<Observation<IReadOnlyDictionary<string, object?>>> ObserveAsync(
+        ISessionObserver<IReadOnlyDictionary<string, object?>> observer, Context context)
+    {
+        IReadOnlyDictionary<string, object?>? value = null;
+        var (guarded, detach) = await AttachAsync(
+            (current, release) =>
+            {
+                value = current;
+                return new GuardedObserver<IReadOnlyDictionary<string, object?>>(
+                    observer, release, error => _session.Report(error));
+            },
+            context).ConfigureAwait(false);
+        try
+        {
+            context.AbortSignal?.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException)
+        {
+            guarded.Detach();
+            throw;
+        }
+
+        return new Observation<IReadOnlyDictionary<string, object?>>(value!, detach);
+    }
+
     /// <summary>从当前修订创建观察者并注册，原子地在 Session 线上。对应 TS 私有 <c>#attach</c>。</summary>
     private async Task<(T Observer, Action Detach)> AttachAsync<T>(
         Func<IReadOnlyDictionary<string, object?>, Action, T> create, Context context)
@@ -398,9 +428,15 @@ public sealed class TaskGraphView
         lock (mount.Observers) observers = [.. mount.Observers];
         foreach (var observer in observers)
         {
-            if (observer is CommittedWatch<IReadOnlyDictionary<string, object?>> watch)
+            switch (observer)
             {
-                watch.Advance(mount.Value, ops, frameContext);
+                case CommittedWatch<IReadOnlyDictionary<string, object?>> watch:
+                    watch.Advance(mount.Value, ops, frameContext);
+                    break;
+                case ISessionObserver<IReadOnlyDictionary<string, object?>> sessionObserver:
+                    sessionObserver.Advance(
+                        new WatchCall<IReadOnlyDictionary<string, object?>>.Value(mount.Value, ops), frameContext);
+                    break;
             }
         }
     }
@@ -557,6 +593,16 @@ public sealed class TaskGraphView
 
     private static void CloseObserver(object observer, Exception? failure)
     {
-        if (observer is CommittedWatch<IReadOnlyDictionary<string, object?>> watch) watch.EndWith(failure);
+        switch (observer)
+        {
+            case CommittedWatch<IReadOnlyDictionary<string, object?>> watch:
+                watch.EndWith(failure);
+                break;
+            case ISessionObserver<IReadOnlyDictionary<string, object?>> sessionObserver:
+                // 同步观察者关闭时收到 failed，好让它跟上下一个 Session（TS closeEnds）。
+                sessionObserver.End(new WatchEnd.Failed(
+                    failure ?? new InvalidOperationException("session closed")));
+                break;
+        }
     }
 }

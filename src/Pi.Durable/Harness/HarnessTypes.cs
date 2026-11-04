@@ -1246,6 +1246,23 @@ public interface IHarness : ISession
     /// 任务图（spec §9.5）的精确帧 watch（JSON 形状）。对应 TS <c>watchTaskGraph()</c>。
     /// </summary>
     Task<CommittedWatch<JsonDict>> WatchTaskGraphAsync(Context context);
+
+    /// <summary>
+    /// 任务图的同步观察者：拿到附着之后的每一帧（不折叠），Session 关闭时以 <c>failed</c> 收尾。
+    /// 对应 TS <c>observeTaskGraph()</c>（<c>8b0caefc2</c>）。
+    /// </summary>
+    Task<Observation<JsonDict>> ObserveTaskGraphAsync(
+        ISessionObserver<JsonDict> observer, Context context);
+
+    /// <summary>
+    /// 对话视图的同步观察者：拿到附着之后的每一帧（不折叠），Session 关闭时以 <c>failed</c> 收尾。
+    /// 对应 TS <c>observeConversation()</c>（<c>8b0caefc2</c>）。
+    /// </summary>
+    Task<Observation<ConversationView>> ObserveConversationAsync(
+        ConversationId id,
+        ISessionObserver<ConversationView> observer,
+        Context context,
+        ConversationWindow? window = null);
 }
 
 /// <summary>

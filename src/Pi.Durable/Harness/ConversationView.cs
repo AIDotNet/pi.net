@@ -212,6 +212,43 @@ public sealed class ConversationViews
     }
 
     /// <summary>
+    /// 在 Session 线上原子地附着视图观察者：它拿到附着之后的每一帧（不折叠），Session 关闭时以「session closed」
+    /// 的失败收尾，好跟上下一个 Session。返回附着那一刻的值与幂等的摘下动作。对应 TS <c>views.observe()</c>
+    /// （<c>8b0caefc2</c>）。
+    /// </summary>
+    /// <remarks>
+    /// 与 <see cref="WatchAsync"/> 的区别只在缓冲：watch 把一次忙碌周期内的帧折叠成一次调用，观察者拿每一帧。
+    /// </remarks>
+    public async Task<Observation<ConversationView>> ObserveAsync(
+        ConversationId id,
+        ISessionObserver<ConversationView> observer,
+        Context context,
+        ConversationWindow? window = null)
+    {
+        ConversationView? value = null;
+        var (guarded, detach) = await AttachAsync(
+            id,
+            (current, release) =>
+            {
+                value = current;
+                return new GuardedObserver<ConversationView>(observer, release, error => _session.Report(error));
+            },
+            context,
+            window).ConfigureAwait(false);
+        try
+        {
+            context.AbortSignal?.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException)
+        {
+            guarded.Detach();
+            throw;
+        }
+
+        return new Observation<ConversationView>(value!, detach);
+    }
+
+    /// <summary>
     /// 注册一个观察者，原子地在 Session 线上：它看到之后的每次发布而非更早的。<paramref name="create"/> 可读已提交
     /// Storage（仍在线上）；<c>release</c> 丢弃它——以及挂载与其最后一个观察者。对应 TS <c>attach()</c>。
     /// </summary>
@@ -520,6 +557,9 @@ public sealed class ConversationViews
             case ViewObserver viewObserver:
                 viewObserver.Advance(value, ops, context);
                 break;
+            case ISessionObserver<ConversationView> sessionObserver:
+                sessionObserver.Advance(new WatchCall<ConversationView>.Value(value, ops), context);
+                break;
         }
     }
 
@@ -532,6 +572,11 @@ public sealed class ConversationViews
                 break;
             case ViewObserver viewObserver:
                 viewObserver.End(failure);
+                break;
+            case ISessionObserver<ConversationView> sessionObserver:
+                // 同步观察者关闭时收到 failed，好让它跟上下一个 Session（TS closeEnds）。
+                sessionObserver.End(new WatchEnd.Failed(
+                    failure ?? new InvalidOperationException("session closed")));
                 break;
         }
     }

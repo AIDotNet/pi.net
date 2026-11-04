@@ -428,6 +428,110 @@ public class HarnessTaskGraphTests
         _ => "?",
     };
 
+    [Fact]
+    public async Task ObserveTaskGraphDeliversFramesAndCloseEndsFailed()
+    {
+        var (harness, _, _) = await HarnessTestSupport.OpenTasksAsync(new MemoryStorage(), []);
+        var root = await harness.RootAsync(Ctx);
+        var observer = new RecordingGraphObserver();
+
+        var observation = await harness.ObserveTaskGraphAsync(observer, Ctx);
+        // 附着那一刻的值就是当前修订。
+        Assert.Equal(0, TaskGraphReader.Count(observation.Value));
+        Assert.Empty(observer.Values);
+
+        await root.CommitAsync(
+            async tx => await HarnessTestSupport.CreateRawTaskAsync(tx, "test.graph-observe", 1, "run", root.Id),
+            Ctx);
+        await observer.WaitForCountAsync(1);
+        Assert.Equal(1, TaskGraphReader.Count(observer.Values[^1]));
+        Assert.Equal("test.graph-observe", TaskGraphReader.Nodes(observer.Values[^1])[0].Kind);
+
+        // 摘下之后不再有帧。
+        observation.Detach();
+        var detachedCount = observer.Count;
+        await root.CommitAsync(
+            async tx => await HarnessTestSupport.CreateRawTaskAsync(tx, "test.graph-observe-2", 1, "run", root.Id),
+            Ctx);
+        await Task.Delay(50);
+        Assert.Equal(detachedCount, observer.Count);
+
+        // 关闭时同步观察者收到 failed("session closed")。
+        var second = new RecordingGraphObserver();
+        var kept = await harness.ObserveTaskGraphAsync(second, Ctx);
+        Assert.NotNull(kept);
+        await harness.CloseAsync(Ctx);
+        var end = Assert.IsType<WatchEnd.Failed>(Assert.Single(second.Ends));
+        Assert.Equal("session closed", end.Error.Message);
+    }
+
+    /// <summary>记录任务图帧与终局的观察者。</summary>
+    private sealed class RecordingGraphObserver : ISessionObserver<JsonDict>
+    {
+        private readonly object _gate = new();
+        private readonly List<JsonDict> _values = [];
+        private readonly List<WatchEnd> _ends = [];
+        private TaskCompletionSource _signal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Count
+        {
+            get
+            {
+                lock (_gate) return _values.Count;
+            }
+        }
+
+        public List<JsonDict> Values
+        {
+            get
+            {
+                lock (_gate) return [.. _values];
+            }
+        }
+
+        public List<WatchEnd> Ends
+        {
+            get
+            {
+                lock (_gate) return [.. _ends];
+            }
+        }
+
+        public void Advance(WatchCall<JsonDict> call, Context context)
+        {
+            if (call is not WatchCall<JsonDict>.Value value) return;
+            TaskCompletionSource signal;
+            lock (_gate)
+            {
+                _values.Add(value.NewValue);
+                signal = _signal;
+                _signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            signal.TrySetResult();
+        }
+
+        public void End(WatchEnd end)
+        {
+            lock (_gate) _ends.Add(end);
+        }
+
+        public async Task WaitForCountAsync(int count)
+        {
+            while (true)
+            {
+                Task next;
+                lock (_gate)
+                {
+                    if (_values.Count >= count) return;
+                    next = _signal.Task;
+                }
+
+                await next.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
+    }
+
     // ─── 任务定义 ───────────────────────────────────────────────────────────
 
     /// <summary>

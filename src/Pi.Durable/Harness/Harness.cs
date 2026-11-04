@@ -375,6 +375,18 @@ public sealed class HarnessImpl : DurableSession, IHarness
 
     public Task<CommittedWatch<JsonDict>> WatchTaskGraphAsync(Context context) => _taskGraph.WatchAsync(context);
 
+    /// <inheritdoc />
+    public Task<Observation<JsonDict>> ObserveTaskGraphAsync(ISessionObserver<JsonDict> observer, Context context)
+        => _taskGraph.ObserveAsync(observer, context);
+
+    /// <inheritdoc />
+    public Task<Observation<ConversationView>> ObserveConversationAsync(
+        ConversationId id,
+        ISessionObserver<ConversationView> observer,
+        Context context,
+        ConversationWindow? window = null)
+        => _views.ObserveAsync(id, observer, context, window);
+
     public Task<IConversation> RootAsync(Context context, AgentChange? agent = null, ConversationInit? init = null)
         => CreateCoreAsync(
             new CreateTarget.Root(), new CreateOptions { Agent = agent, Init = init }, context);

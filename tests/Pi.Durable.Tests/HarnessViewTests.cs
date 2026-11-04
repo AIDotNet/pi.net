@@ -478,11 +478,22 @@ public sealed class HarnessViewTests
         await shared.Stop();
         failing.Start((_, _, _) => throw new InvalidOperationException("listener failed"));
         await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "one" }), Ctx);
+        // 两次提交要成为两次调用：等第一帧落地再提交第二笔——两个帧落在同一个忙碌周期里时 watch 会把它们折叠成
+        // 一次调用（这是 watch 的定义行为），固定 flush 一次在负载下就会漏，单跑约 1/3 失败。
+        await HarnessTestSupport.WaitForAsync(
+            () =>
+            {
+                lock (frames) return frames.Count >= 1;
+            });
         await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "two" }), Ctx);
-        await DrainedAsync();
+        await HarnessTestSupport.WaitForAsync(
+            () =>
+            {
+                lock (frames) return frames.Count >= 2;
+            });
         var end = Assert.IsType<WatchEnd.ListenerError>(await failing.Closed);
         Assert.Equal("listener failed", end.Error.Message);
-        Assert.Equal(2, frames.Count);
+        lock (frames) Assert.Equal(2, frames.Count);
         await stop();
         await HarnessTestSupport.CloseQuietlyAsync(harness);
     }

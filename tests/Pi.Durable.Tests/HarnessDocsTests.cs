@@ -841,6 +841,113 @@ public class HarnessDocsTests
         Assert.IsType<WatchEnd.Ended>(await watch.Closed);
     }
 
+    [Fact]
+    public async Task ConversationView_ObserveDeliversEveryFrameAndCloseEndsFailed()
+    {
+        var storage = new MemoryStorage();
+        var session = new DurableSession(storage);
+        var conv = await CreateConversationAsync(session);
+        var views = new ConversationViews(session, storage);
+        var observer = new RecordingViewObserver();
+
+        var observation = await views.ObserveAsync(conv, observer, Ctx);
+        // 附着那一刻的值就是观察的起点。
+        Assert.Empty(observation.Value.Entries);
+
+        await session.CommitAsync(
+            tx => tx.AppendEntryAsync(conv, new EntryDraft { Kind = "user" }), Ctx);
+        await observer.WaitForCountAsync(1);
+        await session.CommitAsync(
+            tx => tx.AppendEntryAsync(conv, new EntryDraft { Kind = "user" }), Ctx);
+        await observer.WaitForCountAsync(2);
+
+        // 观察者不折叠：两次提交就是两次调用，每次都以起点为基准给出增量。
+        Assert.Equal(2, observer.Values[^1].Entries.Count);
+
+        // 摘下之后不再有帧，也不会有终局。
+        observation.Detach();
+        await session.CommitAsync(
+            tx => tx.AppendEntryAsync(conv, new EntryDraft { Kind = "user" }), Ctx);
+        await Task.Delay(50);
+        Assert.Equal(2, observer.Count);
+        Assert.Empty(observer.Ends);
+
+        // 关闭时同步观察者收到 failed("session closed")，好跟上下一个 Session。
+        var second = new RecordingViewObserver();
+        var kept = await views.ObserveAsync(conv, second, Ctx);
+        Assert.NotNull(kept);
+        await session.CloseAsync(Ctx);
+        var end = Assert.IsType<WatchEnd.Failed>(Assert.Single(second.Ends));
+        Assert.Equal("session closed", end.Error.Message);
+    }
+
+    /// <summary>记录视图帧与终局的观察者。</summary>
+    private sealed class RecordingViewObserver : ISessionObserver<ConversationView>
+    {
+        private readonly object _gate = new();
+        private readonly List<ConversationView> _values = [];
+        private readonly List<WatchEnd> _ends = [];
+        private TaskCompletionSource _signal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Count
+        {
+            get
+            {
+                lock (_gate) return _values.Count;
+            }
+        }
+
+        public List<ConversationView> Values
+        {
+            get
+            {
+                lock (_gate) return [.. _values];
+            }
+        }
+
+        public List<WatchEnd> Ends
+        {
+            get
+            {
+                lock (_gate) return [.. _ends];
+            }
+        }
+
+        public void Advance(WatchCall<ConversationView> call, Context context)
+        {
+            if (call is not WatchCall<ConversationView>.Value value) return;
+            TaskCompletionSource signal;
+            lock (_gate)
+            {
+                _values.Add(value.NewValue);
+                signal = _signal;
+                _signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            signal.TrySetResult();
+        }
+
+        public void End(WatchEnd end)
+        {
+            lock (_gate) _ends.Add(end);
+        }
+
+        public async Task WaitForCountAsync(int count)
+        {
+            while (true)
+            {
+                Task next;
+                lock (_gate)
+                {
+                    if (_values.Count >= count) return;
+                    next = _signal.Task;
+                }
+
+                await next.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
+    }
+
     // ─── 测试夹具 ───────────────────────────────────────────────────────────
 
     /// <summary>工作任务（会话/文档测试共用）。对应 SessionTests 的 <c>WorkTask</c>。</summary>

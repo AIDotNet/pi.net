@@ -1233,6 +1233,28 @@ OAuth 选择器、自动补全、llama、`pi models` CLI），改 `Match` 即全
 
 **验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **569** 全绿（566 − 1 删 + 1 改 + 3 增）。
 
+### 4.41 两个 Harness 出口：`observeConversation` / `observeTaskGraph`
+
+同一层 `GuardedObserver` 接到视图与任务图上——它们与文档观察者共用「宿主抛出不外传、自己摘下、以 `listener_error`
+结束」的规则，区别只是帧的类型。
+
+| 变更 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| 对话视图的同步观察者 | `views.observe()` | `ConversationViews.ObserveAsync`：`AttachAsync` + `GuardedObserver<ConversationView>`；`DispatchAdvance`/`CloseObserver` 增加 `ISessionObserver<ConversationView>` 分支（关闭投 `failed "session closed"`，好跟上下一个 Session） | `ConversationView_ObserveDeliversEveryFrameAndCloseEndsFailed` |
+| 任务图的同步观察者 | `#taskGraph.observe()` | `TaskGraphView.ObserveAsync` + `Publish`/`CloseObserver` 增加 `ISessionObserver<JsonDict>` 分支 | `ObserveTaskGraphDeliversFramesAndCloseEndsFailed` |
+| 对外声明 | `Harness.observeConversation` / `observeTaskGraph` | `IHarness` 两个方法 + `HarnessImpl` 委托到 `_views` / `_taskGraph`（`IHarness` 只有这一个实现者） | 同上 |
+
+**顺带修掉一个可稳定复现的 flaky 用例**：`HarnessViewTests.SharesOneMountBetweenConcurrentObserversAndIsolatesAFailingListener`
+里「两次提交 → 两次调用」的断言单跑约 1/3 失败。根因不是负载，而是**帧折叠**——两帧落在同一个忙碌周期时 watch
+按定义会把它们折叠成一次调用。改成「等第一帧落地再提交第二笔」，8/8 稳定。
+
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **571**（1 例并行时序噪声，见下）；
+`Pi.CodingAgent.Tests` **5194**（1 既有 typebox 失败 / 3 跳过，与基线一致）。
+
+> 噪声说明：`HarnessPartialAppendTests` / `ResumesRetryBackoffAfterReopen` / `HarnessViewTests` 三处「等异步投递」
+> 的用例在整套并行跑时偶发失败，且**每轮失败集合不同**（单跑均绿），判为并行负载下的时序噪声；本轮改动未新增
+> 任何后台循环，也未触及这些路径。
+
 ## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
 
 用户口径：「只同步到 1.5.0 正式版」。据此把 `v1.4.0..v1.5.0` 全量重扫了一遍——**原来的台账是按精选清单写的，
@@ -1431,19 +1453,15 @@ UI 看到的中间参数与上游逐段 append 的结果相同，只是每次提
 
 | 项 | 端口现状 | 判定 |
 | --- | --- | --- |
-| `Harness.observeConversation` → `views.observe(id, observer, context, window)` | 只有工厂式 `ConversationViews.AttachAsync(id, create, context, window)`（上游的 `attach`），`observe` 那一层没做 | 🔧 缺（§4.40 已备好 `GuardedObserver`，只差包一层） |
-| `Harness.observeTaskGraph` → `taskGraph.observe(observer, context)` | 只有 `TaskGraphViews.AttachAsync` 与 `WatchTaskGraphAsync` | 🔧 缺（同上） |
-| `Session.observeDoc` 的 5 个重载 → `#observeDocument(..., create)` | ✅ §4.40：`ObserveDocAsync` 六个重载 + `GuardedObserver`；`#observeDocument` 的 `create` 缝在 §4.39 的追随器重写里留出 | ✅ |
+| `Harness.observeConversation` → `views.observe(id, observer, context, window)` | ✅ §4.41：`ConversationViews.ObserveAsync` + `HarnessImpl.ObserveConversationAsync`；帧分派与关闭（`failed "session closed"`）都走同一条线路 | ✅ |
+| `Harness.observeTaskGraph` → `taskGraph.observe(observer, context)` | ✅ §4.41：`TaskGraphView.ObserveAsync` + `HarnessImpl.ObserveTaskGraphAsync` | ✅ |
+| `Session.observeDoc` 的 5 个重载 → `#observeDocument(..., create)` | ✅ §4.40：`ObserveDocAsync` 六个重载 + `GuardedObserver`；`create` 缝在 §4.39 的追随器重写里留出 | ✅ |
 
 这三件都是 **v1.5.0 新增**（`git grep` 在 `v1.4.0` 上为 0 次，`v1.5.0` 上 18/7/6 次），所以确实在本轮范围内，不是历史遗留。
 它们与 §6.1 / §6.2 不同：**这是公开 API 的缺口，不是写入成本**。`attach` 与 `observe` 共用同一处挂载线路，缺的正是
 `Observer`/`guardObserver`/`Observation` 那一层（语义：观察者抛错时经 `report` 上报、自行 detach、并以
 `listener_error` 结束，绝不污染提交方）。
 
-**已补一半**：§4.39 重写了文档追随器（退休语义 + 按地址跟随 + owner 终态），§4.40 补上 `GuardedObserver` 与
-`ObserveDocAsync`——三条里 `Session.observeDoc` 已齐。**余下** `Harness.observeConversation` /
-`Harness.observeTaskGraph`：两者只需把已有的 `ConversationViews.AttachAsync` / `TaskGraphViews.AttachAsync` 用
-`GuardedObserver` 包一层，`IHarness` 仅有 `HarnessImpl` 一个实现者，改动面可控，但本轮未做。
-
-**下一步**：`ConversationViews.ObserveAsync` / `TaskGraphViews.ObserveAsync` → `HarnessImpl` 的两个方法 →
-`IHarness` 声明，并照抄上游 `observe*` 用例。在这两件落地之前，上面 §6.3 的「功能对齐完成」只对 §6.1 / §6.2 两项成立。
+**已补完**：§4.39 重写了文档追随器（退休语义 + 按地址跟随 + owner 终态），§4.40 补上 `GuardedObserver` 与
+`Session.observeDoc`，§4.41 把两个 Harness 出口（`observeConversation` / `observeTaskGraph`）接到同一层 guard 上。
+三条全部落地，`8b0caefc2` 到此收口——**§6.3 的「功能对齐完成」现在只剩 §6.1 / §6.2 两项**。
