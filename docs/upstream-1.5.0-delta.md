@@ -1304,3 +1304,45 @@ live 文档里再发下一个，否则整段流在第一次冲刷前就结束）
 
 用例：`AgentSessionRuntimeStreamAuthTests` —— 标记前为 false、标记后为 true；未标记的流式函数、null 流式函数、null 运行时
 一律 false（对应上游那条「摘要不带 api key」的集成用例的可测内核）。
+
+
+## 6. 1.5.0 收尾：剩下两件的准确范围
+
+先纠正一处记录：**P2 的「六行目录数据」并非待做**——`docs/migration-execution-status.md` 第 26 行与 §1 末尾都写明
+「P2 全部落地」，42 份模型目录已按 1.5.0 的生成器重导（`a8db1eb`）。之前按台账行数推断成「还需要移植 `generate-models`」
+是错的，这里更正。
+
+于是 1.5.0 只剩两件，都不是「补几行」的量级：
+
+### 6.1 `e5c6182ba` 分组提交 + 批量 `Storage.commit`（架构/性能项，暂不做）
+
+规模：**81 个文件，+8623 / −1472**，含一份设计文档 `packages/durable/docs/group-commit.md` 与 1000+ 行的新测试。
+
+它做的事：
+
+- `Storage.commit(batches, receive, context)` 取代 `commit(writes, adopt, context)`：前缀语义（Durable 自己的检查拒绝某批
+  时保留它之前的批）、每批回执、可选 `publishing()` 作用域；Memory / SQLite / JSONL / IndexedDB / StoreStorage 全部原生实现
+- Session 在落盘期间**不再独占变化线**：等一次 Storage 调用飞着的期间到达的提交合成下一批，各自带 seq 与结局；
+  作业跑到「某条未发布提交写过的键」才等它的发布
+- 调度器的决策变成「region」：记下读过的键，等完之后重跑，副作用只在检查干净之后
+- 一次正常 run **零 storage 读**（有界记录缓存、对话尾部、任务文档索引、保留上下文区间）；一次 run 由 14 次提交降到 12 次
+- 收益：128 个对话、4ms 往返的存储上，约 5 → 440 run/s
+
+**判定：不做。** 理由：① 它是性能与内部架构的改动，对外语义不变（提交仍是原子的、顺序仍按线上顺序发布）；
+② 端口目前是 1.4.0 的 `IStorage` 契约（`commit(writes, adopt, signal)`），换契约要同时改内存/SQLite/JSONL 三个后端与
+全部存储测试；③ 收益是吞吐，端口的定位是语义等价的可读移植，这部分留在 C 编号偏差里更合适（若将来要压吞吐，
+按上面四条分步做，先做批量提交、再做去线独占）。
+
+### 6.2 `da412b039` 的工具参数增量（缺一个前置：流式 JSON 解析器）
+
+已经落地的部分：**文本与思考块的追加写**（`HarnessPartialAppendTests` 钉着，一次提交只花新增文本的长度）。
+
+还差的：**工具调用参数**按增量写。上游用 `StreamingJsonParser` 每个 `toolcall_delta` 喂一小段原始参数文本，
+拿到 `JsonChange`（`set` / `append` / 路径），提交时把这些变更按序应用到已提交的参数上，参数本身不参与整消息赋值。
+前置是这个解析器：
+
+- `packages/ai/src/utils/streaming-json.ts` **559 行**（容错规则、快照共享、open-path 拷贝信用、32 层深度上限都在文档注释里写清了）
+- `packages/ai/test/streaming-json.test.ts` **848 行**
+
+**判定：暂不做。** 它是有明确规格的独立模块，适合单独一个批次：先移植解析器 + 照抄 848 行用例（这一步与 durable 无关，
+可以先做完），再把 `PartialChanges` 的 tool-call 状态机接上（上游 `partial-changes.ts` 166 行 + 213 行用例）。
