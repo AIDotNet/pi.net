@@ -36,6 +36,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - assistant 消息记录**请求**的思考档位；轮询检查点同样携带
 - 空闲检查按脏集合走，`wake()` 的睡眠集合与空闲过期索引收窄到相关会话
 - 只读 Harness：以 `readOnly` 打开的 Harness 不派发也不写
+- `IConversationHandle.SubmitAsync` 的入参由 `SubmissionDraft.Input` 收宽为任意 `SubmissionDraft`（子类型关系保留，
+  旧调用不受影响）；新增 `SubmitAsync(ITx, SubmissionDraft)`，在调用方自己的提交内受理
+
+### Removed
+
+**注意：1.4.5 → 1.5.0 含破坏性变更，不是纯增量。** 以下按影响面排列：
+
+- **durable 的事件流整条移除**（窗口化视图的前提，对应上游 `f3255de76`）：`Pi.Durable.Harness.Events`
+  （`Events.WatchEventsAsync`）、`AgentEventStream`、`EventsObserver`、`ViewObserver.Publication`，以及被删的
+  `Harness/Events.cs`（1052 行）定义的整套类型——`AgentEvent` 与它的变体/快照（`Snapshot`、`SnapshotRun`、
+  `SnapshotGeneration`、`RunView`、`Parts`、`RunStart` / `RunEnd` / `TurnStart` / `TurnEnd` /
+  `MessageStart` / `MessageUpdate` / `MessageEnd` / `EntryAppended` / `InboxUpdate` / `Submission` /
+  `UsageChanged` / `TaskFailed` / `AgentChanged` / `CompactionStart` / `CompactionEnd` / `AutoRetryStart` /
+  `AutoRetryEnd` / `DeferredPoll` / `ToolExecutionStart` / `ToolExecutionUpdate` / `ToolExecutionEnd`），
+  `MessageChange`（`Start` / `Delta` / `ToolCallDelta` / `Block` / `Whole`）、`QueuedItem`、`RetryState`、
+  `DeferredState`、`ToolOutputChange`、`ToolUpdateResult`
+  **迁移**：改用 `conversation.WatchAsync(window)` 拿到 `CommittedWatch<ConversationView>`，缺口用
+  `ConversationTranscript.FillGapAsync`，更早历史用 `LoadEarlierAsync`，合并用 `Merge`，续订用 `Resume`。
+  （`Pi.Agent` 下同名的 `AgentEvent`、`Pi.Durable.Types` 下同名的 `Submission` 属另两套类型，均未受影响。）
+- `ToolTaskInput` / `ToolTaskResult` 由普通 record 升为 `public abstract record` 联合体：
+  `ToolTaskInput.Model(…)` / `.Nested(…)`、`ToolTaskResult.Model(…)` / `.Nested`。直接 `new ToolTaskInput(…)`
+  的调用方改走 `Model(…)`；从旧记录读入不受影响——缺 `kind` 的行仍按模型调用解析。
+- `WatchEnd.Retired` 删除（退休改为调用上的标记，不再是独立终态）、`WatchEnd.Cancelled` 更名 `Aborted`
+  （对齐上游 `retired` 取消 / `cancelled → aborted`）。
+- `SchemaValidationError` 换了命名空间与参数顺序：`Pi.Ai.Utils` → `Pi.Ai.Utils.Schema`，
+  `(Keyword, InstancePath, Message)` → `(Path, Keyword, Message)`。
+- `ExternalEditorResult.Failed` 带上必填原因：`Failed(string Message)`。
+- 位置参数有变化、需重编译才兼容的 record：`ExecResult` 多出 `Truncated`、`ToolSearchDocument` 多出
+  `NamespaceText`（按位置构造可过，按元素解构与 `with` 需对齐）。
 
 ### Fixed
 
@@ -48,6 +77,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 - `e5c6182ba` 分组提交 + 批量 `Storage.commit`：可观察行为一致，差吞吐与 `IStorage` 契约形状（见 delta §6.1）
 - durable code-mode：1.4.0 起的产品决策不采纳（见 delta §4.8）
+- `LiveDoc.nestedTools` 槽位：嵌套调用尚无生产调用方（`ExecuteToolAsync` 目前只有测试在用），不为不可达路径铺 UI
+  管道；等出现第一个生产调用方再做（见 delta §7.9）
+- 代码高亮复用：没有性能证据，加缓存层要处理失效，属「有诉求再做」的优化（见 delta §7.9）
+- `d5b3de22d` 第二半（轮询检查点的恢复侧断言）：只补回归保护、不修缺陷，成本是 faux provider 的 deferred 流
+  + 崩溃恢复模拟，属独立一批（见 delta §7.9）
 
 ## [1.4.5] - 2026-10-28
 
