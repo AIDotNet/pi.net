@@ -63,7 +63,7 @@ dotnet run --project samples/Pi.Samples.CodingSession
 | `Pi.Agent` | 9 | 状态机 + 双队列（steering / follow-up）、agent-loop 主循环、串行/并行工具执行 |
 | `Pi.CodingAgent` | 366 | `Core/` 会话与内置工具 · `Cli/` 参数解析（`Args.cs`） · `Modes/` 交互 / print / json · `Extensions/` · `Utils/` · `Assets/` 主题、schema、随包文档 |
 | `Pi.Tui` | 61 | `Components/` 渲染组件 · `Marked/` markdown；差量渲染、字素级换行、ANSI/OSC、Kitty 键盘、浮层、全屏渲染 |
-| `Pi.Durable` | 79 | `Session/` · `Storage/`（内存 / SQLite / JSONL） · `Tools/` · `Harness/` · `Env/`；耐久会话、任务图、恢复 |
+| `Pi.Durable` | 79 | `Session/` · `Storage/`（内存 / SQLite / JSONL） · `Tools/` · `Harness/` · `Env/`；耐久会话、任务图、恢复、嵌套工具调用（`ExecuteToolAsync`）、`pi.durable.*` 遥测 |
 | `Pi.Chord` | 34 | `Services/` · `Delta/` · `Facets/`（拓扑激活） · `Node/` · `Context/`；应用编排运行时 |
 | `Pi.Mcp` | 16 | `Protocol/` JSON-RPC · `Transports/` stdio / streamable-http / 内存 · `OAuth/` · `Client/` |
 | `Pi.Server` / `Pi.Client` | 10 / 7 | RPC 握手、请求分发、取消、推送；`Transports/` 含 Unix domain socket 与本地服务发现 |
@@ -141,15 +141,17 @@ dotnet run --project samples/Pi.Samples.CodingSession
   `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`、
   `ThemeRuntimeTests.StartWatcher_IgnoresChangesToOtherFiles`、
   `SessionSelectorTests.PageDownMovesByMaxVisible`（分页边界）、
-  `AnthropicFederationModelsTests.ThreadsFederationEnvThroughModels`（共享 handler）。
-- **CI 默认不跑测试**。这套用例依赖真实交互终端（TUI 要尺寸与 ANSI）和本地 sshd（`Pi.Env`），GitHub runner 上同一份代码实测 959（ubuntu）/ 369（windows）项失败。要跑得手动触发并勾 `run_tests`。
+  `AnthropicFederationModelsTests.ThreadsFederationEnvThroughModels`（共享 handler）、
+  `AnthropicStrictToolFallbackTests.WithoutPreferredToolsTheRejectionSurfacesAsTheProvidersError`（本地 `HttpListener` 满载下偶发收不到请求体）、`HarnessSleepTests`（10s 计时）、`HarnessViewTests`（挂载时序）。
+- **重启后必须自己 `Resume()`**。`Harness.OpenAsync` 只把幸存的 `running` 核回 `pending`（与上游 `openTasks` 一致），不接手调度；宿主不调 `Resume()` 的话，崩溃前被打断的调用会永远停在 `pending`。详见 `docs/usage/05-other-packages.md`。
+- **测试分两档**。`bash scripts/gate-tests.sh` 是门禁（11 个不依赖宿主环境的工程，与 CI / 发布流程同一份清单）；`Pi.Tui.Tests`（要交互终端）与 `Pi.Env.Tests`（要本地 sshd）不在门禁内——GitHub runner 上同一份代码实测 959（ubuntu）/ 369（windows）项失败，绝大多数来自这两个。
 - **`Pi.Mcp` 需要 ASP.NET Core 框架引用**（`Microsoft.AspNetCore.App`），消费方得用 `Web` SDK 或加 `FrameworkReference`。
 - **别动 SourceLink 的版本**。当前锁 `10.0.401`：更早的版本经 `Microsoft.Build.Tasks.Git` 命中 CVE-2026-62900（GHSA-23fw-v26w-5fgq），NU1902 会被 `TreatWarningsAsErrors` 升级成 error，restore 直接失败。
-- **模型目录别手写**。1,713 条数据取自 `@earendil-works/pi-ai@1.4.0` 的 `dist/providers/data/`，41 条默认模型必须条条可解析（有回归测试钉住）。编造 id 会被 `EveryDefaultModelResolvesInTheBuiltinCatalog` 抓住。
+- **模型目录别手写**。42 份目录、1,718 条模型由上游 1.5.0 的生成器从 models.dev v2 重导（`src/Pi.Ai/ModelData/`）。回归守卫是 `ModelCatalogTests.EveryEmbeddedCatalogParses`（42 个 provider 全部可解析）与 `LoadsFromEmbeddedResources`（抽样字段：api、baseUrl、contextWindow、分类桶）。编造 id 会在解析或抽样断言里被抓住。
 
 ## 可选
 
-- [上游 Pi（TypeScript）](https://github.com/earendil-works/pi)：行为基准。本机同级检出在 `D:\AI\参考项目\pi`，本轮对齐 `v1.4.0`（`4a080252f`）。
+- [上游 Pi（TypeScript）](https://github.com/earendil-works/pi)：行为基准。本机同级检出在 `D:\AI\参考项目\pi`，本轮对齐 `v1.5.0`（`f9a263655`）。
 - [nuget.org 上的 Pi.*](https://www.nuget.org/packages/Pi.Ai)：13 个库的发布地址。
 - [publishing.md](docs/publishing.md)：发版细节；打 tag 推送即触发 `nuget-publish.yml`。
 - [samples/README.md](samples/README.md)：四个示例工程各自演示什么。

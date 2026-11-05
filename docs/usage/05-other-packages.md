@@ -48,6 +48,46 @@ dotnet add package Pi.Durable
 **用它的理由**：会话要跨进程重启、要能回放到某个提交点、要并行跑子任务。`Pi.DurableHost`
 （`pi-durable`）是它的参考宿主，带 `subagent` 工具和按目录的执行环境。
 
+### Harness：打开与恢复
+
+`Harness.OpenAsync(storage, options, context)` 打开一个可写的 Harness。它只做一件事：**把上次进程
+留下的 `running` 任务核回 `pending`**（`restarts` 递增）。
+
+**接手调度是宿主的责任**：`OpenAsync` 之后要调 `Resume()`（或提交一次输入再等空闲），否则被打断的
+调用会一直停在 `pending`。这与上游 `Harness.open` 的分工一致——`open` 只做 `openTasks`。
+
+```csharp
+var harness = await Harness.OpenAsync(storage, options, context);
+harness.Resume();                       // 崩溃恢复后必须；只读 Harness 不要调
+var conversation = await harness.RootAsync(context, new AgentChange { Model = modelRef });
+```
+
+### 工具里发起嵌套调用
+
+`IToolExecutionApi.ExecuteToolAsync` 把「一个工具调另一个工具」变成**独立的 durable 任务**：
+
+```csharp
+public async Task<ToolExecutionResult> ExecuteAsync(object args, IToolExecutionApi api, Context context)
+{
+    // 同一个 key 在一次运行里只会真正执行一次。
+    var inner = await api.ExecuteToolAsync(
+        "grep", new JsonObject { ["q"] = "TODO" }, context,
+        new ExecuteToolOptions { Key = "c1" });
+    return inner;
+}
+```
+
+- 结果写在**调用方**的 `tool.nested-call` 文档里，不进 transcript——嵌套调用不会给模型多出一条结果。
+- 同一个 key 再次发起时复用已存结果，并在调用方 span 上发 `pi.durable.replay`；工具**不会**被重复执行。
+- 不给 `Key` 时按调用内递增序号取键（`1`、`2`…），所以崩溃重跑会命中同样的键。
+- 要让被打断的工具重跑，得在注册上声明 `Replay => "safe"`；不声明则恢复时按「不安全重放」结算为中断错误。
+
+### 遥测
+
+`HarnessOptions.Telemetry` 接一个 `ITelemetryContext`，就得到 `pi.durable.*` 全套：`reports` / `phase` /
+`submit` span，`entry` / `submission` / `report` / `checkpoint` 事件，`phase.duration` 与 `tasks.active`
+指标。schema 在 `DurableTelemetry.Schema`；`Pi.Telemetry` 的 `InMemoryTelemetryContext` 可直接拿来断言。
+
 ## Pi.Env — SSH 远程执行
 
 ```bash
@@ -94,7 +134,7 @@ dotnet add package Pi.Telemetry
 （参考适配器，也用于断言）+ 一致性测试套件 + `NoopTelemetryContext`。
 
 **用它的理由**：要把 agent 的 span 接到自己的 OpenTelemetry / 内部监控上。`Pi.Ai` 已经依赖它，
-所以接一次就能覆盖模型调用。
+接一次就能覆盖模型调用；`Pi.Durable` 的 `HarnessOptions.Telemetry` 用同一套契约，覆盖任务与提交。
 
 ## 一句话对照
 
