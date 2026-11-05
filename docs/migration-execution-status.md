@@ -638,3 +638,16 @@ chord `connection` 层）。
 ②link 形状不一致（上游收上下文，端口 `AddLink` 收 trace/span）③entry/submission 事件要穿透受理内部。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 575 全绿（含 telemetry 关/开的等价性用例）。
+
+## 2026-11-05 `pi.durable.submit` span（§7.5）
+
+判断「值得做」：它是**一条 trace 的根**（提交 → 运行 → phase），缺了它 phase span 只能自成根。
+
+原判「三条硬障碍」的第一条是伪障碍：受理本来就产出 `SubmissionStatus`，只是 `AdmitSubmissionAsync` 没返回。
+改为返回 `AdmissionResult(Id, Status)`（排队=Queued；边界放置后按 `applied.Users` 判 Placed；写=Done/Unanswered，
+stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住受理（`SubmitAsync` 覆盖提交、
+`AdmitInCommitAsync` 只包受理）。
+
+仍缺：link（上游收上下文，端口 `AddLink` 收 trace/span id，形状未对齐）与 entry/submission 事件（要穿透受理内部）。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 576 全绿。

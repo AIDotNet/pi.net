@@ -503,7 +503,7 @@ public static partial class Compaction
             var submission = await Admission.AdmitSubmissionAsync(tx, runtime.ConversationId,
                 new SubmissionDraft.Write { RequestId = $"compaction:{runtime.TaskId.Value}", Entry = entry },
                 runtime.Now(), settings.SteeringMode, settings.FollowUpMode).ConfigureAwait(false);
-            return TerminalCompleted(new Dictionary<string, object?> { ["submissionId"] = submission.Value });
+            return TerminalCompleted(new Dictionary<string, object?> { ["submissionId"] = submission.Id.Value });
         }
 
         var placed = await tx.AppendEntryAsync(runtime.ConversationId, entry).ConfigureAwait(false);

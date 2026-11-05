@@ -244,7 +244,8 @@ public sealed class HarnessImpl : DurableSession, IHarness
             this, storage, now,
             () => Settings().SteeringMode,
             () => Settings().FollowUpMode,
-            () => _tasks.Resume());
+            () => _tasks.Resume(),
+            options.Telemetry);
         submissionsRef = _submissions;
         tasksRef = _tasks;
         _taskGraph = new TaskGraphView(this, storage, new TaskGraphBlocking

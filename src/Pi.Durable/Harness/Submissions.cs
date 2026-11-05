@@ -2,6 +2,7 @@ using Pi.Chord.Context;
 using Pi.Durable.Session;
 using Pi.Durable.Storage;
 using Pi.Durable.Types;
+using Pi.Telemetry;
 
 namespace Pi.Durable.Harness;
 
@@ -18,12 +19,14 @@ public sealed class Submissions
     private readonly Func<QueueMode> _steeringMode;
     private readonly Func<QueueMode> _followUpMode;
     private readonly Action _resume;
+    private readonly Pi.Telemetry.ITelemetryContext? _telemetry;
     private readonly Waiters<SubmissionId, SettledSubmissionRecord> _waiters = new();
     private volatile bool _closed;
 
     public Submissions(
         DurableSession session, IStorage storage, Func<long> now,
-        Func<QueueMode> steeringMode, Func<QueueMode> followUpMode, Action resume)
+        Func<QueueMode> steeringMode, Func<QueueMode> followUpMode, Action resume,
+        Pi.Telemetry.ITelemetryContext? telemetry = null)
     {
         _session = session;
         _storage = storage;
@@ -31,6 +34,7 @@ public sealed class Submissions
         _steeringMode = steeringMode;
         _followUpMode = followUpMode;
         _resume = resume;
+        _telemetry = telemetry;
         session.ObserveCommits((observed, context) => Observe(observed.ToPublication(), context));
         session.SubscribeClose(() =>
         {
@@ -43,11 +47,61 @@ public sealed class Submissions
     public async Task<ISubmission> SubmitAsync(ConversationId conversationId, SubmissionDraft draft, Context context)
     {
         _resume();
-        var id = await _session.CommitWithAsync(
-            tx => Admission.AdmitSubmissionAsync(tx, conversationId, draft, _now(), _steeringMode(), _followUpMode()),
-            context).ConfigureAwait(false);
-        return new SubmissionHandle(id, this);
+        var admission = await TracedAsync(
+            conversationId, draft,
+            () => _session.CommitWithAsync(
+                tx => Admission.AdmitSubmissionAsync(
+                    tx, conversationId, draft, _now(), _steeringMode(), _followUpMode()),
+                context)).ConfigureAwait(false);
+        return new SubmissionHandle(admission.Id, this);
     }
+
+    /// <summary>
+    /// 一次受理的 <c>pi.durable.submit</c> span：起属性是提交类型与对话，结束时写受理 id 与结果。
+    /// 失败只记状态、不记消息——错误文本可能带调用方内容。对应 TS <c>Submissions.#traced</c>。
+    /// </summary>
+    private async Task<AdmissionResult> TracedAsync(
+        ConversationId conversationId, SubmissionDraft draft, Func<Task<AdmissionResult>> admit)
+    {
+        if (_telemetry is not { } telemetry) return await admit().ConfigureAwait(false);
+
+        var starter = Pi.Telemetry.TypedSpanStarterFactory.Create<AdmissionResult>(
+            telemetry, DurableTelemetry.Schema);
+        return await starter(
+            "pi.durable.submit",
+            new Pi.Telemetry.SpanAttributes
+            {
+                ["submission.type"] = draft.Type,
+                ["conversation.id"] = (double)conversationId.Value,
+            },
+            async (span, _) =>
+            {
+                try
+                {
+                    var admission = await admit().ConfigureAwait(false);
+                    span.SetAttributes(new Pi.Telemetry.SpanAttributes
+                    {
+                        ["submission.id"] = (double)admission.Id.Value,
+                        ["result"] = ResultName(admission.Status),
+                    });
+                    return admission;
+                }
+                catch (Exception)
+                {
+                    // 错误文本可能含调用方内容：只记状态。
+                    span.SetStatus(Pi.Telemetry.SpanStatus.ErrorStatus.Bare);
+                    throw;
+                }
+            }).ConfigureAwait(false);
+    }
+
+    /// <summary>受理结果的词表；stale 的写按 schema 文档报 done。</summary>
+    private static string ResultName(SubmissionStatus status) => status switch
+    {
+        SubmissionStatus.Queued => "queued",
+        SubmissionStatus.Placed => "placed",
+        _ => "done",
+    };
 
     /// <summary>
     /// 在调用方的提交 <paramref name="tx"/> 内受理一次提交，规则与 <see cref="SubmitAsync(ConversationId, SubmissionDraft, Context)"/>
@@ -70,8 +124,11 @@ public sealed class Submissions
         if (transaction.HasTableWrite) throw new ReadAfterWrite("submit(tx, draft)");
         // 这次受理起的运行需要进程：与 submit() 一样请求进度（不读表，只让调度器下一遍看到它）。
         _resume();
-        return await Admission.AdmitSubmissionAsync(
-            transaction, conversationId, draft, _now(), _steeringMode(), _followUpMode()).ConfigureAwait(false);
+        var admission = await TracedAsync(
+            conversationId, draft,
+            () => Admission.AdmitSubmissionAsync(
+                transaction, conversationId, draft, _now(), _steeringMode(), _followUpMode())).ConfigureAwait(false);
+        return admission.Id;
     }
 
     /// <summary>既有提交的句柄；不存在为 null。</summary>
@@ -171,9 +228,12 @@ public sealed class Submissions
 /// 并运行一次 final 边界。否则空闲输入放置用户条目并启动运行，空闲写入追加条目并结算 done（head 落到活动范围
 /// 之前时 stale）。对应 TS <c>admitSubmission()</c>。
 /// </summary>
+/// <summary>一次受理的结果：id 与上游 <c>admission.status</c> 对应的受理状态。</summary>
+public sealed record AdmissionResult(SubmissionId Id, SubmissionStatus Status);
+
 public static class Admission
 {
-    public static async Task<SubmissionId> AdmitSubmissionAsync(
+    public static async Task<AdmissionResult> AdmitSubmissionAsync(
         Transaction tx, ConversationId conversationId, SubmissionDraft draft, long now,
         QueueMode steeringMode, QueueMode followUpMode)
     {
@@ -188,7 +248,15 @@ public static class Admission
                         $"Request {requestId} already identifies a submission of type {existing.Type}");
                 }
 
-                return existing.Id;
+                // 幂等重放：沿用既有提交的状态（三种具体记录都带 Status）。
+                var existingStatus = existing switch
+                {
+                    SubmissionRecord.InputRecord input => input.Status,
+                    SubmissionRecord.WriteRecord write => write.Status,
+                    SubmissionRecord.ContinueRecord continued => continued.Status,
+                    _ => SubmissionStatus.Done,
+                };
+                return new AdmissionResult(existing.Id, existingStatus);
             }
         }
 
@@ -226,7 +294,7 @@ public static class Admission
             await Generation.StartRunAsync(
                 tx, conversationId, live, [.. appliedContinue.Users, admittedContinue.Id],
                 first: continuedFirst).ConfigureAwait(false);
-            return admittedContinue.Id;
+            return new AdmissionResult(admittedContinue.Id, SubmissionStatus.Placed);
         }
 
         // 边界读表，因此它在首次表写之前准备；忙碌的无需边界。
@@ -262,7 +330,7 @@ public static class Admission
                 });
             }
 
-            if (boundary is null) return created.Id;
+            if (boundary is null) return new AdmissionResult(created.Id, SubmissionStatus.Queued);
             var applied = await Inbox.ApplyBoundaryAsync(tx, boundary, BoundaryAt.Final, now).ConfigureAwait(false);
             if (applied.Users.Count > 0)
             {
@@ -270,7 +338,9 @@ public static class Admission
                     .ConfigureAwait(false);
             }
 
-            return created.Id;
+            return new AdmissionResult(
+                created.Id,
+                applied.Users.Contains(created.Id) ? SubmissionStatus.Placed : SubmissionStatus.Queued);
         }
 
         if (draft is SubmissionDraft.Write writeDraft)
@@ -284,7 +354,7 @@ public static class Admission
                     Status = SubmissionStatus.Unanswered,
                     Reason = "stale",
                 }).ConfigureAwait(false);
-                return stale.Id;
+                return new AdmissionResult(stale.Id, SubmissionStatus.Unanswered);
             }
 
             var entry = await tx.AppendEntryAsync(conversationId, writeDraft.Entry).ConfigureAwait(false);
@@ -295,7 +365,7 @@ public static class Admission
                 Status = SubmissionStatus.Done,
                 Entry = entry.Id,
             }).ConfigureAwait(false);
-            return done.Id;
+            return new AdmissionResult(done.Id, SubmissionStatus.Done);
         }
 
         var inputDraft = (SubmissionDraft.Input)draft;
@@ -314,7 +384,7 @@ public static class Admission
         // 空闲输入放置了它自己的条目：那就是运行的第一个条目。
         await Generation.StartRunAsync(tx, conversationId, live, [admitted.Id], first: placed.Id)
             .ConfigureAwait(false);
-        return admitted.Id;
+        return new AdmissionResult(admitted.Id, SubmissionStatus.Placed);
     }
 
 

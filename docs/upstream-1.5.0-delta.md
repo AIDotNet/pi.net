@@ -1341,10 +1341,10 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 | 项 | 落点 | 判定 |
 | --- | --- | --- |
 | `TelemetryPropagation` / carrier | `TelemetryCarrier`、`ITelemetryPropagation`、`NoopTelemetryPropagation`；`ITelemetryContext.Propagation`；`InMemoryTelemetryContext` 按上游的 `pi-memory-scope/span/trace` 生成载体，同 scope 解出的父上下文能定位本地父 span | ✅ 4 例（往返、未知载体回落根、跨 scope 只继承 trace、noop） |
-| `DURABLE_TELEMETRY_SCHEMA` | `DurableTelemetry.Schema`（两个 span、三个指标、四个事件）；`HarnessOptions.Telemetry`；`pi.durable.reports`（`_report` 按固定种类计数，带 `task.id`）；**`pi.durable.phase` span**（`RunPhaseAsync`：起属性 task.id/name/phase/kind/attempt/resumed，span 挂进 `Context` 再还原）＋ **`phase.duration`**（outcome 按上游规则：done/aborted/faulted/waiting/sleeping/`next=<phase>`，错误状态带 `task_faulted|failed|orphaned` 与 500 字截断）＋ **`tasks.active`**（载入/新建 +1，终态 -1，关闭清空） | ⚠️ 部分：`pi.durable.submit` span 未接，见 §7.5 的三条具体障碍 |
+| `DURABLE_TELEMETRY_SCHEMA` | `DurableTelemetry.Schema`（两个 span、三个指标、四个事件）；`HarnessOptions.Telemetry`；`pi.durable.reports`（`_report` 按固定种类计数，带 `task.id`）；**`pi.durable.phase` span**（`RunPhaseAsync`：起属性 task.id/name/phase/kind/attempt/resumed，span 挂进 `Context` 再还原）＋ **`phase.duration`**（outcome 按上游规则：done/aborted/faulted/waiting/sleeping/`next=<phase>`，错误状态带 `task_faulted|failed|orphaned` 与 500 字截断）＋ **`tasks.active`**（载入/新建 +1，终态 -1，关闭清空） | ⚠️ 部分：`pi.durable.submit` span 已接（§7.5），余 link 与 entry/submission 事件 |
 | `RemoteTerminal` / `openTerminal` | `src/Pi.Env/RemoteTerminal.cs`：`TerminalOptions`、`TerminalForeground`、`RemoteTerminal`（1 MiB 分块写、resize、close、foreground）与 `Terminals.OpenAsync` | ✅ 移植完成；守护进程在 Windows 上回 `Terminals are not supported on this system yet`（上游同一限制），用例按平台 skip，Linux/CI 上会真正执行 |
 
-**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **575**（含「telemetry 关/开产出同一份记录」的等价性用例）；`Pi.Env.Tests` **54**（4 跳过）；`Pi.Telemetry.Tests` **28**。
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **576**（含「telemetry 关/开产出同一份记录」的等价性用例）；`Pi.Env.Tests` **54**（4 跳过）；`Pi.Telemetry.Tests` **28**。
 
 
 
@@ -1628,18 +1628,22 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 **因此「1.5.0 已对齐」的准确口径是**：`v1.4.0..v1.5.0` 的增量全部落地，外加 AI 遥测这个当时唯一能安全补的基线缺口；
 durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列，需要时按上表的规模评估后开工。
 
-### 7.5 `pi.durable.submit` span 为什么仍缺
+### 7.5 `pi.durable.submit` span（已补，余 link 与事件）
 
-上游这一处比 phase span 依赖更多端口没有的东西，三条都是硬障碍：
+原先判为「三条硬障碍」，实际核查后第一条是伪障碍：受理**本来就产出状态**，只是没返回。
 
-1. **没有 `result` 可报**：上游的结束属性 `result` 取自 `admission.status`（`queued`/`placed`/`done`）。端口的
-   `Admission.AdmitSubmissionAsync` 只返回 `SubmissionId`，没有受理状态——填一个常量就是假数据。
-2. **link 的形状不一致**：上游 `addLink({ context })` 接受一个上下文；端口的 `ITelemetrySpan.AddLink` 收
-   `StoredSpanLink(traceId, spanId)`。要做等价的 link，得先从 `TelemetryCarrier` 里取出 trace/span 两个键，
-   这是适配器细节，不该泄漏到 durable。
-3. **事件要穿透受理内部**：`pi.durable.entry` / `pi.durable.submission` 是受理过程中在提交/落定时写的，
-   需要把 span 一路传进 `AdmitSubmissionAsync`（它现在只拿 tx 与 draft）。
+1. ~~没有 `result` 可报~~ → `Admission.AdmitSubmissionAsync` 改为返回 `AdmissionResult(Id, Status)`。状态不是新造的：
+   排队分支是 `Queued`，边界放置后按 `applied.Users` 是否包含本次受理判 `Placed`，写分支是 `Done`/`Unanswered`
+   （stale 按 schema 文档报 `done`）。三个调用点（`SubmitAsync`、`AdmitInCommitAsync`、`Compaction`）随之取 `.Id`。
+2. **已补** span：`Submissions.TracedAsync` 包住受理——`SubmitAsync` 覆盖它的提交，`AdmitInCommitAsync` 只包受理，
+   与上游「public admission / admission only」的区分一致；失败只记状态不记消息（错误文本可能含调用方内容）。
+3. **仍缺两条**：
+   - **link**：上游 `addLink({ context })` 收上下文，端口 `ITelemetrySpan.AddLink` 收 `StoredSpanLink(traceId, spanId)`。
+     要等价得知适配器的 carrier 键名，属于把适配器细节泄漏进 durable；应先对齐 `AddLink` 的形状。
+   - **`pi.durable.entry` / `pi.durable.submission` 事件**：在受理内部（条目提交、提交落定）写，需要把 span 穿透
+     `AdmitSubmissionAsync`。
 
-结论：这三条要么先给 `AdmitSubmissionAsync` 补受理状态、要么先把 link 的形状对齐，属于独立一批；本轮不硬接。
+**验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
+`submission.id`/`result ∈ {queued, placed, done}`，并确认同一次运行也落下 phase span。
 
 

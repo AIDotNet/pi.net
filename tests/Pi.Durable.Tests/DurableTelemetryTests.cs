@@ -162,4 +162,45 @@ public class DurableTelemetryTests
     {
         WriteIndented = false,
     };
+
+    [Fact]
+    public async Task EmitsASubmitSpanAroundTheAdmission()
+    {
+        var telemetry = new InMemoryTelemetryContext();
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewScriptedChatSetup(provider);
+        setup.Telemetry = telemetry;
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            provider.SetResponses(HarnessTestSupport.AssistantReply("ok"));
+            var run = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("go")] }, Ctx);
+            await run.WaitAsync(Ctx);
+
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline
+                && telemetry.GetSpans().Any(span => span.Name == "pi.durable.submit" && !span.Settled))
+            {
+                await Task.Delay(10);
+            }
+
+            // 一次运行里可能有多笔提交（例如后续排队项），断言第一笔的属性即可。
+            var submit = telemetry.GetSpans().First(span => span.Name == "pi.durable.submit");
+
+            Assert.Equal("input", submit.Attributes["submission.type"]);
+            Assert.True(submit.Attributes.ContainsKey("conversation.id"));
+            Assert.True(submit.Attributes.ContainsKey("submission.id"));
+            Assert.Contains(
+                submit.Attributes["result"], new object?[] { "queued", "placed", "done" });
+            Assert.True(submit.Settled);
+
+            // 同一次运行也落下了 phase span（submit 是这条 trace 的根）。
+            Assert.Contains(telemetry.GetSpans(), span => span.Name == "pi.durable.phase");
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
 }
