@@ -1647,6 +1647,16 @@ durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列
    `submission` 且已 `done`/`unanswered` → `pi.durable.submission`（id/status/answer.entry_id），挂在**上下文携带的
    span** 上。因此条目在 phase 期间提交时，事件落到 phase span；`prepare` 这类不提交条目的阶段没有该事件。
 
+### 7.6 两个剩余事件：`checkpoint` 已补，`replay` 没有事件源
+
+| 事件 | 上游发射点 | 端口 |
+| --- | --- | --- |
+| `pi.durable.checkpoint` | `scheduler.ts:2717`，`runtime.commit` 里：任务仍 running 且 checkpoint 的 phase 变了 | ✅ 已补：`RuntimeImpl.CommitAsync` 里比较提交前后的 phase，事件挂在 `invocation.Context` 的 span 上 |
+| `pi.durable.replay` | `tool.ts:963`，嵌套工具调用**命中已存结果**时 | ⛔ 无事件源：端口的嵌套调用只**记录**（`Pi.CodingAgent/Core/NestedToolCalls.cs` 的 `NestedCallRecorder`），没有「从存储结果重放」的路径 |
+
+`tool.ts` 在 v1.4.0 就已存在（1146 行），端口的 durable 层没有对应的 `runtime.tools` 面；嵌套调用落在 coding-agent 层。
+所以 `replay` 不是遥测漏接，而是**嵌套调用重放这个功能本身没移植**——要接这个事件得先有重放。
+
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
 `submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现
 `pi.durable.entry` 与 `pi.durable.submission` 事件；`PropagationTests` 两例覆盖 link 的解析与「不认识的上下文丢弃」。

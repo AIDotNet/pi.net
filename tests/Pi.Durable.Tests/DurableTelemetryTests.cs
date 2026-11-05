@@ -112,6 +112,7 @@ public class DurableTelemetryTests
             // 提交条目与提交落定的那一刻，事件落在当时上下文里的 span 上。
             Assert.Contains(spans, span => span.Events.Any(@event => @event.Name == "pi.durable.entry"));
             Assert.Contains(spans, span => span.Events.Any(@event => @event.Name == "pi.durable.submission"));
+            Assert.Contains(spans, span => span.Events.Any(@event => @event.Name == "pi.durable.checkpoint"));
 
             var measurements = telemetry.GetMeasurements();
             var durations = measurements.Where(item => item.Name == "pi.durable.phase.duration").ToList();

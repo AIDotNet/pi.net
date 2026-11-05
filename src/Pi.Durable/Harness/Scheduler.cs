@@ -2083,6 +2083,11 @@ public sealed class TaskScheduler
             span);
     }
 
+    private static string? PhaseOf(object? checkpoint)
+        => checkpoint is IReadOnlyDictionary<string, object?> map && map.TryGetValue("phase", out var phase)
+            ? phase as string
+            : null;
+
     private static string? CheckpointPhase(TaskState? state)
         => state?.Checkpoint is IReadOnlyDictionary<string, object?> checkpoint
             && checkpoint.TryGetValue("phase", out var phase)
@@ -2559,12 +2564,20 @@ public sealed class TaskScheduler
             Func<Transaction, TaskRecord, Task<TaskState?>> change, Context context, CommitOptions? options = null)
         {
             (TaskOutcomeError Error, string Reason, int Restarts)? interrupted = null;
+            string? checkpoint = null;
             await scheduler.GatedAsync<object?>(invocation, async (tx, current) =>
             {
                 var next = await change(tx, current).ConfigureAwait(false);
                 if (next is not null)
                 {
                     await scheduler.CommitStateAsync(tx, invocation, current, next).ConfigureAwait(false);
+                    // 运行中的任务换了阶段：这次调用仍在继续，记在它的 span 上。
+                    if (next is { Status: TaskStatus.Running }
+                        && PhaseOf(current.State.Checkpoint) != PhaseOf(next.Checkpoint))
+                    {
+                        checkpoint = PhaseOf(next.Checkpoint);
+                    }
+
                     // 因崩溃收场的任务要说出来（task_interrupted），宿主才有崩溃循环的信号。
                     if (next is { Status: TaskStatus.Terminal, Outcome: { Status: TaskOutcomeStatus.Failed } settled }
                         && settled.Error is { } error
@@ -2576,6 +2589,12 @@ public sealed class TaskScheduler
 
                 return null;
             }, context, options).ConfigureAwait(false);
+
+            if (checkpoint is not null)
+            {
+                invocation.Context.Value(DurableTelemetry.SpanKey)?.AddEvent(
+                    "pi.durable.checkpoint", new SpanAttributes { ["phase"] = checkpoint });
+            }
 
             if (interrupted is { } report)
             {

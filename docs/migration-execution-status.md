@@ -663,3 +663,14 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
   `pi.durable.entry`；`submission` 且 done/unanswered → `pi.durable.submission`，挂在上下文携带的 span 上。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 576（首次 1 例 sleep 并行噪声，单跑 12/12 绿）；`Pi.Telemetry.Tests` 30。
+
+## 2026-11-05 `pi.durable.checkpoint` 事件（§7.6）
+
+`RuntimeImpl.CommitAsync` 里比较提交前后的 checkpoint phase（任务仍 running 且 phase 变了），把事件挂在
+`invocation.Context` 的 span 上。`EmitsAPhaseSpanForEachInvocation` 断言它确实出现。
+
+**`pi.durable.replay` 没有事件源**：上游在嵌套工具「命中已存结果」时发；端口的嵌套调用只有
+`NestedCallRecorder`（记录），没有从存储结果重放的路径。`tool.ts`（1146 行）在 v1.4.0 就有，端口 durable 层
+没有对应的 `runtime.tools` 面——这是功能缺口，不是遥测漏接。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 576 全绿。
