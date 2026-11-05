@@ -14,24 +14,78 @@ using Path = Pi.Chord.Delta.Path;
 using TaskStatus = Pi.Durable.Types.TaskStatus;
 using TxDocChange = Pi.Chord.Delta.Tracker<IReadOnlyDictionary<string, object?>>.Change;
 
-/// <summary>pi.tool 任务的持久化输入：<c>{ assistant: EntryId, callId: string }</c>。对应 TS <c>ToolTaskInput</c>。</summary>
-public sealed record ToolTaskInput(EntryId Assistant, string CallId, bool? Unoffered = null)
+/// <summary>
+/// pi.tool 任务的持久化输入：模型发起的调用（从 assistant 条目读），或运行中的工具经 <c>executeTool()</c>
+/// 发起的嵌套调用（调用随输入携带，没有条目持有它）。对应 TS <c>ToolTaskInput</c>。
+/// <para>v1/v2 的行没有 <c>kind</c>，按上游 migrate 的口径当作模型发起的调用。</para>
+/// </summary>
+public abstract record ToolTaskInput
 {
-    public JsonDict ToJson()
+    /// <summary>模型发起的调用：<c>{kind:"model", assistant, callId, unoffered?}</c>。</summary>
+    public sealed record Model(EntryId Assistant, string CallId, bool? Unoffered = null) : ToolTaskInput;
+
+    /// <summary>
+    /// 嵌套调用：<c>{kind:"nested", parent, parentCallId, key, call, progress?}</c>。
+    /// <c>progress = false</c> 表示不向槽位提交运行输出/明细/诊断（结果仍带）。
+    /// </summary>
+    public sealed record Nested(
+        TaskId<object?> Parent, string ParentCallId, string Key, ToolCallContent Call, bool? Progress = null)
+        : ToolTaskInput;
+
+    public JsonDict ToJson() => this switch
+    {
+        Model model => BuildModel(model),
+        Nested nested => BuildNested(nested),
+        _ => throw new InvalidOperationException("Unknown pi.tool input"),
+    };
+
+    public static ToolTaskInput FromJson(JsonDict json)
+    {
+        var kind = json.TryGetValue("kind", out var rawKind) ? rawKind as string : null;
+        if (kind == "nested")
+        {
+            var call = json.TryGetValue("call", out var rawCall) && rawCall is not null
+                ? JsonTrees.Deserialize<ToolCallContent>(rawCall)
+                : throw new InvalidOperationException("pi.tool nested input has no call");
+            return new Nested(
+                TaskId<object?>.From(Convert.ToInt64(json["parent"]!)),
+                (string)json["parentCallId"]!,
+                (string)json["key"]!,
+                call,
+                json.TryGetValue("progress", out var progress) && progress is false ? false : null);
+        }
+
+        return new Model(
+            EntryId.From(Convert.ToInt64(json["assistant"]!)),
+            (string)json["callId"]!,
+            json.TryGetValue("unoffered", out var unoffered) && unoffered is true ? true : null);
+    }
+
+    private static JsonDict BuildModel(Model model)
     {
         var json = new Dictionary<string, object?>
         {
-            ["assistant"] = Assistant.Value,
-            ["callId"] = CallId,
+            ["kind"] = "model",
+            ["assistant"] = model.Assistant.Value,
+            ["callId"] = model.CallId,
         };
-        if (Unoffered == true) json["unoffered"] = true;
+        if (model.Unoffered == true) json["unoffered"] = true;
         return json;
     }
 
-    public static ToolTaskInput FromJson(JsonDict json) => new(
-        EntryId.From(Convert.ToInt64(json["assistant"]!)),
-        (string)json["callId"]!,
-        json.TryGetValue("unoffered", out var unoffered) && unoffered is true);
+    private static JsonDict BuildNested(Nested nested)
+    {
+        var json = new Dictionary<string, object?>
+        {
+            ["kind"] = "nested",
+            ["parent"] = nested.Parent.Value,
+            ["parentCallId"] = nested.ParentCallId,
+            ["key"] = nested.Key,
+            ["call"] = JsonTrees.ToTree(nested.Call),
+        };
+        if (nested.Progress == false) json["progress"] = false;
+        return json;
+    }
 }
 
 /// <summary>
@@ -98,6 +152,23 @@ public sealed record ToolTaskResult(EntryId EntryId, ToolControl? Control)
 /// </summary>
 public static partial class ToolTask
 {
+    /// <summary>
+    /// 运行中的工具发起的嵌套调用：按调用方任务的 key 定位，存它的任务与（终态后）结果。
+    /// 一个调用一份文档，所以任何提交都不重写别人；随调用方任务退休。
+    /// 对应 TS <c>NestedCallDoc</c>（task 作用域、族、<c>checkpointWhen: () =&gt; false</c>）。
+    /// </summary>
+    public static readonly DocFamilyToken<Dictionary<string, object?>, object?> NestedCallDoc =
+        DurableDocuments.DefineDocFamily<Dictionary<string, object?>, object?>(new DocFamilyDefinition<
+            Dictionary<string, object?>, object?>
+        {
+            Kind = "pi.tool.nested-call",
+            Version = 1,
+            Initial = _ => new Dictionary<string, object?>(),
+            // 文档随它的任务退休：从不按 checkpoint 条件存基线。
+            CheckpointWhen = (_, _, _) => false,
+            Semantics = new DocumentSemantics.TaskScope(),
+        });
+
     public const string TaskName = "pi.tool";
 
     /// <summary>擦除形状的内建任务定义（输入 / checkpoint / 结果均为 JSON 字典）。</summary>
@@ -132,7 +203,7 @@ public static partial class ToolTask
             task.Input as JsonDict ?? throw new InvalidOperationException("pi.tool input must be a JSON object"));
         var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
         // 未提供的调用不解析名字：它请求里就没有，结算 tool_unavailable。
-        var tool = input.Unoffered == true ? null : agent.Tools.FirstOrDefault(each => each.Name == call.Name);
+        var tool = input is ToolTaskInput.Model { Unoffered: true } ? null : agent.Tools.FirstOrDefault(each => each.Name == call.Name);
         if (tool is null)
         {
             var error = HarnessError("tool_unavailable", $"Tool {call.Name} is not available");
@@ -238,13 +309,13 @@ public static partial class ToolTask
             task.Input as JsonDict ?? throw new InvalidOperationException("pi.tool input must be a JSON object"));
         var agent = await runtime.AgentAsync(context).ConfigureAwait(false);
         // 未提供的调用无论如何都不可能跑过，其结果说明这一点。
-        var (code, message) = input.Unoffered == true
+        var (code, message) = input is ToolTaskInput.Model { Unoffered: true }
             ? ("tool_unavailable", $"Tool {call.Name} is not available")
             : ("aborted", $"Tool {call.Name} was aborted");
         // 上游只在剩余重启额度还够时跑钩子：连续打断到这个任务的最后一次尝试，可能正是钩子本身在把它打断，
         // 这一次跳过钩子（否则一个改写结果的钩子能让工具永远跑不完）。
         IToolRegistration? forHooks = null;
-        if (input.Unoffered != true && (task.Restarts ?? 0) < runtime.Settings.RestartLimit - 1)
+        if (input is not ToolTaskInput.Model { Unoffered: true } && (task.Restarts ?? 0) < runtime.Settings.RestartLimit - 1)
         {
             forHooks = agent.Tools.FirstOrDefault(each => each.Name == call.Name);
         }
@@ -262,13 +333,15 @@ public static partial class ToolTask
         var input = task.Input as JsonDict
             ?? throw new InvalidOperationException("pi.tool input must be a JSON object");
         var parsed = ToolTaskInput.FromJson(input);
-        var entry = await runtime.EntryAsync(DurableEntries.AssistantEntry, parsed.Assistant, context)
+        if (parsed is ToolTaskInput.Nested nested) return nested.Call;
+        var model = (ToolTaskInput.Model)parsed;
+        var entry = await runtime.EntryAsync(DurableEntries.AssistantEntry, model.Assistant, context)
             .ConfigureAwait(false);
-        var message = entry?.Model is { Count: > 0 } model ? model[0] : null;
+        var message = entry?.Model is { Count: > 0 } content ? content[0] : null;
         var call = message is AssistantMessage assistant
-            ? assistant.ToolCalls.FirstOrDefault(content => content.Id == parsed.CallId)
+            ? assistant.ToolCalls.FirstOrDefault(content => content.Id == model.CallId)
             : null;
-        if (call is null) throw new InvalidOperationException($"Entry {parsed.Assistant.Value} has no tool call {parsed.CallId}");
+        if (call is null) throw new InvalidOperationException($"Entry {model.Assistant.Value} has no tool call {model.CallId}");
         return call;
     }
 

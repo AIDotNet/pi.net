@@ -682,3 +682,14 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 
 端口 `ToolTaskInput` 只有 `{assistant, callId}` 一种形态；durable 层没有 `runtime.tools` 面。判定为功能缺口而非遥测缺口，
 按四步开工（每步可独立验证），第 1 步之前不接 replay 事件（否则条件恒假，是死代码）。
+
+## 2026-11-05 durable 工具层第 1 步（§7.7）
+
+- `ToolTaskInput` 升联合体（model | nested），`ToJson` 写 `kind`，`FromJson` 对无 `kind` 的旧行按模型读；
+  版本仍是 3（上游也没为嵌套升版本）
+- `ToolTask.NestedCallDoc`：`pi.tool.nested-call` v1、TaskScope、`CheckpointWhen => false`
+- `ReadCallAsync` 按 kind 分流；`Generation.CreateToolTaskAsync` 显式构造 `ToolTaskInput.Model`
+- 用例 `ToolTaskInputTests` 5 例（两种往返、unoffered、旧行兼容、文档族定义）
+
+第 2-4 步未做：`StartNestedAsync`（含 replay 事件）、相位处理器 kind 分流 + `nestedTools` 槽位、接入调用方。
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 581（首轮 1 例并行噪声，重跑 0 失败）。

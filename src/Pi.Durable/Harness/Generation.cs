@@ -643,7 +643,7 @@ public static partial class Generation
     private static async Task<TaskId<object?>> CreateToolTaskAsync(
         Transaction tx, ITaskRuntime runtime, EntryId assistant, string callId, bool? unoffered = null)
     {
-        var input = new ToolTaskInput(assistant, callId, unoffered).ToJson();
+        var input = new ToolTaskInput.Model(assistant, callId, unoffered).ToJson();
         var taskId = await tx.CreateTaskAsync(
             ToolTask.Instance,
             input,

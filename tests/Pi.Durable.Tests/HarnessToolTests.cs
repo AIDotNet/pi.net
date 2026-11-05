@@ -425,7 +425,7 @@ public class ToolTaskTests
 
         var taskId = await session.CommitAsync(async tx => await tx.CreateTaskAsync(
             ToolTask.Instance,
-            new ToolTaskInput(assistantId, "call1").ToJson(),
+            new ToolTaskInput.Model(assistantId, "call1").ToJson(),
             new TaskOptions
             {
                 Ownership = new TaskOwnership.ConversationOwner(),
@@ -542,8 +542,8 @@ public class ToolTaskTests
     [Fact]
     public void Input_JsonRoundTrip()
     {
-        var input = new ToolTaskInput(EntryId.From(42), "call1");
-        var restored = ToolTaskInput.FromJson(input.ToJson());
+        var input = new ToolTaskInput.Model(EntryId.From(42), "call1");
+        var restored = Assert.IsType<ToolTaskInput.Model>(ToolTaskInput.FromJson(input.ToJson()));
         Assert.Equal(42, restored.Assistant.Value);
         Assert.Equal("call1", restored.CallId);
     }

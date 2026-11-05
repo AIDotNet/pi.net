@@ -1682,6 +1682,21 @@ durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列
 
 第 1 步之前不建议动 `replay` 事件——没有 `NestedCallDoc` 的 `result`，「已存结果」这个条件永远为假，事件等于死代码。
 
+**进度（第 1 步已完成）**
+
+- `ToolTaskInput` 升为联合体：`Model(EntryId Assistant, string CallId, bool? Unoffered)` 与
+  `Nested(TaskId Parent, string ParentCallId, string Key, ToolCallContent Call, bool? Progress)`；
+  `ToJson` 写 `kind`，`FromJson` 对**没有 `kind`** 的行按模型调用读（v1/v2 兼容，与上游 `migrate` 同口径）。
+  版本号保持 3——上游也是 v3，嵌套支持没升版本。
+- `ToolTask.NestedCallDoc`：`pi.tool.nested-call`、v1、`TaskScope`、`CheckpointWhen => false`（随任务退休），
+  与上游 `NestedCallDoc` 定义一致。
+- `ReadCallAsync` 按 `kind` 分流：嵌套调用直接用输入携带的 `call`，不再去读 assistant 条目。
+- 用例 `ToolTaskInputTests` 5 例：模型/嵌套两种往返、`unoffered` 保留与缺省为 null、**无 `kind` 的旧行按模型读**、
+  文档族的 scope/version/initial/checkpoint 谓词。
+
+**第 2-4 步未做**：`StartNestedAsync`（key 复用 + 同工具同参数校验 + `replayed` 判定，此时才能发 `pi.durable.replay`）、
+相位处理器按 `kind` 分流 + `LiveDoc.nestedTools` 槽位、接入调用方（code-mode / `executeTool`）。
+
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
 `submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现
 `pi.durable.entry` 与 `pi.durable.submission` 事件；`PropagationTests` 两例覆盖 link 的解析与「不认识的上下文丢弃」。
