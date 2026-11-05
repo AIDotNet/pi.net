@@ -871,3 +871,21 @@ bash scripts/gate-tests.sh Debug tests/Pi.Chord.Tests/Pi.Chord.Tests.csproj   # 
 与 `device-code-flow`（改静态钩子的 5 个类）。`TestPorts.Next()` 保留（顺带修掉随机端口那处）。
 
 **验证**：`Pi.Ai.Tests` 连跑 4 次，每次 1012 例、0 失败（修前是 4/1/4/1）。
+
+## 2026-11-05 包内容审计与版本说明纠错（§7.15）
+
+对 13 个 1.5.0 包逐个开箱核对：
+
+| 包 | lib | Assets | 结论 |
+| --- | --- | --- | --- |
+| `Pi.Ai` | 2 | 0 | 正常：42 份模型目录是 `<EmbeddedResource>`，进的是程序集 |
+| `Pi.CodingAgent` | 2 | 20 | 扩展运行时（prelude + 4 个 shim + babel）、四份 schema、两套主题、导出模板、一张图 |
+| 其余 11 个 | 2 | 0 | 纯库，无资产 |
+
+**发现一处文档与实现不符**：`Directory.Build.targets` 的守卫注释与 `llms.md` 都写「`Config.Version` 优先读
+**随包分发**的 `Assets/package.json`」。实测：这个文件既不在 nupkg 里，也不在 CLI 输出里；`Config.Version`
+是**程序集版本打底**，只有文件恰好在程序集旁边时才覆盖（`Config.cs`：`ReadAssemblyVersion()` → 再读文件）。
+之所以 `--version` 报 1.5.0，靠的是 `-p:Version` / `<Version>` 进程序集，不是那个文件。
+
+两处说明已按实现改写。**刻意不把 `package.json` 打进包**：程序集版本已经承载了这个信息，多带一份反而会让
+消费方输出目录里的陈旧文件覆盖真实版本。

@@ -133,7 +133,7 @@ dotnet run --project samples/Pi.Samples.CodingSession
 
 ## 会咬人的地方
 
-- **版本号有两处**，`Directory.Build.props` 的 `<Version>` 和 `src/Pi.CodingAgent/Assets/package.json` 的 `version`。`Config.Version` 优先读后者（启动横幅、`--version` 都取自它），构建期有守卫直接报错。发版改一处必挂。
+- **版本号有两处**，`Directory.Build.props` 的 `<Version>` 和 `src/Pi.CodingAgent/Assets/package.json` 的 `version`（后者不随包分发，只在仓库内充当第二处）。`Config.Version` 以程序集版本打底、文件在旁边时才用它覆盖；启动横幅与 `--version` 取自它。构建期有守卫直接报错，发版改一处必挂。
 - **`StreamFn` 没有默认值**。`AgentOptions.StreamFn` 必填，不想每次传就调 `DefaultStreamFn.Set(fn)`；忘了会抛 `No default stream function configured`。
 - **模型有两个类型**：`Pi.Ai.Types.Model` 是瘦记录（`Id`/`Name`/`Api`/`Provider`），出现在 `StreamFn` 边界上；`Pi.Ai.Models.ModelSpec` 是目录条目（含 `BaseUrl`、`ContextWindow`、计价）。跨层时经 `CompatShims.ToModel()` 转换，别混用。
 - **`dotnet test` 不要加 `-m:1`**。串行会让测试项目互相干扰（实测 `Pi.Ai.Tests` 多出 2 个失败、`Pi.CodingAgent.Tests` 18 分钟不结束）。`dotnet build -m:1` 没问题。

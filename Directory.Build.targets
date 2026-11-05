@@ -14,8 +14,9 @@
   <!--
     版本一致性守卫。
 
-    `Config.Version` 沿用 TS 语义：优先读随包分发的 `Assets/package.json` 的 `version`，
-    只有读不到时才回落到程序集版本。而发版流程（.github/workflows/nuget-publish.yml）
+    `Config.Version` 的取值顺序是：程序集版本打底；如果 `Assets/package.json` 就躺在程序集旁边，
+    再用它的 `version` 覆盖。这个文件**不随 NuGet 包分发**（包里没有它，消费方读到的是程序集版本），
+    它只在本仓库内充当「版本号第二处」。而发版流程（.github/workflows/nuget-publish.yml）
     只改 Directory.Build.props 的 <Version>。1.4.0 发布时就是漏改资产，导致启动横幅和
     命令行的版本输出仍报 v1.0.4。这里在构建期把这种漂移直接变成错误，别等发出去才发现。
   -->
