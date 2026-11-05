@@ -421,7 +421,11 @@ public static partial class ToolTask
             Retain = tool.OutputLimits?.Retain == "tail" ? OutputRetain.Tail : OutputRetain.Head,
         };
         var reported = new Reported { Output = new ToolOutput.Buffer(limits), Limits = limits };
-        var progress = PublishProgress(runtime, reported, context);
+        // progress: false 表示不向槽位提交运行输出/明细/诊断（结果仍带）——连空提交都不做。
+        var progress = task.Input is JsonDict inputJson
+            && ToolTaskInput.FromJson(inputJson) is ToolTaskInput.Nested { Progress: false }
+                ? ToolOutput.Progress.Silent()
+                : PublishProgress(runtime, reported, context);
         var ended = false;
         void AssertLive()
         {

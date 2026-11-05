@@ -168,4 +168,96 @@ public class NestedToolCallTests
 
         public IReadOnlyList<AnyDurableTask>? Tasks => null;
     }
+
+    [Fact]
+    public async Task ASilentNestedCallStillSettlesItsDetails()
+    {
+        // progress: false 的嵌套调用不写槽位；它的 api.DetailsAsync 不能因此死等一次永不发生的提交。
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewChatSetup(provider);
+        var details = new DetailsTool();
+        var outer = new SilentOuterTool();
+        var extension = new FakeExtension([outer, details]);
+        setup.Registry.Install(extension);
+
+        provider.SetResponses(
+            HarnessTestSupport.FakeStep.Of(Round("c1", outer.Name)),
+            HarnessTestSupport.FakeStep.Of(HarnessTestSupport.AssistantReply("done")));
+
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            await root.CommitAsync(async tx =>
+            {
+                await AgentDocs.ConfigureAsync((Transaction)tx, root.Id, new AgentChange
+                {
+                    Extensions = new AgentChange.ExtensionChange { Exact = [extension] },
+                }).ConfigureAwait(false);
+                return 0;
+            }, Ctx);
+
+            var submission = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("go")] }, Ctx);
+            var settled = await submission.WaitAsync(Ctx).WaitAsync(TimeSpan.FromSeconds(20));
+            Assert.True(settled.Record is SubmissionRecord.InputRecord { Status: SubmissionStatus.Done });
+            Assert.Equal(1, details.Runs);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    /// <summary>声明 progress: false 的内层工具，并且用 api.DetailsAsync 上报明细。</summary>
+    private sealed class DetailsTool : IToolRegistration
+    {
+        public int Runs { get; private set; }
+
+        public string Name => "details";
+
+        public string Description => "details";
+
+        public ToolSchema Parameters => new(new Dictionary<string, object?>());
+
+        public string? Replay => null;
+
+        public ToolExecutionMode? ExecutionMode => null;
+
+        public ToolOutputLimits? OutputLimits => null;
+
+        public object? PrepareArguments(object args) => args;
+
+        public async Task<ToolExecutionResult> ExecuteAsync(object args, IToolExecutionApi api, Context context)
+        {
+            Runs++;
+            await api.DetailsAsync(new Dictionary<string, object?> { ["k"] = 1 }, context);
+            return new ToolExecutionResult { Content = [new TextContent("details-ok")] };
+        }
+    }
+
+    private sealed class SilentOuterTool : IToolRegistration
+    {
+        public string Name => "silent";
+
+        public string Description => "silent";
+
+        public ToolSchema Parameters => new(new Dictionary<string, object?>());
+
+        public string? Replay => null;
+
+        public ToolExecutionMode? ExecutionMode => null;
+
+        public ToolOutputLimits? OutputLimits => null;
+
+        public object? PrepareArguments(object args) => args;
+
+        public async Task<ToolExecutionResult> ExecuteAsync(object args, IToolExecutionApi api, Context context)
+        {
+            var result = await api.ExecuteToolAsync(
+                "details", new Dictionary<string, object?>(), context,
+                new ExecuteToolOptions { Key = "c1", Progress = false });
+            var text = result.Content?.OfType<TextContent>().FirstOrDefault()?.Text ?? "<none>";
+            return new ToolExecutionResult { Content = [new TextContent($"outer:{text}")] };
+        }
+    }
 }

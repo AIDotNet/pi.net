@@ -32,7 +32,8 @@ public static partial class ToolTask
         JsonDict arguments,
         string key,
         bool abandonOnRestart,
-        Context context)
+        Context context,
+        bool? progress = null)
     {
         var call = new ToolCallContent($"{parentCallId}/{key}", name, arguments);
         TaskId<object?>? id = null;
@@ -66,7 +67,7 @@ public static partial class ToolTask
 
             var created = await tx.CreateTaskAsync(
                 Instance,
-                new ToolTaskInput.Nested(runtime.TaskId, parentCallId, key, call).ToJson(),
+                new ToolTaskInput.Nested(runtime.TaskId, parentCallId, key, call, progress).ToJson(),
                 new TaskOptions
                 {
                     Ownership = new TaskOwnership.TaskOwner(runtime.TaskId),
@@ -134,7 +135,8 @@ public static partial class ToolTask
             var json = JsonTrees.ToTree(arguments) as JsonDict ?? new Dictionary<string, object?>();
 
             var id = await StartNestedAsync(
-                runtime, call.Id, name, json, key, options?.AbandonOnRestart ?? false, context).ConfigureAwait(false);
+                runtime, call.Id, name, json, key, options?.AbandonOnRestart ?? false, context,
+                options?.Progress).ConfigureAwait(false);
             var settled = await runtime.WaitForTaskAsync(id, context).ConfigureAwait(false);
 
             var document = await runtime.SnapshotAsync(NestedCallDoc, runtime.TaskId, key, context)

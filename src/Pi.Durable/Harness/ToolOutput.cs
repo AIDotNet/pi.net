@@ -379,19 +379,26 @@ public static partial class ToolOutput
         private long _nextAt;
         private bool _dirty;
         private bool _stopped;
+        private readonly bool _silent;
 
         public Progress(
-            Func<Task<long>> write, Action<Exception> onError, double minIntervalMs, ProgressClock? clock = null)
+            Func<Task<long>> write, Action<Exception> onError, double minIntervalMs, ProgressClock? clock = null,
+            bool silent = false)
         {
+            _silent = silent;
             _write = write;
             _onError = onError;
             _minIntervalMs = minIntervalMs;
             _clock = clock ?? ProgressClock.System;
         }
 
+        /// <summary>什么都不写的进度：嵌套调用声明 <c>progress: false</c> 时用它，连空提交都不产生。</summary>
+        public static Progress Silent() => new(() => Task.FromResult(0L), _ => { }, 0, null, silent: true);
+
         /// <summary>安排一次提交。</summary>
         public void Mark()
         {
+            if (_silent) return;
             lock (_gate)
             {
                 _dirty = true;
@@ -402,6 +409,8 @@ public static partial class ToolOutput
         /// <summary>安排一次提交；promise 随包含此变化的提交结算。</summary>
         public Task MarkAndWait()
         {
+            // 静默进度永不写，等待一次提交会死等（嵌套调用的 progress: false）。
+            if (_silent) return Task.CompletedTask;
             var waiter = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
             lock (_gate) _waiters.Enqueue(waiter);
             Mark();

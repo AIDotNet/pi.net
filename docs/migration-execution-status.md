@@ -740,3 +740,18 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 5. **热路径空分配**：`Session.Publish` 里 entry/submission 事件在无 span 时也构造属性 → 加 null 判断。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 585、`Pi.Tui.Tests` 23964、`Pi.Telemetry.Tests` 30，全绿。
+
+## 2026-11-05 第二轮自检（§4.49）
+
+第二轮盯「存了但没读的字段」和「自己引入的旁路」，又抓到 1 处真问题 + 1 处死锁：
+
+1. **`ExecuteToolOptions.Progress` 从未生效**：没传给 `StartNestedAsync`，输入里的 `Progress` 也没人读——声明
+   `progress: false` 与不声明完全一样。补齐：`ExecuteToolAsync` → `StartNestedAsync(progress:)` → 输入 →
+   `RunAsync` 选 `ToolOutput.Progress.Silent()`。
+2. **静默进度会死锁**（修 #1 时引入、随即发现）：`api.DetailsAsync` 走 `MarkAndWait()`，静默进度永不写 → 等待永不结算。
+   给 `Progress` 加 `_silent`：`Mark()` 直接返回、`MarkAndWait()` 返回 `CompletedTask`。
+
+用例 `ASilentNestedCallStillSettlesItsDetails`：嵌套工具声明 `progress: false` 且调 `api.DetailsAsync`。
+**验证过牙齿**：去掉 `MarkAndWait` 的静默早退后，用例以 `TimeoutException` 失败。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 586、`Pi.Tui.Tests` 23964、`Pi.Telemetry.Tests` 30，全绿。
