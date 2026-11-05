@@ -612,3 +612,16 @@ chord `connection` 层）。
   故 `RemoteTerminal` + `Terminals.OpenAsync` 已移植；守护进程在 Windows 上不支持 pty（上游同一限制），用例按平台 skip。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 573；`Pi.Env.Tests` 54（4 跳过）；`Pi.Telemetry.Tests` 28。
+
+## 2026-11-05 `pi.durable.phase` span 落地（§4.45 补齐）
+
+上一轮卡在「调用模型没有 attempt/resumed」。本轮先补记账再落 span：
+
+- `_resumed`：启动扫描时登记（在 readOnly 判定之前，与上游一致）、首次调用时消费、终态时移除
+- `attempt`：从 checkpoint 的 `attempt` 键读（Compaction/Generation 的 checkpoint 本来就有）
+- `RunPhaseAsync`：`pi.durable.phase` span 包住阶段处理器；起属性 task.id/task.name/phase/kind/attempt/resumed；
+  span 期间 `invocation.Context` 换成带 span 的派生值（`DurableTelemetry.SpanKey`），finally 还原
+- 等价性用例：telemetry 关/开两次运行，任务记录逐字节一致——这是动调度器热路径的安全网
+
+仍未接：`phase.duration` / `tasks.active` 两个指标（要 outcome 与活跃任务计数），`pi.durable.submit` span（要提交侧 carrier）。
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 575（重跑 0 失败）。

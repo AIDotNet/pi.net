@@ -1,3 +1,4 @@
+using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Durable.Harness;
 using Pi.Durable.Storage;
@@ -68,4 +69,80 @@ public class DurableTelemetryTests
             await HarnessTestSupport.CloseQuietlyAsync(harness);
         }
     }
+
+    [Fact]
+    public async Task EmitsAPhaseSpanForEachInvocation()
+    {
+        var telemetry = new InMemoryTelemetryContext();
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewScriptedChatSetup(provider);
+        setup.Telemetry = telemetry;
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            provider.SetResponses(HarnessTestSupport.AssistantReply("ok"));
+            var run = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("go")] }, Ctx);
+            await run.WaitAsync(Ctx);
+
+            // span 由 StartSpanAsync 的续体结算，等它们落定。
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline
+                && telemetry.GetSpans().Any(span => span.Name == "pi.durable.phase" && !span.Settled))
+            {
+                await Task.Delay(10);
+            }
+
+            var spans = telemetry.GetSpans().Where(span => span.Name == "pi.durable.phase").ToList();
+            Assert.NotEmpty(spans);
+            Assert.All(spans, span =>
+            {
+                Assert.Equal("run", span.Attributes["kind"]);
+                Assert.True(span.Attributes.ContainsKey("task.id"));
+                Assert.True(span.Attributes.ContainsKey("task.name"));
+                Assert.True(span.Attributes.ContainsKey("phase"));
+                // 本进程新建的任务不是「恢复」的。
+                Assert.Equal(false, span.Attributes["resumed"]);
+            });
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    [Fact]
+    public async Task TelemetryDoesNotChangeTaskOutcomes()
+    {
+        // 调度器热路径只多了「登记 span + 换上下文」：开与不开必须产出同一份记录、同一串提交。
+        var without = await RunOnceAsync(null);
+        var with = await RunOnceAsync(new InMemoryTelemetryContext());
+        Assert.Equal(without, with);
+    }
+
+    private static async Task<string> RunOnceAsync(ITelemetryContext? telemetry)
+    {
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewScriptedChatSetup(provider);
+        setup.Telemetry = telemetry;
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            provider.SetResponses(HarnessTestSupport.AssistantReply("ok"));
+            var run = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("go")] }, Ctx);
+            await run.WaitAsync(Ctx);
+            var entries = await HarnessTestSupport.AllEntriesAsync(root);
+            return System.Text.Json.JsonSerializer.Serialize(entries, JsonOptions);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = false,
+    };
 }

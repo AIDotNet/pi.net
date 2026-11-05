@@ -1341,10 +1341,10 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 | 项 | 落点 | 判定 |
 | --- | --- | --- |
 | `TelemetryPropagation` / carrier | `TelemetryCarrier`、`ITelemetryPropagation`、`NoopTelemetryPropagation`；`ITelemetryContext.Propagation`；`InMemoryTelemetryContext` 按上游的 `pi-memory-scope/span/trace` 生成载体，同 scope 解出的父上下文能定位本地父 span | ✅ 4 例（往返、未知载体回落根、跨 scope 只继承 trace、noop） |
-| `DURABLE_TELEMETRY_SCHEMA` | `DurableTelemetry.Schema`（两个 span、三个指标、四个事件）；`HarnessOptions.Telemetry`；`pi.durable.reports` 已接（`_report` 里按固定种类计数，带 `task.id`）；另留 `DurableTelemetry.SpanKey` 供处理器起子 span | ⚠️ 部分：phase span 与另外两个指标要等调用模型具备 `attempt` / `resumed`（端口 `Invocation` 没有），`pi.durable.submit` 要等提交侧携带 carrier |
+| `DURABLE_TELEMETRY_SCHEMA` | `DurableTelemetry.Schema`（两个 span、三个指标、四个事件）；`HarnessOptions.Telemetry`；`pi.durable.reports`（`_report` 按固定种类计数，带 `task.id`）；**`pi.durable.phase` span**：`RunPhaseAsync` 里包住阶段处理器，起属性 task.id/task.name/phase/kind/attempt/resumed，span 期间挂进 `Context`（`DurableTelemetry.SpanKey`）、finally 还原；补齐 `_resumed` 记账（启动扫描登记、首次调用消费、终态移除） | ⚠️ 部分：`phase.duration` / `tasks.active` 两个指标未接（要 outcome 与活跃任务计数），`pi.durable.submit` 要等提交侧携带 carrier |
 | `RemoteTerminal` / `openTerminal` | `src/Pi.Env/RemoteTerminal.cs`：`TerminalOptions`、`TerminalForeground`、`RemoteTerminal`（1 MiB 分块写、resize、close、foreground）与 `Terminals.OpenAsync` | ✅ 移植完成；守护进程在 Windows 上回 `Terminals are not supported on this system yet`（上游同一限制），用例按平台 skip，Linux/CI 上会真正执行 |
 
-**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **573**；`Pi.Env.Tests` **54**（4 跳过）；`Pi.Telemetry.Tests` **28**。
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **575**（含一条「telemetry 关/开产出同一份记录」的等价性用例）；`Pi.Env.Tests` **54**（4 跳过）；`Pi.Telemetry.Tests` **28**。
 
 ## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
 
@@ -1620,7 +1620,7 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 | 项 | 规模 / 依赖 | 判定 |
 | --- | --- | --- |
 | `TelemetryPropagation`（`inject`/`extract` + carrier） | 2 个方法；只服务于 durable 遥测（把 submit 的 trace 链接到 run） | ✅ 已补（§4.45） |
-| `DURABLE_TELEMETRY_SCHEMA` + 埋点 | 139 行 schema；埋点在 `harness.ts:468`（report 计数器/事件）与 `scheduler.ts:2233`（每次 phase 一个 span、把 span 放进 `Context`、phase 时长/活跃任务/结局指标） | ⚠️ 部分（§4.45）：schema + `pi.durable.reports` 已接；phase span 受阻于调用模型缺 `attempt`/`resumed`，submit span 受阻于提交侧 carrier |
+| `DURABLE_TELEMETRY_SCHEMA` + 埋点 | 139 行 schema；埋点在 `harness.ts:468`（report 计数器/事件）与 `scheduler.ts:2233`（每次 phase 一个 span、把 span 放进 `Context`、phase 时长/活跃任务/结局指标） | ⚠️ 部分（§4.45）：schema + `pi.durable.reports` + `pi.durable.phase` span（含 `attempt`/`resumed` 记账）已接；余 `phase.duration` / `tasks.active` 两个指标与 `submit` span |
 | `RemoteTerminal` / `openTerminal` | 127 行；端口的 `Pi.Env.Connection` 与上游 `RequestOptions`（payload / signal / onEvent / onStart / session）完全对齐 | ✅ 已补（§4.45）；此前「依赖缺失」的判断有误 |
 
 **因此「1.5.0 已对齐」的准确口径是**：`v1.4.0..v1.5.0` 的增量全部落地，外加 AI 遥测这个当时唯一能安全补的基线缺口；

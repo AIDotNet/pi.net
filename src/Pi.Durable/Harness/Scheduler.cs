@@ -1,6 +1,7 @@
 ﻿using Pi.Ai.Models;
 using Pi.Chord.Context;
 using Pi.Chord.Delta;
+using Pi.Telemetry;
 using Pi.Durable.Env;
 using Pi.Durable.Session;
 using Pi.Durable.Storage;
@@ -64,6 +65,9 @@ public sealed record TaskSchedulerOptions
     /// 内建任务从 <see cref="TaskRecord.Restarts"/> 自己判断，其他种类一律由调度器 faulted。对应 TS
     /// <c>TaskSchedulerOptions.limitsRestarts</c>。
     /// </summary>
+    /// <summary>遥测上下文；给定时每次阶段调用落一个 <c>pi.durable.phase</c> span。对应 TS <c>options.telemetry</c>。</summary>
+    public Pi.Telemetry.ITelemetryContext? Telemetry { get; init; }
+
     public required Func<string, bool> LimitsRestarts { get; init; }
 
     /// <summary>使调度器写入的终局落定的 Harness 清理（与终态同一提交）。</summary>
@@ -128,6 +132,12 @@ public sealed class TaskScheduler
     private readonly Action<Exception, ReportInfo> _report;
     private readonly Func<Transaction, TaskRecord, SchedulerOutcome, Task> _settleOutcome;
     private readonly Func<string, bool> _limitsRestarts;
+    private readonly Pi.Telemetry.ITelemetryContext? _telemetry;
+
+    /// <summary>
+    /// 本进程从存储载入、尚未被调用过的任务：首次调用时「被恢复」。对应 TS <c>#resumed</c>。
+    /// </summary>
+    private readonly HashSet<TaskId<object?>> _resumed = [];
     private readonly Func<Transaction, ConversationId, Task> _withdrawInputs;
     private readonly Func<ConversationId, InvocationBinding, Context, Task<IConversationHandle?>> _conversation;
     private readonly Context _context;
@@ -240,6 +250,7 @@ public sealed class TaskScheduler
         _report = options.Report;
         _settleOutcome = options.SettleOutcome;
         _limitsRestarts = options.LimitsRestarts;
+        _telemetry = options.Telemetry;
         _withdrawInputs = options.WithdrawInputs;
         _conversation = options.Conversation;
         _context = options.Context;
@@ -287,6 +298,7 @@ public sealed class TaskScheduler
                 foreach (var record in records)
                 {
                     _live[record.Id] = record;
+                    _resumed.Add(record.Id);
                     NoteSleeping(record);
                     // 只读：running 任务保持已提交的样子（它在另一个进程里跑），不恢复也不计数。
                     if (_readOnly) continue;
@@ -610,6 +622,7 @@ public sealed class TaskScheduler
             if (record.State.Status == TaskStatus.Terminal)
             {
                 _live.Remove(record.Id);
+                _resumed.Remove(record.Id);
                 _sleeping.Remove(record.Id);
                 _failedMigrations.Remove(record.Id);
                 _failFastChecks.Remove(record.Id);
@@ -1901,7 +1914,8 @@ public sealed class TaskScheduler
                         $"Task {current.Kind} has no handler for phase {phaseName}");
                 }
 
-                await handler(current, runtime, invocation.Context).ConfigureAwait(false);
+                await RunPhaseAsync(invocation, runtime, current, checkpoint, phaseName, handler)
+                    .ConfigureAwait(false);
                 previous = new PhaseResult(checkpoint, null);
             }
             catch (Exception error)
@@ -1909,6 +1923,59 @@ public sealed class TaskScheduler
                 previous = new PhaseResult(checkpoint, error);
             }
         }
+    }
+
+    /// <summary>
+    /// 运行一个阶段处理器。有 telemetry 时在 <c>pi.durable.phase</c> span 里跑：起属性带任务、阶段、kind、
+    /// <c>attempt</c> 与 <c>resumed</c>（本进程首次调用从存储载入的任务），span 期间把 span 挂进调用上下文，
+    /// 结束时还原。对应 TS <c>scheduler.ts</c> 的 phase span。
+    /// </summary>
+    private async Task RunPhaseAsync(
+        Invocation invocation,
+        ITaskRuntime runtime,
+        TaskRecord record,
+        IReadOnlyDictionary<string, object?> checkpoint,
+        string phaseName,
+        TaskPhaseHandler handler)
+    {
+        // 与上游一致：resumed 的消费与是否开遥测无关。
+        var resumed = _resumed.Remove(invocation.TaskId);
+        var telemetry = _telemetry;
+        if (telemetry is null)
+        {
+            await handler(record, runtime, invocation.Context).ConfigureAwait(false);
+            return;
+        }
+
+        var attributes = new SpanAttributes
+        {
+            ["task.id"] = (double)invocation.TaskId.Value,
+            ["task.name"] = invocation.Kind,
+            ["phase"] = phaseName,
+            ["kind"] = invocation.Mode,
+            ["resumed"] = resumed,
+        };
+        if (checkpoint.TryGetValue("attempt", out var attempt) && attempt is not null)
+        {
+            attributes["attempt"] = Convert.ToDouble(attempt, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        var outer = invocation.Context;
+        var starter = TypedSpanStarterFactory.Create<bool>(telemetry, DurableTelemetry.Schema);
+        await starter("pi.durable.phase", attributes, async (span, _) =>
+        {
+            invocation.Context = outer.WithValue(DurableTelemetry.SpanKey, span);
+            try
+            {
+                await handler(record, runtime, invocation.Context).ConfigureAwait(false);
+            }
+            finally
+            {
+                invocation.Context = outer;
+            }
+
+            return true;
+        }).ConfigureAwait(false);
     }
 
     /// <summary>run 调用的优先级规则，于线上。规则 1（终态 / completing / waiting）与规则 2（关闭）由 step 应用。</summary>
@@ -2650,8 +2717,8 @@ public sealed class TaskScheduler
 
         public required CancellationTokenSource Controller { get; init; }
 
-        /// <summary>传给处理器的上下文；由 <see cref="Controller"/> 取消。</summary>
-        public required Context Context { get; init; }
+        /// <summary>传给处理器的上下文；由 <see cref="Controller"/> 取消。阶段 span 期间会换成带 span 的派生值。</summary>
+        public required Context Context { get; set; }
 
         /// <summary>经运行时获取的 watch；调用结束时停止。</summary>
         public required HashSet<Watch> Watches { get; init; }

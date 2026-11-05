@@ -226,6 +226,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
             ReadOnly = options.ReadOnly,
             Timers = HostTimers.Create(options.SetTimer, reportSetTimer),
             Report = _report,
+            Telemetry = options.Telemetry,
             LimitsRestarts = Live.LimitsRestarts.Contains,
             SettleOutcome = LiveSettle.SettleSchedulerOutcomeAsync,
             WithdrawInputs = (tx, id) => Inbox.WithdrawQueuedInputsAsync(tx, id),
