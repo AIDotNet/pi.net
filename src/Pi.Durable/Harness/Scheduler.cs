@@ -138,6 +138,10 @@ public sealed class TaskScheduler
     /// 本进程从存储载入、尚未被调用过的任务：首次调用时「被恢复」。对应 TS <c>#resumed</c>。
     /// </summary>
     private readonly HashSet<TaskId<object?>> _resumed = [];
+
+    /// <summary>阶段时长直方图与活跃任务计数；没有 telemetry 时为 null（调用点跳过）。</summary>
+    private readonly ITelemetryHistogram? _phaseDuration;
+    private readonly ITelemetryUpDownCounter? _tasksActive;
     private readonly Func<Transaction, ConversationId, Task> _withdrawInputs;
     private readonly Func<ConversationId, InvocationBinding, Context, Task<IConversationHandle?>> _conversation;
     private readonly Context _context;
@@ -251,6 +255,12 @@ public sealed class TaskScheduler
         _settleOutcome = options.SettleOutcome;
         _limitsRestarts = options.LimitsRestarts;
         _telemetry = options.Telemetry;
+        if (options.Telemetry?.Metrics is { } metrics)
+        {
+            var typed = TelemetryMetrics.CreateTypedMetrics(metrics, DurableTelemetry.Schema);
+            _phaseDuration = typed.Histogram("pi.durable.phase.duration");
+            _tasksActive = typed.UpDownCounter("pi.durable.tasks.active");
+        }
         _withdrawInputs = options.WithdrawInputs;
         _conversation = options.Conversation;
         _context = options.Context;
@@ -299,6 +309,8 @@ public sealed class TaskScheduler
                 {
                     _live[record.Id] = record;
                     _resumed.Add(record.Id);
+                    // 与上游 #track(undefined, record) 一致：载入即计一次活跃（readOnly 也一样）。
+                    _tasksActive?.Add(1, TaskAttributes(record.Kind));
                     NoteSleeping(record);
                     // 只读：running 任务保持已提交的样子（它在另一个进程里跑），不恢复也不计数。
                     if (_readOnly) continue;
@@ -614,6 +626,16 @@ public sealed class TaskScheduler
             if (change is not CommitChange.TaskTable { Value: { } record }) continue;
             changed = true;
             var previous = _live.GetValueOrDefault(record.Id);
+            // 调用的记录跟随提交更新（在终态移除之前，phase span 的 finally 还要读它）。
+            if (_invocations.GetValueOrDefault(record.Id) is { } running) running.Record = record;
+            if (previous is null)
+            {
+                if (!_closing) _tasksActive?.Add(1, TaskAttributes(record.Kind));
+            }
+            else if (record.State.Status == TaskStatus.Terminal && !_closing)
+            {
+                _tasksActive?.Add(-1, TaskAttributes(record.Kind));
+            }
             // 空闲性按存活任务计，因此只有变为存活或结束的任务能改变它。在 sweep 之前收集——
             // sweep 可能丢掉已结束任务的链。对应 TS <c>#addScopesAbove</c> 的调用点。
             var liveness = previous is null || record.State.Status == TaskStatus.Terminal;
@@ -1402,7 +1424,13 @@ public sealed class TaskScheduler
     /// <summary>关闭监听器：受理封印后同步运行一次，先于 <see cref="JoinAsync"/>。</summary>
     private void Seal()
     {
+        var wasClosing = _closing;
         _closing = true;
+        // 关闭把仍存活的任务从活跃计数里减去（对应 TS close 的 #countActive(-1) 循环）。
+        if (!wasClosing && _tasksActive is not null)
+        {
+            foreach (var record in _live.Values) _tasksActive.Add(-1, TaskAttributes(record.Kind));
+        }
         lock (_contextsGate)
         {
             _contexts.Clear();
@@ -1965,18 +1993,111 @@ public sealed class TaskScheduler
         await starter("pi.durable.phase", attributes, async (span, _) =>
         {
             invocation.Context = outer.WithValue(DurableTelemetry.SpanKey, span);
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
+            Exception? fault = null;
             try
             {
                 await handler(record, runtime, invocation.Context).ConfigureAwait(false);
             }
+            catch (Exception error)
+            {
+                fault = error;
+                throw;
+            }
             finally
             {
                 invocation.Context = outer;
+                RecordPhaseOutcome(invocation, span, fault, phaseName, started);
             }
 
             return true;
         }).ConfigureAwait(false);
     }
+
+    private static SpanAttributes TaskAttributes(string kind) => new() { ["task"] = kind };
+
+    /// <summary>
+    /// 阶段结束时写 <c>outcome</c>、错误状态与 <c>pi.durable.phase.duration</c>。
+    /// 对应 TS phase span 的 finally：终态按 completed/aborted/其余 归为 done/aborted/faulted，
+    /// 否则 waiting/sleeping，关闭或已结束算 aborted，其余是 <c>next=&lt;phase&gt;</c>。
+    /// </summary>
+    private void RecordPhaseOutcome(
+        Invocation invocation, ITelemetrySpan span, Exception? fault, string phaseName, long started)
+    {
+        var state = invocation.Record?.State;
+        var terminal = fault is not null
+            ? new TaskOutcome
+            {
+                Status = TaskOutcomeStatus.Faulted,
+                Error = new TaskOutcomeError { Message = fault.Message },
+            }
+            : state is { Status: TaskStatus.Terminal or TaskStatus.Completing }
+                ? state.Outcome
+                : null;
+
+        string outcome;
+        if (terminal is not null)
+        {
+            outcome = terminal.Status switch
+            {
+                TaskOutcomeStatus.Completed => "done",
+                TaskOutcomeStatus.Aborted => "aborted",
+                _ => "faulted",
+            };
+        }
+        else if (state is { Status: TaskStatus.Waiting })
+        {
+            outcome = "waiting";
+        }
+        else if (state is { Status: TaskStatus.Sleeping })
+        {
+            outcome = "sleeping";
+        }
+        else if (invocation.Ended || _closing)
+        {
+            outcome = "aborted";
+        }
+        else
+        {
+            outcome = "next=" + (CheckpointPhase(state) ?? phaseName);
+        }
+
+        span.SetAttributes(new SpanAttributes { ["outcome"] = outcome });
+
+        if (terminal?.Status is TaskOutcomeStatus.Faulted or TaskOutcomeStatus.Failed or TaskOutcomeStatus.Orphaned)
+        {
+            var message = terminal.Status == TaskOutcomeStatus.Orphaned
+                ? terminal.Reason ?? ""
+                : terminal.Error?.Message ?? "";
+            span.SetStatus(new SpanStatus.ErrorStatus(
+                new TelemetryErrorDetail($"task_{StatusName(terminal.Status)}", Cap(message))));
+        }
+        else if (outcome == "aborted")
+        {
+            span.SetStatus(SpanStatus.Ok.Instance);
+        }
+
+        _phaseDuration?.Record(
+            System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            new SpanAttributes { ["task"] = invocation.Kind, ["phase"] = phaseName, ["outcome"] = outcome },
+            span);
+    }
+
+    private static string? CheckpointPhase(TaskState? state)
+        => state?.Checkpoint is IReadOnlyDictionary<string, object?> checkpoint
+            && checkpoint.TryGetValue("phase", out var phase)
+                ? phase as string
+                : null;
+
+    private static string StatusName(TaskOutcomeStatus status) => status switch
+    {
+        TaskOutcomeStatus.Faulted => "faulted",
+        TaskOutcomeStatus.Failed => "failed",
+        TaskOutcomeStatus.Orphaned => "orphaned",
+        _ => "faulted",
+    };
+
+    private static string Cap(string text) => text.Length <= 500 ? text : text[..500];
 
     /// <summary>run 调用的优先级规则，于线上。规则 1（终态 / completing / waiting）与规则 2（关闭）由 step 应用。</summary>
     private Decision Decide(
@@ -2727,6 +2848,9 @@ public sealed class TaskScheduler
         public required HashSet<Action> Timers { get; init; }
 
         public bool Ended { get; set; }
+
+        /// <summary>该调用的任务记录（随提交更新）；outcome 与活跃计数都读它。对应 TS <c>invocation.record</c>。</summary>
+        public TaskRecord? Record { get; set; }
 
         public required Task<object?> Done { get; init; }
 

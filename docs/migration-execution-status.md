@@ -625,3 +625,16 @@ chord `connection` 层）。
 
 仍未接：`phase.duration` / `tasks.active` 两个指标（要 outcome 与活跃任务计数），`pi.durable.submit` span（要提交侧 carrier）。
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 575（重跑 0 失败）。
+
+## 2026-11-05 durable 遥测补齐（§4.45 续）
+
+- `phase.duration`：阶段结束按上游规则算 outcome（terminal 的 completed/aborted/其余 → done/aborted/faulted；
+  否则 waiting/sleeping；关闭或已结束 → aborted；其余 `next=<phase>`），错误状态带 `task_faulted|failed|orphaned`
+  与 500 字截断，再记直方图 {task, phase, outcome}
+- `tasks.active`：载入/新建 +1、终态 -1、关闭清空（对应上游 #countActive 三处调用）
+- `Invocation.Record`：提交观察者里跟随更新（终态移除 `_live` 之前），供 finally 读 outcome
+
+**仍缺 `pi.durable.submit` span**，三条硬障碍见台账 §7.5：①受理只返回 id、没有 `result`（queued/placed/done）
+②link 形状不一致（上游收上下文，端口 `AddLink` 收 trace/span）③entry/submission 事件要穿透受理内部。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 575 全绿（含 telemetry 关/开的等价性用例）。

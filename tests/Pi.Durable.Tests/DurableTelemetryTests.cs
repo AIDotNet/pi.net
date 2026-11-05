@@ -103,7 +103,24 @@ public class DurableTelemetryTests
                 Assert.True(span.Attributes.ContainsKey("phase"));
                 // 本进程新建的任务不是「恢复」的。
                 Assert.Equal(false, span.Attributes["resumed"]);
+                // 阶段结束写了 outcome（新任务走到下一个阶段或已完结）。
+                Assert.True(span.Attributes.ContainsKey("outcome"));
             });
+
+            var measurements = telemetry.GetMeasurements();
+            var durations = measurements.Where(item => item.Name == "pi.durable.phase.duration").ToList();
+            Assert.NotEmpty(durations);
+            Assert.All(durations, item =>
+            {
+                Assert.True(item.Attributes.ContainsKey("task"));
+                Assert.True(item.Attributes.ContainsKey("phase"));
+                Assert.True(item.Attributes.ContainsKey("outcome"));
+            });
+
+            // 活跃计数：新建 +1、终态 -1，脚本文本跑完后该任务不再活跃。
+            var active = measurements.Where(item => item.Name == "pi.durable.tasks.active").ToList();
+            Assert.Contains(active, item => item.Value > 0);
+            Assert.Equal(0d, active.Sum(item => item.Value));
         }
         finally
         {
