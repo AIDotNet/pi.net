@@ -1010,18 +1010,23 @@ public class DurableSession : ISession
                     changes.Add(new CommitChange.ConversationTable(conversation.Value));
                     break;
                 case StorageWrite.Entry entry:
-                    span?.AddEvent("pi.durable.entry", new Pi.Telemetry.SpanAttributes
+                    if (span is not null)
                     {
-                        ["entry.id"] = (double)entry.Value.Id.Value,
-                        ["entry.kind"] = entry.Value.Kind,
-                    });
+                        // 只在有 span 时构造属性：这条路径每次提交都走，空转不该付出分配。
+                        span.AddEvent("pi.durable.entry", new Pi.Telemetry.SpanAttributes
+                        {
+                            ["entry.id"] = (double)entry.Value.Id.Value,
+                            ["entry.kind"] = entry.Value.Kind,
+                        });
+                    }
                     changes.Add(new CommitChange.EntryTable(entry.Value));
                     break;
                 case StorageWrite.Task task:
                     changes.Add(new CommitChange.TaskTable(task.Value));
                     break;
                 case StorageWrite.Submission submission:
-                    if (SubmissionState(submission.Value) is { } state
+                    if (span is not null
+                        && SubmissionState(submission.Value) is { } state
                         && state.Status is SubmissionStatus.Done or SubmissionStatus.Unanswered)
                     {
                         var attributes = new Pi.Telemetry.SpanAttributes
@@ -1030,7 +1035,7 @@ public class DurableSession : ISession
                             ["status"] = state.Status == SubmissionStatus.Done ? "done" : "unanswered",
                         };
                         if (state.Answer is { } answer) attributes["answer.entry_id"] = (double)answer.Value;
-                        span?.AddEvent("pi.durable.submission", attributes);
+                        span.AddEvent("pi.durable.submission", attributes);
                     }
 
                     changes.Add(new CommitChange.SubmissionTable(submission.Value));

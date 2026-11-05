@@ -1427,9 +1427,17 @@ public sealed class TaskScheduler
         var wasClosing = _closing;
         _closing = true;
         // 关闭把仍存活的任务从活跃计数里减去（对应 TS close 的 #countActive(-1) 循环）。
+        // 快照后遍历：提交观察者可能在别的线路上改 _live；计数是旁路行为，绝不能让它打断关闭。
         if (!wasClosing && _tasksActive is not null)
         {
-            foreach (var record in _live.Values) _tasksActive.Add(-1, TaskAttributes(record.Kind));
+            try
+            {
+                foreach (var record in _live.Values.ToList()) _tasksActive.Add(-1, TaskAttributes(record.Kind));
+            }
+            catch (Exception)
+            {
+                // 关闭时的计数只是旁路：宁可少记一次，也不能让关闭失败。
+            }
         }
         lock (_contextsGate)
         {
@@ -1983,9 +1991,11 @@ public sealed class TaskScheduler
             ["kind"] = invocation.Mode,
             ["resumed"] = resumed,
         };
-        if (checkpoint.TryGetValue("attempt", out var attempt) && attempt is not null)
+        // attempt 来自持久化的 checkpoint，形状可能是 long / int / double / JsonElement：
+        // 转换失败就省略这个可选属性，绝不让遥测的构造过程把任务打断。
+        if (checkpoint.TryGetValue("attempt", out var attempt) && Number(attempt) is { } attemptValue)
         {
-            attributes["attempt"] = Convert.ToDouble(attempt, System.Globalization.CultureInfo.InvariantCulture);
+            attributes["attempt"] = attemptValue;
         }
 
         var outer = invocation.Context;
@@ -2007,12 +2017,33 @@ public sealed class TaskScheduler
             finally
             {
                 invocation.Context = outer;
-                RecordPhaseOutcome(invocation, span, fault, phaseName, started);
+                try
+                {
+                    RecordPhaseOutcome(invocation, span, fault, phaseName, started);
+                }
+                catch (Exception)
+                {
+                    // 记 outcome 是旁路：它抛异常会顶替掉处理器真正的异常。
+                }
             }
 
             return true;
         }).ConfigureAwait(false);
     }
+
+    /// <summary>checkpoint 里的数值属性：认得的形状才返回值，其余返回 null（省略该属性）。</summary>
+    private static double? Number(object? value) => value switch
+    {
+        null => null,
+        double number => number,
+        float number => number,
+        long number => number,
+        int number => number,
+        decimal number => (double)number,
+        System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.Number } element
+            => element.GetDouble(),
+        _ => null,
+    };
 
     private static SpanAttributes TaskAttributes(string kind) => new() { ["task"] = kind };
 

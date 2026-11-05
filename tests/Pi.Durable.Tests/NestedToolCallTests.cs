@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Durable.Harness;
@@ -111,7 +112,11 @@ public class NestedToolCallTests
         public Task<ToolExecutionResult> ExecuteAsync(object args, IToolExecutionApi api, Context context)
         {
             Runs++;
-            return Task.FromResult(new ToolExecutionResult { Content = [new TextContent("hi")] });
+            var text = args is IReadOnlyDictionary<string, object?> dictionary
+                && dictionary.TryGetValue("text", out var value)
+                    ? value as string ?? "<not-a-string>"
+                    : "<no-args>";
+            return Task.FromResult(new ToolExecutionResult { Content = [new TextContent(text)] });
         }
     }
 
@@ -136,10 +141,11 @@ public class NestedToolCallTests
 
         public async Task<ToolExecutionResult> ExecuteAsync(object args, IToolExecutionApi api, Context context)
         {
+            var arguments = new JsonObject { ["text"] = "hi" };
             var first = await api.ExecuteToolAsync(
-                "echo", new Dictionary<string, object?>(), context, new ExecuteToolOptions { Key = "c1" });
+                "echo", arguments, context, new ExecuteToolOptions { Key = "c1" });
             var second = await api.ExecuteToolAsync(
-                "echo", new Dictionary<string, object?>(), context, new ExecuteToolOptions { Key = "c1" });
+                "echo", arguments, context, new ExecuteToolOptions { Key = "c1" });
             Calls = 2;
 
             var left = first.Content?.OfType<TextContent>().FirstOrDefault()?.Text ?? "<none>";

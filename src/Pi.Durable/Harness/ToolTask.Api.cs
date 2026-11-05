@@ -129,7 +129,9 @@ public static partial class ToolTask
         {
             assertLive();
             var key = options?.Key ?? (++_nestedSequence).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var json = arguments as JsonDict ?? new Dictionary<string, object?>();
+            // 工具可能把 JsonObject、字典或别的 JSON 形状传进来：统一归一化成严格 JSON 树，
+            // 直接 `as JsonDict` 会把 JsonObject 静默当成空参数。
+            var json = JsonTrees.ToTree(arguments) as JsonDict ?? new Dictionary<string, object?>();
 
             var id = await StartNestedAsync(
                 runtime, call.Id, name, json, key, options?.AbandonOnRestart ?? false, context).ConfigureAwait(false);

@@ -725,3 +725,18 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 工具输出节流落盘（真实缺口是分组提交，且「崩溃前丢输出」的前提在现码不成立）。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 585；`Pi.Tui.Tests` 23964。
+
+## 2026-11-05 自检修复（§4.48）
+
+自查本轮改动抓到 5 处问题，均已修并回归：
+
+1. **`ExecuteToolAsync` 静默丢参数**：`arguments as JsonDict` 对 `JsonObject` 返回 null → 内层工具收到空参数。
+   改为 `JsonTrees.ToTree(arguments)`；用例改成传 `JsonObject`，并验证「退回旧码用例变红（`<no-args>`）」。
+2. **`Seal()` 枚举 `_live` 的并发风险**：关闭时逐条减活跃计数，提交观察者可能在另一线改字典 → 抛异常打断关闭。
+   改为快照 + try/catch（计数是旁路）。
+3. **`attempt` 强制转换**：`Convert.ToDouble` 遇到 `JsonElement` 会抛，抛出点在处理器之外 → 会打断任务。
+   改为形状安全转换（long/int/double/decimal/JsonElement 才取值，其余省略）。
+4. **`RecordPhaseOutcome` 在 finally 抛异常会顶替真实异常**：加 try/catch。
+5. **热路径空分配**：`Session.Publish` 里 entry/submission 事件在无 span 时也构造属性 → 加 null 判断。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 585、`Pi.Tui.Tests` 23964、`Pi.Telemetry.Tests` 30，全绿。
