@@ -207,12 +207,5 @@ public class AnthropicMessagesTests : IDisposable
         Assert.Equal(StopReason.Stop, AnthropicMessages.MapStopReason("stop_sequence"));
     }
 
-    private static int TcpPort()
-    {
-        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
-    }
+    private static int TcpPort() => TestPorts.Next();
 }

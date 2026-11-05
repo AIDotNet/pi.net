@@ -802,3 +802,20 @@ assistant 条目；并断言 `Calls > 0`，证明抛出路径确实被走到（�
 这条契约写进了探针 README 与本节，避免宿主实现者踩坑。
 
 验证：`Pi.slnx` 0 警告 0 错误；探针三阶段复现（crash/dump/resume）。
+
+## 2026-11-05 全量测试收口（§7.11）
+
+逐工程跑 13 个测试工程，修掉两处：
+
+1. **扩展示例探针**（真正的持久失败）：11 个 `import 'typebox'` 的示例未进 `KnownFailures`。根因是依赖未安装
+   （树里无 node_modules），与表中已钉的 4 个同类；宿主解析器由 `NodeModuleResolution_…` 证明可用。
+   补表并把 `CleanBaseline` 71 → 60。
+2. **AI HTTP 夹具的端口竞态**：`TcpPort()` 是「起 0 端口、读号码、关掉、返回」，四个夹具并行时系统会把刚释放的
+   端口再发一次 → 两个 `HttpListener` 撞同一端口。新增 `TestPorts.Next()`（进程内去重）供四个类共用。
+
+**仍存在的负载敏感 flake（非本轮引入，单独跑必绿）**：
+
+- `Pi.Ai.Tests` 的 `AnthropicStrictToolFallbackTests`（本地 HTTP 监听在满载下偶发收不到请求体）
+- `Pi.Durable.Tests` 的 `HarnessSleepTests`（10s 计时）、`HarnessViewTests`（文档挂载时序）
+
+后续可做：把四个 HTTP 夹具统一到一个带「绑定重试」的共享 fixture；给计时类用例放宽等待窗口。
