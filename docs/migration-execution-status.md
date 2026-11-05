@@ -889,3 +889,27 @@ bash scripts/gate-tests.sh Debug tests/Pi.Chord.Tests/Pi.Chord.Tests.csproj   # 
 
 两处说明已按实现改写。**刻意不把 `package.json` 打进包**：程序集版本已经承载了这个信息，多带一份反而会让
 消费方输出目录里的陈旧文件覆盖真实版本。
+
+## 2026-11-05 net9.0 兼容目标的验证边界（§7.16）
+
+发布声明 `net9.0;net10.0` 双目标。本次想把它验到底，结论要分开说：
+
+| 项 | 状态 |
+| --- | --- |
+| 编译 | ✅ 两个 TFM 都参与 `dotnet build Pi.slnx -c Release`（0 警告 0 错误），包内 `lib/net9.0` + `lib/net10.0` 齐全 |
+| 运行时（net9.0） | ⚠️ 部分验证 |
+| 门禁覆盖 | 只跑 net10.0（`scripts/gate-tests.sh` 默认；net9.0 运行时不在本机，`GATE_FRAMEWORK=net9.0` 需要它） |
+
+**做了什么**：用 `dotnet-install.ps1` 把 .NET 9 运行时 9.0.22 装到 `C:/Users/xuzey/dotnet9`（不动系统安装），
+直接跑 `bin/Release/net9.0` 的可执行测试：
+
+- `Pi.Protocol.Tests`：**14/14 通过** → net9.0 运行时下加载、执行、断言都正常。
+- `Pi.Durable.Tests`：卡在 `ToolsTests.Bash_StreamsOutputThroughApiAndReturnsNoContent`（30s+ 无进展），
+  同一用例在 net10.0 是通过的。
+
+**没有把它定性为 net9 兼容缺陷**：那条用例要拉起 `bash`，而这次是用「自定义 `DOTNET_ROOT` + 直接跑 apphost」
+的方式启动的，环境与常规 `dotnet test` 不同——分不清是运行时差异还是这种启动方式的问题。要定性得在装了
+.NET 9 的干净机器上按常规方式跑一遍。
+
+**结论**：net9.0 目前是「编译验证 + 一个工程的运行时抽样通过」，不是「全套件在 net9.0 上通过」。
+要收紧这条，得给 CI 加一个 net9.0 job（runner 同时装两个 SDK 即可）。
