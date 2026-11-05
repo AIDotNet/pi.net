@@ -95,6 +95,26 @@ GitHub runner 不满足（详见 `.github/workflows/ci.yml` 里的说明）。
 推送阶段用 `--skip-duplicate`，重复运行是幂等的：已上传的版本跳过，剩下的继续推。
 所以直接重跑工作流即可，不需要手动清理。
 
+## 发布前清单
+
+发版前逐项过一遍，全绿再打 tag：
+
+| 检查 | 命令 / 位置 | 期望 |
+| --- | --- | --- |
+| 版本号两处一致 | `Directory.Build.props`、`src/Pi.CodingAgent/Assets/package.json` | 都是目标版本（不一致时构建会失败，见 `ValidatePackagedVersion`） |
+| CHANGELOG | 根 `CHANGELOG.md`、`Assets/CHANGELOG.md` | 有对应版本段落 |
+| Release 构建 | `dotnet build Pi.slnx -c Release` | 0 警告 0 错误 |
+| 发布门禁 | `bash scripts/gate-tests.sh Release` | 11 个工程全绿（flake 重跑一次） |
+| 打包冒烟 | `dotnet pack Pi.slnx -c Release --no-build -o artifacts` | 13 个 `X.Y.Z.nupkg`，无可执行项目 |
+| 版本自证 | `dotnet run --project src/Pi.Cli -c Release -f net10.0 -- --version` | 输出目标版本 |
+| 工作区干净 | `git status --porcelain` | 无输出 |
+
+**试跑（推荐）**：`Actions -> Publish NuGet packages -> Run workflow`，`dry_run` 保持 `true`（默认）。
+它会完整执行解析版本 → build → **发布门禁** → pack → 校验包集合，只是不推送。
+这一步同时验证了门禁在 runner 上的表现——本地全绿不等于 runner 全绿。
+
+**正式发布**：确认试跑通过后再推 tag。
+
 ## 回退
 
 nuget.org 允许 unlist（不可删除）。收回某个版本：
