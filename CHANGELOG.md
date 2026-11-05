@@ -3,6 +3,52 @@
 All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/earendil-works/pi) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
+## [1.5.0] - 2026-11-05
+
+对齐上游 `v1.5.0`（308 个提交）。三个大头：**durable 的窗口化视图与提交语义**、**遥测与传播**
+（AI 层与 durable 全词表）、**嵌套 durable 调用**。逐条对照与判定见 `docs/upstream-1.5.0-delta.md`。
+
+### Added
+
+- **遥测**：`pi.ai.request` / `pi.ai.poll` span 与四个指标；durable 全词表——`pi.durable.reports`、
+  `pi.durable.phase`（含 `phase.duration`、`tasks.active`）、`pi.durable.submit`（含跨 trace 的 link）、
+  `pi.durable.entry` / `submission` / `report` / `checkpoint` 事件；`TelemetryPropagation` 上下文传播；
+  `RemoteTerminal` 走 `Connection` 层
+- **durable 嵌套工具调用**：`IToolExecutionApi.ExecuteToolAsync`、`ToolTaskInput.Nested` / `ToolTaskResult.Nested`、
+  `tool.nested-call` 文档族（结果写在调用方文档里、不进 transcript）；同一个 key 重跑时用已存结果，
+  并发 `pi.durable.replay`
+- **窗口化视图**：`ConversationView.entries` 的 `before` / `from` / `min` / `max`，`ConversationTranscript`
+  的 `gaps` / `loadEarlier` / `fillGap` / `resume`；随之删除整个 `watchEvents` 事件流
+- **提交语义**：`{ type: "continue" }` 提交（不落条目、从不排队）；在调用方的提交内受理
+  （`ConversationHandle.submit(tx, draft)`，且句柄现在收任意 `SubmissionDraft`）；`pi.live.runFailure`
+  （含失败运行的历史起点 `first`）
+- **运行控制**：每会话工具轮次上限；`afterTool` 覆盖全部结算路径（含 `tool_unavailable`）；
+  `afterRun` 与运行结束任务；工具交接后运行继续；重启循环以 `task_interrupted` 可见结束
+- **流式**：`streaming-json` 增量解析器；工具参数按增量写（块数不变时只写 `arguments` 的变化）
+- **Harness 出口**：`observeConversation` / `observeTaskGraph`、`Session.observeDoc`
+- **TUI**：OSC 133 shell 集成、双击选词字符集、原生 Shift+Enter、Markdown 顶层块复用、Kitty 功能键、
+  公式超宽回退原始 LaTeX、换行边界与删除线修复、`Text.setText` 同文本保留折行
+- **env / mcp**：启动错误分类；`mcp login` 作用域
+
+### Changed
+
+- 模型目录升到 models.dev v2（42 份目录按 1.5.0 生成器重导，不移植生成器）
+- assistant 消息记录**请求**的思考档位；轮询检查点同样携带
+- 空闲检查按脏集合走，`wake()` 的睡眠集合与空闲过期索引收窄到相关会话
+- 只读 Harness：以 `readOnly` 打开的 Harness 不派发也不写
+
+### Fixed
+
+- `pi-schema` 校验语义、AI wire 层三项（含 Bedrock strict 回退）
+- 窗口化视图与 `ConversationTranscript` 的缺口填充、更早历史加载
+- 未提供（`unoffered`）的工具调用按工具任务跑并由其结算 `tool_unavailable`
+- TUI 若干按字节对齐的渲染修复（定界搜索、连续匹配优先、显示宽度回退）
+
+### 已知不做
+
+- `e5c6182ba` 分组提交 + 批量 `Storage.commit`：可观察行为一致，差吞吐与 `IStorage` 契约形状（见 delta §6.1）
+- durable code-mode：1.4.0 起的产品决策不采纳（见 delta §4.8）
+
 ## [1.4.5] - 2026-10-28
 
 两个主题：**扩展系统终于能吃上游的 TypeScript 插件**（方案 A，进程内 JavaScript 宿主），

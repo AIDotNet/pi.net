@@ -784,3 +784,21 @@ assistant 条目；并断言 `Calls > 0`，证明抛出路径确实被走到（�
 
 1.5.0 功能面到此全部对齐；剩余均为有记录的不做项。
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 587 全绿。
+
+## 2026-11-05 崩溃恢复实测（§7.10）
+
+用 `tools/crash-probe`（独立探针工程，不入 solution）做真实进程终止验证：外层工具先完成一次嵌套调用后阻塞，
+`Environment.FailFast` 杀进程，重启后核对。
+
+**崩溃现场（磁盘上）**：`pi.generation` = Waiting、`outer` 的 `pi.tool` = Running、
+`inner` 的 `pi.tool` = Terminal/Completed、submission = Placed。
+
+**恢复结果**：`outer-starts` 1 → **2**（重跑）、`inner-runs` 1 → **1**（重放，没有重复执行）、
+`pi.tool-result` 条目 1 条。即「崩溃后接着跑 + 已完成的不重做」在真实 kill 下成立。
+
+**过程中确认的一条设计契约**：`Harness.OpenAsync` 只把幸存的 `running` 核回 `pending`，**不接手调度**——
+宿主必须调 `Resume()`（或提交/等待）。我一度以为这是缺陷并让 `OpenAsync` 自动 `Resume()`，结果打挂 6 个用例
+（含 `EnablesSchedulingWhenACallerSubmitsOrWaits`）；查上游 `Harness.open` 只调 `openTasks`，端口是忠实的，已回退。
+这条契约写进了探针 README 与本节，避免宿主实现者踩坑。
+
+验证：`Pi.slnx` 0 警告 0 错误；探针三阶段复现（crash/dump/resume）。

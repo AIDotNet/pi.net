@@ -365,7 +365,7 @@ public sealed class UpstreamTypeScriptExampleTests(ITestOutputHelper output)
     private static readonly string[] KnownFailures =
     [
         // --- Missing npm dependencies ------------------------------------------------
-        // These four ship a package.json + package-lock.json and no node_modules
+        // These ship a package.json + package-lock.json and no node_modules
         // (.gitignore'd upstream too): `npm install` in the example directory is what
         // makes them run, in upstream as well. The host resolves node_modules fine —
         // `NodeModuleResolution_ResolvesADependencyFromNodeModules` proves that with a
@@ -374,6 +374,23 @@ public sealed class UpstreamTypeScriptExampleTests(ITestOutputHelper output)
         "gondolin/index.ts",                  // @earendil-works/gondolin
         "sandbox/index.ts",                   // @anthropic-ai/sandbox-runtime
         "with-deps/index.ts",                 // ms
+
+        // `import { Type } from "typebox"` — the schema library every one of these uses
+        // for its config/tool schemas. Nothing vendors it (neither the port nor upstream
+        // commits node_modules), so on a checkout without an `npm install` these fail at
+        // load with "Cannot find module 'typebox'". Installing it restores all eleven;
+        // this table must then be tightened (the `newlyPassing` assertion enforces that).
+        "dynamic-tools.ts",
+        "question.ts",
+        "questionnaire.ts",
+        "reload-runtime.ts",
+        "shutdown-command.ts",
+        "structured-output.ts",
+        "subagent/index.ts",
+        "tic-tac-toe.ts",
+        "todo.ts",
+        "tool-override.ts",
+        "truncated-tool.ts",
 
         // --- Registration APIs that need the streaming protocol bridge ---------------
         // Registering a provider / virtual model means handing the model stream to JS and
@@ -393,8 +410,13 @@ public sealed class UpstreamTypeScriptExampleTests(ITestOutputHelper output)
         "mac-system-theme.ts",
     ];
 
-    /// <summary>Clean entry points at the time the table was pinned.</summary>
-    private const int CleanBaseline = 71;
+    /// <summary>
+    /// Clean entry points when the table was pinned: 79 entries minus the 19 pinned above.
+    /// 71 was the count on a machine that had `typebox` installed; without it the eleven
+    /// typebox entries cannot load, so the count is 60. Installing the dependency raises it
+    /// and fails this assertion, which is the reminder to tighten the table.
+    /// </summary>
+    private const int CleanBaseline = 60;
 
     private static readonly string ExamplesDirectory = FindExamplesDirectory();
 
