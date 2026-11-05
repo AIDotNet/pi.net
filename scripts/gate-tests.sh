@@ -45,21 +45,35 @@ for project in "${gate[@]}"; do
   name="$(basename "${project}" .csproj)"
   printf '== %s\n' "${name}"
 
-  if dotnet test "${project}" -c "${configuration}" -f "${framework}" --no-build > "test-${name}.log" 2>&1; then
+  # 强制出 TRX：CI 上 MTP 只把汇总打到 stdout，详细失败在 TestResults/*.log 里，
+  # 不解析 TRX 就只能看到「Failed: N」而不知道是哪几条用例。
+  run_probe() {
+    dotnet test "${project}" -c "${configuration}" -f "${framework}" --no-build \
+      -- --report-xunit-trx --report-xunit-trx-filename "${name}.trx" > "test-${name}.log" 2>&1
+  }
+
+  if run_probe; then
     tail -3 "test-${name}.log"
     continue
   fi
 
   printf '   首次失败，重跑一次（已知负载敏感 flake）\n'
-  if dotnet test "${project}" -c "${configuration}" -f "${framework}" --no-build > "test-${name}.log" 2>&1; then
+  if run_probe; then
     flaked+=("${name}")
     tail -3 "test-${name}.log"
     continue
   fi
 
   failed+=("${name}")
-  printf '   重跑仍失败，日志尾部：\n'
-  tail -30 "test-${name}.log"
+  printf '   重跑仍失败，失败用例：\n'
+  trx="$(find tests -name "${name}.trx" -print -quit 2>/dev/null || true)"
+  if [[ -n "${trx}" && -f "${trx}" ]]; then
+    grep -ao 'testName="[^"]*"[^>]*outcome="Failed"' "${trx}" \
+      | sed -E 's/testName="([^"]*)".*/  - \1/' | head -20
+  else
+    printf '  （没找到 TRX，日志尾部如下）\n'
+    tail -20 "test-${name}.log"
+  fi
   # 失败用例名进 step summary：CI 上一眼就能看到是哪个工程、哪几条用例，不必翻完整日志。
   {
     printf '### %s\n\n' "${name}"
