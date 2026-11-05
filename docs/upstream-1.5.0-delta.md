@@ -601,7 +601,7 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
    回答都会多一次 hold + finish 提交。独立接口让「声明」保持可选。
 2. **`run.first` 已补**（本轮）：`BoundaryResult.First` 把「边界放置的第一个条目」交给它起的运行，
    没有边界条目可依的运行以第一个工具轮答案补；`RunSummary.First` 因此是真正的第一个条目。随后 §4.19 的
-   重启收场已经把 `finish` / `drain` 也纳进上限检查；仍未做的是 `runFailure.first`（失败运行的历史起点，
+   重启收场已经把 `finish` / `drain` 也纳进上限检查；**`runFailure.first` 后续已补**（见本节末尾的对照表：`RunFailureFirst` 供 continue 读）；当时未做的是失败运行的历史起点（
    供 continue 的钩子用）。
 
 ### 4.18 自查记录（全仓验证与遗漏核对）
@@ -691,7 +691,8 @@ P4（tui）余 11 项（等语料生成链，已做两项不改字节的见 §4.
 
 **当时已知未做**（后续批次已补齐）：`f3255de76` 的窗口化视图 + `ConversationTranscript` + 删 `watchEvents`
 （§4.21/§4.22）、`35dfa7573` 的 `idleOrder` 索引与 `wake()` 睡眠集合（§4.23）、`e5c6182ba` / `6c2fd73b0`
-分组提交与节流落盘（**仍未做**，工具输出在崩溃前是否落盘取决于它，所以本批工具用例只断言诊断码而不部分输出）。
+**分组提交**仍未做（`e5c6182ba`，§6.1 判定不做）。**节流落盘的前提在现码不成立**：工具进度走 `runtime.CommitAsync(...)`
+且不传 `CommitOptions.Deferred`，每个 tick 直接落盘——缺的是「把多个提交并成一次存储写入」（即分组提交），不是「输出会丢」。
 
 ### 4.21 P6 第十三批：窗口化视图与 `ConversationTranscript`（`f3255de76` 前半）
 
@@ -1271,7 +1272,7 @@ OAuth 选择器、自动补全、llama、`pi models` CLI），改 `Match` 即全
 用例：分片不变性（1/2/3/7 字符一片）、逐段快照、变更序列、32 层上报边界，并额外加一组「完整文档与
 `System.Text.Json` 解析结果一致」（每种分片大小）。所以是 32 例而不是上游的 40+ 例，覆盖面按规则矩阵对齐。
 
-**未做（属下一批）**：把 provider 的 `toolcall_delta` 与 `PartialChanges` 的 tool-call 状态机接到这条增量上
+**当时列为下一批，已在 §4.43 补齐**：把 provider 的 `toolcall_delta` 与 `PartialChanges` 的 tool-call 状态机接到这条增量上
 （`partial-changes.ts` 166 行 + 213 行用例）——那才是 `da412b039` 的行为收益部分。
 
 **验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Ai.Tests` **1008**（0 失败 / 1 跳过：Unix 权限位）。
