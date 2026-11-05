@@ -533,9 +533,7 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 **为什么先做这一件**：`f6a9db1d8`（轮次上限）的上游用例断言 `live.runFailure`；`fb524dd2e`（continue）的
 `nothing_to_answer` 同样走这条通道；`7e15f9601`（afterRun）也要读它判断运行怎么结束。三处都卡在这一块上。
 
-**仍未做**（同一上游提交的其余部分）：`ConversationView.entries` 的窗口（`before` / `from` / `min` / `max`）、
-`ConversationTranscript`（`gaps` / `loadEarlier` / `fillGap` / `resume`）、删除 `watchEvents` 及其事件类型。
-端口目前仍保留 `Events.WatchEventsAsync`，删它与 P6 的窗口化视图一起做，免得两次改同一批视图代码。
+**当时列为未做，后续已补**：`ConversationView.entries` 窗口与 `ConversationTranscript`（§4.21）、删除 `watchEvents`（§4.22）。
 
 ### 4.12 P6 第六批：continue 提交（`79bfdae`）
 
@@ -664,6 +662,8 @@ P4（tui）余 11 项（等语料生成链，已做两项不改字节的见 §4.
 停在 1）；压缩要能出摘要得有两轮且 `keepRecentTokens` 足够小（一轮时切点是 0，等于没得压）。
 
 ### 4.20 自查记录（P6 第十二批之后）
+
+> 历史快照：本节按时间追加，其中「未做」项陆续被后续章节补齐，以下文对应章节为准。
 
 **构建与测试**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **543** 例，本批相关的 39 例全绿。
 全量并行仍有个位数旋转噪声（`HarnessViewTests`、`HarnessTaskGraphTests`、`HarnessEventsTests`、
@@ -1329,7 +1329,7 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 
 **用例**：`AiTelemetryTests` 3 例——span 名/属性/事件/指标、无手柄时的无操作路径、延后响应产出 `pi.ai.poll`。
 
-**未做（另计）**：`TelemetryPropagation` / carrier；`DURABLE_TELEMETRY_SCHEMA`（要把 span 织进 submit/task 生命周期）。
+**当时列为另计，后续已补**：`TelemetryPropagation` / carrier 与 `DURABLE_TELEMETRY_SCHEMA`（§4.45）。
 
 **验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Telemetry.Tests` 24 全绿；`Pi.Ai.Tests` **1012**
 （0 失败 / 1 跳过；整套并行时 `OpenAiCompletionsTests` 偶发流式计时噪声，单跑 5/5 绿，与既有口径一致）。
@@ -1610,9 +1610,8 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 **差异记录 C234**：上游 `options.telemetry` 是类型化字段；端口的请求选项是 `IReadOnlyDictionary<string, object?>`，
 所以用同名键 `"telemetry"` 承载 `ITelemetryContext`。没有手柄时 `ObserveRequest` 返回无操作实现，开销为零。
 
-**仍未移植（另计，不在本批）**：`TelemetryPropagation` / carrier（上游 `pi-telemetry` 的上下文传播），以及
-`durable/harness/telemetry.ts` 的 `DURABLE_TELEMETRY_SCHEMA`——后者要把 span 织进 submit/task 生命周期，属独立一批。
-`RemoteTerminal` 依赖未移植的 chord `connection` 层，见 7.1。
+**当时列为另计，后续已补**：`TelemetryPropagation` / carrier、`DURABLE_TELEMETRY_SCHEMA`、`RemoteTerminal`（均为 §4.45；
+`RemoteTerminal` 一条是 7.1 的判定有误——端口的 `Pi.Env.Connection` 本就与上游 `RequestOptions` 对齐）。
 
 ### 7.4 剩下三项是**基线缺口**，不是 1.5.0 增量
 
@@ -1709,9 +1708,8 @@ durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列
   模型调用读（上游文档口径：「a result without kind is a model-issued call's」）。`Generation` 取 control 时
   改为 `as Model`。
 
-**第 3 步其余 + 第 4 步未做**：结算分支（嵌套结果写进调用方 `NestedCallDoc`、不进 transcript）、
-`LiveDoc.nestedTools` 槽位、接入调用方（code-mode / `executeTool`）。三件必须一起做才有可运行路径，
-因此 `StartNestedAsync` 仍**没有端到端用例**。
+**后续已补（§4.46 + §7.8）**：结算分支、`ExecuteToolAsync`、端到端用例（`NestedToolCallTests`）。
+`LiveDoc.nestedTools` 槽位仍未做（UI 展示用，不影响语义）。
 
 ### 7.8 嵌套调用的调用链（摸清后：真正缺的是 durable code-mode）
 
