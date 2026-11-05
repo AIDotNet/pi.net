@@ -693,3 +693,14 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 
 第 2-4 步未做：`StartNestedAsync`（含 replay 事件）、相位处理器 kind 分流 + `nestedTools` 槽位、接入调用方。
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 581（首轮 1 例并行噪声，重跑 0 失败）。
+
+## 2026-11-05 durable 工具层第 2 步（§7.7）
+
+`ToolTask.StartNestedAsync`：按 `(调用方任务, key)` 读 `NestedCallDoc`；已有则复用任务并校验同工具同参数
+（`DeltaDiff.JsonEquals`），不同即抛错；没有则建嵌套任务并把 taskId 写进文档。
+`replayed = 文档已有 result`，为真时在 context 携带的 span 上发 `pi.durable.replay`（该事件的唯一发射点）。
+
+**未做端到端用例**：能真正触发 replay 的路径（嵌套任务终态时写 result）属第 3 步，届时一起补。
+第 3-4 步：相位处理器 kind 分流 + `LiveDoc.nestedTools`、接入调用方。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 581（1 例 100ms 节流计时噪声，单跑 23/23 绿）。
