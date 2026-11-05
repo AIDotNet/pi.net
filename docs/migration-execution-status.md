@@ -841,3 +841,17 @@ bash scripts/gate-tests.sh Debug tests/Pi.Chord.Tests/Pi.Chord.Tests.csproj   # 
 `framework_version=9.0.0` 失败）；要覆盖可 `GATE_FRAMEWORK=net9.0` 再跑一遍。
 
 验证：脚本在本地跑通 7 个工程（Telemetry / Protocol / Agent / Chord / Codemode / Evals / Server 全绿）。
+
+## 2026-11-05 发布路径收口（§7.13）
+
+- `nuget-publish.yml` 在 Build 与 Pack 之间加了 `Test (gate)`：门禁不过就不打包、不推送。清单与 CI 共用
+  `scripts/gate-tests.sh`，两边不会漂移。
+- `docs/publishing.md` 的日常发版步骤补上「先过门禁」，并说明门禁范围（不含 Tui/Env）。
+
+**本地验证（Release）**：
+
+| 项 | 结果 |
+| --- | --- |
+| `dotnet build Pi.slnx -c Release` | 0 警告 0 错误 |
+| `bash scripts/gate-tests.sh Release` | **11 个工程全绿**（5m38s）；其中 `Pi.Ai.Tests` 首次失败、重跑通过，重跑机制按设计生效 |
+| `dotnet pack Pi.slnx -c Release --no-build` | **13 个 1.5.0 包**，无可执行项目 |

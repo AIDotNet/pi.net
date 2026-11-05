@@ -109,6 +109,12 @@ jobs:
           -p:ContinuousIntegrationBuild=true
           -p:Version=${{ steps.ver.outputs.version }}
 
+      # 发布门禁：不依赖宿主环境的工程必须全绿。清单与 CI 共用 scripts/gate-tests.sh，
+      # 因此两边不会漂移；任一门禁工程重跑后仍失败就不打包、不推送。
+      # Tui / Env 两个工程需要交互终端与 sshd，不在门禁内（见 ci.yml 的说明）。
+      - name: Test (gate)
+        run: bash scripts/gate-tests.sh Release
+
       - name: Pack
         run: >
           dotnet pack Pi.slnx -c Release --no-build -o artifacts

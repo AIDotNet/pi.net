@@ -61,19 +61,26 @@ Pi.CodingAgent
 
 ```bash
 # 1. 改版本号（唯一来源）并补 CHANGELOG
-#    Directory.Build.props:  <Version>1.0.5</Version>
+#    Directory.Build.props 与 src/Pi.CodingAgent/Assets/package.json 必须一致（构建期守卫会校验）
 
-# 2. 本地先验证能打包
+# 2. 本地先过发布门禁：不依赖宿主环境的测试工程必须全绿
+bash scripts/gate-tests.sh          # Release + net10.0；失败会以非零退出
+
+# 3. 再验证能打包
 dotnet pack Pi.slnx -c Release -o artifacts
 
-# 3. 提交并打 tag 推送 —— 推送 tag 即触发发布
+# 4. 提交并打 tag 推送 —— 推送 tag 即触发发布
 git add -A && git commit -m "release: 1.0.5"
 git tag v1.0.5
 git push origin main --follow-tags
 ```
 
-工作流会依次执行：解析版本 → restore → build（带 `-p:Version`）→ pack →
-校验包集合 → 上传构建产物 → 推送 nuget.org（nupkg + snupkg）→ 创建 GitHub Release。
+工作流会依次执行：解析版本 → restore → build（带 `-p:Version`）→ **跑发布门禁**
+（`scripts/gate-tests.sh`，与 CI 同一份清单）→ pack → 校验包集合 → 上传构建产物 →
+推送 nuget.org（nupkg + snupkg）→ 创建 GitHub Release。
+
+门禁不过就不打包、不推送。`Pi.Tui.Tests` / `Pi.Env.Tests` 不在门禁内：它们需要交互终端与本地 sshd，
+GitHub runner 不满足（详见 `.github/workflows/ci.yml` 里的说明）。
 
 **版本号从 tag 推导**（`v1.0.5` → `1.0.5`），tag 与 `Directory.Build.props` 不一致时以 tag 为准。
 
