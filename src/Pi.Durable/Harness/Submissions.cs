@@ -52,7 +52,8 @@ public sealed class Submissions
             () => _session.CommitWithAsync(
                 tx => Admission.AdmitSubmissionAsync(
                     tx, conversationId, draft, _now(), _steeringMode(), _followUpMode()),
-                context)).ConfigureAwait(false);
+                context),
+            context).ConfigureAwait(false);
         return new SubmissionHandle(admission.Id, this);
     }
 
@@ -61,7 +62,8 @@ public sealed class Submissions
     /// 失败只记状态、不记消息——错误文本可能带调用方内容。对应 TS <c>Submissions.#traced</c>。
     /// </summary>
     private async Task<AdmissionResult> TracedAsync(
-        ConversationId conversationId, SubmissionDraft draft, Func<Task<AdmissionResult>> admit)
+        ConversationId conversationId, SubmissionDraft draft, Func<Task<AdmissionResult>> admit,
+        Context? caller = null)
     {
         if (_telemetry is not { } telemetry) return await admit().ConfigureAwait(false);
 
@@ -76,6 +78,12 @@ public sealed class Submissions
             },
             async (span, _) =>
             {
+                // 输入与续跑会起运行：把调用方的 span 作为 link 挂上（写不起运行，不挂）。
+                if (draft.Type != "write" && caller?.Value(DurableTelemetry.SpanKey) is { } callerSpan)
+                {
+                    span.AddLink(new Pi.Telemetry.SpanLink(callerSpan));
+                }
+
                 try
                 {
                     var admission = await admit().ConfigureAwait(false);

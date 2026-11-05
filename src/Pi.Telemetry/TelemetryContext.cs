@@ -10,8 +10,8 @@ public interface ITelemetrySpan : ITelemetryContext
     /// <summary>Records an ordered, timestamped event on this span.</summary>
     void AddEvent(string name, SpanAttributes? attributes = null);
 
-    /// <summary>Links this span to another span without parenting it. Mirrors TS <c>addLink()</c>.</summary>
-    void AddLink(StoredSpanLink link);
+    /// <summary>Links this span to another context without parenting it. Mirrors TS <c>addLink()</c>.</summary>
+    void AddLink(SpanLink link);
 
     /// <summary>Merges attributes onto this span; last write wins per key.</summary>
     void SetAttributes(SpanAttributes attributes);
@@ -104,7 +104,7 @@ public static class NoopTelemetryContext
         public ITelemetryPropagation Propagation => NoopTelemetryPropagation.Instance;
 
         public void AddEvent(string name, SpanAttributes? attributes = null) { }
-        public void AddLink(StoredSpanLink link) { }
+        public void AddLink(SpanLink link) { }
         public void SetAttributes(SpanAttributes attributes) { }
         public void SetStatus(SpanStatus status) { }
     }

@@ -330,12 +330,20 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
             => owner.StartInMemorySpan(
                 options, new InMemoryParent(recorded.Carrier, recorded.Id, recorded), callback);
 
-        public void AddLink(StoredSpanLink link)
+        public void AddLink(SpanLink link)
         {
             if (recorded.Settled) return;
             try
             {
-                recorded.Links.Add(link);
+                // 适配器自己知道 carrier 的键名：外部只给上下文，id 在这里解出来。
+                if (!owner._carriers.TryGetValue(link.Context, out var carrier)) return;
+                if (!carrier.TryGetValue("pi-memory-trace", out var trace)
+                    || !carrier.TryGetValue("pi-memory-span", out var span))
+                {
+                    return;
+                }
+
+                recorded.Links.Add(new StoredSpanLink(trace, span, link.Attributes?.Copy()));
             }
             catch
             {

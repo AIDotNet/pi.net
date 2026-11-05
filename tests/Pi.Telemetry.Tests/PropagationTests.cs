@@ -82,4 +82,53 @@ public class PropagationTests
             NoopTelemetryContext.Instance,
             NoopTelemetryPropagation.Instance.Extract(new TelemetryCarrier { ["pi-memory-scope"] = "x" }));
     }
+
+    [Fact]
+    public async Task LinksResolveToTheTargetTraceAndSpan()
+    {
+        var telemetry = new InMemoryTelemetryContext();
+        ITelemetrySpan? parent = null;
+        await telemetry.StartSpanAsync(new SpanOptions("parent"), span =>
+        {
+            parent = span;
+            return Task.FromResult(true);
+        });
+
+        await telemetry.StartSpanAsync(new SpanOptions("child"), span =>
+        {
+            // 外部只给上下文；id 由适配器自己解。
+            span.AddLink(new SpanLink(parent!));
+            return Task.FromResult(true);
+        });
+
+        var spans = telemetry.GetSpans();
+        var parentSpan = Assert.Single(spans, span => span.Name == "parent");
+        var child = Assert.Single(spans, span => span.Name == "child");
+        var link = Assert.Single(child.Links!);
+        Assert.Equal(parentSpan.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), link.SpanId);
+        Assert.False(string.IsNullOrEmpty(link.TraceId));
+    }
+
+    [Fact]
+    public async Task UnknownLinkTargetsAreDropped()
+    {
+        var telemetry = new InMemoryTelemetryContext();
+        var foreign = new InMemoryTelemetryContext();
+        ITelemetrySpan? foreignSpan = null;
+        await foreign.StartSpanAsync(new SpanOptions("elsewhere"), span =>
+        {
+            foreignSpan = span;
+            return Task.FromResult(true);
+        });
+
+        await telemetry.StartSpanAsync(new SpanOptions("child"), span =>
+        {
+            // 另一个适配器实例的上下文：本适配器不认识它，安静丢弃。
+            span.AddLink(new SpanLink(foreignSpan!));
+            return Task.FromResult(true);
+        });
+
+        var child = Assert.Single(telemetry.GetSpans());
+        Assert.Empty(child.Links ?? []);
+    }
 }

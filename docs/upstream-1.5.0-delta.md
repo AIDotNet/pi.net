@@ -1341,7 +1341,7 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 | 项 | 落点 | 判定 |
 | --- | --- | --- |
 | `TelemetryPropagation` / carrier | `TelemetryCarrier`、`ITelemetryPropagation`、`NoopTelemetryPropagation`；`ITelemetryContext.Propagation`；`InMemoryTelemetryContext` 按上游的 `pi-memory-scope/span/trace` 生成载体，同 scope 解出的父上下文能定位本地父 span | ✅ 4 例（往返、未知载体回落根、跨 scope 只继承 trace、noop） |
-| `DURABLE_TELEMETRY_SCHEMA` | `DurableTelemetry.Schema`（两个 span、三个指标、四个事件）；`HarnessOptions.Telemetry`；`pi.durable.reports`（`_report` 按固定种类计数，带 `task.id`）；**`pi.durable.phase` span**（`RunPhaseAsync`：起属性 task.id/name/phase/kind/attempt/resumed，span 挂进 `Context` 再还原）＋ **`phase.duration`**（outcome 按上游规则：done/aborted/faulted/waiting/sleeping/`next=<phase>`，错误状态带 `task_faulted|failed|orphaned` 与 500 字截断）＋ **`tasks.active`**（载入/新建 +1，终态 -1，关闭清空） | ⚠️ 部分：`pi.durable.submit` span 已接（§7.5），余 link 与 entry/submission 事件 |
+| `DURABLE_TELEMETRY_SCHEMA` | `DurableTelemetry.Schema`（两个 span、三个指标、四个事件）；`HarnessOptions.Telemetry`；`pi.durable.reports`（`_report` 按固定种类计数，带 `task.id`）；**`pi.durable.phase` span**（`RunPhaseAsync`：起属性 task.id/name/phase/kind/attempt/resumed，span 挂进 `Context` 再还原）＋ **`phase.duration`**（outcome 按上游规则：done/aborted/faulted/waiting/sleeping/`next=<phase>`，错误状态带 `task_faulted|failed|orphaned` 与 500 字截断）＋ **`tasks.active`**（载入/新建 +1，终态 -1，关闭清空） | ✅ `pi.durable.submit` span + link + `entry`/`submission` 事件（§7.5）；`submit(tx, draft)` 因事务不带上下文暂不挂 link |
 | `RemoteTerminal` / `openTerminal` | `src/Pi.Env/RemoteTerminal.cs`：`TerminalOptions`、`TerminalForeground`、`RemoteTerminal`（1 MiB 分块写、resize、close、foreground）与 `Terminals.OpenAsync` | ✅ 移植完成；守护进程在 Windows 上回 `Terminals are not supported on this system yet`（上游同一限制），用例按平台 skip，Linux/CI 上会真正执行 |
 
 **验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **576**（含「telemetry 关/开产出同一份记录」的等价性用例）；`Pi.Env.Tests` **54**（4 跳过）；`Pi.Telemetry.Tests` **28**。
@@ -1628,7 +1628,7 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 **因此「1.5.0 已对齐」的准确口径是**：`v1.4.0..v1.5.0` 的增量全部落地，外加 AI 遥测这个当时唯一能安全补的基线缺口；
 durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列，需要时按上表的规模评估后开工。
 
-### 7.5 `pi.durable.submit` span（已补，余 link 与事件）
+### 7.5 `pi.durable.submit` span（含 link 与事件，已全部落地）
 
 原先判为「三条硬障碍」，实际核查后第一条是伪障碍：受理**本来就产出状态**，只是没返回。
 
@@ -1637,13 +1637,18 @@ durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列
    （stale 按 schema 文档报 `done`）。三个调用点（`SubmitAsync`、`AdmitInCommitAsync`、`Compaction`）随之取 `.Id`。
 2. **已补** span：`Submissions.TracedAsync` 包住受理——`SubmitAsync` 覆盖它的提交，`AdmitInCommitAsync` 只包受理，
    与上游「public admission / admission only」的区分一致；失败只记状态不记消息（错误文本可能含调用方内容）。
-3. **仍缺两条**：
-   - **link**：上游 `addLink({ context })` 收上下文，端口 `ITelemetrySpan.AddLink` 收 `StoredSpanLink(traceId, spanId)`。
-     要等价得知适配器的 carrier 键名，属于把适配器细节泄漏进 durable；应先对齐 `AddLink` 的形状。
-   - **`pi.durable.entry` / `pi.durable.submission` 事件**：在受理内部（条目提交、提交落定）写，需要把 span 穿透
-     `AdmitSubmissionAsync`。
+3. **link**（已补）：先把 `ITelemetrySpan.AddLink` 的形状对齐上游——新增 `SpanLink(ITelemetryContext Context,
+   SpanAttributes? Attributes)`（上游 `SpanLink = {context, attributes?}`），适配器自解 id：`InMemorySpan` 用
+   `_carriers` 把上下文换成 `StoredSpanLink(traceId, spanId)`，不认识的上下文安静丢弃。差异记录 **C235**（此前
+   端口收的是 `StoredSpanLink`，把适配器 id 泄漏到了调用方）。随后 submit span 在输入/续跑（`draft.Type != "write"`）
+   且调用方上下文带 span 时挂 link；`submit(tx, draft)` 因为 `Transaction` 不携带上下文，暂不挂。
+4. **`pi.durable.entry` / `pi.durable.submission` 事件**（已补）：上游不在受理里发，而在 **Session 的提交发布**
+   处按写入类型发；端口同样在 `Session.Publish` 里发——`entry` 写入 → `pi.durable.entry`（`entry.id`/`entry.kind`），
+   `submission` 且已 `done`/`unanswered` → `pi.durable.submission`（id/status/answer.entry_id），挂在**上下文携带的
+   span** 上。因此条目在 phase 期间提交时，事件落到 phase span；`prepare` 这类不提交条目的阶段没有该事件。
 
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
-`submission.id`/`result ∈ {queued, placed, done}`，并确认同一次运行也落下 phase span。
+`submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现
+`pi.durable.entry` 与 `pi.durable.submission` 事件；`PropagationTests` 两例覆盖 link 的解析与「不认识的上下文丢弃」。
 
 

@@ -984,12 +984,23 @@ public class DurableSession : ISession
         return result;
     }
 
+    /// <summary>提交记录的状态与应答条目（三种具体记录才有；抽象基类不带）。</summary>
+    private static (SubmissionStatus Status, EntryId? Answer)? SubmissionState(SubmissionRecord record) => record switch
+    {
+        SubmissionRecord.InputRecord input => (input.Status, input.Answer),
+        SubmissionRecord.WriteRecord write => (write.Status, (EntryId?)null),
+        SubmissionRecord.ContinueRecord continued => (continued.Status, (EntryId?)null),
+        _ => null,
+    };
+
     private void Publish(
         Seq seq,
         IReadOnlyList<StorageWrite> writes,
         AdoptedDocuments documents,
         Context context)
     {
+        // 提交里的条目与落定的提交各发一个事件，挂到上下文携带的 span 上（相同时刻没有 span 就不发）。
+        var span = context.Value(Pi.Durable.Harness.DurableTelemetry.SpanKey);
         var changes = new List<CommitChange>();
         foreach (var write in writes)
         {
@@ -999,12 +1010,29 @@ public class DurableSession : ISession
                     changes.Add(new CommitChange.ConversationTable(conversation.Value));
                     break;
                 case StorageWrite.Entry entry:
+                    span?.AddEvent("pi.durable.entry", new Pi.Telemetry.SpanAttributes
+                    {
+                        ["entry.id"] = (double)entry.Value.Id.Value,
+                        ["entry.kind"] = entry.Value.Kind,
+                    });
                     changes.Add(new CommitChange.EntryTable(entry.Value));
                     break;
                 case StorageWrite.Task task:
                     changes.Add(new CommitChange.TaskTable(task.Value));
                     break;
                 case StorageWrite.Submission submission:
+                    if (SubmissionState(submission.Value) is { } state
+                        && state.Status is SubmissionStatus.Done or SubmissionStatus.Unanswered)
+                    {
+                        var attributes = new Pi.Telemetry.SpanAttributes
+                        {
+                            ["submission.id"] = (double)submission.Value.Id.Value,
+                            ["status"] = state.Status == SubmissionStatus.Done ? "done" : "unanswered",
+                        };
+                        if (state.Answer is { } answer) attributes["answer.entry_id"] = (double)answer.Value;
+                        span?.AddEvent("pi.durable.submission", attributes);
+                    }
+
                     changes.Add(new CommitChange.SubmissionTable(submission.Value));
                     break;
             }

@@ -651,3 +651,15 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 仍缺：link（上游收上下文，端口 `AddLink` 收 trace/span id，形状未对齐）与 entry/submission 事件（要穿透受理内部）。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 576 全绿。
+
+## 2026-11-05 durable 遥测收口：link 与两个事件（§7.5）
+
+- **AddLink 形状对齐（C235）**：`ITelemetrySpan.AddLink` 改为收 `SpanLink(ITelemetryContext, SpanAttributes?)`，
+  与上游 `addLink({context})` 一致；`InMemorySpan` 用 `_carriers` 自解 trace/span，不认识的上下文安静丢弃。
+  此前收 `StoredSpanLink` 是把适配器 id 泄漏给调用方。
+- **submit span 挂 link**：输入/续跑（`draft.Type != "write"`）且调用方上下文带 span 时挂上；
+  `submit(tx, draft)` 因 `Transaction` 不携带上下文，暂不挂。
+- **entry/submission 事件**：按上游位置放在 `Session.Publish`（不是受理内部）：`entry` 写入 →
+  `pi.durable.entry`；`submission` 且 done/unanswered → `pi.durable.submission`，挂在上下文携带的 span 上。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 576（首次 1 例 sleep 并行噪声，单跑 12/12 绿）；`Pi.Telemetry.Tests` 30。

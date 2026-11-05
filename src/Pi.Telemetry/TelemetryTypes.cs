@@ -88,6 +88,12 @@ public class SpanAttributes : IEnumerable<KeyValuePair<string, object?>>
 }
 
 /// <summary>Options for starting a span. Mirrors TS <c>SpanOptions</c>.</summary>
+/// <summary>
+/// A link from one span to another context. Mirrors TS <c>SpanLink</c>: the adapter resolves the
+/// context to its own identity, so callers never see backend ids.
+/// </summary>
+public sealed record SpanLink(ITelemetryContext Context, SpanAttributes? Attributes = null);
+
 public sealed record SpanOptions(string Name, SpanAttributes? Attributes = null);
 
 /// <summary>Details attached to an error status. Mirrors TS <c>{ name, message }</c>.</summary>

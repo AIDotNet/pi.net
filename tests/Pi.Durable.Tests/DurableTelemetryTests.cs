@@ -105,7 +105,13 @@ public class DurableTelemetryTests
                 Assert.Equal(false, span.Attributes["resumed"]);
                 // 阶段结束写了 outcome（新任务走到下一个阶段或已完结）。
                 Assert.True(span.Attributes.ContainsKey("outcome"));
+                // 阶段内提交的条目会作为事件挂在这个 span 上。
+                // prepare 阶段不提交条目，所以事件不保证每个 span 都有。
             });
+
+            // 提交条目与提交落定的那一刻，事件落在当时上下文里的 span 上。
+            Assert.Contains(spans, span => span.Events.Any(@event => @event.Name == "pi.durable.entry"));
+            Assert.Contains(spans, span => span.Events.Any(@event => @event.Name == "pi.durable.submission"));
 
             var measurements = telemetry.GetMeasurements();
             var durations = measurements.Where(item => item.Name == "pi.durable.phase.duration").ToList();
