@@ -210,4 +210,44 @@ public class DurableTelemetryTests
             await HarnessTestSupport.CloseQuietlyAsync(harness);
         }
     }
+
+    [Fact]
+    public async Task ATelemetryOutageDoesNotBreakTheRun()
+    {
+        // 埋点是旁路：span 起步就抛也不能让受理或阶段失败。
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewScriptedChatSetup(provider);
+        var telemetry = new ThrowingTelemetry();
+        setup.Telemetry = telemetry;
+
+        provider.SetResponses(HarnessTestSupport.AssistantReply("ok"));
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            var run = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("go")] }, Ctx);
+            var settled = await run.WaitAsync(Ctx).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(telemetry.Calls > 0, $"telemetry calls = {telemetry.Calls}");
+
+            Assert.True(settled.Record is SubmissionRecord.InputRecord { Status: SubmissionStatus.Done });
+            var entries = await HarnessTestSupport.AllEntriesAsync(root);
+            Assert.Contains(entries, entry => entry.Kind == DurableEntries.AssistantEntry.Kind);
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
+    /// <summary>每次建 span 都抛的遥测：用来证明埋点不会改写任务结局。</summary>
+    private sealed class ThrowingTelemetry : ITelemetryContext
+    {
+        public int Calls { get; private set; }
+
+        public Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback)
+        {
+            Calls++;
+            throw new InvalidOperationException("telemetry is down");
+        }
+    }
 }

@@ -755,3 +755,24 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 **验证过牙齿**：去掉 `MarkAndWait` 的静默早退后，用例以 `TimeoutException` 失败。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 586、`Pi.Tui.Tests` 23964、`Pi.Telemetry.Tests` 30，全绿。
+
+## 2026-11-05 第三轮自检：埋点故障不改变结局（§4.50）
+
+**判断**：需要保护。遥测的抛出点若在处理器/受理之外（span 起步、属性校验），会把任务判失败——埋点不该有这种权限。
+
+**做法**（结构化，不用 catch-all）：用两个状态标志区分三种失败，只兜「起步失败」与「结算失败」，处理器/受理自己抛
+的异常原样上抛。
+
+| 位置 | 标志 | 三种结局 |
+| --- | --- | --- |
+| `RunPhaseAsync` | `ran` / `finished` | span 起步失败 → 退回不带 span 跑处理器；处理器抛 → 原样上抛；结算失败 → 吞掉（活已干完） |
+| `Submissions.TracedAsync` | `attempted` / `admitted` | span 起步失败 → 退回不带 span 受理；受理抛 → 原样上抛；结算失败 → 返回已提交的受理 |
+
+**用例** `ATelemetryOutageDoesNotBreakTheRun`：`StartSpanAsync` 每次抛的遥测上下文，跑一轮对话仍要 `done` 且写出
+assistant 条目；并断言 `Calls > 0`，证明抛出路径确实被走到（不是空转通过）。
+
+**方法论教训**：第一次验证「用例有牙齿」时我用 `when (false)` 禁用兜底，结果**编译失败**（常量筛选器是错误），
+跑的是旧二进制，于是误以为"禁用后仍通过"。改为用计数器证明路径被走到，才是有意义的验证。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 587（首轮 1 例 `HarnessViewTests` 并行噪声，单跑与整类皆绿）；
+`Pi.Tui.Tests` 23964、`Pi.Telemetry.Tests` 30 全绿。

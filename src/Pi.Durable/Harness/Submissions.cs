@@ -69,15 +69,22 @@ public sealed class Submissions
 
         var starter = Pi.Telemetry.TypedSpanStarterFactory.Create<AdmissionResult>(
             telemetry, DurableTelemetry.Schema);
-        return await starter(
-            "pi.durable.submit",
-            new Pi.Telemetry.SpanAttributes
-            {
-                ["submission.type"] = draft.Type,
-                ["conversation.id"] = (double)conversationId.Value,
-            },
-            async (span, _) =>
-            {
+
+        // 两个标志把三种失败分开：span 起步失败（受理还没发生）、受理自己抛（原样上抛）、
+        // 结算 span 失败（受理已提交，不能让遥测把它变成异常）。
+        var attempted = false;
+        AdmissionResult? admitted = null;
+        try
+        {
+            return await starter(
+                "pi.durable.submit",
+                new Pi.Telemetry.SpanAttributes
+                {
+                    ["submission.type"] = draft.Type,
+                    ["conversation.id"] = (double)conversationId.Value,
+                },
+                async (span, _) =>
+                {
                 // 输入与续跑会起运行：把调用方的 span 作为 link 挂上（写不起运行，不挂）。
                 if (draft.Type != "write" && caller?.Value(DurableTelemetry.SpanKey) is { } callerSpan)
                 {
@@ -86,7 +93,9 @@ public sealed class Submissions
 
                 try
                 {
+                    attempted = true;
                     var admission = await admit().ConfigureAwait(false);
+                    admitted = admission;
                     span.SetAttributes(new Pi.Telemetry.SpanAttributes
                     {
                         ["submission.id"] = (double)admission.Id.Value,
@@ -94,13 +103,24 @@ public sealed class Submissions
                     });
                     return admission;
                 }
-                catch (Exception)
-                {
-                    // 错误文本可能含调用方内容：只记状态。
-                    span.SetStatus(Pi.Telemetry.SpanStatus.ErrorStatus.Bare);
-                    throw;
-                }
-            }).ConfigureAwait(false);
+                    catch (Exception)
+                    {
+                        // 错误文本可能含调用方内容：只记状态。
+                        span.SetStatus(Pi.Telemetry.SpanStatus.ErrorStatus.Bare);
+                        throw;
+                    }
+                }).ConfigureAwait(false);
+        }
+        catch (Exception) when (!attempted)
+        {
+            // span 起步就失败（属性校验等）：受理还没发生，退回不带 span 的受理。
+            return await admit().ConfigureAwait(false);
+        }
+        catch (Exception) when (admitted is not null)
+        {
+            // 受理已经提交，只是 span 结算失败：遥测不该改写这次受理的结局。
+            return admitted;
+        }
     }
 
     /// <summary>受理结果的词表；stale 的写按 schema 文档报 done。</summary>

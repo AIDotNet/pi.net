@@ -2000,35 +2000,54 @@ public sealed class TaskScheduler
 
         var outer = invocation.Context;
         var starter = TypedSpanStarterFactory.Create<bool>(telemetry, DurableTelemetry.Schema);
-        await starter("pi.durable.phase", attributes, async (span, _) =>
+
+        // 两个标志把三种失败分开：span 起步失败（处理器还没跑）、处理器自己抛（原样上抛）、
+        // 结算 span 失败（活已经干完，不能让遥测把任务改成失败）。
+        var ran = false;
+        var finished = false;
+        try
         {
-            invocation.Context = outer.WithValue(DurableTelemetry.SpanKey, span);
-            var started = System.Diagnostics.Stopwatch.GetTimestamp();
-            Exception? fault = null;
-            try
+            await starter("pi.durable.phase", attributes, async (span, _) =>
             {
-                await handler(record, runtime, invocation.Context).ConfigureAwait(false);
-            }
-            catch (Exception error)
-            {
-                fault = error;
-                throw;
-            }
-            finally
-            {
-                invocation.Context = outer;
+                ran = true;
+                invocation.Context = outer.WithValue(DurableTelemetry.SpanKey, span);
+                var started = System.Diagnostics.Stopwatch.GetTimestamp();
+                Exception? fault = null;
                 try
                 {
-                    RecordPhaseOutcome(invocation, span, fault, phaseName, started);
+                    await handler(record, runtime, invocation.Context).ConfigureAwait(false);
+                    finished = true;
                 }
-                catch (Exception)
+                catch (Exception error)
                 {
-                    // 记 outcome 是旁路：它抛异常会顶替掉处理器真正的异常。
+                    fault = error;
+                    throw;
                 }
-            }
+                finally
+                {
+                    invocation.Context = outer;
+                    try
+                    {
+                        RecordPhaseOutcome(invocation, span, fault, phaseName, started);
+                    }
+                    catch (Exception)
+                    {
+                        // 记 outcome 是旁路：它抛异常会顶替掉处理器真正的异常。
+                    }
+                }
 
-            return true;
-        }).ConfigureAwait(false);
+                return true;
+            }).ConfigureAwait(false);
+        }
+        catch (Exception) when (!ran)
+        {
+            // span 起步就失败：处理器还没跑，退回不带 span 的运行。
+            await handler(record, runtime, invocation.Context).ConfigureAwait(false);
+        }
+        catch (Exception) when (finished)
+        {
+            // 处理器成功返回，只有 span 结算失败：遥测不该改写这次调用的结局。
+        }
     }
 
     /// <summary>checkpoint 里的数值属性：认得的形状才返回值，其余返回 null（省略该属性）。</summary>
