@@ -704,3 +704,14 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 第 3-4 步：相位处理器 kind 分流 + `LiveDoc.nestedTools`、接入调用方。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 581（1 例 100ms 节流计时噪声，单跑 23/23 绿）。
+
+## 2026-11-05 嵌套调用端到端用例（`NestedToolCallTests`）
+
+真实 harness + 假工具：外层工具用同一 key 调两次 `ExecuteToolAsync`。断言内层只执行一次、transcript 只有一条结果
+（`hi|hi`）、phase span 上有 `pi.durable.replay`。
+
+**暴露并修掉一个真 bug**：`StartNestedAsync` 的同参数比较直接比 `call.arguments` 与入参，而文档里的值走过 JSON
+往返，形状不同 → 第二次调用被误判成「已用别的参数发起过」。改为比较前两边都 `JsonTrees.ToTree` 归一化。
+这条单靠单元测试发现不了，只有端到端跑起来才暴露——印证了先前的判断。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 584 全绿。

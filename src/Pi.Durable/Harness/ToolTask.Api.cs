@@ -49,9 +49,10 @@ public static partial class ToolTask
             {
                 var input = (await tx.GetTaskAsync(found).ConfigureAwait(false))?.Input as JsonDict;
                 var parsed = input is null ? null : ToolTaskInput.FromJson(input);
+                // 参数在文档里走过一次 JSON 往返，形状与入参不同；比较前统一归一化成 JSON 树。
                 var same = parsed is ToolTaskInput.Nested nested
                     && nested.Call.Name == name
-                    && DeltaDiff.JsonEquals(nested.Call.Arguments, arguments);
+                    && DeltaDiff.JsonEquals(JsonTrees.ToTree(nested.Call.Arguments), JsonTrees.ToTree(arguments));
                 if (!same)
                 {
                     throw new InvalidOperationException(

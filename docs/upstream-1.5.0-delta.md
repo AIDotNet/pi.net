@@ -1758,8 +1758,16 @@ durable code-mode（1042 行）是**独立一批**：它决定「脚本里的工
   `WaitForTaskAsync` → 读文档 `result`；无结果（faulted/orphaned）按结局造 `task_faulted|task_orphaned|task_failed`
   诊断。无 key 时用调用内递增序号（对应上游 `++sequence`）。
 
-**仍未做**：端到端用例（需要一个能调度嵌套任务的 harness：外层工具在 `ExecuteAsync` 里调两次同 key，
-断言第二次 `replayed`、transcript 只有外层结果、phase span 上有 `pi.durable.replay`）。这是本批唯一缺口。
+**端到端用例（已补）**：`NestedToolCallTests` 用真实 harness 跑一轮工具调用——外层工具在 `ExecuteAsync` 里用
+同一个 key 调两次 `ExecuteToolAsync("echo", …)`，断言：
+
+- 内层工具**只执行一次**（`echo.Runs == 1`），外层两次都拿到结果；
+- transcript 里只有**一条**工具结果，内容 `hi|hi`（嵌套调用不落条目）；
+- phase span 上出现 `pi.durable.replay`。
+
+**踩到的一个真 bug**：第一次运行第二次调用被判成「已用别的参数发起过」——文档里的 `call.arguments` 走过一次 JSON
+往返，形状与入参不同。修法是比较前把两边都归一化成 JSON 树（`JsonTrees.ToTree`）。这条只有在端到端跑起来才会暴露，
+`StartNestedAsync` 的单元级写法发现不了。
 
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
 `submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现
