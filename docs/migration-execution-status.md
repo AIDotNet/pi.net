@@ -674,3 +674,11 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 没有对应的 `runtime.tools` 面——这是功能缺口，不是遥测漏接。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 576 全绿。
+
+## 2026-11-05 `pi.durable.replay` 前置评估（§7.7）
+
+要让 replay 有事件源，需要 durable 嵌套调用这一层（上游 `tool.ts` 1146 行）：`ToolTaskInput` 的 nested 变体、
+`NestedCallDoc`、`startNestedCall` 的 key 复用与 `replayed` 判定、`LiveDoc.nestedTools` 槽位、相位处理器的 kind 分流。
+
+端口 `ToolTaskInput` 只有 `{assistant, callId}` 一种形态；durable 层没有 `runtime.tools` 面。判定为功能缺口而非遥测缺口，
+按四步开工（每步可独立验证），第 1 步之前不接 replay 事件（否则条件恒假，是死代码）。

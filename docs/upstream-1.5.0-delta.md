@@ -1657,6 +1657,31 @@ durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列
 `tool.ts` 在 v1.4.0 就已存在（1146 行），端口的 durable 层没有对应的 `runtime.tools` 面；嵌套调用落在 coding-agent 层。
 所以 `replay` 不是遥测漏接，而是**嵌套调用重放这个功能本身没移植**——要接这个事件得先有重放。
 
+### 7.7 `replay` 的前置：durable 嵌套调用这一层没移植
+
+要让 `pi.durable.replay` 有事件源，先得有「按 key 去重、结果已存就复用」的嵌套调用。上游这层是
+`packages/durable/src/harness/tool.ts`（1146 行，v1.4.0 即存在），端口缺的部分逐项如下：
+
+| 上游 | 端口 |
+| --- | --- |
+| `ToolTaskInput = {kind:"model",…} \| {kind:"nested", parent, parentCallId, key, call, progress?}` | `ToolTaskInput(EntryId Assistant, string CallId, bool? Unoffered)` —— **只有 model 一种** |
+| `NestedCallDoc`（`defineDocFamily<NestedCallState,null>`，存 `{taskId, result}`） | 无 |
+| `startNestedCall()`：同 key 复用任务、校验同工具同参数、`replayed = state.result !== undefined` | 无 |
+| `LiveDoc.nestedTools` 槽位（`callId/parentCallId/parentTaskId/name/taskId/arguments/status`） | 无 |
+| 相位处理器按 `input.kind` 分流（nested 用内联 `call`，不读 assistant 条目） | 只有 model 路径 |
+
+**它不是遥测缺口，是功能缺口**：端口的嵌套调用落在 coding-agent 层（`NestedCallTalls.cs` 的 `NestedCallRecorder`
+只记录，不重放），durable 层没有 `runtime.tools` 面。
+
+**建议的开工顺序**（每一步都可独立验证，不半途）：
+
+1. `ToolTaskInput` 升联合体（model | nested）+ 版本 4 + 迁移；`NestedCallDoc` 与其状态；用例覆盖旧输入迁移。
+2. `StartNestedAsync`：同 key 复用、同工具同参数校验、`replayed` 判定；此时才能发 `pi.durable.replay`。
+3. 相位处理器按 `kind` 分流 + `LiveDoc.nestedTools` 槽位。
+4. 接入调用方（code-mode / `executeTool`），端到端验证「崩溃重跑不重复执行副作用工具」。
+
+第 1 步之前不建议动 `replay` 事件——没有 `NestedCallDoc` 的 `result`，「已存结果」这个条件永远为假，事件等于死代码。
+
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
 `submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现
 `pi.durable.entry` 与 `pi.durable.submission` 事件；`PropagationTests` 两例覆盖 link 的解析与「不认识的上下文丢弃」。
