@@ -913,3 +913,17 @@ bash scripts/gate-tests.sh Debug tests/Pi.Chord.Tests/Pi.Chord.Tests.csproj   # 
 
 **结论**：net9.0 目前是「编译验证 + 一个工程的运行时抽样通过」，不是「全套件在 net9.0 上通过」。
 要收紧这条，得给 CI 加一个 net9.0 job（runner 同时装两个 SDK 即可）。
+
+## 2026-11-05 首次 dry run：门禁在 runner 上拦住了发布（§7.17）
+
+`Publish NuGet packages #11`（workflow_dispatch, dry_run）结果：`Build` 通过，**`Test (gate)` 失败**，
+后续 Pack / Verify / Push / Release 全部跳过。**没有发出任何包**——门禁按设计生效。
+
+但这一轮的失败**不可诊断**：作业日志要管理员权限（匿名 API 返回 403），而发布流程当时没有上传门禁日志。
+已补两处：
+
+1. `gate-tests.sh` 在失败时把每个工程的失败用例行写进 `$GITHUB_STEP_SUMMARY`（run 页面直接可见），
+   并额外发一条 `::error` 注解带上失败工程名。
+2. `nuget-publish.yml` 增加 `Upload gate logs`（`if: failure()`），把 `test-*.log` 作为 artifact 带出。
+
+下次跑就能直接看到是哪个工程、哪几条用例。

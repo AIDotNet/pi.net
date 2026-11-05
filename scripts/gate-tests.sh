@@ -60,6 +60,12 @@ for project in "${gate[@]}"; do
   failed+=("${name}")
   printf '   重跑仍失败，日志尾部：\n'
   tail -30 "test-${name}.log"
+  # 失败用例名进 step summary：CI 上一眼就能看到是哪个工程、哪几条用例，不必翻完整日志。
+  {
+    printf '### %s\n\n' "${name}"
+    grep -aE "失败 |error run failed" "test-${name}.log" | head -10 | sed 's/^/    /'
+    printf '\n'
+  } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 done
 
 printf '\n---\n'
@@ -69,6 +75,7 @@ fi
 
 if [[ ${#failed[@]} -gt 0 ]]; then
   printf '失败（重跑后仍失败）：%s\n' "${failed[*]}"
+  echo "::error title=test::重跑后仍失败：${failed[*]}"
   exit 1
 fi
 
