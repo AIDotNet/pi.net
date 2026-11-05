@@ -11,6 +11,7 @@ namespace Pi.Ai.Tests;
 /// Anthropic Messages provider 测试：HttpListener 模拟 /v1/messages 的 SSE 应答，
 /// 验证 content_block 事件模型映射、tool_use 聚合与 stop_reason 映射。
 /// </summary>
+[Collection("http-fixtures")]
 public class AnthropicMessagesTests : IDisposable
 {
     private readonly HttpListener _listener = new();

@@ -855,3 +855,19 @@ bash scripts/gate-tests.sh Debug tests/Pi.Chord.Tests/Pi.Chord.Tests.csproj   # 
 | `dotnet build Pi.slnx -c Release` | 0 警告 0 错误 |
 | `bash scripts/gate-tests.sh Release` | **11 个工程全绿**（5m38s）；其中 `Pi.Ai.Tests` 首次失败、重跑通过，重跑机制按设计生效 |
 | `dotnet pack Pi.slnx -c Release --no-build` | **13 个 1.5.0 包**，无可执行项目 |
+
+## 2026-11-05 修掉 AI 套件的跨用例干扰（§7.14）
+
+`Pi.Ai.Tests` 在 Release 下反复出现 3–4 个失败，且失败内容互相矛盾：Anthropic 用例收到别家的响应文本
+（期望「晚」得到「ok」）、期望 2 次请求实得 3 次、成本值取自别人的响应。**不是 flake，是串扰**，两个根因：
+
+1. **Windows `HttpListener` 走 http.sys**：同端口可注册多个前缀，请求按「最长匹配」路由。四个夹具并行时，
+   一个夹具的请求会被另一个的处理循环读走。端口去重挡不住——问题在前缀共享，不是端口冲突。
+   实测还有一个夹具用 `25000 + Random.Shared.Next(3000)` 取端口，更容易撞。
+2. **`DeviceCodeFlow.DefaultSleepAsync` 是进程级静态钩子**：`OpenAiAndDeviceOAuthTests` 把它设成「永不睡的
+   完成任务」，并行中的 `DeviceCodeFlowTests.CancelsInFlightWait` 继承它 → 取消失效 → 30 秒后抛 `TimeoutException`。
+
+修法：把会互相影响的类收进两个 `DisableParallelization = true` 的集合——`http-fixtures`（7 个起监听器的类）
+与 `device-code-flow`（改静态钩子的 5 个类）。`TestPorts.Next()` 保留（顺带修掉随机端口那处）。
+
+**验证**：`Pi.Ai.Tests` 连跑 4 次，每次 1012 例、0 失败（修前是 4/1/4/1）。

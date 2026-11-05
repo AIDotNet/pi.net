@@ -11,6 +11,7 @@ namespace Pi.Ai.Tests;
 /// OpenAI Chat Completions provider 测试：HttpListener 模拟 /v1/chat/completions
 /// 的 SSE 流式应答，验证 delta 事件映射、工具调用聚合与错误编码。
 /// </summary>
+[Collection("http-fixtures")]
 public class OpenAiCompletionsTests : IDisposable
 {
     private readonly HttpListener _listener = new();

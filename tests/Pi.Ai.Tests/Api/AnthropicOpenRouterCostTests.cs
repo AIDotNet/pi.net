@@ -15,6 +15,7 @@ namespace Pi.Ai.Tests.Api;
 /// 最终 usage 的总价应被覆盖并标记为来自 provider。对应上游
 /// <c>anthropic-messages.ts</c> 里 <c>isOpenRouterModel(model) &amp;&amp; event.usage</c> 那一段。
 /// </summary>
+[Collection("http-fixtures")]
 public sealed class AnthropicOpenRouterCostTests : IDisposable
 {
     private readonly HttpListener _listener = new();

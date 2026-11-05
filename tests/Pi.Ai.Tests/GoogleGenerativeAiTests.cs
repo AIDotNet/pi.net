@@ -9,6 +9,7 @@ using Xunit;
 namespace Pi.Ai.Tests;
 
 /// <summary>Google Generative AI / Vertex REST 核心测试（P31 全事件族实现）。</summary>
+[Collection("http-fixtures")]
 public class GoogleGenerativeAiTests
 {
     private static ModelSpec Model(
@@ -147,7 +148,8 @@ public class GoogleGenerativeAiTests
     public async Task StreamParsesSseChunksAndUsage()
     {
         using var listener = new HttpListener();
-        var port = 25000 + Random.Shared.Next(3000);
+        // 随机端口会撞上别的夹具的监听（表现为请求打到别人的服务器上），统一走进程内分配器。
+        var port = TestPorts.Next();
         listener.Prefixes.Add($"http://127.0.0.1:{port}/");
         listener.Start();
         _ = Task.Run(async () =>

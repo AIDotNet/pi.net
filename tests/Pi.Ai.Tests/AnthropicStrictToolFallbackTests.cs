@@ -18,6 +18,7 @@ using Xunit;
 
 namespace Pi.Ai.Tests;
 
+[Collection("http-fixtures")]
 public sealed class AnthropicStrictToolFallbackTests : IDisposable
 {
     private const string StrictLimitBody =

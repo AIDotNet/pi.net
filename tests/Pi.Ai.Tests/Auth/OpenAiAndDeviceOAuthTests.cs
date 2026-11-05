@@ -9,7 +9,7 @@ using Xunit;
 namespace Pi.Ai.Tests.Auth;
 
 /// <summary>OpenAI Codex OAuth 流测试（端口 1455 与 ChatGPT 共用，串行执行）。</summary>
-[Collection("port-1455")]
+[Collection("device-code-flow")]
 public class OpenAiCodexOAuthTests
 {
     private const string TokenUrl = "https://auth.openai.com/oauth/token";
@@ -154,7 +154,7 @@ public class OpenAiCodexOAuthTests
 }
 
 /// <summary>Sign in with ChatGPT 流测试（固定端口 1455，与 Codex 串行）。</summary>
-[Collection("port-1455")]
+[Collection("device-code-flow")]
 public class OpenAiChatGptOAuthTests
 {
     private const string TokenUrl = "https://auth.openai.com/api/accounts/oauth/token";
@@ -247,6 +247,7 @@ public class OpenAiChatGptOAuthTests
 }
 
 /// <summary>OpenRouter OAuth 流测试。</summary>
+[Collection("device-code-flow")]
 public class OpenRouterOAuthTests
 {
     private const string KeysUrl = "https://openrouter.ai/api/v1/auth/keys";
@@ -300,6 +301,7 @@ public class OpenRouterOAuthTests
 }
 
 /// <summary>Kimi Code OAuth 流测试。</summary>
+[Collection("device-code-flow")]
 public class KimiCodingOAuthTests
 {
     private const string OauthHost = "https://auth.kimi.com";

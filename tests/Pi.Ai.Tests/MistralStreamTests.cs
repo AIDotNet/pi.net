@@ -16,6 +16,7 @@ using Xunit;
 
 namespace Pi.Ai.Tests;
 
+[Collection("http-fixtures")]
 public sealed class MistralStreamTests : IDisposable
 {
     private readonly HttpListener _listener = new();

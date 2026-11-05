@@ -4,6 +4,7 @@ using Xunit;
 namespace Pi.Ai.Tests.Auth;
 
 /// <summary>设备码轮询循环测试。对应 TS oauth-device-code.test.ts（fake timers → 注入休眠）。</summary>
+[Collection("device-code-flow")]
 public class DeviceCodeFlowTests
 {
     /// <summary>假时钟：sleep 推进时间。</summary>

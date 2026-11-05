@@ -15,6 +15,7 @@ namespace Pi.Ai.Tests;
 /// Anthropic 工作负载身份联合的 provider 环境解析。对应 TS
 /// <c>anthropic-federation.test.ts</c>：所需变量、可选变量、错误优先级。
 /// </summary>
+[Collection("http-fixtures")]
 public class AnthropicFederationAuthTests
 {
     private sealed class EnvContext(IReadOnlyDictionary<string, string> env) : IAuthContext
@@ -118,6 +119,7 @@ public class AnthropicFederationAuthTests
 /// 联邦令牌交换的 wire 测试：模拟 <c>/v1/oauth/token</c> 与 <c>/v1/messages</c>，
 /// 对照 TS <c>anthropic-federation-sdk.test.ts</c> 的交换次数、Bearer 头与缓存语义。
 /// </summary>
+[Collection("http-fixtures")]
 public sealed class AnthropicFederationWireTests : IDisposable
 {
     private readonly string _directory;
@@ -565,6 +567,7 @@ public sealed class AnthropicFederationWireTests : IDisposable
 /// Models 认证编排的端到端验证：<c>authContext</c> 解析出的联邦 env 必须一路传到
 /// Anthropic 适配器。对应 TS <c>threads authContext federation variables through Models</c>。
 /// </summary>
+[Collection("http-fixtures")]
 public sealed class AnthropicFederationModelsTests : IDisposable
 {
     private sealed class EnvContext(IReadOnlyDictionary<string, string> env) : IAuthContext
@@ -589,10 +592,7 @@ public sealed class AnthropicFederationModelsTests : IDisposable
         _identityFile = Path.Combine(_directory, "identity.jwt");
         File.WriteAllText(_identityFile, "header.payload.signature");
 
-        var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
+        var port = TestPorts.Next();
         _baseUrl = $"http://127.0.0.1:{port}";
         _listener.Prefixes.Add($"{_baseUrl}/v1/oauth/token/");
         _listener.Prefixes.Add($"{_baseUrl}/v1/messages/");
