@@ -1632,7 +1632,7 @@ public static partial class Generation
             ToolControl? control = null;
             if (outcome is { Status: TaskOutcomeStatus.Completed, Result: JsonDict result })
             {
-                control = ToolTaskResult.FromJson(result).Control;
+                control = (ToolTaskResult.FromJson(result) as ToolTaskResult.Model)?.Control;
             }
 
             controls.Add(control);

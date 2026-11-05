@@ -119,11 +119,25 @@ public abstract record ToolTaskCheckpoint
             : new Call();
 }
 
-/// <summary>pi.tool 任务的结果：<c>{ entryId: EntryId, control?: ToolControl }</c>。对应 TS <c>ToolTaskResult</c>。</summary>
-public sealed record ToolTaskResult(EntryId EntryId, ToolControl? Control)
+/// <summary>
+/// pi.tool 任务的结果：模型发起的调用把结果落成 transcript 条目（<c>{kind:"model", entryId, control?}</c>）；
+/// 嵌套调用的结果落在调用方的 <c>NestedCallDoc</c>，回执只有 <c>{kind:"nested"}</c>。
+/// 对应 TS <c>ToolTaskResult</c>。
+/// <para>v1 的行可能只有 <c>{entryId, control?}</c> 而没有 <c>kind</c>——按上游文档口径当作模型发起的调用。</para>
+/// </summary>
+public abstract record ToolTaskResult
 {
+    /// <summary>模型发起的调用：结果条目。</summary>
+    public sealed record Model(EntryId EntryId, ToolControl? Control) : ToolTaskResult;
+
+    /// <summary>嵌套调用：结果在调用方的文档里，回执不持有条目。</summary>
+    public sealed record Nested : ToolTaskResult;
+
     public static ToolTaskResult FromJson(JsonDict json)
     {
+        var kind = json.TryGetValue("kind", out var rawKind) ? rawKind as string : null;
+        if (kind == "nested") return new Nested();
+
         ToolControl? control = null;
         if (json.TryGetValue("control", out var controlValue) && controlValue is JsonDict controlJson)
         {
@@ -137,7 +151,7 @@ public sealed record ToolTaskResult(EntryId EntryId, ToolControl? Control)
             };
         }
 
-        return new ToolTaskResult(EntryId.From(Convert.ToInt64(json["entryId"]!)), control);
+        return new Model(EntryId.From(Convert.ToInt64(json["entryId"]!)), control);
     }
 }
 

@@ -1703,9 +1703,15 @@ durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列
 - **`pi.durable.replay` 在这里发出**：`replayed = 文档里已有 result`，事件挂在 `context` 携带的 span 上
   （`DurableTelemetry.SpanKey`）——与上游 `context.telemetry.addEvent` 同一位置。
 
-**第 3-4 步未做**：相位处理器按 `kind` 分流 + `LiveDoc.nestedTools` 槽位（写 `result` 的那一步）、
-接入调用方（code-mode / `executeTool`）。因此 `StartNestedAsync` 目前**没有端到端用例**——真正能验证 replay 的路径
-（嵌套任务终态时把 result 写进文档）属于第 3 步；这条留待第 3 步一起补。
+**进度（第 3 步第一层）**
+
+- `ToolTaskResult` 升联合体：`Model(EntryId, Control?)` | `Nested`；`FromJson` 对**没有 `kind`** 的旧结果按
+  模型调用读（上游文档口径：「a result without kind is a model-issued call's」）。`Generation` 取 control 时
+  改为 `as Model`。
+
+**第 3 步其余 + 第 4 步未做**：结算分支（嵌套结果写进调用方 `NestedCallDoc`、不进 transcript）、
+`LiveDoc.nestedTools` 槽位、接入调用方（code-mode / `executeTool`）。三件必须一起做才有可运行路径，
+因此 `StartNestedAsync` 仍**没有端到端用例**。
 
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
 `submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现

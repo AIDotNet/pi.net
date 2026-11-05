@@ -82,4 +82,21 @@ public class ToolTaskInputTests
         Assert.False(ToolTask.NestedCallDoc.Definition.CheckpointWhen!(
             new Dictionary<string, object?>(), [], new CheckpointInfo { DeltasSinceBase = 0 }));
     }
+
+    [Fact]
+    public void ReadsLegacyResultsWithoutKindAsModelIssued()
+    {
+        // v1 的结果只有 entryId：老任务记录必须仍能读。
+        var json = new Dictionary<string, object?> { ["entryId"] = 12L };
+        var parsed = Assert.IsType<ToolTaskResult.Model>(ToolTaskResult.FromJson(json));
+        Assert.Equal(12L, parsed.EntryId.Value);
+        Assert.Null(parsed.Control);
+    }
+
+    [Fact]
+    public void ReadsNestedResultsWithoutAnEntry()
+    {
+        var parsed = ToolTaskResult.FromJson(new Dictionary<string, object?> { ["kind"] = "nested" });
+        Assert.IsType<ToolTaskResult.Nested>(parsed);
+    }
 }
