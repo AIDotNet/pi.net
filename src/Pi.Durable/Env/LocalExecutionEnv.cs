@@ -831,7 +831,9 @@ public sealed class LocalExecutionEnv : IExecutionEnv
         if (AbortResult<Unit>(context, destination) is { } aborted) return aborted;
         try
         {
-            File.Move(source, destination);
+            // POSIX 的 rename(2) 会覆盖已存在的目标（上游用 fs.rename，同样如此）；Windows 的
+            // File.Move 默认不覆盖，编辑器「写临时文件再改名覆盖」的常见手法会因此失败。
+            File.Move(source, destination, overwrite: true);
             return Result<Unit, FileError>.Ok(Unit.Value);
         }
         catch (Exception error)

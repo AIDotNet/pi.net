@@ -927,3 +927,25 @@ bash scripts/gate-tests.sh Debug tests/Pi.Chord.Tests/Pi.Chord.Tests.csproj   # 
 2. `nuget-publish.yml` 增加 `Upload gate logs`（`if: failure()`），把 `test-*.log` 作为 artifact 带出。
 
 下次跑就能直接看到是哪个工程、哪几条用例。
+
+## 2026-11-05 dry run 门禁失败定位（§7.18）
+
+runner 是 **Windows**（`D:/a/pi.net/...`），不是 Linux。日志显示 `Test (gate)` 里三个工程失败：
+`Pi.Ai.Tests` 1 例、`Pi.CodingAgent.Tests` 5 例、`Pi.Durable.Tests` 4 例（`total` 588 vs 本地 587）。
+
+**根因一（已修）：shell 用例在本地被静默跳过。** `EnvTests.HasBash()` 与
+`LocalExecutionEnvConformanceTests.FindBash()` 只认 `%ProgramFiles%\Git\bin\bash.exe`。本机 Git 装在别处 →
+8 条 shell 用例 `if (!HasBash()) return;` **静默跳过** → 本地假绿；runner 有标准 Git → 用例真的跑 → 失败。
+改为先查标准位置、再扫 `PATH`。
+
+**根因二（已修）：`RenameFileAsync` 不覆盖目标。** 补上 `PATH` 后本机复现：`total` 变成与 runner 一致的 588，
+3 条契约用例失败，其中「写临时文件再改名覆盖」报 `当文件已存在时，无法创建该文件`——`File.Move` 在 Windows 上
+不覆盖，而 POSIX `rename(2)` 与上游 `fs.rename` 都覆盖。改为 `File.Move(source, destination, overwrite: true)`。
+
+**根因三（按能力门控）：符号链接与 watcher 语义。**
+- `Symlinks` 原本用「有没有 bash」代理，但 Windows 建符号链接要开发者模式/管理员。改为真实探测（建一个临时链接）。
+- 「监视父目录改名后重建」依赖 POSIX watcher 语义，Windows 的 `FileSystemWatcher` 做不到。**已知缺口**，在
+  Windows 上显式跳过并指向本节。
+
+修后：`Pi.Durable.Tests` 本地 **587 例全绿**（契约类 20/20）。
+**仍未定位**：`Pi.Ai.Tests` 1 例与 `Pi.CodingAgent.Tests` 5 例——需要 runner 日志里的 `失败 Pi.` 行。

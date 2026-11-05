@@ -300,13 +300,35 @@ public class EnvTests
 
     // ---------- Shell ----------
 
-    private static bool HasBash()
+    private static bool HasBash() => FindBash() is not null;
+
+    /// <summary>
+    /// 找 <c>bash</c>：先看 Git for Windows 的标准安装位置，再扫 <c>PATH</c>。
+    /// 只认 <c>Program Files</c> 会让「Git 装在别处」的机器**静默跳过**这 8 条 shell 用例，
+    /// 本地因此全绿、跑到有 Git 的 runner 上才暴露——这种「跳过造成的假绿」比失败更危险。
+    /// </summary>
+    private static string? FindBash()
     {
-        var programFiles = Environment.GetEnvironmentVariable("ProgramFiles");
-        if (programFiles is not null && File.Exists(Path.Join(programFiles, "Git", "bin", "bash.exe"))) return true;
-        var programFilesX86 = Environment.GetEnvironmentVariable("ProgramFiles(x86)");
-        if (programFilesX86 is not null && File.Exists(Path.Join(programFilesX86, "Git", "bin", "bash.exe"))) return true;
-        return false;
+        foreach (var root in new[]
+                 {
+                     Environment.GetEnvironmentVariable("ProgramFiles"),
+                     Environment.GetEnvironmentVariable("ProgramFiles(x86)"),
+                 })
+        {
+            if (root is null) continue;
+            var candidate = Path.Join(root, "Git", "bin", "bash.exe");
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (path is null) return null;
+        foreach (var directory in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = Path.Join(directory.Trim('"'), OperatingSystem.IsWindows() ? "bash.exe" : "bash");
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        return null;
     }
 
     [Fact]
