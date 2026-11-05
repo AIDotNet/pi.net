@@ -363,4 +363,19 @@ public class TuiMainScreenTests
 
         public string[] Render(int width) => new[] { Line };
     }
+
+    [Fact]
+    public void SettingTheSameTextKeepsTheWrappedLines()
+    {
+        var text = new Text("hello world", 0, 0);
+        text.Render(20);
+        Assert.True(text.HasCachedLines);
+
+        // 渲染器每帧设同一份文本：不该丢掉已折好的行。
+        text.SetText("hello world");
+        Assert.True(text.HasCachedLines);
+
+        text.SetText("changed");
+        Assert.False(text.HasCachedLines);
+    }
 }

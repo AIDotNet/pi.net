@@ -146,7 +146,7 @@
 | `deb12d78e` | Kitty 协议 F1–F12（含修饰键）；F13+ 不插入私用区字符 |  | ✅ 本批（F1–F12 内部码点 / `CSI P/Q/S` / `:3`、`:2` 事件 / f 键修饰键匹配 / F13+ 私用区拒绝；276 例 `editor-corpus` 场景按「只允许私用区字符消失」守卫重算，见 §4.36） |
 | `86dc686cf` | Apple Terminal 的 `ESC`+Return 且本地 Shift 按下时按 Shift+Enter（插换行） |  | ✅ 本批（`ForwardInputSequence` 在 CR / ESC+CR 上按本机 Shift 升级成 `CSI 13;2u`；Windows 走 `GetAsyncKeyState`、macOS 走 CoreGraphics，失败当没按；见 §4.30） |
 | `19ce8059c` | 常规模式不再写 OSC 133 提示符标记 |  | ✅ 本批（主屏在合成前剥掉行首的 `133;A/B/C`，BEL 与 ST 两种结尾都覆盖；见 §4.28） |
-| `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 |  | ✅ 块级复用已落地（§4.31）；**代码高亮复用与 `Text.setText` 折行缓存未做**（见该节「未移植」） |
+| `0f21a3319` | Markdown 按顶层块缓存渲染结果；代码高亮复用 |  | ✅ 块级复用（§4.31）与 `Text.setText` 折行缓存（§4.47）；**代码高亮复用未做** |
 | `cd1ea342a` | 显示公式超宽时回退原始 LaTeX |  | ✅ 本批（2D 排版的任一行宽过内容宽就整段退回源码；上游回归用例照抄；42 例语料按「出现原始标记」守卫重算，见 §4.35） |
 | `4464442f9` | 全屏下滚出视口的 Kitty 图片按行裁剪 |  | ✅ 已由 `1c8cb1781` 的定界搜索覆盖（占位行不再是停止条件，只有图像行才停；见 §4.34） |
 | `ff6896471` | 全屏双击选词按 iTerm2 的 word 字符集（`~ . \ +` 不再切词） |  | ✅ 本批（`TerminalWordSelectionJoiners` 加上 `+ \ ~ _ .`；端到端用例未移植，见 §4.28） |
@@ -546,9 +546,8 @@ watch」（退休后同一地址的新化身接续同一 watch）、以及 `obse
 后端与 JSON 编解码共十处。漏任何一处都会出现「某个后端读不回记录」的半成品，所以这批一次改全，
 `Pi.Durable.Tests` 全量（532 例）覆盖了 Memory 的存放与 Sqlite 的 JSON 往返转换器。
 
-**仍未做**（同一上游提交）：`ConversationHandle.submit()` 放开为任意 `SubmissionDraft`（端口目前仍只收
-输入草稿——子代理对话用 continue 属可用性改进，不影响内核语义）；`afterFailedRun` 的文档里补
-`nothing_to_answer` 这一失败原因（端口文档已按同一语义描述）。
+**当时未做、后续已补**：`ConversationHandle.submit()` 放开为任意 `SubmissionDraft`（§4.47）。
+`afterFailedRun` 的文档里补 `nothing_to_answer` 这一失败原因仍未做（端口文档已按同一语义描述）。
 
 ### 4.13 P6 第七批：afterTool 覆盖全部结算路径（提交见 git log）
 
@@ -1333,6 +1332,19 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 
 **验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Telemetry.Tests` 24 全绿；`Pi.Ai.Tests` **1012**
 （0 失败 / 1 跳过；整套并行时 `OpenAiCompletionsTests` 偶发流式计时噪声，单跑 5/5 绿，与既有口径一致）。
+
+### 4.47 两项「值得做」的小补：句柄草稿面 + Text 折行缓存
+
+| 项 | 上游 | 落点 | 用例 |
+| --- | --- | --- | --- |
+| `ConversationHandle.submit()` 收任意草稿 | `fb524dd2e` | `IConversationHandle.SubmitAsync` 参数由 `SubmissionDraft.Input` 放开为 `SubmissionDraft`；实现体本就把它转给 `submissions.SubmitAsync(id, draft, ctx)` | `ConversationHandleSubmitTests`：经句柄提交一条 `write` 草稿，断言落成 `done` 且条目进 transcript |
+| `Text.setText()` 保留未变文本的折行 | `0f21a3319` | `Text.SetText` 文本相同时直接返回、不清缓存（上游同义注释：「渲染器常常每次更新设同一份文本」）；`HasCachedLines` 供用例观测 | `ComponentTests.SettingTheSameTextKeepsTheWrappedLines`：同文本后缓存仍在，换文本后清掉 |
+
+**为什么只做这两项**：其余三项（`submit(tx,draft)` 的 link、`partial-changes` 的 `restore()`、工具输出节流落盘）
+判定为「为补边角改主干」——link 只多一条关联边；`restore()` 的效果由下一次整段写入覆盖；节流落盘的真实缺口是分组提交
+（`e5c6182ba`，已判定不做），且「崩溃前输出会丢」的前提在现码不成立（进度提交不走 `Deferred`）。
+
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **585** 全绿；`Pi.Tui.Tests` **23964** 全绿。
 
 ### 4.45 基线缺口第一批：传播、durable 上报指标、RemoteTerminal
 

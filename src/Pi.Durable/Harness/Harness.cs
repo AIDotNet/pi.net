@@ -597,7 +597,7 @@ internal static class BoundConversations
             return submissions.AdmitInCommitAsync(tx, id, submission);
         }
 
-        public async Task<ISubmission> SubmitAsync(SubmissionDraft.Input submission, Context context)
+        public async Task<ISubmission> SubmitAsync(SubmissionDraft submission, Context context)
         {
             binding.Check();
             var admitted = await submissions.SubmitAsync(

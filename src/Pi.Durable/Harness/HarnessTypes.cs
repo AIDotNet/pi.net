@@ -126,7 +126,7 @@ public interface IConversationHandle
 {
     ConversationId Id { get; }
 
-    Task<ISubmission> SubmitAsync(SubmissionDraft.Input submission, Context context);
+    Task<ISubmission> SubmitAsync(SubmissionDraft submission, Context context);
 
     /// <summary>
     /// 在调用方（任务的 <c>runtime.CommitAsync</c>、工具的 <c>api.CommitAsync</c>）的提交内受理一次提交，规则同

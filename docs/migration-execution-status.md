@@ -715,3 +715,13 @@ stale 报 done），三个调用点取 `.Id`；`Submissions.TracedAsync` 包住�
 这条单靠单元测试发现不了，只有端到端跑起来才暴露——印证了先前的判断。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 584 全绿。
+
+## 2026-11-05 两项小补（§4.47）
+
+- `ConversationHandle.submit()` 放开为任意 `SubmissionDraft`（实现体本来就收任意草稿），用例经句柄提交 write 草稿
+- `Text.SetText` 文本相同时不清缓存（上游 `0f21a3319` 的原意），`HasCachedLines` 供用例观测
+
+其余三项判定不做：`submit(tx,draft)` 的 link（只多一条关联边）、`partial-changes` 的 `restore()`（下次整段写入覆盖）、
+工具输出节流落盘（真实缺口是分组提交，且「崩溃前丢输出」的前提在现码不成立）。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 585；`Pi.Tui.Tests` 23964。

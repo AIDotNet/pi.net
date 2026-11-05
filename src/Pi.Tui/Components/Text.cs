@@ -29,9 +29,14 @@ public class Text : IComponent
 
     public void SetText(string text)
     {
+        // 渲染器常常在每次更新时设同一份文本：那时保留已折好的行，不要白折一遍。
+        if (string.Equals(text, _text, StringComparison.Ordinal)) return;
         _text = text;
         ClearCache();
     }
+
+    /// <summary>Whether a wrap has been computed and cached (tests observe the reuse).</summary>
+    internal bool HasCachedLines => _cachedLines is not null;
 
     /// <summary>Current text. TS <c>private text</c>.</summary>
     /// <remarks>
