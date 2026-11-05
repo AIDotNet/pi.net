@@ -819,3 +819,25 @@ assistant 条目；并断言 `Calls > 0`，证明抛出路径确实被走到（�
 - `Pi.Durable.Tests` 的 `HarnessSleepTests`（10s 计时）、`HarnessViewTests`（文档挂载时序）
 
 后续可做：把四个 HTTP 夹具统一到一个带「绑定重试」的共享 fixture；给计时类用例放宽等待窗口。
+
+## 2026-11-05 CI 测试门禁（§7.12）
+
+原测试步骤是 `continue-on-error: true` + 只告警——**测试从来不是门禁**。改成两档：
+
+- **门禁档**：11 个不依赖宿主环境的工程，失败即阻塞；每个工程首次失败后**重跑一次**，吸收已知负载敏感 flake，
+  重跑仍失败才算真失败。
+- **观察档**：`Pi.Tui.Tests`（需要交互终端）与 `Pi.Env.Tests`（需要本地 sshd / 守护进程），只告警。
+  这个划分有依据：CI 注释里记着实测 ubuntu 失败 959 项、windows 369 项，「Pi.Tui / Pi.Env 为主」。
+
+清单抽到 `scripts/gate-tests.sh`，CI 与本地共用一份定义（避免两边漂移）：
+
+```bash
+bash scripts/gate-tests.sh            # Release + net10.0，跑全部门禁工程
+bash scripts/gate-tests.sh Debug      # 换配置
+bash scripts/gate-tests.sh Debug tests/Pi.Chord.Tests/Pi.Chord.Tests.csproj   # 只跑指定工程（排障）
+```
+
+**默认只跑 net10.0**：net9.0 是兼容目标，要求本机装 .NET 9 运行时（本机没装，跑它会以
+`framework_version=9.0.0` 失败）；要覆盖可 `GATE_FRAMEWORK=net9.0` 再跑一遍。
+
+验证：脚本在本地跑通 7 个工程（Telemetry / Protocol / Agent / Chord / Codemode / Evals / Server 全绿）。

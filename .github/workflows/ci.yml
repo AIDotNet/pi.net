@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       run_tests:
-        description: '同时跑全量测试（需要真实交互终端与 sshd，GitHub runner 不满足，会出现已知失败）'
+        description: '跑测试：不依赖宿主环境的工程为门禁（失败即红），Tui/Env 两个工程只作观察（需要交互终端与 sshd）'
         required: false
         type: boolean
         default: false
@@ -114,31 +114,35 @@ jobs:
           done
           echo "OK: 13 个库包，未包含可执行项目" >> "${GITHUB_STEP_SUMMARY}"
 
-      # 测试默认不跑：这套用例依赖真实交互终端与本地 sshd，GitHub runner 是非交互会话、
-      # 没有 ssh 服务，实测 ubuntu 失败 959 项、windows 失败 369 项（Pi.Tui / Pi.Env 为主）。
-      # 本地用 `dotnet test Pi.slnx -c Release` 跑全量（约 3.5 分钟，仅已知负载敏感 flake）。
-      # 这里保留手动入口，失败只告警不阻塞，方便在 runner 上观察环境相关差异。
-      - name: Test (optional)
+      # 测试分两档，因为这套用例里有一部分**只能在真实宿主上跑**：
+      # Pi.Tui.Tests 需要交互终端、Pi.Env.Tests 需要本地 sshd 与守护进程。GitHub runner 是非交互会话、
+      # 没有 ssh 服务，实测 ubuntu 失败 959 项、windows 失败 369 项，绝大多数来自这两个工程。
+      #
+      # 门禁档：不依赖宿主环境的工程。失败即阻塞；每个工程首次失败后重跑一次，吸收已知的负载敏感 flake
+      # （Ai 的本地 HTTP 监听、Durable 的计时类用例）。重跑仍失败才算真失败。
+      # 观察档：Tui / Env 两个工程，只告警，供在 runner 上观察环境差异。
+      - name: Test (gate)
+        if: inputs.run_tests == true
+        run: bash scripts/gate-tests.sh Release
+
+      - name: Test (host-dependent, informational)
         if: inputs.run_tests == true
         continue-on-error: true
         run: |
           set -uo pipefail
-          set +e
-          dotnet test Pi.slnx -c Release --no-build > test.log 2>&1
-          status=$?
-          set -e
-          tail -40 test.log
-          if [[ "${status}" -ne 0 ]]; then
-            grep -E "Failed!|error run failed" test.log | head -10 | sed 's/%/%25/g' | while IFS= read -r line; do
-              echo "::warning title=test::${line}"
-            done
-          fi
+          for project in tests/Pi.Tui.Tests/Pi.Tui.Tests.csproj tests/Pi.Env.Tests/Pi.Env.Tests.csproj; do
+            name="$(basename "${project}" .csproj)"
+            echo "::group::${name}（需要交互终端 / sshd，仅供观察）"
+            dotnet test "${project}" -c Release --no-build > "test-${name}.log" 2>&1 || true
+            tail -5 "test-${name}.log" || true
+            echo "::endgroup::"
+          done
 
       - name: Upload test log
         if: always() && inputs.run_tests == true
         uses: actions/upload-artifact@v7
         with:
-          name: test-log
-          path: test.log
+          name: test-logs
+          path: test-*.log
           retention-days: 7
           if-no-files-found: ignore
