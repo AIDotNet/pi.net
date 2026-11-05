@@ -971,7 +971,11 @@ public sealed record Settings
     /// <summary>已解析的文档缓存保留时长（毫秒，可能为 <see cref="double.PositiveInfinity"/>）。</summary>
     public required double DocumentRetentionMs { get; init; }
 
-    /// <summary>失败的运行对其后排队输入的策略。对应 TS <c>Settings.afterFailedRun</c>。</summary>
+    /// <summary>
+    /// 失败的运行对其后排队输入的策略。对应 TS <c>Settings.afterFailedRun</c>。
+    /// 「失败」包括没有可回答内容的结算（<c>nothing_to_answer</c>：上下文末尾不是用户消息或工具结果），
+    /// 它按与抛出失败相同的方式处理排队项。
+    /// </summary>
     public required AfterFailedRun AfterFailedRun { get; init; }
 
     /// <summary>已解析的重启上限（≥ 1）。对应 TS <c>Settings.restartLimit</c>。</summary>
@@ -980,7 +984,8 @@ public sealed record Settings
 
 /// <summary>
 /// 失败的运行对它后面排队的输入做什么（<see cref="HarnessSettings.AfterFailedRun"/>）。
-/// 对应 TS <c>AfterFailedRun</c>。
+/// 对应 TS <c>AfterFailedRun</c>。运行以 <c>nothing_to_answer</c> 结算同属此列：它没有答案，
+/// 排队项按这里的选择处理，而不是被静默卡住。
 /// </summary>
 public enum AfterFailedRun
 {

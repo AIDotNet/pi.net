@@ -1669,6 +1669,18 @@ durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列
 `tool.ts` 在 v1.4.0 就已存在（1146 行），端口的 durable 层没有对应的 `runtime.tools` 面；嵌套调用落在 coding-agent 层。
 所以 `replay` 不是遥测漏接，而是**嵌套调用重放这个功能本身没移植**——要接这个事件得先有重放。
 
+### 7.9 收尾判定：剩余四项的处理
+
+| 项 | 判定 | 理由 | 重新考虑的触发条件 |
+| --- | --- | --- | --- |
+| `afterFailedRun` 文档补 `nothing_to_answer` | ✅ 已补 | 纯文档，端口行为本就同义 | — |
+| `LiveDoc.nestedTools` 槽位 | ⛔ 不做 | 嵌套调用**尚无生产调用方**（`ExecuteToolAsync` 只有测试在用）；为没人看的路径铺 UI 管道，等于再造一层不可达结构 | 出现第一个生产调用方（code-mode 或某个工具真的用 `ExecuteToolAsync`） |
+| 代码高亮复用 | ⛔ 不做 | 没有性能证据；加缓存层要处理失效，属于"有诉求再做"的优化 | 实测发现长代码块重渲成为热点 |
+| `d5b3de22d` 第二半（轮询检查点恢复侧断言） | ⛔ 不做（当前） | 只能补回归保护、不修缺陷；成本是 faux provider 的 deferred 流 + 崩溃恢复模拟，属独立一批 | 该路径要进入回归保护范围时 |
+
+**结论**：1.5.0 的功能面（含遥测词表、propagation、RemoteTerminal、嵌套 durable 调用）已全部对齐；剩余三项均为
+「无调用方 / 无证据 / 纯回归」，连同 §6.1 的分组提交与 §4.8 的 durable code-mode 一起，构成**有记录的不做项**。
+
 ### 7.7 `replay` 的前置：durable 嵌套调用这一层没移植
 
 要让 `pi.durable.replay` 有事件源，先得有「按 key 去重、结果已存就复用」的嵌套调用。上游这层是

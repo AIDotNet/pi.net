@@ -776,3 +776,11 @@ assistant 条目；并断言 `Calls > 0`，证明抛出路径确实被走到（�
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 587（首轮 1 例 `HarnessViewTests` 并行噪声，单跑与整类皆绿）；
 `Pi.Tui.Tests` 23964、`Pi.Telemetry.Tests` 30 全绿。
+
+## 2026-11-05 收尾判定（§7.9）
+
+四项剩余的处理：`afterFailedRun` 文档已补；`nestedTools` 槽位 / 代码高亮复用 / 轮询检查点恢复侧断言判为不做，
+各自记了理由与重新考虑的触发条件（无生产调用方、无性能证据、纯回归保护）。
+
+1.5.0 功能面到此全部对齐；剩余均为有记录的不做项。
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 587 全绿。
