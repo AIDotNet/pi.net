@@ -1749,6 +1749,18 @@ durable code-mode 脚本
 durable code-mode（1042 行）是**独立一批**：它决定「脚本里的工具调用要不要变成 durable 任务」，属产品能力，
 不是接线。
 
+**已落地（§4.46）**：结算分流 + `ExecuteToolAsync`。
+
+- `SettleAsync` 连同 `RunAsync`/`RejectAsync`/`EndCutOffAsync`/`SettleFromSlotAsync` 收 `TaskRecord`，统一从
+  `task.Input` 解析；嵌套分支把结果消息写进调用方 `NestedCallDoc` 的 `result`，回执 `{kind:"nested"}`，不 append 条目、
+  不碰 Live 槽（结果消息由 `ResultMessage()` 与 transcript 条目共用同一形状）。
+- `IToolExecutionApi.ExecuteToolAsync(name, args, ctx, options)`：`ToolApi` 里接 `StartNestedAsync` →
+  `WaitForTaskAsync` → 读文档 `result`；无结果（faulted/orphaned）按结局造 `task_faulted|task_orphaned|task_failed`
+  诊断。无 key 时用调用内递增序号（对应上游 `++sequence`）。
+
+**仍未做**：端到端用例（需要一个能调度嵌套任务的 harness：外层工具在 `ExecuteAsync` 里调两次同 key，
+断言第二次 `replayed`、transcript 只有外层结果、phase span 上有 `pi.durable.replay`）。这是本批唯一缺口。
+
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
 `submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现
 `pi.durable.entry` 与 `pi.durable.submission` 事件；`PropagationTests` 两例覆盖 link 的解析与「不认识的上下文丢弃」。

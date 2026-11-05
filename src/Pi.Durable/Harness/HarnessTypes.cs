@@ -203,6 +203,19 @@ public enum QueueMode
 /// 一次工具调用可用的操作。普通对象，包装器可展开。调用结束后每个操作都拒绝。
 /// 对应 TS <c>ToolExecutionApi&lt;TDetails&gt;</c>（C# 侧 details 擦除为 object?）。
 /// </summary>
+/// <summary>一次嵌套工具调用的选项。对应 TS <c>executeTool()</c> 的 options。</summary>
+public sealed record ExecuteToolOptions
+{
+    /// <summary>调用键；缺省按调用内递增序号取（脚本里的 <c>c1</c>/<c>c2</c> 由调用方给）。</summary>
+    public string? Key { get; init; }
+
+    /// <summary><c>false</c>：不向槽位提交运行输出/明细/诊断（结果仍带）。</summary>
+    public bool? Progress { get; init; }
+
+    /// <summary>宿主重启时丢弃这次嵌套调用（不复用它的结果）。</summary>
+    public bool AbandonOnRestart { get; init; }
+}
+
 public interface IToolExecutionApi : IDocumentObserver, IDocumentReader
 {
     TaskId<object?> TaskId { get; }
@@ -225,6 +238,13 @@ public interface IToolExecutionApi : IDocumentObserver, IDocumentReader
 
     /// <summary>由 <see cref="HarnessOptions.EnvFactory"/> 为本次调用构建；无环境为 undefined。</summary>
     IExecutionEnv? Env { get; }
+
+    /// <summary>
+    /// 把另一个工具作为**嵌套 durable 调用**跑一次。没有 key 时按调用内递增序号取键；
+    /// 同一 key 重放时不会重复执行工具，直接拿已存结果。对应 TS <c>api.executeTool()</c>。
+    /// </summary>
+    Task<ToolExecutionResult> ExecuteToolAsync(
+        string name, object? arguments, Context context, ExecuteToolOptions? options = null);
 
     /// <summary>
     /// Harness 时钟（<see cref="HarnessOptions.Now"/>），用于脚本超时等在重启后仍可比较的时刻。

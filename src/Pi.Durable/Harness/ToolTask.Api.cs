@@ -115,6 +115,63 @@ public static partial class ToolTask
 
         public long Now() => runtime.Now();
 
+        /// <summary>无 key 的嵌套调用按调用内递增序号取键（与上游 <c>++sequence</c> 同序）。</summary>
+        private int _nestedSequence;
+
+        /// <summary>
+        /// 跑一次嵌套 durable 调用：建/复用嵌套任务，等它落定，再从调用方文档读结果。
+        /// 任务被 faulted/orphaned 时文档没有结果，按结局造一个错误结果。
+        /// 对应 TS <c>executeTool()</c>（tool.ts:520）。
+        /// </summary>
+        public async Task<ToolExecutionResult> ExecuteToolAsync(
+            string name, object? arguments, Context context, ExecuteToolOptions? options = null)
+        {
+            assertLive();
+            var key = options?.Key ?? (++_nestedSequence).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var json = arguments as JsonDict ?? new Dictionary<string, object?>();
+
+            var id = await StartNestedAsync(
+                runtime, call.Id, name, json, key, options?.AbandonOnRestart ?? false, context).ConfigureAwait(false);
+            var settled = await runtime.WaitForTaskAsync(id, context).ConfigureAwait(false);
+
+            var document = await runtime.SnapshotAsync(NestedCallDoc, runtime.TaskId, key, context)
+                .ConfigureAwait(false);
+            if (document is not null
+                && document.TryGetValue("result", out var stored)
+                && stored is not null)
+            {
+                // 复制一份：工具可以改它，而文档里的值不可变。
+                var message = JsonTrees.Deserialize<ToolResultMessage>(JsonTrees.ToTree(stored));
+                return new ToolExecutionResult
+                {
+                    Content = message.Content,
+                    IsError = message.IsError,
+                    Details = message.Details,
+                };
+            }
+
+            // 没有结果 = 嵌套任务被调度器 faulted/orphaned：给调用方一个可读的失败。
+            var outcome = settled.State.Outcome;
+            return new ToolExecutionResult
+            {
+                IsError = true,
+                Diagnostics =
+                [
+                    new ToolDiagnostic
+                    {
+                        Severity = "error",
+                        Code = outcome?.Status switch
+                        {
+                            TaskOutcomeStatus.Faulted => "task_faulted",
+                            TaskOutcomeStatus.Orphaned => "task_orphaned",
+                            _ => "task_failed",
+                        },
+                        Message = outcome?.Error?.Message ?? $"Nested call to {name} did not produce a result",
+                    },
+                ],
+            };
+        }
+
         public void Output(string chunk, ShellOutputSkip? skipped = null)
         {
             assertLive();

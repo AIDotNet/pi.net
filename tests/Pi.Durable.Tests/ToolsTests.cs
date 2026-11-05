@@ -53,7 +53,11 @@ public class ToolsTests
         public ModelSpec? GetModel(string provider, string modelId)
             => model is { } found && found.Provider == provider && found.Id == modelId ? found : null;
 
-        public long Now() => 0;
+public Task<ToolExecutionResult> ExecuteToolAsync(
+            string name, object? arguments, Context context, ExecuteToolOptions? options = null)
+            => throw new NotSupportedException("这些用例不发起嵌套调用");
+
+                public long Now() => 0;
 
         public void Output(string chunk, ShellOutputSkip? skipped = null) => Outputs.Add(chunk);
 

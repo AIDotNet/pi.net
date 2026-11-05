@@ -171,6 +171,9 @@ public static partial class ToolTask
     /// 一个调用一份文档，所以任何提交都不重写别人；随调用方任务退休。
     /// 对应 TS <c>NestedCallDoc</c>（task 作用域、族、<c>checkpointWhen: () =&gt; false</c>）。
     /// </summary>
+    /// <summary>嵌套调用文档里结果的位置。</summary>
+    private static readonly Path NestedResultPath = Path.Root.Append(Seg.Key("result"));
+
     public static readonly DocFamilyToken<Dictionary<string, object?>, object?> NestedCallDoc =
         DurableDocuments.DefineDocFamily<Dictionary<string, object?>, object?>(new DocFamilyDefinition<
             Dictionary<string, object?>, object?>
@@ -221,7 +224,7 @@ public static partial class ToolTask
         if (tool is null)
         {
             var error = HarnessError("tool_unavailable", $"Tool {call.Name} is not available");
-            await RejectAsync(runtime, call, null, error, context).ConfigureAwait(false);
+            await RejectAsync(runtime, task, call, null, error, context).ConfigureAwait(false);
             return;
         }
 
@@ -229,7 +232,7 @@ public static partial class ToolTask
         var check = prepared.Error is null ? Validate(tool, call, prepared.Args) : prepared;
         if (check.Error is not null)
         {
-            await RejectAsync(runtime, call, tool, Invalid(check.Error), context).ConfigureAwait(false);
+            await RejectAsync(runtime, task, call, tool, Invalid(check.Error), context).ConfigureAwait(false);
             return;
         }
 
@@ -254,14 +257,14 @@ public static partial class ToolTask
         if (block is not null)
         {
             var blocked = HarnessError("blocked", $"Tool call blocked: {block}");
-            await RejectAsync(runtime, call, tool, blocked, context).ConfigureAwait(false);
+            await RejectAsync(runtime, task, call, tool, blocked, context).ConfigureAwait(false);
             return;
         }
 
         var validated = Validate(tool, call, args);
         if (validated.Error is not null)
         {
-            await RejectAsync(runtime, call, tool, Invalid(validated.Error), context).ConfigureAwait(false);
+            await RejectAsync(runtime, task, call, tool, Invalid(validated.Error), context).ConfigureAwait(false);
             return;
         }
 
@@ -274,7 +277,7 @@ public static partial class ToolTask
             var intent = new ToolTaskCheckpoint.Execute(final, tool.Replay ?? "unsafe");
             return new TaskState { Status = TaskStatus.Running, Checkpoint = intent.ToJson() };
         }, context).ConfigureAwait(false);
-        await RunAsync(runtime, call, tool, final, context).ConfigureAwait(false);
+        await RunAsync(runtime, task, call, tool, final, context).ConfigureAwait(false);
     }
 
     /// <summary>恢复：只有存储与当前策略都说 safe 才重跑。</summary>
@@ -304,7 +307,7 @@ public static partial class ToolTask
                 if (slot is not null) Live.ReplaceSlot(change, Live.ClearProgress(slot));
                 return null;
             }, context).ConfigureAwait(false);
-            await RunAsync(runtime, call, tool, intent.Arguments, context).ConfigureAwait(false);
+            await RunAsync(runtime, task, call, tool, intent.Arguments, context).ConfigureAwait(false);
             return;
         }
 
@@ -312,7 +315,7 @@ public static partial class ToolTask
         // failed 记录取消意图，因此该调用拥有的对话在无人监督时被中止。
         var ending = new Ending(TaskOutcomeStatus.Failed, message);
         await SettleFromSlotAsync(
-            runtime, call, agent.Tools.FirstOrDefault(each => each.Name == call.Name),
+            runtime, task, call, agent.Tools.FirstOrDefault(each => each.Name == call.Name),
             ending, "interrupted", message, context).ConfigureAwait(false);
     }
 
@@ -335,7 +338,7 @@ public static partial class ToolTask
         }
 
         await SettleFromSlotAsync(
-            runtime, call, forHooks,
+            runtime, task, call, forHooks,
             new Ending(TaskOutcomeStatus.Aborted), code, message, context).ConfigureAwait(false);
     }
 
@@ -408,7 +411,8 @@ public static partial class ToolTask
 
     /// <summary>以解析到的实现执行，然后结算其结果。</summary>
     private static async Task RunAsync(
-        ITaskRuntime runtime, ToolCallContent call, IToolRegistration tool, object? args, Context context)
+        ITaskRuntime runtime, TaskRecord task, ToolCallContent call, IToolRegistration tool,
+        object? args, Context context)
     {
         var limits = new OutputLimits
         {
@@ -460,7 +464,7 @@ public static partial class ToolTask
         try
         {
             var settled = await FinalResultAsync(runtime, call, result, reported, context).ConfigureAwait(false);
-            await SettleAsync(runtime, call, ending, _ => settled, context).ConfigureAwait(false);
+            await SettleAsync(runtime, task, call, ending, _ => settled, context).ConfigureAwait(false);
         }
         catch (Exception error)
         {
@@ -648,12 +652,12 @@ public static partial class ToolTask
     /// 拦截。<c>afterTool</c> 与执行过的调用一视同仁。对应 TS <c>reject()</c>。
     /// </summary>
     private static async Task RejectAsync(
-        ITaskRuntime runtime, ToolCallContent call, IToolRegistration? tool,
+        ITaskRuntime runtime, TaskRecord task, ToolCallContent call, IToolRegistration? tool,
         ToolExecutionResult result, Context context)
     {
         var settled = await AfterHarnessResultAsync(runtime, call, tool, result, null, context)
             .ConfigureAwait(false);
-        await SettleAsync(runtime, call, Completed, _ => settled, context).ConfigureAwait(false);
+        await SettleAsync(runtime, task, call, Completed, _ => settled, context).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -667,7 +671,7 @@ public static partial class ToolTask
         var message = $"Tool {call.Name} was interrupted {Live.CutOffCount(task)}; it is not run again";
         var ending = new Ending(TaskOutcomeStatus.Failed, message, ReportReasons.RestartLimit);
         await SettleAsync(
-            runtime, call, ending,
+            runtime, task, call, ending,
             slot =>
             {
                 var (built, _) = FromSlot(slot, ReportReasons.RestartLimit, message);
@@ -681,7 +685,7 @@ public static partial class ToolTask
     /// 结果过一遍 <c>afterTool</c> 并按其输出上限有界化。对应 TS <c>settleFromSlot()</c>。
     /// </summary>
     private static async Task SettleFromSlotAsync(
-        ITaskRuntime runtime, ToolCallContent call, IToolRegistration? tool,
+        ITaskRuntime runtime, TaskRecord task, ToolCallContent call, IToolRegistration? tool,
         Ending ending, string code, string message, Context context)
     {
         var live = await runtime.SnapshotAsync(Live.LiveDoc, runtime.ConversationId, context).ConfigureAwait(false);
@@ -694,7 +698,7 @@ public static partial class ToolTask
         var (built, truncation) = FromSlot(slot, code, message);
         var settled = await AfterHarnessResultAsync(runtime, call, tool, built, truncation, context)
             .ConfigureAwait(false);
-        await SettleAsync(runtime, call, ending, _ => settled, context).ConfigureAwait(false);
+        await SettleAsync(runtime, task, call, ending, _ => settled, context).ConfigureAwait(false);
     }
 
     /// <summary>工具的输出上限（缺省值补齐）；工具没解析到时全取缺省。对应 TS <c>outputLimits()</c>。</summary>
@@ -749,20 +753,37 @@ public static partial class ToolTask
     /// </summary>
     private static async Task SettleAsync(
         ITaskRuntime runtime,
+        TaskRecord task,
         ToolCallContent call,
         Ending ending,
         Func<ToolSlot?, ToolExecutionResult> build,
         Context context)
     {
+        var input = task.Input is JsonDict inputJson ? ToolTaskInput.FromJson(inputJson) : null;
+
         await runtime.CommitAsync(async (tx, _) =>
         {
-            var change = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
-            var slot = Live.ToolSlotOf(change, runtime.TaskId);
-            var result = build(slot);
-            var entry = await AppendToolResultAsync(tx, runtime.ConversationId, call, result, runtime.Now())
-                .ConfigureAwait(false);
-            if (slot is not null) Live.FinishSlot(change, slot, entry.Id);
-            var resultJson = new Dictionary<string, object?> { ["entryId"] = entry.Id.Value };
+            ToolExecutionResult result;
+            Dictionary<string, object?> resultJson;
+            if (input is ToolTaskInput.Nested nested)
+            {
+                // 嵌套调用没有 transcript 条目：结果写进调用方的文档，回执只说「嵌套」。
+                result = build(null);
+                var document = await tx.DocAsync(NestedCallDoc, nested.Parent, nested.Key, null)
+                    .ConfigureAwait(false);
+                document.Set(NestedResultPath, JsonTrees.ToTree(ResultMessage(call, result, runtime.Now())));
+                resultJson = new Dictionary<string, object?> { ["kind"] = "nested" };
+            }
+            else
+            {
+                var change = await tx.DocAsync(Live.LiveDoc, runtime.ConversationId).ConfigureAwait(false);
+                var slot = Live.ToolSlotOf(change, runtime.TaskId);
+                result = build(slot);
+                var entry = await AppendToolResultAsync(tx, runtime.ConversationId, call, result, runtime.Now())
+                    .ConfigureAwait(false);
+                if (slot is not null) Live.FinishSlot(change, slot, entry.Id);
+                resultJson = new Dictionary<string, object?> { ["entryId"] = entry.Id.Value };
+            }
             if (ending.Status == TaskOutcomeStatus.Failed)
             {
                 return new TaskState
@@ -864,6 +885,15 @@ public static partial class ToolTask
 
     // ─── 结果条目 ───────────────────────────────────────────────────────────
 
+    /// <summary>本次调用的结果消息：诊断渲染成文本附在内容末尾；工具结果条目与嵌套文档共用这一形状。</summary>
+    private static ToolResultMessage ResultMessage(ToolCallContent call, ToolExecutionResult result, long timestamp)
+    {
+        var diagnostics = new List<ToolDiagnostic>(result.Diagnostics ?? []);
+        var content = new List<ContentBlock>(result.Content ?? []);
+        if (diagnostics.Count > 0) content.Add(new TextContent(RenderDiagnostics(diagnostics)));
+        return new ToolResultMessage(call.Id, call.Name, content, result.IsError, result.Details, timestamp);
+    }
+
     /// <summary>
     /// 追加一条 pi.tool-result 条目。内容以渲染后的诊断结尾，存储的消息就是模型看到的；
     /// data 持结构化列表。结果的使用量在同一提交里计入 pi.usage。对应 TS <c>appendToolResult</c>。
@@ -871,11 +901,8 @@ public static partial class ToolTask
     public static async Task<TypedEntry<IReadOnlyDictionary<string, object?>>> AppendToolResultAsync(
         ITx tx, ConversationId conversationId, ToolCallContent call, ToolExecutionResult result, long timestamp)
     {
+        var message = ResultMessage(call, result, timestamp);
         var diagnostics = new List<ToolDiagnostic>(result.Diagnostics ?? []);
-        var content = new List<ContentBlock>(result.Content ?? []);
-        if (diagnostics.Count > 0) content.Add(new TextContent(RenderDiagnostics(diagnostics)));
-        var message = new ToolResultMessage(
-            call.Id, call.Name, content, result.IsError, result.Details, timestamp);
         if (result.Usage is { } usage)
         {
             await Usage.RecordUsageAsync(tx, conversationId, Usage.ToolsBucket, call.Name, usage)
