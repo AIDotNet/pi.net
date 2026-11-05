@@ -1334,6 +1334,18 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 **验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Telemetry.Tests` 24 全绿；`Pi.Ai.Tests` **1012**
 （0 失败 / 1 跳过；整套并行时 `OpenAiCompletionsTests` 偶发流式计时噪声，单跑 5/5 绿，与既有口径一致）。
 
+### 4.45 基线缺口第一批：传播、durable 上报指标、RemoteTerminal
+
+§7.4 的三项按依赖顺序做了能忠实落地的部分。
+
+| 项 | 落点 | 判定 |
+| --- | --- | --- |
+| `TelemetryPropagation` / carrier | `TelemetryCarrier`、`ITelemetryPropagation`、`NoopTelemetryPropagation`；`ITelemetryContext.Propagation`；`InMemoryTelemetryContext` 按上游的 `pi-memory-scope/span/trace` 生成载体，同 scope 解出的父上下文能定位本地父 span | ✅ 4 例（往返、未知载体回落根、跨 scope 只继承 trace、noop） |
+| `DURABLE_TELEMETRY_SCHEMA` | `DurableTelemetry.Schema`（两个 span、三个指标、四个事件）；`HarnessOptions.Telemetry`；`pi.durable.reports` 已接（`_report` 里按固定种类计数，带 `task.id`）；另留 `DurableTelemetry.SpanKey` 供处理器起子 span | ⚠️ 部分：phase span 与另外两个指标要等调用模型具备 `attempt` / `resumed`（端口 `Invocation` 没有），`pi.durable.submit` 要等提交侧携带 carrier |
+| `RemoteTerminal` / `openTerminal` | `src/Pi.Env/RemoteTerminal.cs`：`TerminalOptions`、`TerminalForeground`、`RemoteTerminal`（1 MiB 分块写、resize、close、foreground）与 `Terminals.OpenAsync` | ✅ 移植完成；守护进程在 Windows 上回 `Terminals are not supported on this system yet`（上游同一限制），用例按平台 skip，Linux/CI 上会真正执行 |
+
+**验证**：`dotnet build Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` **573**；`Pi.Env.Tests` **54**（4 跳过）；`Pi.Telemetry.Tests` **28**。
+
 ## 5. 1.5.0 全量核对（`v1.4.0..v1.5.0`，308 个提交）
 
 用户口径：「只同步到 1.5.0 正式版」。据此把 `v1.4.0..v1.5.0` 全量重扫了一遍——**原来的台账是按精选清单写的，
@@ -1607,9 +1619,9 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 
 | 项 | 规模 / 依赖 | 判定 |
 | --- | --- | --- |
-| `TelemetryPropagation`（`inject`/`extract` + carrier） | 2 个方法；只服务于 durable 遥测（把 submit 的 trace 链接到 run） | 随 durable 遥测一起定 |
-| `DURABLE_TELEMETRY_SCHEMA` + 埋点 | 139 行 schema；埋点在 `harness.ts:468`（report 计数器/事件）与 `scheduler.ts:2233`（每次 phase 一个 span、把 span 放进 `Context`、phase 时长/活跃任务/结局指标） | **不并入本轮**：端口的 `Scheduler.cs` 2600+ 行且是任务执行核心，改的是热路径与 Context 约定；收益是零消费方的观测性。应单独立批 |
-| `RemoteTerminal` / `openTerminal` | 127 行；依赖 chord `connection`（1327 行 wire 协议，`be039fb31` 判定声明层不适用） | **不移植**：依赖缺失，且仓库内无调用方；补它等于自创协议 |
+| `TelemetryPropagation`（`inject`/`extract` + carrier） | 2 个方法；只服务于 durable 遥测（把 submit 的 trace 链接到 run） | ✅ 已补（§4.45） |
+| `DURABLE_TELEMETRY_SCHEMA` + 埋点 | 139 行 schema；埋点在 `harness.ts:468`（report 计数器/事件）与 `scheduler.ts:2233`（每次 phase 一个 span、把 span 放进 `Context`、phase 时长/活跃任务/结局指标） | ⚠️ 部分（§4.45）：schema + `pi.durable.reports` 已接；phase span 受阻于调用模型缺 `attempt`/`resumed`，submit span 受阻于提交侧 carrier |
+| `RemoteTerminal` / `openTerminal` | 127 行；端口的 `Pi.Env.Connection` 与上游 `RequestOptions`（payload / signal / onEvent / onStart / session）完全对齐 | ✅ 已补（§4.45）；此前「依赖缺失」的判断有误 |
 
 **因此「1.5.0 已对齐」的准确口径是**：`v1.4.0..v1.5.0` 的增量全部落地，外加 AI 遥测这个当时唯一能安全补的基线缺口；
 durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列，需要时按上表的规模评估后开工。

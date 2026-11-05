@@ -600,3 +600,15 @@ chord `connection` 层）。
 
 验证：`Pi.slnx` 0 警告 0 错误；`Pi.Telemetry.Tests` 24 全绿；`Pi.Ai.Tests` 1012（0 失败 / 1 跳过；
 整套并行时 `OpenAiCompletionsTests` 偶发流式计时噪声，单跑 5/5 绿）。
+
+## 2026-11-05 基线缺口第一批（§4.45）
+
+- **TelemetryPropagation / carrier**：`TelemetryCarrier`、`ITelemetryPropagation`、`NoopTelemetryPropagation`；
+  InMemory 按上游 `pi-memory-scope/span/trace` 生成载体（同 scope 能定位本地父 span，跨 scope 只继承 trace）。4 例。
+- **durable 遥测（部分）**：`DurableTelemetry.Schema` 全量落地；`HarnessOptions.Telemetry`；`pi.durable.reports`
+  在 `_report` 里按固定种类计数（带 task.id）。**phase span 受阻**：上游要 `attempt` / `resumed`，端口 `Invocation`
+  没有这两项记账；`pi.durable.submit` 要等提交侧携带 carrier。
+- **RemoteTerminal**：`Pi.Env.Connection` 的 `RequestOptions`（payload/signal/onEvent/onStart/session）与上游完全对齐，
+  故 `RemoteTerminal` + `Terminals.OpenAsync` 已移植；守护进程在 Windows 上不支持 pty（上游同一限制），用例按平台 skip。
+
+验证：`Pi.slnx` 0 警告 0 错误；`Pi.Durable.Tests` 573；`Pi.Env.Tests` 54（4 跳过）；`Pi.Telemetry.Tests` 28。

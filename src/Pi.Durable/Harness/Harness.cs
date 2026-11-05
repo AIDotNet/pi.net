@@ -3,6 +3,7 @@ using Pi.Ai.Models;
 using Pi.Ai.Types;
 using Pi.Chord.Context;
 using Pi.Chord.Services;
+using Pi.Telemetry;
 using Pi.Durable.Env;
 using Pi.Durable.Session;
 using Pi.Durable.Storage;
@@ -175,19 +176,33 @@ public sealed class HarnessImpl : DurableSession, IHarness
         _storage = storage;
         _options = options;
         // 宿主的上报处理器不得使调用失败：其抛出被吞掉（对应 TS <c>safeReport</c> 的 contained）。
-        _report = options.OnReport is { } onReport
-            ? (error, info) =>
+        // 上报计数（pi.durable.reports）：没有 telemetry 时是无操作适配器，开销为零。
+        var reports = TelemetryMetrics.CreateTypedMetrics(
+            options.Telemetry?.Metrics ?? NoopTelemetryMetrics.Instance,
+            DurableTelemetry.Schema).Counter("pi.durable.reports");
+        _report = (error, info) =>
+        {
+            try
             {
-                try
-                {
-                    onReport(error, info);
-                }
-                catch (Exception)
-                {
-                    // 上报通道自己失败时只能丢弃：它没有更高层的上报者。
-                }
+                var attributes = new SpanAttributes { ["type"] = DurableTelemetry.ReportKind(info) };
+                if (DurableTelemetry.TaskIdOf(info) is { } taskId) attributes["task.id"] = (double)taskId;
+                reports.Add(1, attributes);
             }
-            : (_, _) => { };
+            catch (Exception)
+            {
+                // 计数是旁路行为：不影响上报本身。
+            }
+
+            if (options.OnReport is not { } onReport) return;
+            try
+            {
+                onReport(error, info);
+            }
+            catch (Exception)
+            {
+                // 上报通道自己失败时只能丢弃：它没有更高层的上报者。
+            }
+        };
         var now = options.Now ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         // 宿主的 setTimer 抛出：它退回内建定时器，并作为宿主回调失败上报。
         var reportSetTimer = new Action<Exception>(

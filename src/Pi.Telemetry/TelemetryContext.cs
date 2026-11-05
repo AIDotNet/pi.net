@@ -41,8 +41,40 @@ public interface ITelemetryContext
     /// </summary>
     ITelemetryMetrics? Metrics => null;
 
+    /// <summary>
+    /// Optional transport capability. Mirrors TS <c>TelemetryContext.propagation?</c>:
+    /// absent for a context that cannot carry its identity across a boundary.
+    /// </summary>
+    ITelemetryPropagation? Propagation => null;
+
     /// <summary>Starts a span and runs <paramref name="callback"/> inside its lifetime.</summary>
     Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback);
+}
+
+/// <summary>
+/// Optional transport capability implemented by the application's telemetry adapter.
+/// Mirrors TS <c>TelemetryPropagation</c>.
+/// </summary>
+public interface ITelemetryPropagation
+{
+    /// <summary>Returns a detached carrier for <paramref name="context"/>, or null when it is unknown.</summary>
+    TelemetryCarrier? Inject(ITelemetryContext context);
+
+    /// <summary>Resolves a carrier back to a context; absent or unknown carriers use the root.</summary>
+    ITelemetryContext Extract(TelemetryCarrier? carrier);
+}
+
+/// <summary>Shared propagation capability that neither inspects nor retains its inputs.</summary>
+public static class NoopTelemetryPropagation
+{
+    public static readonly ITelemetryPropagation Instance = new Noop();
+
+    private sealed class Noop : ITelemetryPropagation
+    {
+        public TelemetryCarrier? Inject(ITelemetryContext context) => null;
+
+        public ITelemetryContext Extract(TelemetryCarrier? carrier) => NoopTelemetryContext.Instance;
+    }
 }
 
 /// <summary>Shared no-op telemetry used when the host application provides none.</summary>
@@ -69,6 +101,8 @@ public static class NoopTelemetryContext
 
         public ITelemetryMetrics Metrics => NoopTelemetryMetrics.Instance;
 
+        public ITelemetryPropagation Propagation => NoopTelemetryPropagation.Instance;
+
         public void AddEvent(string name, SpanAttributes? attributes = null) { }
         public void AddLink(StoredSpanLink link) { }
         public void SetAttributes(SpanAttributes attributes) { }
@@ -78,6 +112,8 @@ public static class NoopTelemetryContext
     private sealed class NoopContext : ITelemetryContext
     {
         public ITelemetryMetrics Metrics => NoopTelemetryMetrics.Instance;
+
+        public ITelemetryPropagation Propagation => NoopTelemetryPropagation.Instance;
 
         public Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback)
             => NoopSpan.Instance.StartSpanAsync(options, callback);

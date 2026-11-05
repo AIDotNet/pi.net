@@ -223,6 +223,9 @@ internal static class HarnessTestSupport
 
         /// <summary>宿主时钟；默认单调递增的固定值。</summary>
         public Func<long> Now { get; set; } = () => 1;
+
+        /// <summary>遥测上下文（缺省无遥测）。对应 TS <c>HarnessOptions.telemetry</c>。</summary>
+        public Pi.Telemetry.ITelemetryContext? Telemetry { get; set; }
     }
 
     /// <summary>按给定的应答构造一个 chat 夹具。对应 TS <c>chatSetup()</c>。</summary>
@@ -270,6 +273,7 @@ internal static class HarnessTestSupport
             SettingsSource = () => setup.Settings,
             Now = () => setup.Now(),
             OnReport = (error, _) => setup.Reports.Add(error),
+            Telemetry = setup.Telemetry,
             ReadOnly = readOnly,
             OnWake = onWake,
         }, Ctx);

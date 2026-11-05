@@ -32,6 +32,9 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
     private readonly object _lock = new();
     private readonly List<MutableSpan> _spans = new();
     private readonly string _traceId = Guid.NewGuid().ToString("N");
+    private readonly string _scope = Guid.NewGuid().ToString("N");
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, TelemetryCarrier> _carriers = new();
+    private ITelemetryPropagation? _propagation;
     private readonly long _origin = System.Diagnostics.Stopwatch.GetTimestamp();
     private int _nextSpanId = 1;
     private int _nextEndSequence = 1;
@@ -41,6 +44,11 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
     /// <summary>Recorded event plus its offset from the owning span's start.</summary>
     private sealed record EventSlot(RecordedTelemetryEvent Event, long TimeMs);
 
+    /// <summary>
+    /// 父级：本地 span 带 <see cref="Span"/>，跨边界的 carrier 只有身份。对应 TS <c>InMemoryParent</c>。
+    /// </summary>
+    private sealed record InMemoryParent(TelemetryCarrier Carrier, int? LocalId, MutableSpan? Span);
+
     private sealed class MutableSpan
     {
         public required int Id { get; init; }
@@ -48,6 +56,7 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
         public required string Name { get; init; }
         public required SpanAttributes Attributes { get; init; }
         public required long StartedMs { get; init; }
+        public required TelemetryCarrier Carrier { get; init; }
         public long? EndedMs { get; set; }
         public List<EventSlot> Events { get; } = new();
         public List<StoredSpanLink> Links { get; } = new();
@@ -125,13 +134,57 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
     public Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback)
         => StartInMemorySpan(options, null, callback);
 
+    /// <inheritdoc />
+    public ITelemetryPropagation Propagation => _propagation ??= new PropagationCapability(this);
+
+    private sealed class PropagationCapability(InMemoryTelemetryContext owner) : ITelemetryPropagation
+    {
+        public TelemetryCarrier? Inject(ITelemetryContext context)
+            => owner._carriers.TryGetValue(context, out var carrier) ? carrier.Copy() : null;
+
+        public ITelemetryContext Extract(TelemetryCarrier? carrier)
+        {
+            if (carrier is null
+                || !carrier.TryGetValue("pi-memory-scope", out var scope)
+                || !carrier.TryGetValue("pi-memory-span", out var span)
+                || !carrier.TryGetValue("pi-memory-trace", out var trace))
+            {
+                return owner;
+            }
+
+            var localId = scope == owner._scope
+                && int.TryParse(span, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+                    ? parsed
+                    : (int?)null;
+            var extracted = new ExtractedContext(owner, new TelemetryCarrier(carrier), localId);
+            owner._carriers.AddOrUpdate(extracted, new TelemetryCarrier(carrier));
+            return extracted;
+        }
+    }
+
+    /// <summary>由 carrier 解出的父上下文：起的子 span 带载体的身份（同 scope 才有本地父 id）。</summary>
+    private sealed class ExtractedContext(
+        InMemoryTelemetryContext owner, TelemetryCarrier carrier, int? localId) : ITelemetryContext
+    {
+        public ITelemetryMetrics Metrics => owner.Metrics;
+
+        public ITelemetryPropagation Propagation => owner.Propagation;
+
+        public Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback)
+            => owner.StartInMemorySpan(options, new InMemoryParent(carrier, localId, null), callback);
+    }
+
     private async Task<T> StartInMemorySpan<T>(
         SpanOptions options,
-        MutableSpan? parent,
+        InMemoryParent? parent,
         Func<ITelemetrySpan, Task<T>> callback)
     {
         // A settled parent no longer admits recorded children; fall through to the no-op context.
-        if (parent is { Settled: true }) return await NoopTelemetryContext.Instance.StartSpanAsync(options, callback);
+        if (parent?.Span is { Settled: true })
+        {
+            return await NoopTelemetryContext.Instance.StartSpanAsync(options, callback);
+        }
 
         MutableSpan recordedSpan;
         var attributes = new SpanAttributes();
@@ -148,13 +201,23 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
 
             lock (_lock)
             {
+                var id = _nextSpanId++;
+                var trace = parent is not null && parent.Carrier.TryGetValue("pi-memory-trace", out var inherited)
+                    ? inherited
+                    : $"{_scope}:{id}";
                 recordedSpan = new MutableSpan
                 {
-                    Id = _nextSpanId++,
-                    ParentId = parent?.Id,
+                    Id = id,
+                    ParentId = parent?.LocalId,
                     Name = options.Name,
                     Attributes = attributes,
                     StartedMs = NowMs(),
+                    Carrier = new TelemetryCarrier
+                    {
+                        ["pi-memory-scope"] = _scope,
+                        ["pi-memory-span"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        ["pi-memory-trace"] = trace,
+                    },
                 };
                 _spans.Add(recordedSpan);
             }
@@ -166,6 +229,7 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
         }
 
         var span = new InMemorySpan(this, recordedSpan);
+        _carriers.AddOrUpdate(span, recordedSpan.Carrier);
 
         Task<T> task;
         try
@@ -260,8 +324,11 @@ public sealed class InMemoryTelemetryContext : ITelemetryContext
     {
         public ITelemetryMetrics Metrics => owner.Metrics;
 
+        public ITelemetryPropagation Propagation => owner.Propagation;
+
         public Task<T> StartSpanAsync<T>(SpanOptions options, Func<ITelemetrySpan, Task<T>> callback)
-            => owner.StartInMemorySpan(options, recorded, callback);
+            => owner.StartInMemorySpan(
+                options, new InMemoryParent(recorded.Carrier, recorded.Id, recorded), callback);
 
         public void AddLink(StoredSpanLink link)
         {

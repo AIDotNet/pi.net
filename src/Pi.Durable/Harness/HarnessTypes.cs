@@ -999,6 +999,11 @@ public sealed record HarnessOptions
 
     public required IRegistryReader Registry { get; init; }
 
+    /// <summary>
+    /// 遥测上下文；给定时上报计数与（后续批次的）phase span 落到它上面。对应 TS <c>HarnessOptions.telemetry</c>。
+    /// </summary>
+    public Pi.Telemetry.ITelemetryContext? Telemetry { get; init; }
+
     public HarnessSettings? Settings { get; init; }
 
     /// <summary>

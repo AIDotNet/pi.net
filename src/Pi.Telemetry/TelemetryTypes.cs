@@ -153,5 +153,22 @@ public sealed record StoredSpan
     public required SpanStatus Status { get; init; }
 }
 
+/// <summary>
+/// Opaque, JSON-serializable propagation data owned by the adapter. Mirrors TS <c>TelemetryCarrier</c>.
+/// </summary>
+public sealed class TelemetryCarrier : Dictionary<string, string>
+{
+    public TelemetryCarrier() : base(StringComparer.Ordinal)
+    {
+    }
+
+    public TelemetryCarrier(IEnumerable<KeyValuePair<string, string>> source) : base(StringComparer.Ordinal)
+    {
+        foreach (var (key, value) in source) this[key] = value;
+    }
+
+    public TelemetryCarrier Copy() => new(this);
+}
+
 /// <summary>One stored trace: the spans sharing a trace id. Mirrors TS <c>StoredTrace</c>.</summary>
 public sealed record StoredTrace(string TraceId, IReadOnlyList<StoredSpan> Spans);
