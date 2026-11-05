@@ -1713,6 +1713,42 @@ durable 遥测、propagation、RemoteTerminal 三项作为**基线缺口**单列
 `LiveDoc.nestedTools` 槽位、接入调用方（code-mode / `executeTool`）。三件必须一起做才有可运行路径，
 因此 `StartNestedAsync` 仍**没有端到端用例**。
 
+### 7.8 嵌套调用的调用链（摸清后：真正缺的是 durable code-mode）
+
+上游从「脚本里调工具」到「嵌套任务」的完整链：
+
+```
+durable code-mode 脚本
+  → codemode.ts:839  api.executeTool(name, args, ctx, { key: `c${call.id}` })
+    → tool.ts:520     executeTool：assertLive → key 兜底（options.key ?? ++sequence）→ MADE_NESTED_CALLS memo
+      → tool.ts:902   startNestedCall：同 key 复用 / 校验同工具同参数 / replayed = 有 result
+        → 建 ToolTask（kind: "nested"）
+      → runtime.waitForTask(id) → 读 NestedCallDoc.result；faulted/orphaned 无结果时用 fallbackResult
+```
+
+端口逐环对照：
+
+| 环节 | 上游 | 端口 |
+| --- | --- | --- |
+| durable code-mode | `codemode.ts` **1042 行** | ❌ 无（`Pi.Codemode` 是非 durable 的 WASM 运行时，走 coding-agent） |
+| `api.executeTool` | `tool.ts:520` | ❌ `IToolExecutionApi` 没有这一面 |
+| `startNestedCall` | `tool.ts:902` | ✅ `ToolTask.StartNestedAsync` |
+| 结算写 `NestedCallDoc.result` | `tool.ts` 终态提交 | ❌ `SettleAsync` 只 append entry |
+| coding-agent 内嵌执行器 | `NestedToolCallRunner` + host | ✅ 同一套 |
+
+**最小可验证批次**（不依赖 code-mode，也能证明 replay）：
+
+1. `SettleAsync` 收 `(TaskRecord task, ToolTaskInput input)`：4 个调用点（`RejectAsync`/`EndCutOffAsync`/
+   `SettleFromSlotAsync`/call 完成路径）补参；嵌套分支写 `NestedCallDoc.result` 并返回 `{kind:"nested"}`，
+   不 append entry、不碰 `Live` 槽。
+2. `IToolExecutionApi.ExecuteToolAsync(name, args, ctx, options)`：`ToolApi` 里接 `StartNestedAsync` +
+   `WaitForTaskAsync` + 读文档；无结果时按 `TaskOutcome` 造 fallback。
+3. 用例：假工具在 `ExecuteAsync` 里连调两次同 key → 第一次建任务、第二次 `replayed`；断言 transcript 只有外层
+   结果、phase span 上有 `pi.durable.replay`。
+
+durable code-mode（1042 行）是**独立一批**：它决定「脚本里的工具调用要不要变成 durable 任务」，属产品能力，
+不是接线。
+
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
 `submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现
 `pi.durable.entry` 与 `pi.durable.submission` 事件；`PropagationTests` 两例覆盖 link 的解析与「不认识的上下文丢弃」。
