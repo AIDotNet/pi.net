@@ -1,0 +1,103 @@
+name: diag gate failures
+
+# 一次性诊断：把门禁失败用例的**断言原文**以 annotation 形式发出来。
+# annotations 是公开可读的（GET /repos/{o}/{r}/check-runs/{id}/annotations），
+# 因此不需要任何 token 就能取到失败原因，避免盲猜 runner 与本地环境的差异。
+# 用完即删，不进 main。
+
+on:
+  push:
+    branches:
+      - 'diag/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 45
+    env:
+      DOTNET_NOLOGO: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # 与 nuget-publish.yml 完全一致：Release + 强制 Version，复现门禁的真实条件。
+      - name: Build (same flags as publish)
+        run: >
+          dotnet build Pi.slnx -c Release
+          -p:ContinuousIntegrationBuild=true
+          -p:Version=1.5.0
+
+      - name: Run failing projects and annotate
+        run: |
+          set -uo pipefail
+          projects=(
+            tests/Pi.Ai.Tests/Pi.Ai.Tests.csproj
+            tests/Pi.CodingAgent.Tests/Pi.CodingAgent.Tests.csproj
+            tests/Pi.Durable.Tests/Pi.Durable.Tests.csproj
+          )
+          for p in "${projects[@]}"; do
+            name="$(basename "${p}" .csproj)"
+            echo "== ${name}"
+            dotnet test "${p}" -c Release -f net10.0 --no-build \
+              -- --report-xunit-trx --report-xunit-trx-filename "${name}.trx" \
+              > "test-${name}.log" 2>&1 || true
+            tail -3 "test-${name}.log" || true
+          done
+
+          python - <<'PY'
+          import glob, os, xml.etree.ElementTree as ET
+
+          def local(tag):
+              return tag.rsplit("}", 1)[-1]
+
+          def esc(text):
+              text = text or ""
+              return text.replace("%", "%25").replace("\r", "").replace("\n", "%0A")[:1500]
+
+          files = glob.glob("tests/**/*.trx", recursive=True)
+          print(f"找到 {len(files)} 个 TRX")
+          found = 0
+          for trx in files:
+              project = os.path.basename(trx)[:-4]
+              try:
+                  root = ET.parse(trx).getroot()
+              except Exception as exc:
+                  print(f"::warning::{esc(project)}: trx 解析失败 {esc(str(exc))}")
+                  continue
+              for result in root.iter():
+                  if local(result.tag) != "UnitTestResult":
+                      continue
+                  if result.get("outcome") != "Failed":
+                      continue
+                  name = result.get("testName", "?")
+                  msg = ""
+                  for node in result.iter():
+                      if local(node.tag) == "Message":
+                          msg = "".join(node.itertext()).strip()
+                          if msg:
+                              break
+                  found += 1
+                  print(f"::error title={esc(project)}::{esc(name)} :: {esc(msg)}")
+          print(f"失败用例共 {found} 条")
+          PY
+
+      - name: Upload trx
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diag-trx
+          path: tests/**/*.trx
+          retention-days: 3
+          if-no-files-found: ignore
