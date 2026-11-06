@@ -1,8 +1,9 @@
 name: diag gate failures
 
 # 一次性诊断：把门禁失败用例的**断言原文**以 annotation 形式发出来。
-# annotations 是公开可读的（GET /repos/{o}/{r}/check-runs/{id}/annotations），
-# 因此不需要任何 token 就能取到失败原因，避免盲猜 runner 与本地环境的差异。
+# annotations 公开可读（GET /repos/{o}/{r}/check-runs/{id}/annotations），
+# 因此不需要 token 就能拿到 runner 上的失败原因。
+# 刻意只用 bash / sed / awk：不依赖 python 等 runner 上不确定存在的解释器。
 # 用完即删，不进 main。
 
 on:
@@ -42,6 +43,18 @@ jobs:
       - name: Run failing projects and annotate
         run: |
           set -uo pipefail
+
+          # 把一段文本压成单行 annotation：先转义 %，换行转 %0A，最多 60 行。
+          annotate() {
+            local title="$1" body="$2"
+            local escaped
+            escaped=$(printf '%s\n' "${body}" \
+              | sed -e 's/%/%25/g' -e 's/\r//g' \
+              | awk 'NR > 60 { exit } NR > 1 { printf "%%0A" } { printf "%s", $0 }')
+            [ -z "${escaped}" ] && escaped="(无输出)"
+            echo "::error title=${title}::${escaped}"
+          }
+
           projects=(
             tests/Pi.Ai.Tests/Pi.Ai.Tests.csproj
             tests/Pi.CodingAgent.Tests/Pi.CodingAgent.Tests.csproj
@@ -52,52 +65,43 @@ jobs:
             echo "== ${name}"
             dotnet test "${p}" -c Release -f net10.0 --no-build \
               -- --report-xunit-trx --report-xunit-trx-filename "${name}.trx" \
-              > "test-${name}.log" 2>&1 || true
+              > "test-${name}.log" 2>&1
+            rc=$?
+            echo "   exit=${rc}"
+
+            trx="$(find tests -name "${name}.trx" -print -quit 2>/dev/null || true)"
+            if [ -n "${trx}" ] && [ -f "${trx}" ]; then
+              # 逐条失败用例名（与 scripts/gate-tests.sh 同一套抽取方式）。
+              names=$(grep -ao 'testName="[^"]*"[^>]*outcome="Failed"' "${trx}" \
+                | sed -E 's/testName="([^"]*)".*/\1/' | sort -u | head -20 || true)
+              if [ -n "${names}" ]; then
+                while IFS= read -r t; do
+                  [ -z "${t}" ] && continue
+                  echo "::error title=${name}::${t}"
+                done <<< "${names}"
+              fi
+            else
+              echo "   （没找到 ${name}.trx）"
+            fi
+
+            # 失败详情：优先抓断言/异常行，抓不到就退回日志尾部。
+            detail=$(grep -a -E "Assert|预期|实际|Expected|Actual|Error Message|Stack Trace|Exception|失败!|error run failed" \
+              "test-${name}.log" | head -60 || true)
+            if [ -z "${detail}" ]; then
+              detail=$(tail -40 "test-${name}.log")
+            fi
+            annotate "${name} 详情" "${detail}"
+
             tail -3 "test-${name}.log" || true
           done
 
-          python - <<'PY'
-          import glob, os, xml.etree.ElementTree as ET
-
-          def local(tag):
-              return tag.rsplit("}", 1)[-1]
-
-          def esc(text):
-              text = text or ""
-              return text.replace("%", "%25").replace("\r", "").replace("\n", "%0A")[:1500]
-
-          files = glob.glob("tests/**/*.trx", recursive=True)
-          print(f"找到 {len(files)} 个 TRX")
-          found = 0
-          for trx in files:
-              project = os.path.basename(trx)[:-4]
-              try:
-                  root = ET.parse(trx).getroot()
-              except Exception as exc:
-                  print(f"::warning::{esc(project)}: trx 解析失败 {esc(str(exc))}")
-                  continue
-              for result in root.iter():
-                  if local(result.tag) != "UnitTestResult":
-                      continue
-                  if result.get("outcome") != "Failed":
-                      continue
-                  name = result.get("testName", "?")
-                  msg = ""
-                  for node in result.iter():
-                      if local(node.tag) == "Message":
-                          msg = "".join(node.itertext()).strip()
-                          if msg:
-                              break
-                  found += 1
-                  print(f"::error title={esc(project)}::{esc(name)} :: {esc(msg)}")
-          print(f"失败用例共 {found} 条")
-          PY
-
-      - name: Upload trx
+      - name: Upload logs and trx
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: diag-trx
-          path: tests/**/*.trx
+          path: |
+            tests/**/*.trx
+            test-*.log
           retention-days: 3
           if-no-files-found: ignore
