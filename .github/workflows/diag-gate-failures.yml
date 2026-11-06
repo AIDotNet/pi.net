@@ -1,9 +1,7 @@
 name: diag gate failures
 
-# 一次性诊断：把门禁失败用例的**断言原文**以 annotation 形式发出来。
-# annotations 公开可读（GET /repos/{o}/{r}/check-runs/{id}/annotations），
-# 因此不需要 token 就能拿到 runner 上的失败原因。
-# 刻意只用 bash / sed / awk：不依赖 python 等 runner 上不确定存在的解释器。
+# 一次性诊断：把门禁失败用例的断言原文写成 diag-report.txt 并推回本分支。
+# 走 git 而不是 REST API —— 匿名 API 有 60 次/小时的限流，git 没有。
 # 用完即删，不进 main。
 
 on:
@@ -13,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   diag:
@@ -41,23 +39,18 @@ jobs:
           -p:Version=1.5.0
 
       # GitHub 的 bash shell 带 -e：dotnet test 返回非零会直接掐掉脚本，
-      # 所以每处可能失败的地方都必须显式兜住（if 形式，不用 ||，便于拿真实 rc）。
-      - name: Run failing projects and annotate
+      # 所以每处可能失败的地方都用 if 形式兜住。
+      - name: Run failing projects and collect
         run: |
           set -uo pipefail
-
-          # 把一段文本压成单行 annotation：先转义 %，换行转 %0A，最多 60 行。
-          annotate() {
-            local title="$1" body="$2"
-            local escaped
-            escaped=$(printf '%s\n' "${body}" \
-              | sed -e 's/%/%25/g' -e 's/\r//g' \
-              | awk 'NR > 60 { exit } NR > 1 { printf "%%0A" } { printf "%s", $0 }' || true)
-            if [ -z "${escaped}" ]; then
-              escaped="(无输出)"
-            fi
-            echo "::error title=${title}::${escaped}"
-          }
+          report="diag-report.txt"
+          : > "${report}"
+          {
+            echo "# diag report"
+            echo "commit: ${GITHUB_SHA}"
+            echo "runner: ${RUNNER_OS} $(uname -r 2>/dev/null || true)"
+            echo
+          } >> "${report}"
 
           projects=(
             tests/Pi.Ai.Tests/Pi.Ai.Tests.csproj
@@ -66,7 +59,6 @@ jobs:
           )
           for p in "${projects[@]}"; do
             name="$(basename "${p}" .csproj)"
-            echo "== ${name}"
             if dotnet test "${p}" -c Release -f net10.0 --no-build \
                  -- --report-xunit-trx --report-xunit-trx-filename "${name}.trx" \
                  > "test-${name}.log" 2>&1; then
@@ -74,53 +66,41 @@ jobs:
             else
               rc=$?
             fi
-            echo "   exit=${rc}"
+            {
+              echo "=============================================================="
+              echo "## ${name}  exit=${rc}"
+              echo "=============================================================="
+            } >> "${report}"
 
             trx="$(find tests -name "${name}.trx" -print -quit 2>/dev/null || true)"
-            names=""
             if [ -n "${trx}" ] && [ -f "${trx}" ]; then
-              # 逐条失败用例名（与 scripts/gate-tests.sh 同一套抽取方式）。
-              names=$(grep -ao 'testName="[^"]*"[^>]*outcome="Failed"' "${trx}" \
-                | sed -E 's/testName="([^"]*)".*/\1/' | sort -u | head -20 || true)
-            else
-              echo "   （没找到 ${name}.trx）"
-            fi
-            if [ -n "${names}" ]; then
-              while IFS= read -r t; do
-                if [ -n "${t}" ]; then
-                  echo "::error title=${name}::${t}"
-                fi
-              done <<< "${names}"
+              echo "--- 失败用例 ---" >> "${report}"
+              grep -ao 'testName="[^"]*"[^>]*outcome="Failed"' "${trx}" \
+                | sed -E 's/testName="([^"]*)".*/\1/' | sort -u >> "${report}" || true
             fi
 
-            # 失败详情在 MTP 的内层日志里（stdout 只有一行汇总），优先读它。
+            # 断言正文在 MTP 的内层日志里；stdout 只有一行汇总。
             mtplog=$(ls tests/*/bin/Release/net10.0/TestResults/${name}_net10.0_x64.log 2>/dev/null | head -1 || true)
             if [ -n "${mtplog}" ] && [ -f "${mtplog}" ]; then
-              detail=$(grep -a -E "Assert|预期|实际|Expected|Actual|Exception|at Pi\.|失败|Failed" \
-                "${mtplog}" | head -60 || true)
-              if [ -z "${detail}" ]; then
-                detail=$(tail -60 "${mtplog}" || true)
-              fi
-              annotate "${name} 详情" "${detail}"
+              echo "--- 内层日志：${mtplog} ---" >> "${report}"
+              tail -400 "${mtplog}" >> "${report}" || true
             else
-              detail=$(grep -a -E "Assert|预期|实际|Expected|Actual|Exception|失败!|error run failed" \
-                "test-${name}.log" | head -60 || true)
-              if [ -z "${detail}" ]; then
-                detail=$(tail -40 "test-${name}.log" || true)
-              fi
-              annotate "${name} 详情(仅 stdout)" "${detail}"
+              echo "--- 内层日志缺失，贴 stdout 尾部 ---" >> "${report}"
+              tail -120 "test-${name}.log" >> "${report}" || true
             fi
-
-            tail -3 "test-${name}.log" || true
+            echo >> "${report}"
           done
+          ls -l "${report}"
 
-      - name: Upload logs and trx
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: diag-trx
-          path: |
-            tests/**/*.trx
-            test-*.log
-          retention-days: 3
-          if-no-files-found: ignore
+      - name: Push report back to this branch
+        run: |
+          set -uo pipefail
+          git config user.name "diag-bot"
+          git config user.email "diag-bot@users.noreply.github.com"
+          git add -f diag-report.txt
+          if git diff --cached --quiet; then
+            echo "报告无变化，跳过提交"
+            exit 0
+          fi
+          git commit -m "diag report [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
