@@ -93,13 +93,23 @@ jobs:
               done <<< "${names}"
             fi
 
-            # 失败详情：优先抓断言/异常行，抓不到就退回日志尾部。
-            detail=$(grep -a -E "Assert|预期|实际|Expected|Actual|Error Message|Stack Trace|Exception|失败!|error run failed" \
-              "test-${name}.log" | head -60 || true)
-            if [ -z "${detail}" ]; then
-              detail=$(tail -40 "test-${name}.log" || true)
+            # 失败详情在 MTP 的内层日志里（stdout 只有一行汇总），优先读它。
+            mtplog=$(ls tests/*/bin/Release/net10.0/TestResults/${name}_net10.0_x64.log 2>/dev/null | head -1 || true)
+            if [ -n "${mtplog}" ] && [ -f "${mtplog}" ]; then
+              detail=$(grep -a -E "Assert|预期|实际|Expected|Actual|Exception|at Pi\.|失败|Failed" \
+                "${mtplog}" | head -60 || true)
+              if [ -z "${detail}" ]; then
+                detail=$(tail -60 "${mtplog}" || true)
+              fi
+              annotate "${name} 详情" "${detail}"
+            else
+              detail=$(grep -a -E "Assert|预期|实际|Expected|Actual|Exception|失败!|error run failed" \
+                "test-${name}.log" | head -60 || true)
+              if [ -z "${detail}" ]; then
+                detail=$(tail -40 "test-${name}.log" || true)
+              fi
+              annotate "${name} 详情(仅 stdout)" "${detail}"
             fi
-            annotate "${name} 详情" "${detail}"
 
             tail -3 "test-${name}.log" || true
           done
