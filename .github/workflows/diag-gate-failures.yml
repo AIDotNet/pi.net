@@ -40,6 +40,8 @@ jobs:
           -p:ContinuousIntegrationBuild=true
           -p:Version=1.5.0
 
+      # GitHub 的 bash shell 带 -e：dotnet test 返回非零会直接掐掉脚本，
+      # 所以每处可能失败的地方都必须显式兜住（if 形式，不用 ||，便于拿真实 rc）。
       - name: Run failing projects and annotate
         run: |
           set -uo pipefail
@@ -50,8 +52,10 @@ jobs:
             local escaped
             escaped=$(printf '%s\n' "${body}" \
               | sed -e 's/%/%25/g' -e 's/\r//g' \
-              | awk 'NR > 60 { exit } NR > 1 { printf "%%0A" } { printf "%s", $0 }')
-            [ -z "${escaped}" ] && escaped="(无输出)"
+              | awk 'NR > 60 { exit } NR > 1 { printf "%%0A" } { printf "%s", $0 }' || true)
+            if [ -z "${escaped}" ]; then
+              escaped="(无输出)"
+            fi
             echo "::error title=${title}::${escaped}"
           }
 
@@ -63,32 +67,37 @@ jobs:
           for p in "${projects[@]}"; do
             name="$(basename "${p}" .csproj)"
             echo "== ${name}"
-            dotnet test "${p}" -c Release -f net10.0 --no-build \
-              -- --report-xunit-trx --report-xunit-trx-filename "${name}.trx" \
-              > "test-${name}.log" 2>&1
-            rc=$?
+            if dotnet test "${p}" -c Release -f net10.0 --no-build \
+                 -- --report-xunit-trx --report-xunit-trx-filename "${name}.trx" \
+                 > "test-${name}.log" 2>&1; then
+              rc=0
+            else
+              rc=$?
+            fi
             echo "   exit=${rc}"
 
             trx="$(find tests -name "${name}.trx" -print -quit 2>/dev/null || true)"
+            names=""
             if [ -n "${trx}" ] && [ -f "${trx}" ]; then
               # 逐条失败用例名（与 scripts/gate-tests.sh 同一套抽取方式）。
               names=$(grep -ao 'testName="[^"]*"[^>]*outcome="Failed"' "${trx}" \
                 | sed -E 's/testName="([^"]*)".*/\1/' | sort -u | head -20 || true)
-              if [ -n "${names}" ]; then
-                while IFS= read -r t; do
-                  [ -z "${t}" ] && continue
-                  echo "::error title=${name}::${t}"
-                done <<< "${names}"
-              fi
             else
               echo "   （没找到 ${name}.trx）"
+            fi
+            if [ -n "${names}" ]; then
+              while IFS= read -r t; do
+                if [ -n "${t}" ]; then
+                  echo "::error title=${name}::${t}"
+                fi
+              done <<< "${names}"
             fi
 
             # 失败详情：优先抓断言/异常行，抓不到就退回日志尾部。
             detail=$(grep -a -E "Assert|预期|实际|Expected|Actual|Error Message|Stack Trace|Exception|失败!|error run failed" \
               "test-${name}.log" | head -60 || true)
             if [ -z "${detail}" ]; then
-              detail=$(tail -40 "test-${name}.log")
+              detail=$(tail -40 "test-${name}.log" || true)
             fi
             annotate "${name} 详情" "${detail}"
 
