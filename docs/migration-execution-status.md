@@ -985,3 +985,21 @@ runner 上的 `runneradmin` 没有这个目录。diag 报告里 CodingAgent 的 
 
 **验证（发布构建参数 `-p:Version=1.5.0` + `ContinuousIntegrationBuild=true`）**：
 `bash scripts/gate-tests.sh Release` → **11 个工程全绿，且未触发重跑**。
+
+## 2026-11-06 重发尝试：门禁通过，卡在过期的 NuGet API Key（§7.21）
+
+`v1.5.0` 移到 `bb74a49` 后重跑（run 42148868931）：
+
+| 步骤 | 结果 |
+| --- | --- |
+| Build | ✅ |
+| **Test (gate)** | ✅ **11 个工程全绿**（发布参数构建） |
+| Pack / Verify package set / Upload packages | ✅ 产出 `nupkg-1.5.0`（11.6 MB artifact） |
+| **Push to nuget.org** | ❌ `403 The specified API key has expired` |
+| Create GitHub release | 跳过（前一步失败） |
+
+注解里同时有 `notice: 已取到 API key（46 字符）`——**secret 存在，但密钥本身在 nuget.org 侧已过期**。
+这是账号侧的动作，只能由仓库所有者重新生成并更新 secret，代码侧无需改动。
+
+另修：`Upload gate logs` 在门禁通过时被触发且自身失败（与发布无关）。加 `continue-on-error: true`，
+诊断步骤永不拖累发布。

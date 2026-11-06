@@ -116,8 +116,10 @@ jobs:
         run: bash scripts/gate-tests.sh Release
 
       # 门禁失败时把每个工程的日志带出来：否则这类失败只能靠管理员权限下载作业日志才能查。
+      # 诊断步骤绝不能拖累发布：即使在门禁通过时被误触发、或没有日志可传，也只当没发生。
       - name: Upload gate logs
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: gate-test-logs
