@@ -30,7 +30,14 @@ public sealed class ConfigVersionFallbackTests
         Assert.NotNull(entry);
 
         // 前提：本测试项目的 <Version> 被刻意设成 0.0.1（见 csproj），与 Pi.CodingAgent 错开。
-        // 少了这个前提，两种实现在这里给出同一个值，断言就失效了。
+        // 少了这个前提，两种实现在这里给出同一个值，断言就失效。
+        // 发布流程会用 -p:Version=<tag> 统一覆盖所有工程（含测试工程），此时前提不成立——
+        // 那是构建参数造成的，不是回退逻辑的问题，所以跳过而不是失败。
+        Assert.SkipWhen(
+            Expect(entry!) == Expect(typeof(Config).Assembly),
+            "入口程序集与 Pi.CodingAgent 的程序集版本相同（发布构建用 -p:Version 统一覆盖时就会这样），"
+            + "本用例无法区分「取入口程序集」与「取 Config 所在程序集」，前提不成立。");
+
         Assert.NotEqual(Expect(entry), Expect(typeof(Config).Assembly));
 
         Assert.Equal(Expect(typeof(Config).Assembly), Config.ReadAssemblyVersion());
