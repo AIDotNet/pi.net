@@ -482,9 +482,22 @@ public class CliMainTests
 
     private static async Task<(ModelRuntime Runtime, SettingsManager Settings)> CreateRuntimeAsync()
     {
+        // 不指定 ModelsPath 时运行时会读宿主机的 ~/.pi/agent/models.json：干净机器（CI runner）上
+        // 那个文件不存在，可用模型就是空的，`GetAvailableAsync(...).First()` 直接抛。用例要的是
+        // 「有模型可选的场景」，所以自己造一份，别把宿主机配置当成前提。
+        var root = Path.Combine(Path.GetTempPath(), "pi-cli-main-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var modelsPath = Path.Combine(root, "models.json");
+        await File.WriteAllTextAsync(modelsPath, """
+            {"providers":{"cli-main-fixture":{"baseUrl":"http://127.0.0.1:1/v1",
+              "api":"openai-completions","apiKey":"test-placeholder",
+              "models":[{"id":"fixture-model","name":"Fixture","contextWindow":4096,"maxTokens":256}]}}}
+            """);
+
         var credentials = new MemoryCredentialStore();
         var runtime = await ModelRuntime.CreateAsync(new CreateModelRuntimeOptions
         {
+            ModelsPath = modelsPath,
             Credentials = credentials,
             ModelsStore = new InMemoryCodingAgentModelsStore(),
             AllowModelNetwork = false,

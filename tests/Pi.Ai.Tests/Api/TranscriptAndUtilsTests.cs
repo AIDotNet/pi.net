@@ -158,8 +158,6 @@ public class JsonParseTests
     public void ParsesPartialWithTrailingComma()
     {
         var result = JsonParse.ParseStreamingJson("""{"a":1,"b":2,"c":""");
-        System.IO.File.WriteAllText("D:/AI/参考项目/pi.net/diag-partial.txt",
-            result?.ToJsonString() ?? "NULL");
         Assert.NotNull(result);
         Assert.Equal(1, result.Num("a"));
     }
