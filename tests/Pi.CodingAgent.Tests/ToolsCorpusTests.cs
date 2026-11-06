@@ -12,9 +12,11 @@ namespace Pi.CodingAgent.Tests;
 /// <c>node:path.toNamespacedPath</c> helper the latter leans on — against <c>tools-corpus.json</c>.
 /// </summary>
 /// <remarks>
-/// The corpus is produced by <c>tools/gen-coding-agent-tools-corpus.mjs</c>, which stubs the four globals
-/// the original reaches for (the agent directory, <c>spawnSync</c>, <c>os.platform</c>/<c>os.arch</c> and
-/// <c>fetch</c>) and records the resulting status messages rather than the calls themselves. The matching
+/// The corpus was recorded against the upstream TypeScript implementation by stubbing the four globals
+/// it reaches for (the agent directory, <c>spawnSync</c>, <c>os.platform</c>/<c>os.arch</c> and
+/// <c>fetch</c>); it records status messages rather than the calls themselves. The generator is not in
+/// this repo, so the corpus is a snapshot: the <c>unsupported-platform</c> vector was synced by hand to
+/// upstream 1.5.0 (c8ec752cf), which warns before any download on unmapped targets. The matching
 /// seams here are <see cref="ToolsManager.EnvOverride"/>, <see cref="ToolsManager.ToolsDirOverride"/>,
 /// <see cref="ToolsManager.SpawnOverride"/>, <see cref="ToolsManager.PlatformOverride"/>,
 /// <see cref="ToolsManager.ArchOverride"/> and <see cref="ManagementHttp.HandlerOverride"/>.
@@ -242,6 +244,63 @@ public class ToolsCorpusTests
             toolsDir.Delete(recursive: true);
         }
     }
+
+    /// <summary>
+    /// Upstream c8ec752cf / #11209: only x64 and arm64 have prebuilt fd/rg archives. An unsupported
+    /// architecture must not fall back to x86-64 binaries, and must not hit the network at all.
+    /// </summary>
+    [Theory]
+    [InlineData("arm")]
+    [InlineData("ia32")]
+    public async Task EnsureTool_DoesNotDownloadX64BinariesOnUnsupportedArchitectures(string arch)
+    {
+        var toolsDir = Directory.CreateTempSubdirectory("pi-tools-arch-");
+        try
+        {
+            ToolsManager.ToolsDirOverride = () => toolsDir.FullName;
+            ToolsManager.PlatformOverride = () => "linux";
+            ToolsManager.ArchOverride = () => arch;
+            ToolsManager.SpawnOverride = SpawnFor("all-missing");
+            ToolsManager.EnvOverride = name => name == "PI_OFFLINE" ? null : Environment.GetEnvironmentVariable(name);
+
+            var requests = 0;
+            ManagementHttp.HandlerOverride = new StubHandler(_ =>
+            {
+                requests++;
+                return Redirect(302, "https://github.com/BurntSushi/ripgrep/releases/tag/14.1.1");
+            });
+
+            var statuses = new List<ToolStatus>();
+            var result = await ToolsManager.EnsureToolAsync(ToolsManager.Rg, statuses.Add);
+
+            Assert.Null(result);
+            Assert.Equal(0, requests);
+            var status = Assert.Single(statuses);
+            Assert.Equal("warning", status.Type);
+            Assert.Equal(
+                $"ripgrep not found. Automatic download is not supported on linux/{arch}. " +
+                "Install ripgrep with your system package manager.",
+                status.Message);
+        }
+        finally
+        {
+            ResetToolsSeams();
+            toolsDir.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("linux", "x64", "x86_64-unknown-linux-musl.tar.gz")]
+    [InlineData("linux", "arm64", "aarch64-unknown-linux-musl.tar.gz")]
+    [InlineData("darwin", "x64", "x86_64-apple-darwin.tar.gz")]
+    [InlineData("darwin", "arm64", "aarch64-apple-darwin.tar.gz")]
+    [InlineData("win32", "x64", "x86_64-pc-windows-msvc.zip")]
+    [InlineData("win32", "arm64", "aarch64-pc-windows-msvc.zip")]
+    [InlineData("linux", "arm", null)]
+    [InlineData("linux", "ia32", null)]
+    [InlineData("aix", "x64", null)]
+    public void GetReleaseTarget_MapsOnlyPrebuiltTargets(string plat, string arch, string? expected) =>
+        Assert.Equal(expected, ToolsManager.GetReleaseTarget(plat, arch));
 
     [Fact]
     public void WindowsSelfUpdate_MatchesTypeScript()

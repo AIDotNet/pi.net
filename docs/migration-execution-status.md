@@ -1042,3 +1042,24 @@ NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.XUZEYU || vars.XUZEYU }}
    与 Secret 并存的静默覆盖已经浪费了两个小时；
 2. 本次 key 曾出现在对话里，建议 regenerate；
 3. Windows 上 watcher 与 symlink 的契约用例仍为已跳过的已知缺口（§7.19）。
+
+## 2026-11-06 1.5.0 对齐补漏与一条稳定失败的定性（§7.24）
+
+- **`c8ec752cf` 已落地**：`ToolsManager.GetReleaseTarget` 只映射 x64/arm64 × darwin/linux/win32；
+  `EnsureToolAsync` 在任何 HTTP 之前给可操作 warning 并返回 null，`DownloadToolAsync` 把 target 判断
+  放到版本查询之前。语料 `toolsEnsureTool` 的 `aix/x64` 过期期望同步为 1.5.0 行为（生成器不在仓库，
+  语料按快照手工维护）。回归 `ToolsCorpusTests` 18/18（新增 arm/ia32 零请求用例 + 9 条映射向量）。
+- **`c2760d32c` 判不适用**：`update --self` 未移植，`GetUpdateInstruction` 在 `src/` 无生产调用方，
+  `Config.cs:404` 的旧文案不可达，不为一个无人调用的路径改公开配置面。两条判定与证据见
+  `upstream-1.5.0-delta.md` §8.1。
+- **`Shell_CleanupTerminatesActiveProcesses` 定性**：既不是 Git Bash 进程树边界，也不是实现缺陷，
+  是用例移植时丢了同步点。固定 `Task.Delay(300)` 早于本机子进程 PID 登记（marker 实测 865ms），
+  清理拿到空集合，命令随后跑满 30 秒并正常退出 0。按 marker 等待后诊断结果
+  `pids=[71228]`、清理后 1.1 秒结束、退出码 1（被杀），`taskkill /F /T` 链路正常。用例改回
+  基于 marker 的等待（与上游 `env-node.test.ts:738` 同口径）+ 5 秒结果超时；**实现不动**——
+  `cleanup` 只杀「清理时已登记的进程」与上游一致，不顺手加新行为。诊断表见 delta §8.2。
+
+**验证**：`dotnet build Pi.slnx -c Release` 0 警告 0 错误；`Pi.Durable.Tests` **587/587**；
+`ToolsCorpusTests` 定向 **18/18**；`Pi.CodingAgent.Tests` 5233 项中 5229 通过 / 3 跳过 / 1 失败，
+唯一失败是已登记 flake `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`
+（单跑 1/1 通过），与本次改动无关。

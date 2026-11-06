@@ -3,6 +3,21 @@
 All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/earendil-works/pi) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
+## [Unreleased]
+
+### Fixed
+
+- **不支持架构不再错下 x86-64 的 fd/rg**（补齐上游 `c8ec752cf` / #11209）：`ToolsManager` 现在只映射
+  x64/arm64 × darwin/linux/win32 的发布包，`arm` / `ia32` 等架构在**任何网络请求之前**返回
+  「用系统包管理器安装」的提示，不再静默回退到 x86-64 二进制。此前这一项在 1.5.0 差异台账里
+  标为「待核」，是 1.5.0 对齐里唯一漏掉的用户可见修复。`toolsEnsureTool` 语料中 `aix/x64` 的
+  过期期望已同步为上游 1.5.0 行为（生成器不在仓库内，语料按快照手工维护）。
+- `Shell_CleanupTerminatesActiveProcesses` 改为等 shell 真正启动（marker 文件）再清理，并给结果加
+  5 秒超时，与上游 `env-node.test.ts` 同口径。此前固定 `Task.Delay(300)` 在本机早于子进程 PID 登记
+  （实测约 865ms），清理拿到空集合、命令跑满 30 秒后报成功。诊断证明 `taskkill /F /T` 对 Git Bash
+  进程树有效（PID 登记后清理 1.1 秒结束、退出码 1），**不是** Git Bash 边界或实现缺陷，也未按
+  「环境限制」跳过用例。
+
 ## [1.5.0] - 2026-11-05
 
 对齐上游 `v1.5.0`（308 个提交）。三个大头：**durable 的窗口化视图与提交语义**、**遥测与传播**

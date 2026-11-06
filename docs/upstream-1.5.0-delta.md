@@ -1435,8 +1435,8 @@ provider 侧还没接解析器，`arguments` 可能还是旧值，所以直接�
 | `7391dbb0f` 全屏标题栏显示模型 scope | ✅ 本批：`GetModelScopeNotice` / `FormatModelScopeNotice` 抽出提示，启动时只在 `_ui.Mode != Fullscreen` 打印；全屏在头部挂 `ThemedText` + `Spacer(1)`（见 §5.1），用例 `InteractiveModeModelScopeTests` |
 | `f6ee9ce9c` 工具描述里 codemode 输出的 union/多行摘要 | ✅ 本批：`const` 字段写值、`anyOf`/`oneOf` 列每个分支的字段、放不进一行的类型改成指向 `describeTool()`（见 §5.2），用例 `CodemodeDescriptionsSummarizeUnionsAndMultiLineOutputTypes` |
 | `6fed3cfb9` SDK 流在摘要时解析 auth | ✅ 本批：`ConditionalWeakTable<StreamFn, ModelRuntime>` 记「这个流式函数自己解析 auth」，摘要路径短路成不传凭据（见 §5.3），用例 `AgentSessionRuntimeStreamAuthTests` |
-| `c8ec752cf` 不支持的架构上跳过 fd/rg 下载 | ⏳ 待核（端口是否还有下载路径） |
-| `c2760d32c` `pi update` 只在自管安装时点名包管理器 | ⏳ 待核 |
+| `c8ec752cf` 不支持的架构上跳过 fd/rg 下载 | ✅ 已补（2026-11-06）：`ToolsManager.GetReleaseTarget` 只映射 x64/arm64 × darwin/linux/win32，`EnsureToolAsync` 在任何网络调用之前给出可操作 warning 并返回 null；回归 `ToolsCorpusTests`（arm/ia32 零请求 + 9 条映射向量），见 §8.1 |
+| `c2760d32c` `pi update` 只在自管安装时点名包管理器 | ➖ 不适用（2026-11-06 核实）：端口 `update --self` 未移植，`Config.GetUpdateInstruction` 全仓无调用方；`Config.cs:404` 仍是旧文案但生产不可达，不单独改，见 §8.1 |
 | `5884ee681` `/ir` 从 `.jsonl` URL 导入会话 | ➖ 不适用：改动只在 `.pi/extensions/import-repro.ts`（仓库自用的本地扩展，不随包发布），端口没有对应物 |
 | `a6bde34bb` schema 基准（Ajv/Zod 对比） | ➖ 开发工具，端口不需要 |
 | `bb65e3e49` 从 `pi-codemode/declarations` 导入 | ➖ 纯导入整理，端口无对应模块边界 |
@@ -1795,5 +1795,46 @@ durable code-mode（1042 行）是**独立一批**：它决定「脚本里的工
 **验证**：`EmitsASubmitSpanAroundTheAdmission` 断言起属性 `submission.type`/`conversation.id`、结束属性
 `submission.id`/`result ∈ {queued, placed, done}`；`EmitsAPhaseSpanForEachInvocation` 断言 phase span 上确实出现
 `pi.durable.entry` 与 `pi.durable.submission` 事件；`PropagationTests` 两例覆盖 link 的解析与「不认识的上下文丢弃」。
+
+## 8. 2026-11-06 复核：§5 两条待核项收口
+
+### 8.1 功能面
+
+- **`c8ec752cf` 已落地**。端口 `Utils/ToolsManager.cs` 原先在两处 `GetAssetName` 里写
+  `architecture == "arm64" ? "aarch64" : "x86_64"`，ARM32/ia32 会静默回退到 x86-64 包（#11209）。
+  现在 `GetReleaseTarget` 只映射 x64/arm64 × darwin/linux/win32，其余返回 null；
+  `EnsureToolAsync` 在**离线/Termux 判断之后、任何 HTTP 之前**给出
+  `… not found. Automatic download is not supported on {plat}/{arch}. Install … with your system package manager.`
+  并返回 null，与上游 `ensureTool` 的文案与「零 fetch」一致；`DownloadToolAsync` 保留同款防御性检查，
+  且把 target 判断放在版本查询之前（上游 `downloadTool` 同序）。`fd` 在 darwin/x64 的版本 pin 不变。
+  回归：`ToolsCorpusTests.EnsureTool_DoesNotDownloadX64BinariesOnUnsupportedArchitectures`（arm/ia32，
+  断言零请求 + 精确 warning）与 `GetReleaseTarget_MapsOnlyPrebuiltTargets`（9 条映射向量）。
+  语料 `toolsEnsureTool` 的 `unsupported-platform`（aix/x64）原记录 1.4.0 的「先报 Downloading… 再报
+  `Unsupported platform`」，已按上游 1.5.0 手工同步为单条 warning；生成器不在仓库内，语料是快照，
+  这一处来源写在 `ToolsCorpusTests` 的类注释里。
+- **`c2760d32c` 判不适用**。上游改的是 `config.ts:getSelfUpdateUnavailableInstruction` 的提示文案；
+  端口 `Config.cs:404` 确实仍是旧语义，但 `update --self` 按 4g-2 的既有决定未移植，
+  `GetUpdateInstruction` / `GetSelfUpdateUnavailableInstruction` 在 `src/` 里**没有任何生产调用方**，
+  这条分支不可达。不为一个无人调用的路径改动公开配置面；若将来接自更新，需连同这条文案一起同步。
+
+### 8.2 一条「稳定失败」的定性（不是 Git Bash 进程树边界）
+
+`Pi.Durable.Tests.EnvTests.Shell_CleanupTerminatesActiveProcesses` 在 Windows 上稳定失败（30s766ms，
+`EnvTests.cs:483`），曾疑似 `taskkill /T` 杀不掉 Git Bash 进程树。诊断过程与结论：
+
+| 实验 | 结果 |
+| --- | --- |
+| 本机直接起 `bash -c 'sleep 8'` + `taskkill /F /T /PID <winpid>` | ✅ 生效：8 秒命令 1 秒终止；`ps -W` 显示 bash 对单命令做了 exec 优化，PID 就是 `/usr/bin/sleep`，Windows 父子关系保留 |
+| 项目路径复刻（`touch started; sleep 6` + 等 marker 出现 + `CleanupAsync`） | ✅ 生效：`_activeChildPids=[71228]` 非空，清理后 **1110ms** 结束、退出码 **1**（被杀） |
+| 原用例固定 `Task.Delay(300)` | ❌ 本机 marker 要 **865ms** 才出现（shell 探测 + 安全软件扫描），清理时 PID 尚未登记 → 集合为空，命令随后跑满 30 秒并正常退出 0 |
+
+**结论**：既不是实现缺陷，也不是 Git Bash 进程树边界，是**用例移植时丢了同步点**。
+上游 `packages/durable/test/env-node.test.ts:738` 用 `waitFor(() => exists("started"), 10_000)` 等 shell
+真正启动，端口改成了固定 300ms。已把用例改回基于 marker 的等待（+ 5 秒结果超时，上游 3 秒按 Windows
+启动速度放宽），不改实现——`cleanup` 只杀「清理时已登记的进程」与上游 `NodeExecutionEnv.cleanup`
+遍历 `activeChildPids` 的语义一致，**不要**顺手加 `_cleanedUp` 之类的新行为。
+
+留下一个与上游相同的语义边界（非缺陷）：若调用方在 `ExecAsync` 尚未完成进程登记时 `CleanupAsync`，
+该进程不会被清理。要收紧需单独立项并同步评估上游语义。
 
 
