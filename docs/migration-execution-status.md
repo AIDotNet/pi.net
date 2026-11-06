@@ -1020,3 +1020,25 @@ NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.XUZEYU || vars.XUZEYU }}
 不打印 key 本身）。下次运行可据此确认用的是哪一把。
 
 **修法（账号侧）**：把 `secrets.NUGET_API_KEY` 更新成新 key，或直接删掉它让链落到 `vars.XUZEYU`。
+
+## 2026-11-06 1.5.0 已发布（§7.23）
+
+`v1.5.0`（`1ff667a`）触发的发布流程已通过。**逐项实下载验证**（不看接口返回，直接下包解压）：
+
+| 项 | 结果 |
+| --- | --- |
+| nuget.org 上 13 个包 | ✅ 全部 `HTTP 200`，nuspec 版本 = 1.5.0 |
+| `Pi.CodingAgent` | 5.08 MB / 29 个文件（含 20 个 Assets） |
+| `Pi.Ai` | 1.16 MB / 9 个文件 |
+| `Pi.Tui` | 546 KB / 9 个文件 |
+| GitHub Release | ✅ `Pi.NET 1.5.0`，标记 **Latest**，15 个附件（13 nupkg + 2 源码包） |
+
+**卡了几轮的原因归档**：`NUGET_API_KEY` 不存在、`secrets.XUZEYU` 里是旧 key，而 `||` 兜底让同名 Secret 静默盖住
+新配的 Variable；换 key 后又发现「新 key」本身在 nuget.org 侧就是过期的。最终用**本地直连 push 已存在的 1.4.3 包**
+（不发布任何东西）在 30 秒内判定 key 有效性，绕开了每轮 7 分钟的 CI 反馈环。
+
+**后续建议**：
+1. 把 `secrets.NUGET_API_KEY || secrets.XUZEYU || vars.XUZEYU` 简化成单一来源，缺失时明确报错——同名 Variable
+   与 Secret 并存的静默覆盖已经浪费了两个小时；
+2. 本次 key 曾出现在对话里，建议 regenerate；
+3. Windows 上 watcher 与 symlink 的契约用例仍为已跳过的已知缺口（§7.19）。
