@@ -77,6 +77,9 @@ jobs:
               echo "--- 失败用例 ---" >> "${report}"
               grep -ao 'testName="[^"]*"[^>]*outcome="Failed"' "${trx}" \
                 | sed -E 's/testName="([^"]*)".*/\1/' | sort -u >> "${report}" || true
+              # 断言正文只在 TRX 的 ErrorInfo/Message 里；MTP 的 .log 只有汇总。
+              echo "--- TRX 失败段 ---" >> "${report}"
+              grep -a -A 25 'outcome="Failed"' "${trx}" | head -400 >> "${report}" || true
             fi
 
             # 断言正文在 MTP 的内层日志里；stdout 只有一行汇总。
