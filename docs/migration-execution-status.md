@@ -971,3 +971,17 @@ runner 是 **Windows**（`D:/a/pi.net/...`），不是 Linux。日志显示 `Tes
 
 **发布路径**：这 3 条修好后需**移动 tag**（`v1.5.0` 当前指向 `13de638`），再推 tag 触发发布——
 因为 nuget 上没有任何包，移动 tag 不会造成版本错乱。
+
+## 2026-11-06 门禁转绿，准备重发 1.5.0（§7.20）
+
+补掉最后一条：`DurableRuntimeTests` 的 `Assert.NotEmpty(view.Models)`。查清 `ModelRuntime` 的
+`Available` 过滤条件是 `ConfiguredProviders`——**模型要 provider 有凭据才算可用**。干净的 agent 目录没有凭据，
+所以这里为空是产品语义，不是缺陷；断言改为 `NotNull`（这条用例的主题是任务面板与会话，不是模型可用性）。
+
+另外澄清一处**我自己的误判**：`SessionWindowFixesTests.ResolveProjectTrusted_AutoTrustsWhenNothingIsSaved`
+和 `ModelSelectorTests.InitialSearchThatMatchesNothing…` 我先前列为"待修"，其实是我用「空 HOME」模拟时造的假故障——
+把 HOME 指向假目录后，向上遍历仍会命中真实的 `C:/Users/xuzey/.agents/skills`，于是被判为「有需要信任的资源」。
+runner 上的 `runneradmin` 没有这个目录。diag 报告里 CodingAgent 的 5 条也不含这两条。
+
+**验证（发布构建参数 `-p:Version=1.5.0` + `ContinuousIntegrationBuild=true`）**：
+`bash scripts/gate-tests.sh Release` → **11 个工程全绿，且未触发重跑**。

@@ -29,7 +29,9 @@ public sealed class DurableRuntimeTests
             Assert.Equal(Path.GetFullPath(cwd), view.Session.Cwd);
             Assert.Contains(Path.Join("experimental", "durable-sessions"), view.Session.Directory, StringComparison.Ordinal);
             Assert.Equal("main", Assert.Single(view.Conversations).Label);
-            Assert.NotEmpty(view.Models);
+            // 可用模型 = 目录里有、且 provider 有凭据（ModelRuntime 的 ConfiguredProviders 过滤）。
+            // 干净的 agent 目录没有凭据，这里就是空的——那是产品语义，不是这条用例要断言的东西。
+            Assert.NotNull(view.Models);
             // TS 在 openDurable 末尾 toggleTasks()：面板默认打开，/tasks 收起。
             Assert.NotNull(view.Tasks);
         }
