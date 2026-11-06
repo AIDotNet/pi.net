@@ -46,7 +46,31 @@ public static class ToolsManager
         string BinaryName,
         string[]? SystemBinaryNames,
         string TagPrefix,
-        Func<string, string, string, string?> GetAssetName);
+        Func<string, string, string> GetAssetName);
+
+    /// <summary>
+    /// The release-target suffix shared by the fd and ripgrep archives. Only x64 and arm64 have
+    /// prebuilt binaries; other architectures (ARM32 <c>arm</c>, <c>ia32</c>) must not fall back to
+    /// x86-64 archives (upstream c8ec752cf / #11209).
+    /// </summary>
+    internal static string? GetReleaseTarget(string plat, string architecture)
+    {
+        var arch = architecture switch
+        {
+            "arm64" => "aarch64",
+            "x64" => "x86_64",
+            _ => null,
+        };
+        if (arch is null) return null;
+
+        return plat switch
+        {
+            "darwin" => $"{arch}-apple-darwin.tar.gz",
+            "linux" => $"{arch}-unknown-linux-musl.tar.gz",
+            "win32" => $"{arch}-pc-windows-msvc.zip",
+            _ => null,
+        };
+    }
 
     private static readonly Dictionary<string, ToolConfig> Tools = new(StringComparer.Ordinal)
     {
@@ -56,34 +80,14 @@ public static class ToolsManager
             "fd",
             ["fd", "fdfind"],
             "v",
-            static (version, plat, architecture) =>
-            {
-                var arch = architecture == "arm64" ? "aarch64" : "x86_64";
-                return plat switch
-                {
-                    "darwin" => $"fd-v{version}-{arch}-apple-darwin.tar.gz",
-                    "linux" => $"fd-v{version}-{arch}-unknown-linux-musl.tar.gz",
-                    "win32" => $"fd-v{version}-{arch}-pc-windows-msvc.zip",
-                    _ => null,
-                };
-            }),
+            static (version, target) => $"fd-v{version}-{target}"),
         [Rg] = new(
             "ripgrep",
             "BurntSushi/ripgrep",
             "rg",
             null,
             string.Empty,
-            static (version, plat, architecture) =>
-            {
-                var arch = architecture == "arm64" ? "aarch64" : "x86_64";
-                return plat switch
-                {
-                    "darwin" => $"ripgrep-{version}-{arch}-apple-darwin.tar.gz",
-                    "linux" => $"ripgrep-{version}-{arch}-unknown-linux-musl.tar.gz",
-                    "win32" => $"ripgrep-{version}-{arch}-pc-windows-msvc.zip",
-                    _ => null,
-                };
-            }),
+            static (version, target) => $"ripgrep-{version}-{target}"),
     };
 
     /// <summary>Termux package names, for the platforms where a Linux binary cannot run.</summary>
@@ -255,6 +259,16 @@ public static class ToolsManager
         {
             var packageName = TermuxPackages.TryGetValue(tool, out var mapped) ? mapped : tool;
             onStatus?.Invoke(ToolStatus.Warning($"{config.Name} not found. Install with: pkg install {packageName}"));
+            return null;
+        }
+
+        // Prebuilt downloads only exist for the targets mapped in GetReleaseTarget. Checking before
+        // any network call keeps unsupported architectures from hitting the release endpoint at all.
+        if (GetReleaseTarget(Platform, Arch) is null)
+        {
+            onStatus?.Invoke(ToolStatus.Warning(
+                $"{config.Name} not found. Automatic download is not supported on {Platform}/{Arch}. " +
+                $"Install {config.Name} with your system package manager."));
             return null;
         }
 
@@ -554,17 +568,15 @@ public static class ToolsManager
 
         var plat = Platform;
         var architecture = Arch;
+        var target = GetReleaseTarget(plat, architecture)
+            ?? throw new InvalidOperationException($"Unsupported platform: {plat}/{architecture}");
 
         // fd is pinned on darwin/x64, so the version lookup is skipped there.
         var version = tool == Fd && plat == "darwin" && architecture == "x64"
             ? "10.3.0"
             : await GetLatestVersionAsync(config.Repo, cancellationToken).ConfigureAwait(false);
 
-        var assetName = config.GetAssetName(version, plat, architecture);
-        if (assetName is null)
-        {
-            throw new InvalidOperationException($"Unsupported platform: {plat}/{architecture}");
-        }
+        var assetName = config.GetAssetName(version, target);
 
         Directory.CreateDirectory(ToolsDir);
 

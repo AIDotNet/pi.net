@@ -458,16 +458,12 @@
    },
    "offline": false,
    "label": "unsupported-platform",
-   "statuses": [
-    {
-     "type": "info",
-     "message": "fd not found. Downloading..."
-    },
-    {
-     "type": "warning",
-     "message": "Failed to download fd: Unsupported platform: aix/x64"
-    }
-   ],
+      "statuses": [
+        {
+          "type": "warning",
+          "message": "fd not found. Automatic download is not supported on aix/x64. Install fd with your system package manager."
+        }
+      ],
    "result": "null",
    "error": null
   },

@@ -474,11 +474,28 @@ public class EnvTests
     public async Task Shell_CleanupTerminatesActiveProcesses()
     {
         if (!HasBash()) return; // 环境无 bash（如 Git for Windows 未装）时跳过
-        var (env, _) = await NewEnv();
-        var execTask = env.ExecAsync(ShellCommand.FromString("sleep 30"), null, Ctx);
-        await Task.Delay(300);
+        var (env, dir) = await NewEnv();
+        var marker = Path.Join(dir, "started");
+
+        // Wait for the shell to actually start before cleaning up. Registering the child PID happens
+        // after shell discovery (async path probes), and on Windows with a security scanner that can
+        // take ~900 ms; a fixed 300 ms delay used to clean up before registration, leaving the
+        // command running to completion. Upstream env-node.test.ts uses the same waitFor(exists(...))
+        // signal instead of a sleep.
+        var execTask = env.ExecAsync(ShellCommand.FromString("touch started; sleep 30"), null, Ctx);
+        var started = false;
+        for (var attempt = 0; attempt < 100 && !started; attempt++)
+        {
+            started = File.Exists(marker);
+            if (!started) await Task.Delay(50);
+        }
+
+        Assert.True(started, "shell did not start within 5s");
+
         await env.CleanupAsync(Ctx);
-        var result = await execTask;
+        // 5s (upstream uses 3s; Windows shell startup is slower) turns a missed kill into a fast,
+        // explicit failure instead of a 30s hang.
+        var result = await execTask.WaitAsync(TimeSpan.FromSeconds(5));
         // 进程被杀：以非成功结果结束（中止或非零退出码），且不会等满 30 秒。
         Assert.True(result.IsOk ? result.Value.ExitCode != 0 : true);
     }
