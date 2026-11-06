@@ -1003,3 +1003,20 @@ runner 上的 `runneradmin` 没有这个目录。diag 报告里 CodingAgent 的 
 
 另修：`Upload gate logs` 在门禁通过时被触发且自身失败（与发布无关）。加 `continue-on-error: true`，
 诊断步骤永不拖累发布。
+
+## 2026-11-06 403 的真因：`||` 兜底被旧 secret 短路（§7.22）
+
+`Push to nuget.org` 的 key 解析是**三选一兜底**：
+
+```yaml
+NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.XUZEYU || vars.XUZEYU }}
+```
+
+`||` 只认「非空」，**不管内容是否过期**。仓库里存在一个旧的 `secrets.NUGET_API_KEY`（1.4.5 时期那把，
+现已过期），它非空 → 后面的 `secrets.XUZEYU` / `vars.XUZEYU` 永远轮不到。
+这解释了「已取到 API key（46 字符）」+「key has expired」这两条并存的现象：**取到了，但取的是旧的**。
+
+新增 `Check key source` 步骤：打印三个来源各自是否非空、生效 key 的长度与 SHA-256 前 8 位（指纹，
+不打印 key 本身）。下次运行可据此确认用的是哪一把。
+
+**修法（账号侧）**：把 `secrets.NUGET_API_KEY` 更新成新 key，或直接删掉它让链落到 `vars.XUZEYU`。

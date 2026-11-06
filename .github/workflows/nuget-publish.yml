@@ -167,6 +167,25 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # 这条只用来定位「到底用了哪个来源的 key」：三个来源里任何一个非空，前面的就会盖住后面的。
+      # 只打印长度与 SHA-256 前 8 位（指纹），不打印 key 本身。
+      - name: Check key source
+        env:
+          HAS_MAIN: ${{ secrets.NUGET_API_KEY != '' }}
+          HAS_ALT: ${{ secrets.XUZEYU != '' }}
+          HAS_VAR: ${{ vars.XUZEYU != '' }}
+          KEY: ${{ secrets.NUGET_API_KEY || secrets.XUZEYU || vars.XUZEYU }}
+        run: |
+          echo "secrets.NUGET_API_KEY 非空: ${HAS_MAIN}"
+          echo "secrets.XUZEYU 非空:        ${HAS_ALT}"
+          echo "vars.XUZEYU 非空:           ${HAS_VAR}"
+          if [[ -z "${KEY:-}" ]]; then
+            echo "::error title=push::三个来源都是空的，推送必失败"
+            exit 0
+          fi
+          echo "生效的 key 长度: ${#KEY}"
+          echo "生效的 key 指纹: $(printf '%s' "${KEY}" | sha256sum | cut -c1-8)"
+
       - name: Push to nuget.org
         if: github.event_name == 'push' || inputs.dry_run == false
         env:
