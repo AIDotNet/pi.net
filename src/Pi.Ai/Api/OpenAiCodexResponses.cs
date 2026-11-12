@@ -183,7 +183,15 @@ public static partial class OpenAiCodexResponses
         return delayMs;
     }
 
-    private static async Task AbortableDelayAsync(int ms, CancellationToken signal)
+    /// <summary>
+    /// SSE 重试 backoff。对应 TS <c>openai-codex-responses.ts</c> 的本地 <c>sleep()</c> helper。
+    /// v1.5.1 #11725：上游把附加到 AbortSignal 的匿名 abort 监听改成命名 handler + `{ once: true }`
+    /// 并在 timer 触发时 remove，避免每次完成的 backoff 都在 signal 上留下一个监听（三次 429 后
+    /// 残留三个）。端口用 <see cref="Task.Delay(int, CancellationToken)"/> + try/catch，
+    /// <c>CancellationToken</c> 不累积回调注册，天然不存在该泄漏面；abort 时统一抛
+    /// <c>"Request was aborted"</c> 供重试循环的 catch 依赖。
+    /// </summary>
+    internal static async Task AbortableDelayAsync(int ms, CancellationToken signal)
     {
         try
         {
