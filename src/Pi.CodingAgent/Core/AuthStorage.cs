@@ -78,6 +78,14 @@ public sealed class FileAuthStorageBackend : IAuthStorageBackend
 
     public string AuthPath => _authPath;
 
+    /// <summary>
+    /// v1.5.1 #11787 / #11655：auth.json 经符号链接别名访问时，多个进程若各按「路径别名」加锁会
+    /// 拿到不同的锁、并发刷新同一 OAuth token。锁键必须基于 realpath（解析符号链接后的真实文件）。
+    /// <see cref="Paths.CanonicalizePath"/> 逐段解析符号链接；文件不存在/无权限时回落到原路径。
+    /// 读写仍走 <see cref="_authPath"/>（读写跟随符号链接指向同一真实文件），仅锁键用 canonical 路径。
+    /// </summary>
+    internal static string LockKeyFor(string authPath) => Paths.CanonicalizePath(authPath);
+
     private void EnsureParentDir()
     {
         var directory = NodePath.Dirname(_authPath);
@@ -94,7 +102,7 @@ public sealed class FileAuthStorageBackend : IAuthStorageBackend
         EnsureParentDir();
         EnsureFileExists();
 
-        using var _ = NodeLock.AcquireSync(_authPath);
+        using var _ = NodeLock.AcquireSync(LockKeyFor(_authPath));
         var current = File.Exists(_authPath) ? File.ReadAllText(_authPath) : null;
         var (result, next) = fn(current);
         if (next is not null) ModeFile.WriteAllText(_authPath, next, ModeFile.OwnerReadWrite);
@@ -112,7 +120,7 @@ public sealed class FileAuthStorageBackend : IAuthStorageBackend
         var lockCompromised = false;
         Exception? lockCompromisedError = null;
         var release = await NodeLock.AcquireAsync(
-            _authPath,
+            LockKeyFor(_authPath),
             cancellationToken,
             error =>
             {

@@ -63,6 +63,7 @@ KNOWN_PORTED_KEYWORDS = {
     "default Anthropic model": ("§3.18", "`ModelResolver.DefaultModelPerProvider`", "`ModelResolverCorpusTests`"),
     "send provider tokens in pi mcp list": ("§4.3", "`Extensions/Mcp/Cli.cs`", "包位置重定位实证"),
     "keep root $defs": ("§3.26", "`AnthropicMessages.ConvertTools`", "`AnthropicMessagesWireTests`(2)"),
+    "share the auth.json lock across symlinked": ("§3.71", "`FileAuthStorageBackend.LockKeyFor` + `Paths.CanonicalizePath`", "`AuthStorageSymlinkLockTests`(3)"),
 }
 
 

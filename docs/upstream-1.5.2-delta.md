@@ -16,7 +16,7 @@
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
 共享 `lines.ts`（MCP/env 传输）、`pi auth login/logout`、逐会话 `CompactionSettings`、
 JSONL `readOnly`、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **70 项**清单（每项含落点文件与验证用例名；§3.52–3.70 为复核 hook 反馈后
+详见 §3 的 **71 项**清单（每项含落点文件与验证用例名；§3.52–3.71 为复核 hook 反馈后
 补做的收尾批次，逐项消除「published 功能被记为不做项」）。**§4 仅剩 ➖ 不适用项**
 （端口形态不同 / 仓库外 / 第三方库 / 纯性能优化），逐条附代码级实证，不再含任何
 published 功能变更。判定依据如下。
@@ -63,7 +63,7 @@ release 的迁移**。因此本轮严格区分两类：
 
 **1.5.0 之后确有新的 release：`v1.5.1` 与 `v1.5.2`，本轮对齐到 `v1.5.2`。**
 `v1.5.1` 是功能版，`v1.5.2` 是小修版。按 §0.0 的标准判定：
-**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 70 项）；**
+**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 71 项）；**
 **仅余 ➖ 不适用项（平台形态不同 / 仓库外 / 第三方 Node 库），逐条给出代码级实证（§4）。**
 
 **逐条处置工件（hook 要求的 current authoritative v1.5.2-specific per-commit/per-bullet
@@ -82,7 +82,7 @@ coverage table with evidence）**：`docs/v1.5.2-disposition.md`，由
 > `CompactionSettings`、JSONL `readOnly`、RPC 关闭时序、#11807/#9276、#11975、#9654、
 > #8544、#9155、#11708、#11892 等）记为「有记录的不做项」。这些**不是**本补丁批次按成本/收益
 > 主动搁置的遗留工作，而是对 v1.5.1/v1.5.2 已发布变更的漏做。复核后已在本轮及紧接的收尾批次
-> **逐项真实移植**（见 §3.52–3.70 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
+> **逐项真实移植**（见 §3.52–3.71 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
 > 的 ➖ 不适用（§4.4），不再把任何 published 功能变更登记为不做项。
 
 **规模（只算 `packages/*/src`，不含测试与文档）与本轮处置**
@@ -312,6 +312,7 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.68 | #11707/#11711 `pi update` 报告（published 遗漏，本轮审计发现） | `PackageManager.Updates.cs` 新增 `result` 事件（npm 版本变化 `npm:foo 1.2.0 -> 1.3.0`、git commit from/to、registry 陈旧 `progress` warning）；`Cli/PackageUpdateReport.cs` 纯叶子四态（offline / warned-up-to-date / already-up-to-date / `Updated N packages:` + 版本变化行，逐字对照上游 CLI）；`PackageManagerCli` 收集 result/warning 输出三态 | `PackageUpdateReportTests`（5）+ `PackageManagerUpdateTests`（3 集成：版本变化发 result、未变发 warning、(none) 新装；反向验证 result 改名后 2 用例失败）+ 既有 15/15 不回归 |
 | 3.69 | #11679/6382d8706 `refreshModelsAuth`（published 遗漏，本轮审计发现） | `IProvider.RefreshModelsAuth`（`"credential"`/`"configured"`）；`Models.RefreshAsync` configured 模式用 `CheckProviderAuthAsync` 只判配置、不刷新过期 OAuth、`RefreshModelsContext.Credential=null`（stale 登录不再让 pi.dev 目录刷新失败）；`RemoteCatalogProvider`=configured、`PersonalizedCatalogProvider` 转发、`ProviderComposer` 组合判定（扩展 hooks 读 credential 时置 null） | `RefreshModelsAuthTests`（2：configured 不刷新 OAuth 且 Credential=null / 默认模式刷新过期 OAuth）+ RadiusRefresh/OpenRouterCatalog/CreateProvider/ProviderComposer 41 项不回归 |
 | 3.70 | #11964/#8842 shell tool native exit code（published 遗漏，本轮审计发现） | `PowerShellTool.WindowsPowerShellExitSuffix` 逐字对齐上游修正 Windows 5.1 stderr 重定向误判 exit 1；`BuildCommand` 纯叶子仅对旧版 5.1 宿主且命令不以反引号结尾时追加后缀（`pwsh 7` 不加） | `PowerShellExitCodeTests`（5：5.1 追加 / 7 不加 / bash 不加 / 反引号跳过 / 后缀逐字）+ `AgentSessionBuildTests` 24/24 不回归 |
+| 3.71 | #11787/#11655 auth.json symlink 锁竞态（published 遗漏，本轮审计发现） | 上游去掉 proper-lockfile 的 `realpath:false`，让 auth.json 的符号链接别名与真实文件共享锁；端口 `FileAuthStorageBackend.LockKeyFor` 用 `Paths.CanonicalizePath`（逐段解析符号链接的 realpath）作锁键，读写仍走原路径，避免两进程经不同别名并发刷新同一 OAuth token | `AuthStorageSymlinkLockTests`（3：别名/真实路径锁键一致 / 路径写法别名归一化 + 全限定 / WithLock 跨别名共享锁，后两者需 symlink 权限的用例按项目既有模式 Skip；反向验证锁键未规范化时归一化用例失败）+ `NodeLockTests` 1/1、`AuthCredentialsTests` 9/9、`RuntimeCredentialsSettleTests` 3/3 不回归 |
 
 **逐 published-commit 覆盖工件（数据派生，可复现）**：`scripts/gen_v152_coverage.py` 从上游
 `git log v1.5.0..v1.5.2 -- ':(glob)packages/*/src/**'` 机械枚举 **143** 个触及 src 的 published
@@ -336,7 +337,7 @@ commit，逐条列出 `hash | subject | 文件数`（`docs/v1.5.2-commit-coverag
 > 本章登记**端口无对应宿主或消费方**的 ➖ 不适用项：Node/npm/TypeBox 构造 API、
 > 第三方 Node 渲染库替换、仓库外安装脚本、纯性能内部优化、v2 对象运行时。每项给出
 > 「可复核的代码/仓库证据」。`v1.5.1/v1.5.2` 的 published **功能**变更不在此登记——
-> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.70 的收尾批次）。
+> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.71 的收尾批次）。
 > 判定「完整」的权威口径见 §0.0（`migration-execution-status.md`「特殊范围决策」：
 > chord 有意收窄、不宣称 Node/Bun runtime parity、TypeBox 构造 API 不适用、配置 schema 静态产物）。
 
@@ -461,7 +462,7 @@ env daemon `process` 操作（`RemoteProcess`/进程管道）是 Node 侧 PTY/�
 **判定**：剩余的 ➖ 项经 `git show --stat` + `git ls-files` + 端口源码行号逐条证明，
 要么「上游该提交改动的文件在端口仓库根本不存在（仓库外安装器 / v2 store / npm 链）」，
 要么「可移植行为端口已实现、仅 npm 运行时专有部分无宿主」。
-v1.5.1/v1.5.2 的 published **功能**变更已全部落到 §3（70 项），无一登记为不做项。
+v1.5.1/v1.5.2 的 published **功能**变更已全部落到 §3（71 项），无一登记为不做项。
 全部 143 个触及 src 的 published commit 见数据派生、可复现的逐条覆盖工件
 `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py` 生成）。
 

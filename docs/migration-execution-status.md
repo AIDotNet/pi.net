@@ -19,11 +19,11 @@
   Node/Bun runtime parity、TypeBox 构造 API 不适用、Node 适配器不逐字移植等）定义——
   即端口形态收窄项属 ➖ 不适用。但 hook 复核明确：**v1.5.1/v1.5.2 的 published 功能变更
   不得登记为「有记录的不做项」**，那等于没完成该 release 的迁移。因此本轮严格区分：
-  published 功能变更一律真实移植（§3，共 70 项）；仅「端口无对应宿主/消费方」的形态项
+  published 功能变更一律真实移植（§3，共 71 项）；仅「端口无对应宿主/消费方」的形态项
   （§4）为 ➖ 不适用，逐条附代码级/`git show` 实证。1.5.0 阶段第 816 行「剩余均为有记录的
   不做项」是历史收尾，不作为 1.5.2 的判据，也不用于把 1.5.2 published 功能登记为不做项。
-  §3.52–3.70 为复核反馈后补做的收尾批次（此前 §4.4 误记的一批 published 项已逐项落地）。
-- **本轮落地（§3 共 70 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
+  §3.52–3.71 为复核反馈后补做的收尾批次（此前 §4.4 误记的一批 published 项已逐项落地）。
+- **本轮落地（§3 共 71 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
   `requiresToolsWithToolHistory`/`requiresNonNullAssistantContent`/`promptCacheKeyMode`、
   strict 工具会话记忆、丢弃流重试、输出上限 15% 余量、连接错误根因、
   `disableContinuation`、目录定点修正）；**Anthropic 消息线程整体**（§3.25，create/continue
@@ -48,7 +48,7 @@
   `Pi.Durable` 的 `ITx.GetSubmissionAsync`、提示模板引号解析、glob `./` 剥离、
   TUI 的 Alacritty / HTML 注释 / 粘贴标记、telemetry 控制字符转义、codemode NaN/Infinity、
   schema 数字有限性、截断不劈代理对。逐项落点与用例见 `upstream-1.5.2-delta.md` §3。
-- **收尾批次（§3.52–3.70，复核 hook 反馈后逐项真实移植）**：#11807/#9276 rg glob 锚定 path
+- **收尾批次（§3.52–3.71，复核 hook 反馈后逐项真实移植）**：#11807/#9276 rg glob 锚定 path
   + 上下文行事件（§3.52）、#9155 prompt 预检 / 树导航（§3.53）、#8544 edit 保留未改动行
   行尾（§3.54）、#11756 `registerMarkdownTransformer(messageTypes)` + #11851
   `ctx.ui.custom(blocked)`（§3.55）、#9654 read 流式选行（§3.56）、#11599/#11752

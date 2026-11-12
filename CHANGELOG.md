@@ -251,6 +251,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   published src-commit，逐条列出 `hash | subject | 文件数` 并对照端口各项目 src/测试文件数，
   生成 `docs/v1.5.2-commit-coverage.md`（可脚本重跑核对，非手写分类表）。
 
+### Fixed（第八轮：逐条处置表 + 再查遗漏 bug）
+
+- **逐 published 变更处置表**（hook 要的 per-commit/per-bullet coverage with evidence）：
+  `scripts/gen_v152_disposition.py` 生成 `docs/v1.5.2-disposition.md`——143 个 published
+  src-commit + 上游 11 包 CHANGELOG 1.5.1/1.5.2 段 210 条 bullet，逐条给「已移植
+  （§3 行 + 端口源码/测试文件）/ 权威排除（git show --stat + git ls-files 证明改动文件在端口
+  无对应物）/ 范围外（p2 实验、版本元信息）」+ 证据；188 个证据路径经 `git ls-files` 全数核对存在。
+- **#11787/#11655 auth.json 符号链接锁竞态**（逐条核对时发现的真实遗漏）：上游去掉
+  proper-lockfile 的 `realpath:false`，让 auth.json 的符号链接别名与真实文件共享一把锁，避免
+  两进程并发刷新同一 OAuth token。端口 `FileAuthStorageBackend.LockKeyFor` 用
+  `Paths.CanonicalizePath`（逐段解析符号链接）作锁键，读写仍走原路径。
+  `AuthStorageSymlinkLockTests` 3 用例（含无需 symlink 权限的归一化不变量用例，反向验证
+  锁键未规范化时失败）；`NodeLockTests` 1/1、`AuthCredentialsTests` 9/9、
+  `RuntimeCredentialsSettleTests` 3/3 不回归。§3 扩到 71 项。
+
 ## [1.5.0] - 2026-11-05
 
 对齐上游 `v1.5.0`（308 个提交）。三个大头：**durable 的窗口化视图与提交语义**、**遥测与传播**

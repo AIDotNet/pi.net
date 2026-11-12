@@ -109,7 +109,11 @@ performance internals — no published feature is recorded as a deliberate non-i
 - The Windows PowerShell 5.1 shell tool no longer reports a successful native command as
   exit code 1 when its stderr was redirected (#11964 / #8842).
 - A full, data-derived per-commit coverage artifact (`docs/v1.5.2-commit-coverage.md`)
-  is reproducible via `scripts/gen_v152_coverage.py`.
+  is reproducible via `scripts/gen_v152_coverage.py`; a per-commit/per-bullet disposition
+  table with ported/excluded evidence (`docs/v1.5.2-disposition.md`) is reproducible via
+  `scripts/gen_v152_disposition.py`.
+- Symlinked aliases of `auth.json` now share one lock, so two processes cannot refresh the
+  same OAuth token at once (#11787 / #11655).
 
 ## [1.5.0] - 2026-11-05
 
