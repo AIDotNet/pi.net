@@ -103,25 +103,35 @@ public static class SseStream
             buffered.Append(text[start..]);
         }
 
-        while (true)
+        try
         {
-            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            if (read == 0) break;
-            var chunk = Encoding.UTF8.GetString(buffer, 0, read);
-            if (skipLeadingLf && chunk.Length > 0)
+            while (true)
             {
-                if (chunk[0] == '\n') chunk = chunk[1..];
-                skipLeadingLf = false;
+                var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                if (read == 0) break;
+                var chunk = Encoding.UTF8.GetString(buffer, 0, read);
+                if (skipLeadingLf && chunk.Length > 0)
+                {
+                    if (chunk[0] == '\n') chunk = chunk[1..];
+                    skipLeadingLf = false;
+                }
+                buffered.Append(chunk);
+                ConsumeLines();
+                if (Encoding.UTF8.GetByteCount(buffered.ToString()) > maxEventBytes)
+                    throw new InvalidOperationException($"MCP SSE event exceeds {maxEventBytes} bytes");
             }
-            buffered.Append(chunk);
+            if (skipLeadingLf && buffered.Length > 0 && buffered[0] == '\n') buffered.Remove(0, 1);
             ConsumeLines();
-            if (Encoding.UTF8.GetByteCount(buffered.ToString()) > maxEventBytes)
-                throw new InvalidOperationException($"MCP SSE event exceeds {maxEventBytes} bytes");
+            if (buffered.Length > 0) ProcessLine(buffered.ToString());
+            Dispatch();
         }
-        if (skipLeadingLf && buffered.Length > 0 && buffered[0] == '\n') buffered.Remove(0, 1);
-        ConsumeLines();
-        if (buffered.Length > 0) ProcessLine(buffered.ToString());
-        Dispatch();
+        catch
+        {
+            // 上游 1.5.1 #11729：超限等错误时释放 response body（cancel reader），否则带心跳的
+            // 长连接会一直被这个失败请求占住。取消失败不影响原错误抛出。
+            try { stream.Dispose(); } catch { /* 原错误优先 */ }
+            throw;
+        }
     }
 }
 

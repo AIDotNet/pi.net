@@ -70,7 +70,7 @@
 | --- | --- | --- | --- | --- | --- |
 | chord | 334 | 22,938 | 12,628 | `src/Pi.Chord` | 📋 有记录的不做项（§4.1，权威：特殊范围决策「chord 有意收窄」+ 依赖契约实证） |
 | coding-agent | 75 | 2,773 | 1,497 | `src/Pi.CodingAgent` | 🔧 已落地可移植项 + 📋 有记录的不做项（§4.4） |
-| mcp | 19 | 1,531 | 72 | `src/Pi.Mcp` | 📋 有记录的不做项；**上游「移入 mcp」的 helper 端口早已存在**（§4.3 实证） |
+| mcp | 19 | 1,531 | 72 | `src/Pi.Mcp` | 🔧 `PipeTransport`（新 API，§3.30）+ #11761/#11335/#11764/#11729 四个修复（§3.31/§3.32/§3.27/§3.34）已落地；**上游「移入 mcp」的 helper 端口早已存在**（§4.3 实证） |
 | durable | 60 | 1,053 | 500 | `src/Pi.Durable` | 🔧 `Tx.submission(id)` 已落地（§3.20）+ 📋 其余有记录的不做项（§4.4） |
 | ai | 29 | 817 | 102 | `src/Pi.Ai` | 🔧 主战场，13 项已落地（§3）；目录增量已补齐（§3.16–3.19） |
 | env | 7 | 213 | 32 | `src/Pi.Env` | 📋 有记录的不做项（§4.3，权威：SSH 远程环境形态差异） |
@@ -148,7 +148,11 @@
 | 1.5.1 默认模型表切换（`defaultModelPerProvider`） | ✅ 🔧 `ModelResolver.DefaultModelPerProvider` 逐字对齐 v1.5.2 42 项（§3.18） |
 | #11807 后半（rg cwd 切到 searchPath）/ #9276（上下文行改由 ripgrep 提供） | 📋 有记录的不做项（§4.4，与端口 `GrepOperations.readFile` 取值链纠缠） |
 | #11975 Fork 会话、`pi auth login/logout`、`registerMarkdownTransformer({messageTypes})`、Mermaid 升级、`cacheWarming:"idle"`、`ctx.ui.custom(blocked)` | 📋 有记录的不做项（§4.4，成体系新系统/扩展 API/TUI 渲染） |
-| #9654 read 流式、#8544 edit 混合换行、#11738 图片缩放、#11613 bash 超时退出码、#11923 粘贴标记、#9441 光标标记、#11765 Windows Ctrl+V、#11875 `ctrl+o`、#11451 思考档位、#11703 预发布版本 changelog、#9126/#9222/#9155 会话并发、#11803 `$ref` 搜索 | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
+| #11703 预发布版本 changelog | ✅ 🔧 `Changelog.GetNewEntries` 只读前导三元组、无三元组返回 `null` + 两处调用点（§3.33） |
+| #11643 read/write 新增 Dart/Nix/Groovy/Gradle 高亮 | ✅ 🔧 `ThemeHelpers.ExtensionToLanguage` 4 映射（§3.35） |
+| #7121 find/ls `limit` 边界（0 按 1、恰好 limit 不误报） | ✅ 🔧 `FindTool`/`LsTool`（§3.36） |
+| #11806 Ctrl+P 单模型 scope 仍可切、scope 外 forward 选首个 | ✅ 🔧 `AgentSession.NextCycleIndex`（nullable）+ 两处 cycle 方法（§3.37） |
+| #9654 read 流式、#8544 edit 混合换行、#11738 图片缩放、#11613 bash 超时退出码、#9441 光标标记、#11765 Windows Ctrl+V、#11875 `ctrl+o`、#11451 思考档位、#9126/#9222/#9155 会话并发、#11803 `$ref` 搜索（tool_search 经本地 `$ref` 找工具） | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
 | Node/npm 专有：`pi update` 摘要、扩展 npm 依赖解析、Windows 安装器、PowerShell 5.1、fd 下载 | ➖ 不适用 |
 | 示例扩展（subagent / plan-mode）修复 | ➖ 不适用（权威：上游 docs/examples 保留为 TS 参考） |
 
@@ -167,10 +171,12 @@
 
 env daemon `process` 操作、abort 不等失联主机、ssh `ConnectTimeout=15`、Windows `exec`
 输出读取器提前停：📋 有记录的不做项（§4.3，权威：端口是 SSH 远程环境，node 侧 PTY/进程管道形态不同）。
-mcp：`PipeTransport`、OAuth 两半拆分、从 coding-agent 移入的 helper、SSE/JSON 消息大小限制与
-CR-only 换行修复。**上游 changelog 明写这些 helper 是「moved from pi's coding agent」——
-端口早已在 `Pi.CodingAgent/Extensions/Mcp/` 与 `Pi.Mcp/OAuth/` 实现**（§4.3 实证），
-因此属包位置重定位，非功能缺口；新传输/协议细节为 📋 有记录的不做项（§4.3）。
+mcp：`PipeTransport` ✅ 🔧 已整体落地（§3.30，新 `PipeTransport.cs` + `McpPipe` + 共享
+`JsonRpcLineReader`，15 用例）；OAuth 两半拆分、从 coding-agent 移入的 helper 属包位置重定位
+（上游 changelog 明写「moved from pi's coding agent」，端口早已在
+`Pi.CodingAgent/Extensions/Mcp/` 与 `Pi.Mcp/OAuth/` 实现，§4.3 实证）；
+SSE/JSON 消息大小限制（#11335 §3.32）、CR-only 换行（#11764 §3.27）、大消息 O(n²)（#11761 §3.31）、
+oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 
 ### 2.6 schema / telemetry / tui / codemode / agent
 
@@ -220,6 +226,14 @@ CR-only 换行修复。**上游 changelog 明写这些 helper 是「moved from p
 | 3.27 | #11764 SSE 孤立 CR / 跨 chunk CRLF | `Pi.Mcp.SseStream.ConsumeAsync` | `SseLineEndingTests`（4 用例） |
 | 3.28 | #7121 截断不劈开代理对 | `Truncate.SliceHead` / `SliceTail` / `TruncateLine` | `CoreToolsTests.TruncateLine_DoesNotSplitSurrogatePair` |
 | 3.29 | #11923 粘贴短标记重编号 | `Editor.cs` 重编号分支 | `EditorPasteMarkerRenumberTests` |
+| 3.30 | 1.5.1 `PipeTransport` + `McpPipe` + 共享 `JsonRpcLineReader`（新公开 API，hook 点名「MCP 传输」） | 新 `PipeTransport.cs` / `JsonRpcLineReader.cs`（`IMcpPipe`/`PipeTransportOptions`/`McpPipeHandlers`） | `PipeTransportTests`（15 用例：分帧、超大消息、stderr 尾部、send 单行、退出/失败/关闭/超时 kill/双重关闭/open 拒绝/启动期间被关） |
+| 3.31 | #11761 MCP stdio 大消息反复复制扫描（O(n²)） | `StdioTransport.PumpStdoutAsync` 改 chunk 累积 + `JsonRpcLineReader.ReadStdout` | `StdioTransportTests.LargeMessageSplitAcrossManyChunksIsAssembledOnce`（40 KiB 分 300B 块）+ `PipeTransportTests.LargeMessageSplitAcrossManyChunksIsAssembledOnce` |
+| 3.32 | #11335 Streamable HTTP `application/json` 应答绕过 `maxMessageBytes` / 错误体整体缓冲 | `StreamableHttpTransport.ReadBodyTextAsync`（分块、超限取消、错误体仅留前 8 KiB） | `StreamableHttpBodyLimitTests`（3 用例：未超限解析 / 超限拒绝 / 错误体截断） |
+| 3.33 | #11703 预发布版本后缀导致 changelog 每次启动重复 | `Changelog.GetNewEntries`（只读前导 `major.minor.patch`、无三元组返回 `null`）+ `InteractiveMode.Lifecycle.cs` 两处调用点 | `ChangelogCorpusTests`（21 向量，含 8 条 #11703 回归）；v1.5.2 TS `getNewEntries` 重放 + v1.5.0 基线 0 diff 保真 |
+| 3.34 | #11729 oversized SSE 被拒后 HTTP 连接仍挂着 | `SseStream.ConsumeAsync` 的 `catch` 中显式 `stream.Dispose()`（cancel reader）后重抛；调用方 `using var response` 亦释放内容流 | `SseCancelOnErrorTests`（2 用例：超限事件触发释放 / 正常结束不主动释放）+ `SseLineEndingTests` + `StreamableHttpBodyLimitTests` |
+| 3.35 | #11643 read/write 视图新增 Dart/Nix/Groovy/Gradle 高亮 | `ThemeHelpers.ExtensionToLanguage` 新增 `dart`/`nix`/`groovy`/`gradle` 映射 | `ThemeHelpersTests.GetLanguageFromPath_MapsNew152Languages`（4 向量） |
+| 3.36 | #7121 find/ls 的 `limit` 边界（0/负数按 1、恰好 limit 不误报上限、custom glob 多要一条） | `FindTool`（钳 `Math.Max(1,…)`、`--max-results` +1、超一条才报）+ `LsTool`（钳 1） | `FindLsLimitRegressionTests`（6 用例：恰好/超过/0/负/ls 0/负） |
+| 3.37 | #11806 Ctrl+P 单模型 scope 仍可切换、当前模型在 scope 外时 forward/backward 选首/末 | `AgentSession.NextCycleIndex`（nullable，对齐 TS `getNextCycleIndex`）+ `CycleScopedModelAsync`/`CycleAvailableModelAsync` 去掉 `<=1`/`-1→0` 短路 | `AgentSessionLeafTests`（3 用例：wrap / scope 外首末 / 单元素可达）+ `InteractiveModeTests`（124 全绿，含单模型状态用例） |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -239,12 +253,25 @@ CR-only 换行修复。**上游 changelog 明写这些 helper 是「moved from p
 
 ### 4.1 Chord v2 换根（hook 点名的第一项）
 
-**权威依据**：`migration-execution-status.md` 第 198 行「chord 是有意收窄的实现……
-对象运行时与跨进程链路没有对应物，上游该区间的 118 个文件大多判不适用」；
-第 137 行边界表「不适用（端口形态不同）：chord 的对象运行时与跨进程链路……
-端口没有对应宿主、消费方或分发形态」；1.5.0 delta §5「Chord v2 实验性，不跟」。
+**权威依据**：`migration-execution-status.md`「特殊范围决策」章节（该章节在 `origin/main`
+`fb8cf25` 中即已存在，早于本会话，非本轮改写）——「**chord 是有意收窄的实现**：只保留
+durable 实际用到的 `Delta`/`Facets`/`Services`/`Context`/`Node`；**对象运行时与跨进程链路
+没有对应物**」。这是一条**跨版本、与具体 release 无关**的端口形态决策，故对 v1.5.2 同样生效。
+（注：1.5.0 delta §5 曾用「Chord v2 实验性、未进 exports」为由，1.5.1 起 v2 提升为根导出
+后该前提已失效；因此本轮**不再以此为由**，改以「依赖契约实证 + 端口形态决策」判定，见下。）
 
-**可复核证据**（本机 `git` 实证，非推断）：
+**可复核证据**（本机 `git` 对 v1.5.2 的实证，非推断）：
+- `git diff --stat v1.5.0 v1.5.2 -- packages/chord/src/{context,delta,json.ts,watch.ts,output.ts,sqlite}`：
+  **v1 基础层源码在本窗口内几乎零变更**，唯一改动是 `sqlite/node.ts`（+16/−3）——给 Node 专属
+  `node:sqlite` 适配器加 `read-only` 模式；而端口的 SQLite 后端是 `Microsoft.Data.Sqlite`，
+  权威「portable SQLite storage contract / Node `node:sqlite`、Cloudflare binding 不逐字移植」
+  决策已明确排除该适配器。即 `Pi.Chord` 已实现的 v1 基础层在 v1.5.2 无可移植的行为增量。
+- `git grep "from \"@earendil-works/chord" v1.5.2 -- packages/durable`（唯一在范围内的消费方）
+  与 v1.5.0 对比：子路径集合仅从含 `/next` 变为根导入（store 符号导出位置迁移）+ 新增 `/watch`，
+  **全部仍是 v1 基础子路径**；durable 未导入任何 v2 新子路径。
+- v2 新增的 `plugins`/`http`/`workers`/`web`/`v2`/`tui`/`dev`/`loader` 子路径（对象运行时 /
+  跨主机链路 / app kit / surfaces / 遥测）在 `packages/**` 内**无消费方**，只被 chord 自身文档
+  与 `apps/p2` 原型应用引用（端口从未移植 p2）。
 - `git grep -h "from \"@earendil-works/chord" v1.5.2 -- packages/durable/src`：
   `/context` 46、`/json` 33、`/delta` 21、`/sqlite` 13、`/watch` 6、`/output` 3 处，
   **全是 v1 基础子路径**；根导入 6 处为 `defineTable`/`OwnerTable`/`WhereNode` 等
@@ -295,8 +322,12 @@ v1.5.2 对齐的功能缺口。若将来要移植 v2，应按边界表另立「�
 env daemon `process` 操作（`RemoteProcess`/进程管道）是 Node 侧 PTY/进程组语义，
 端口 `Pi.Env` 是 SSH 远程环境（权威：边界表已把 node 侧 PTY 列为不适用）。
 
-**判定**：绝大多数是**包位置重定位**，功能在端口已存在；新传输（`PipeTransport`）与协议细节
-属「不适用（端口形态不同）/ 暂不移植（成本收益）」，记为有记录的不做项。
+**判定**：绝大多数是**包位置重定位**，功能在端口已存在。新传输 `PipeTransport` 本轮已**整体
+移植**（§3.30，新增 `IMcpPipe`/`PipeTransport`/`JsonRpcLineReader`，15 用例对照上游
+`pipe.test.ts`/`lines.test.ts`）；mcp 的 SSE/JSON 大小限制、CR-only、大消息 O(n²)、连接释放
+亦已落地（§3.27/§3.31/§3.32/§3.34）。仅 env daemon `process` 操作（`RemoteProcess` 进程管道）
+按「不适用（端口形态不同）」记为有记录的不做项——端口 `Pi.Env` 是 SSH 远程环境，没有
+Node daemon 的 PTY/进程组消费方。
 
 ### 4.4 独立单点修复（coding-agent / tui / durable / ai / mcp）
 
@@ -304,13 +335,19 @@ env daemon `process` 操作（`RemoteProcess`/进程管道）是 Node 侧 PTY/�
 review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「暂不移植（成本/收益）」；
 1.5.0 delta §5 对「未发布提交按需单独评估」的先例。
 
-**本轮已移植的单点修复**（§3.26–3.29）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
-`#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`。
+**本轮已移植的单点修复**（§3.26–3.37）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
+`#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`、
+以及第三轮真正补上的 `PipeTransport`（新 API，§3.30）、`#11761`（MCP stdio 大消息 O(n²)，§3.31）、
+`#11335`（Streamable HTTP 应答体/错误体上限，§3.32）、`#11703`（预发布版本 changelog，§3.33）、
+`#11729`（oversized SSE 释放连接，§3.34）、`#11643`（read/write 新语言高亮，§3.35）、
+`#7121` find/ls `limit` 边界（§3.36）、`#11806`（单模型 scope 可切换，§3.37）。
 
-**仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半、`#9276`、`#11975`、
+**仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半（rg cwd 切到
+`searchPath`）/ `#9276`（上下文行改由 ripgrep 提供，两者与端口 `GrepOperations.ReadFileAsync`
+绝对路径取值链纠缠，且本机无 `rg` 可做运行时回归验证）、`#11975`、
 `pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、`cacheWarming:idle`、
 `ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、`#11613`、`#9441`、
-`#11765`、`#11875`、`#11451`、`#11703`、`#9126`/`#9222`/`#9155`、`#11835`、
+`#11765`、`#11875`、`#11451`、`#9126`/`#9222`/`#9155`、`#11835`、
 `#10954`、`#11692`、`#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
 `readOnly`/group commit、RPC 关闭时序、Windows 安装器/PowerShell 5.1/fd 下载。
 

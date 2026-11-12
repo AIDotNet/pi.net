@@ -95,7 +95,8 @@ public static class LsTool
                 var limit = ToolArgs.GetInt(args, "limit");
 
                 var dirPath = ToolPathUtils.ResolveToCwd(path ?? ".", ToolContexts.ResolveCwd(ctx, cwd));
-                var effectiveLimit = limit ?? DefaultLimit;
+                // 上游 1.5.1 #7121：limit 为 0 会「什么都不列 + 报空目录」，低于 1 一律按 1 处理。
+                var effectiveLimit = Math.Max(1, limit ?? DefaultLimit);
                 signal.ThrowIfCancellationRequested();
 
                 // Check if path exists.

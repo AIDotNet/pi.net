@@ -179,6 +179,15 @@ public sealed class ThemeHelpersTests : IDisposable
     public void GetLanguageFromPath_MapsKnownExtensions(string path, string expected) =>
         Assert.Equal(expected, ThemeHelpers.GetLanguageFromPath(path));
 
+    // 上游 1.5.1 #11643：read/write 视图新增 Dart、Nix、Groovy、Gradle 高亮。
+    [Theory]
+    [InlineData("main.dart", "dart")]
+    [InlineData("flake.nix", "nix")]
+    [InlineData("build.groovy", "groovy")]
+    [InlineData("build.gradle", "groovy")]
+    public void GetLanguageFromPath_MapsNew152Languages(string path, string expected) =>
+        Assert.Equal(expected, ThemeHelpers.GetLanguageFromPath(path));
+
     [Theory]
     [InlineData("MAIN.TS", "typescript")]
     [InlineData("A.Cs", "csharp")]

@@ -234,19 +234,16 @@ public partial class AgentSession
         return null;
     }
 
-    /// <summary>对应 TS <c>cycleModel</c> 的环形下标。</summary>
-    public static int NextCycleIndex(int currentIndex, int length, bool forward)
+    /// <summary>
+    /// 对应 TS <c>getNextCycleIndex</c>（上游 1.5.1 #11806）：要切换到的模型下标，无事可切时返回
+    /// <see langword="null"/>。当前模型不在列表内（<paramref name="currentIndex"/> = -1）时，
+    /// forward 选第一个、backward 选最后一个，因此单元素列表仍能选中它唯一的元素；列表为空返回 null。
+    /// </summary>
+    public static int? NextCycleIndex(int currentIndex, int length, bool forward)
     {
-        if (length <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(length));
-        }
-
-        if (currentIndex < 0)
-        {
-            currentIndex = 0;
-        }
-
+        if (length == 0) return null;
+        if (currentIndex < 0) return forward ? 0 : length - 1;
+        if (length == 1) return null;
         return forward ? (currentIndex + 1) % length : (currentIndex - 1 + length) % length;
     }
 

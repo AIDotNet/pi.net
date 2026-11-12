@@ -1389,21 +1389,18 @@ public partial class AgentSession
         var scopedModels = _scopedModels
             .Where(scoped => availableIds.Contains($"{scoped.Model.Provider}\0{scoped.Model.Id}"))
             .ToList();
-        if (scopedModels.Count <= 1)
+
+        var currentModel = Model;
+        var currentIndex = scopedModels.FindIndex(sm => ModelOperations.ModelsAreEqual(sm.Model, currentModel));
+        // 上游 1.5.1 #11806：单元素 scope、或当前模型在 scope 外时，仍应能切到唯一/首个模型；
+        // 无事可切（空列表或已在单元素列表内）返回 null。
+        var nextIndex = AgentSession.NextCycleIndex(currentIndex, scopedModels.Count, direction != "backward");
+        if (nextIndex is not int index)
         {
             return null;
         }
 
-        var currentModel = Model;
-        var currentIndex = scopedModels.FindIndex(sm => ModelOperations.ModelsAreEqual(sm.Model, currentModel));
-        if (currentIndex == -1)
-        {
-            currentIndex = 0;
-        }
-
-        var len = scopedModels.Count;
-        var nextIndex = direction == "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
-        var next = scopedModels[nextIndex];
+        var next = scopedModels[index];
         var thinkingLevel = GetThinkingLevelForModelSwitch(next.Model, next.ThinkingLevel);
 
         // Apply model
@@ -1429,21 +1426,17 @@ public partial class AgentSession
     private async Task<ModelCycleResult?> CycleAvailableModelAsync(string direction, ModelMutationOptions? options)
     {
         var availableModels = _modelRuntime.GetAvailableSnapshot();
-        if (availableModels.Count <= 1)
+
+        var currentModel = Model;
+        var currentIndex = availableModels.ToList().FindIndex(m => ModelOperations.ModelsAreEqual(m, currentModel));
+        // 上游 1.5.1 #11806：单元素可用模型、或当前模型不在可用列表时，仍应能切到唯一/首个模型。
+        var nextIndex = AgentSession.NextCycleIndex(currentIndex, availableModels.Count, direction != "backward");
+        if (nextIndex is not int index)
         {
             return null;
         }
 
-        var currentModel = Model;
-        var currentIndex = availableModels.ToList().FindIndex(m => ModelOperations.ModelsAreEqual(m, currentModel));
-        if (currentIndex == -1)
-        {
-            currentIndex = 0;
-        }
-
-        var len = availableModels.Count;
-        var nextIndex = direction == "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
-        var nextModel = availableModels[nextIndex];
+        var nextModel = availableModels[index];
 
         var thinkingLevel = GetThinkingLevelForModelSwitch(nextModel);
         SetCurrentModel(nextModel);

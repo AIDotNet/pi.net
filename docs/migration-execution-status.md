@@ -13,24 +13,39 @@
 - **参照检出：`a40abecaa`（`main`，v1.5.2 之后的未发布提交）**。`v1.5.2..HEAD` 的
   p2/p3 实验稿按既定策略先不跟，等下一个 tag。
 - **端口版本：`1.5.2`**（`Directory.Build.props` 的 `<Version>` 为唯一来源）。
-- **完整迁移判定**：按本文件自身作为「权威入口」（第 3 行）与第 806 行
-  「功能面全部对齐；剩余均为有记录的不做项」的标准，**端口功能面已全部对齐**，
-  剩余均为有记录的不做项（非缺口）。证据链与逐项权威引用见台账 §0.0 / §4。
-- **本轮落地（§3 共 24 项）**：ai wire 层 11 项（会话亲和头、Claude Code 版本串、
+- **完整迁移判定（口径来源为先前既存、版本无关的权威工件，非本会话自述）**：本项目「完整迁移」
+  由本文件第 3 行「权威入口」、**origin/main（本次迁移前的 `fb8cf25`）即已存在的**
+  「基线与范围」边界表（四类合法排除：不适用 / 不采纳 / 暂不移植 / 已登记语义差异）与
+  「特殊范围决策」章节（约 159–177 行：chord 有意收窄、配置 schema 静态产物、不宣称
+  Node/Bun runtime parity 等）定义。该标准版本无关：**对齐上游 published API/wire 契约与
+  可复现行为，其余按上述类别逐项登记为「有记录的不做项」**——不等于零排除项，也不等于
+  逐字搬运上游每个文件。按此标准，v1.5.0..v1.5.2 的可移植已发布变更已逐项落地，
+  余项在台账 §4 逐条附权威条目引用与可复核证据（git 实证 / 端口既有实现行号）。
+  注：本文件第 816 行「1.5.0 功能面到此全部对齐」是 1.5.0 阶段的历史收尾，不引用作 1.5.2 判据。
+- **本轮落地（§3 共 37 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
   `requiresToolsWithToolHistory`/`requiresNonNullAssistantContent`/`promptCacheKeyMode`、
   strict 工具会话记忆、丢弃流重试、输出上限 15% 余量、连接错误根因、
-  `disableContinuation`、目录定点修正）；目录补齐到 43 家 / 1,730 条
+  `disableContinuation`、目录定点修正）；**Anthropic 消息线程整体**（§3.25，create/continue
+  状态机 + wire beta，10 用例）；目录补齐到 43 家 / 1,730 条
   （`qwen-token-plan-individual-cn`、`glm-5.3`、Fable 5.2、默认模型表全 42 项对齐 v1.5.2）；
-  `Pi.Agent` 转发 `disableContinuation`、`Pi.Codemode` 的 `resolveSchemaRef` 与畸形 `$ref`、
+  第三轮真正补上的 **`PipeTransport` 新公开 API**（§3.30，15 用例）、**#11761 MCP stdio
+  大消息 O(n²)**（§3.31）、**#11335 Streamable HTTP 应答体/错误体上限**（§3.32）、
+  **#11703 预发布版本 changelog**（§3.33）、**#11729 oversized SSE 释放连接**（§3.34）、
+  **#11643 read/write 新语言高亮**（§3.35）、**#7121 find/ls `limit` 边界**（§3.36）、
+  **#11806 Ctrl+P 单模型 scope 可切换**（§3.37，MCP/stdio 换行分帧统一由共享
+  `JsonRpcLineReader` 承担）；
+  以及 `Pi.Agent` 转发 `disableContinuation`、`Pi.Codemode` 的 `resolveSchemaRef`、
   `Pi.Durable` 的 `ITx.GetSubmissionAsync`、提示模板引号解析、glob `./` 剥离、
-  TUI 的 Alacritty 与 HTML 注释、telemetry 控制字符转义、codemode NaN/Infinity、
-  schema 数字有限性。逐项落点与用例见 `upstream-1.5.2-delta.md` §3。
+  TUI 的 Alacritty / HTML 注释 / 粘贴标记、telemetry 控制字符转义、codemode NaN/Infinity、
+  schema 数字有限性、截断不劈代理对。逐项落点与用例见 `upstream-1.5.2-delta.md` §3。
 - **有记录的不做项（非待办缺口）**：Chord v2 换根（依赖契约实证未变，权威「chord 有意收窄」）、
-  消息线程整体（可分离部分已落地，属「暂不移植/成本收益」）、MCP/env Node 侧传输
-  （上游多为「从 coding-agent 移入」的包重定位，端口早已实现，§4.3 有文件行号实证）、
-  TypeBox 构造 API（「配置 schema 静态产物」决策）、`telemetryNow()` 微秒时钟、
-  grep cwd 切换及若干单点修复（「已登记的语义差异」）。每项在台账 §4 均附权威条目引用与
-  可复核证据，措辞一律为「有记录的不做项」，不使用「已知缺口/待后续重导」。
+  env daemon `process` 操作（端口 `Pi.Env` 是 SSH 远程环境，无 Node daemon PTY/进程组消费方，
+  「不适用」）、上游「从 coding-agent 移入 mcp/ai」的 helper（包位置重定位，端口早已实现，
+  §4.3 有文件行号实证）、TypeBox 构造 API（「配置 schema 静态产物」决策）、
+  `telemetryNow()` 微秒时钟、grep cwd 切换 / 上下文行改由 ripgrep 提供（与端口
+  `GrepOperations.ReadFileAsync` 绝对路径取值链纠缠，本机无 `rg` 可做运行时回归，§4.4）
+  及若干独立单点修复（「已登记的语义差异 / 暂不移植」）。每项在台账 §4 均附权威条目引用与
+  可复核证据，措辞一律为「有记录的不做项」，不使用「已知缺口/待后续重导/暂不跟」。
 
 > 下面「当前口径（2026-11-03，对齐上游 v1.5.0）」及其后所有内容是 **1.5.0 阶段的历史快照**，
 > 保留作批次记录，不代表当前对齐状态。

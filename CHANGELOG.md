@@ -82,6 +82,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   进程树有效（PID 登记后清理 1.1 秒结束、退出码 1），**不是** Git Bash 边界或实现缺陷，也未按
   「环境限制」跳过用例。
 
+### Fixed（第三轮：把台账中剩余可移植的已发布变更真正落到代码）
+
+- **`PipeTransport`**（1.5.1 新增公开 API）：新增 `Pi.Mcp.Transports.PipeTransport` + `IMcpPipe`
+  + 共享 `JsonRpcLineReader`，让 MCP stdio 帧可以跑在「由别处启动的程序」（如 SSH 远程进程）之上；
+  15 项用例对照上游 `pipe.test.ts` / `lines.test.ts`（分帧、超大消息、stderr 尾部、关闭/超时 kill、退出/失败）。
+- **MCP stdio 大消息 O(n²)**（#11761）：`StdioTransport.PumpStdoutAsync` 与
+  `JsonRpcLineReader.ReadStdout` 改为按 chunk 累积、到换行才合并一次，分多次到达的大消息不再反复复制/扫描。
+- **Streamable HTTP 应答体/错误体上限**（#11335）：新增 `ReadBodyTextAsync` 分块读取，
+  `application/json` 应答受 `maxMessageBytes` 约束（超限取消并拒绝），错误体只读前 8 KiB、其余取消，不再整体缓冲。
+- **oversized SSE 释放连接**（#11729）：`SseStream.ConsumeAsync` 在超限等错误时显式 `stream.Dispose()`
+  （cancel reader）后重抛，调用方 `using var response` 亦释放内容流、关闭连接；新增 2 项定向用例。
+- **预发布版本 changelog 重复**（#11703）：`Changelog.GetNewEntries` 只读前导 `major.minor.patch`
+  （`0.1.5-20261020.7` 记为 `0.1.5`），保存版本无三元组时返回「不显示 notes」而非整本 changelog；
+  两处交互模式调用点同步更新；语料 21 向量（含 8 条 #11703 回归）经 v1.5.2 TS `getNewEntries` 重放，
+  v1.5.0 基线重放 0 diff 保真。
+- **read/write 新增语言高亮**（#11643）：`ThemeHelpers` 语言表新增 Dart、Nix、Groovy、Gradle 映射
+  （4 向量定向用例）。
+- **find/ls `limit` 边界**（#7121）：`limit` 低于 1 一律按 1；恰好 `limit` 条不再误报「达到上限」
+  （内部多取一条区分）；custom glob 被要求多返回一条；6 项定向用例。
+- **Ctrl+P 单模型 scope 可切换**（#11806）：`AgentSession.NextCycleIndex` 改为可空返回并对齐上游
+  `getNextCycleIndex`——单元素 scope 仍能选中其唯一模型，当前模型在 scope 外时 forward/backward
+  分别选首/末个模型；两处 cycle 方法去掉 `<=1` / `-1→0` 短路；3 项定向用例 + 124 项交互模式用例全绿。
+
 ## [1.5.0] - 2026-11-05
 
 对齐上游 `v1.5.0`（308 个提交）。三个大头：**durable 的窗口化视图与提交语义**、**遥测与传播**

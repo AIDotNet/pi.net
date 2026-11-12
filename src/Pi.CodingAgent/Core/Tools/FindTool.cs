@@ -90,9 +90,9 @@ public static class FindTool
         return hadTrailingSeparator && !posixPath.EndsWith('/') ? $"{posixPath}/" : posixPath;
     }
 
-    private static string BuildResultOutput(IReadOnlyList<string> relativized, int effectiveLimit, out FindToolDetails? details)
+    private static string BuildResultOutput(
+        IReadOnlyList<string> relativized, int effectiveLimit, bool resultLimitReached, out FindToolDetails? details)
     {
-        var resultLimitReached = relativized.Count >= effectiveLimit;
         var rawOutput = string.Join("\n", relativized);
         var truncation = Truncate.TruncateHead(rawOutput, new Truncate.TruncationOptions { MaxLines = int.MaxValue });
         var resultOutput = truncation.Content;
@@ -141,7 +141,8 @@ public static class FindTool
                 var limit = ToolArgs.GetInt(args, "limit");
 
                 var searchPath = ToolPathUtils.ResolveToCwd(searchDir ?? ".", ToolContexts.ResolveCwd(ctx, cwd));
-                var effectiveLimit = limit ?? DefaultLimit;
+                // 上游 1.5.1 #7121：fd 把 --max-results 0 当无限，低于 1 的 limit 一律按 1 处理。
+                var effectiveLimit = Math.Max(1, limit ?? DefaultLimit);
                 signal.ThrowIfCancellationRequested();
 
                 // If custom operations provide glob(), use that instead of fd.
@@ -153,10 +154,11 @@ public static class FindTool
                     }
 
                     signal.ThrowIfCancellationRequested();
+                    // #7121：多要一条结果，区分「恰好 limit 条」（不报上限）与「超过 limit 条」。
                     var results = await customOps.GlobAsync(pattern, searchPath, new FindGlobOptions
                     {
                         Ignore = ["**/node_modules/**", "**/.git/**"],
-                        Limit = effectiveLimit,
+                        Limit = effectiveLimit + 1,
                     }).ConfigureAwait(false);
                     signal.ThrowIfCancellationRequested();
                     if (results.Count == 0)
@@ -164,10 +166,12 @@ public static class FindTool
                         return new AgentToolResult([new TextContent("No files found matching pattern")]);
                     }
 
+                    var resultLimitReached = results.Count > effectiveLimit;
                     // Relativize paths against the search root for stable output.
-                    var relativized = results.Select(p => RelativizeFindResultPath(p, searchPath)).ToList();
+                    var relativized = results.Take(effectiveLimit)
+                        .Select(p => RelativizeFindResultPath(p, searchPath)).ToList();
                     return new AgentToolResult(
-                        [new TextContent(BuildResultOutput(relativized, effectiveLimit, out var customDetails))],
+                        [new TextContent(BuildResultOutput(relativized, effectiveLimit, resultLimitReached, out var customDetails))],
                         Details: customDetails);
                 }
 
@@ -208,7 +212,8 @@ public static class FindTool
                 }
 
                 fdArgs.Add("--max-results");
-                fdArgs.Add(effectiveLimit.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                // #7121：多要一条以区分「恰好 limit」与「超过 limit」；fd 也把 0 当无限，故前面已钳到 ≥1。
+                fdArgs.Add((effectiveLimit + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
 
                 // fd --glob matches against the basename unless --full-path is set; in --full-path
                 // mode it matches against the absolute candidate path, so a path-containing
@@ -290,8 +295,12 @@ public static class FindTool
                     relativizedResults.Add(RelativizeFindResultPath(line, searchPath));
                 }
 
+                // #7121：仅在「超过 limit 条」时报上限，且只输出前 limit 条；恰好 limit 条不报。
+                var fdLimitReached = relativizedResults.Count > effectiveLimit;
+                var shown = relativizedResults.Take(effectiveLimit).ToList();
+
                 return new AgentToolResult(
-                    [new TextContent(BuildResultOutput(relativizedResults, effectiveLimit, out var details))],
+                    [new TextContent(BuildResultOutput(shown, effectiveLimit, fdLimitReached, out var details))],
                     Details: details);
             },
         };

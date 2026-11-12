@@ -16,6 +16,8 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
   `requiresNonNullAssistantContent` (#8118), `promptCacheKeyMode` (#9442).
 - New provider `qwen-token-plan-individual-cn` (#7989) and public `resolveSchemaRef` (#11803).
 - `StreamOptions.disableContinuation` forwarded by the agent proxy (#11545).
+- `PipeTransport` (upstream 1.5.1): MCP stdio framing over a program started by the caller
+  (`IMcpPipe`), e.g. a remote process, backed by a shared `JsonRpcLineReader` (#11761 / #11803 work).
 
 ### Changed
 
@@ -42,6 +44,16 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
   malformed local `$ref`s render as `unknown` instead of throwing (#11803).
 - Schema `number` validation rejects `NaN` and `Infinity`.
 - Dropped upstream streams ("cut short after the reply had begun") now trigger automatic retries (#11879).
+- MCP stdio no longer repeatedly copies/scans large messages arriving in many chunks (#11761).
+- Streamable HTTP JSON responses honor `maxMessageBytes` and error bodies keep only the first
+  8 KiB, cancelling the rest instead of buffering the whole response (#11335 / #11729).
+- Changelog notes no longer repeat on every launch for a saved prerelease version such as
+  `0.1.5-20261020.7`; only the leading `major.minor.patch` is read (#11703).
+- Read/write views highlight Dart, Nix, Groovy, and Gradle files (#11643).
+- `find`/`ls` treat a `limit` below 1 as 1 and no longer report the limit when exactly
+  `limit` results are found (#7121).
+- Ctrl+P can switch to the only model in scope, and cycling forward from a model outside
+  the scope selects the first scoped model (#11806).
 
 ## [1.5.0] - 2026-11-05
 

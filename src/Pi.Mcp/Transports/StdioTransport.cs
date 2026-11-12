@@ -51,6 +51,8 @@ public sealed class StdioTransport : TransportEvents, IMcpTransport
     private const int StdinCloseGraceMs = 500;
 
     private readonly StdioTransportOptions _options;
+    // 上游 1.5.1 lines.ts：stdio 与 PipeTransport 共用换行分帧 / 大消息 chunk 累积 / 上限与解析。
+    private readonly JsonRpcLineReader _lines;
     private Process? _process;
     private CancellationTokenSource? _readCts;
     private string? _protocolVersion;
@@ -77,6 +79,12 @@ public sealed class StdioTransport : TransportEvents, IMcpTransport
     public StdioTransport(StdioTransportOptions options)
     {
         _options = options;
+        _lines = new JsonRpcLineReader(new JsonRpcLineReaderOptions
+        {
+            MaxMessageBytes = options.MaxMessageBytes,
+            OnMessage = EmitMessage,
+            OnError = EmitError,
+        });
     }
 
     /// <param name="command">可执行文件（或 PATH 上的命令名）。</param>
@@ -231,108 +239,10 @@ public sealed class StdioTransport : TransportEvents, IMcpTransport
 
     private async Task PumpStdoutAsync(Process process, CancellationToken cancellationToken)
     {
-        // 上游 1.5.1 #11761：未完成消息按 chunk 累积、到换行才合并一次，避免大消息分多次到达时
-        // 反复复制/扫描（旧实现 List<byte> 的 IndexOf/RemoveRange 是 O(n²)）。
-        var pending = new List<byte[]>();
-        var pendingBytes = 0;
+        // 上游 1.5.1 #11761 / lines.ts：换行分帧、大消息 chunk 累积到换行才合并一次、消息上限、
+        // CR 修剪、解析失败仅报告、结尾残留按未完成消息报错——全部由共享 JsonRpcLineReader 负责
+        // （与 PipeTransport 共用，避免 stdio 与 pipe 各写一份 O(n²) 逻辑）。
         var chunk = new byte[8192];
-
-        void AppendPending(byte[] segment)
-        {
-            pending.Add(segment);
-            pendingBytes += segment.Length;
-        }
-
-        byte[] TakePending()
-        {
-            if (pending.Count == 0) return [];
-            var joined = new byte[pendingBytes];
-            var offset = 0;
-            foreach (var part in pending)
-            {
-                part.CopyTo(joined, offset);
-                offset += part.Length;
-            }
-            pending.Clear();
-            pendingBytes = 0;
-            return joined;
-        }
-
-        void EmitLine(byte[] rawLine)
-        {
-            if (rawLine.Length > _options.MaxMessageBytes)
-            {
-                EmitError(new InvalidOperationException(
-                    $"MCP stdio message exceeds {_options.MaxMessageBytes} bytes"));
-                return;
-            }
-            var line = rawLine.Length > 0 && rawLine[^1] == (byte)'\r' ? rawLine[..^1] : rawLine;
-            var text = Encoding.UTF8.GetString(line);
-            if (string.IsNullOrWhiteSpace(text)) return;
-            try
-            {
-                EmitMessage(JsonRpc.ParseText(text));
-            }
-            catch (Exception error)
-            {
-                // 单条消息解析失败不影响连接（对齐 TS：仅报告）。
-                EmitError(error);
-            }
-        }
-
-        void DrainChunk(byte[] data, int length)
-        {
-            var start = 0;
-            while (true)
-            {
-                var newline = Array.IndexOf(data, (byte)'\n', start, length - start);
-                if (newline < 0)
-                {
-                    if (start < length)
-                    {
-                        // 复制，调用方可能复用 chunk 内存。
-                        var tail = new byte[length - start];
-                        Array.Copy(data, start, tail, 0, tail.Length);
-                        AppendPending(tail);
-                    }
-                    if (pendingBytes > _options.MaxMessageBytes)
-                    {
-                        pending.Clear();
-                        pendingBytes = 0;
-                        EmitError(new InvalidOperationException(
-                            $"MCP stdio message exceeds {_options.MaxMessageBytes} bytes"));
-                    }
-                    return;
-                }
-                var segment = new byte[newline - start];
-                Array.Copy(data, start, segment, 0, segment.Length);
-                start = newline + 1;
-                byte[] line;
-                if (pending.Count > 0)
-                {
-                    AppendPending(segment);
-                    line = TakePending();
-                }
-                else
-                {
-                    line = segment;
-                }
-                EmitLine(line);
-            }
-        }
-
-        void DrainFinal()
-        {
-            var trailing = TakePending();
-            if (trailing.Length == 0) return;
-            var text = Encoding.UTF8.GetString(trailing);
-            if (!string.IsNullOrWhiteSpace(text))
-            {
-                EmitError(new InvalidOperationException(
-                    "MCP stdio server closed with an incomplete JSON-RPC message"));
-            }
-        }
-
         try
         {
             var stream = process.StandardOutput.BaseStream;
@@ -340,7 +250,8 @@ public sealed class StdioTransport : TransportEvents, IMcpTransport
             {
                 var read = await stream.ReadAsync(chunk.AsMemory(), cancellationToken).ConfigureAwait(false);
                 if (read == 0) break;
-                DrainChunk(chunk, read);
+                // ReadStdout 内部会复制未完成分片，可安全传入复用的 chunk 切片。
+                _lines.ReadStdout(chunk.AsSpan(0, read).ToArray());
             }
         }
         catch (OperationCanceledException) { }
@@ -349,7 +260,7 @@ public sealed class StdioTransport : TransportEvents, IMcpTransport
             EmitError(error);
         }
 
-        DrainFinal();
+        _lines.End();
         EmitClose();
     }
 

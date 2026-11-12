@@ -111,7 +111,24 @@ public sealed class AgentSessionLeafTests : IDisposable
     {
         Assert.Equal(0, AgentSession.NextCycleIndex(2, 3, forward: true));
         Assert.Equal(2, AgentSession.NextCycleIndex(0, 3, forward: false));
-        Assert.Equal(1, AgentSession.NextCycleIndex(-1, 3, forward: true));
+    }
+
+    // 上游 1.5.1 #11806：当前模型不在列表内（-1）时 forward 选首个、backward 选末个；
+    // 单元素列表仍能选中它唯一的元素；空列表 / 已在单元素列表内无事可切（null）。
+    [Fact]
+    public void NextCycleIndex_SelectsFirstOrLastWhenCurrentIsOutsideScope()
+    {
+        Assert.Equal(0, AgentSession.NextCycleIndex(-1, 3, forward: true));
+        Assert.Equal(2, AgentSession.NextCycleIndex(-1, 3, forward: false));
+    }
+
+    [Fact]
+    public void NextCycleIndex_SingleModelScopeIsStillReachable()
+    {
+        Assert.Equal(0, AgentSession.NextCycleIndex(-1, 1, forward: true));
+        Assert.Equal(0, AgentSession.NextCycleIndex(-1, 1, forward: false));
+        Assert.Null(AgentSession.NextCycleIndex(0, 1, forward: true));
+        Assert.Null(AgentSession.NextCycleIndex(-1, 0, forward: true));
     }
 
     [Fact]

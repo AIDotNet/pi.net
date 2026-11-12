@@ -107,6 +107,11 @@ public static class ThemeHelpers
             ["java"] = "java",
             ["kt"] = "kotlin",
             ["swift"] = "swift",
+            // 上游 1.5.1 #11643：read/write 视图新增 Dart、Nix、Groovy、Gradle 高亮。
+            ["dart"] = "dart",
+            ["groovy"] = "groovy",
+            ["gradle"] = "groovy",
+            ["nix"] = "nix",
             ["c"] = "c",
             ["h"] = "c",
             ["cpp"] = "cpp",
