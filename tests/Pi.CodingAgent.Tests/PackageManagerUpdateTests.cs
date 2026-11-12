@@ -509,6 +509,101 @@ public sealed class PackageManagerUpdateTests : IDisposable
             error.Message);
     }
 
+    // ── v1.5.1 #11707 / #11711：update 的版本变化 result 事件与 warning ──
+
+    [Fact]
+    public async Task UpdateAsync_EmitsResultEventWhenInstalledVersionChanges()
+    {
+        var (cwd, agentDir, settings) = NewEnvironment();
+        settings.SetPackages([JsonValue.Create("npm:widget")]);
+        WriteInstalledNpm(agentDir, "widget", "1.0.0");
+
+        var runner = new FakeRunner(call =>
+        {
+            if (call.Arguments.SequenceEqual(["view", "widget", "version", "--json"]))
+            {
+                return Task.FromResult("\"2.0.0\"");
+            }
+
+            if (call.Arguments[0] == "install")
+            {
+                // 模拟 npm 真的把新版本装到磁盘上。
+                WriteInstalledNpm(agentDir, "widget", "2.0.0");
+                return Task.FromResult("");
+            }
+
+            return Task.FromResult("");
+        });
+        var manager = new DefaultPackageManager(settings, cwd, agentDir, commandRunner: runner);
+        var progress = new List<PackageProgressEvent>();
+        manager.SetProgressCallback(progress.Add);
+
+        await manager.UpdateAsync();
+
+        var result = Assert.Single(progress, item => item.Type == "result" && item.Action == "update");
+        Assert.Equal("npm:widget 1.0.0 -> 2.0.0", result.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_EmitsWarningNotResultWhenVersionUnchanged()
+    {
+        var (cwd, agentDir, settings) = NewEnvironment();
+        settings.SetPackages([JsonValue.Create("npm:widget")]);
+        WriteInstalledNpm(agentDir, "widget", "1.0.0");
+
+        var runner = new FakeRunner(call =>
+        {
+            if (call.Arguments.SequenceEqual(["view", "widget", "version", "--json"]))
+            {
+                return Task.FromResult("\"2.0.0\"");
+            }
+
+            // install 不改磁盘版本 → registry 元数据陈旧，仍是旧版本。
+            return Task.FromResult("");
+        });
+        var manager = new DefaultPackageManager(settings, cwd, agentDir, commandRunner: runner);
+        var progress = new List<PackageProgressEvent>();
+        manager.SetProgressCallback(progress.Add);
+
+        await manager.UpdateAsync();
+
+        Assert.DoesNotContain(progress, item => item.Type == "result");
+        Assert.Contains(progress, item => item.Type == "progress"
+            && item.Message!.Contains("is still 1.0.0 (registry reports 2.0.0)"));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ReportsNoneToVersionForFreshInstall()
+    {
+        var (cwd, agentDir, settings) = NewEnvironment();
+        settings.SetPackages([JsonValue.Create("npm:widget")]);
+        // 未预装 → InstalledVersion 为 null。
+
+        var runner = new FakeRunner(call =>
+        {
+            if (call.Arguments[0] == "view")
+            {
+                return Task.FromResult("\"2.0.0\"");
+            }
+
+            if (call.Arguments[0] == "install")
+            {
+                WriteInstalledNpm(agentDir, "widget", "2.0.0");
+                return Task.FromResult("");
+            }
+
+            return Task.FromResult("");
+        });
+        var manager = new DefaultPackageManager(settings, cwd, agentDir, commandRunner: runner);
+        var progress = new List<PackageProgressEvent>();
+        manager.SetProgressCallback(progress.Add);
+
+        await manager.UpdateAsync();
+
+        var result = Assert.Single(progress, item => item.Type == "result" && item.Action == "update");
+        Assert.Equal("npm:widget (none) -> 2.0.0", result.Message);
+    }
+
     private (string Cwd, string AgentDir, SettingsManager Settings) NewEnvironment()
     {
         var cwd = Path.Combine(_root, Guid.NewGuid().ToString("N"));

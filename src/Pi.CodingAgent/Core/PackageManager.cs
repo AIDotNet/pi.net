@@ -1702,8 +1702,8 @@ public sealed partial class DefaultPackageManager : IPackageManager
     // 小工具
     // ========================================================================
 
-    /// <summary>TS <c>isOfflineModeEnabled</c>.</summary>
-    private static bool IsOfflineModeEnabled()
+    /// <summary>TS <c>isOfflineModeEnabled</c>；CLI 的 update 三态报告也需据此判断（#11711）。</summary>
+    internal static bool IsOfflineModeEnabled()
     {
         var value = Environment.GetEnvironmentVariable("PI_OFFLINE");
         if (string.IsNullOrEmpty(value))

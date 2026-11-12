@@ -746,16 +746,24 @@ public static class PackageManagerCli
         ReportSettingsErrors(settingsManager, "package command", error);
 
         var packageManager = new DefaultPackageManager(settingsManager, cwd, agentDir);
+        // v1.5.1 #11707/#11711：汇总 update 的 result（版本变化行）与 warning 数，供结束三态报告。
+        var updateResults = new List<string>();
+        var updateWarningCount = 0;
         packageManager.SetProgressCallback(evt =>
         {
             if (evt.Type == "start")
             {
                 output.Write(Chalk.Dim($"{evt.Message}\n"));
             }
+            else if (evt.Type == "result" && evt.Action == "update" && !string.IsNullOrEmpty(evt.Message))
+            {
+                updateResults.Add(evt.Message);
+            }
             else if (evt.Type == "progress" && !string.IsNullOrEmpty(evt.Message))
             {
-                // TS `0d23d5345`: the "installed version did not change" notice.
+                // TS `0d23d5345`: the "installed version did not change" notice; also a warning.
                 output.Write(Chalk.Yellow($"{evt.Message}\n"));
+                updateWarningCount++;
             }
         });
 
@@ -844,8 +852,18 @@ public static class PackageManagerCli
                     {
                         var updateSource = (target as UpdateTarget.Extensions)?.Source;
                         await packageManager.UpdateAsync(updateSource).ConfigureAwait(false);
-                        output.WriteLine(Chalk.Green(
-                            updateSource is null ? "Updated packages" : $"Updated {updateSource}"));
+                        // v1.5.1 #11707/#11711：三态汇总（offline / warned-up-to-date /
+                        // already-up-to-date / updated N packages + 版本变化行）。
+                        foreach (var line in PackageUpdateReport.Build(
+                            updateResults, updateWarningCount,
+                            DefaultPackageManager.IsOfflineModeEnabled(), updateSource))
+                        {
+                            var styled = line.StartsWith("Updated ", StringComparison.Ordinal)
+                                || line.Contains("already up to date", StringComparison.Ordinal)
+                                ? Chalk.Green(line)
+                                : Chalk.Yellow(line);
+                            output.WriteLine(styled);
+                        }
                     }
 
                     if (target.IncludesSelf)

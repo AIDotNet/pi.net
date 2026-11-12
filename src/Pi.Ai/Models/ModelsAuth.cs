@@ -257,6 +257,19 @@ public sealed partial class Models
                 if (credentialError is not null) throw credentialError;
                 if (!allowNetwork || signal.IsCancellationRequested) return;
 
+                // v1.5.1 #11679 / 6382d8706：pi.dev 之类的目录由外部源提供，声明
+                // refreshModelsAuth == "configured" 时不刷新 OAuth token、也不把凭据传给网络阶段，
+                // 只要求 provider 处于已配置状态；一次 stale 登录不再让目录刷新失败。
+                if (string.Equals(provider.RefreshModelsAuth, "configured", StringComparison.Ordinal))
+                {
+                    var configured = await CheckProviderAuthAsync(provider, storedCredential, signal)
+                        .ConfigureAwait(false);
+                    if (configured is null) return;
+                    await RunProviderRefreshPhaseAsync(
+                        provider, refreshModels, null, true, options.Force, generation, signal).ConfigureAwait(false);
+                    return;
+                }
+
                 var credential = await ResolveRefreshCredentialAsync(provider, storedCredential, signal)
                     .ConfigureAwait(false);
                 if (credential is null) return;

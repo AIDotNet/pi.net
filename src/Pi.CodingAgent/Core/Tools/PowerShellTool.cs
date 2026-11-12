@@ -19,6 +19,19 @@ public static class PowerShellTool
     /// </remarks>
     private const string Utf8OutputPrefix = "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n";
 
+    /// <summary>
+    /// v1.5.1 #11964 / #8842（TS <c>WINDOWS_POWERSHELL_EXIT_SUFFIX</c>）：Windows PowerShell 5.1
+    /// 把「stderr 被重定向的 native 命令」写成 error record 并把 <c>$?</c> 置 false，
+    /// <c>-Command</c> 于是从 <c>$?</c> 推出退出码 1，即使 git 真的 exit 0。
+    /// PowerShell 7 无此问题。此后缀仅加给 <c>powershell.exe</c>（5.1）：当最后的失败只是
+    /// NativeCommandError 且 <c>$LASTEXITCODE -eq 0</c> 时 exit 0；否则沿用 -Command 规则。
+    /// 前置的孤立 <c>;</c> 保证未写完的最后一条语句仍是解析错误，不会被后缀续上执行。
+    /// </summary>
+    internal const string WindowsPowerShellExitSuffix =
+        "\n;\nif ($?) { exit 0 }\n"
+        + "if (($LASTEXITCODE -eq 0) -and (\"$($Error[0].FullyQualifiedErrorId)\" -like \"NativeCommandError*\")) { exit 0 }\n"
+        + "exit 1";
+
     /// <summary>The TS <c>powershellToolSystemPromptContribution.snippet</c>.</summary>
     public const string Snippet = "Execute PowerShell commands";
 
@@ -48,7 +61,32 @@ public static class PowerShellTool
     public static IBashToolOperations CreateLocalPowerShellOperations()
     {
         var operations = BashTool.CreateLocalShellOperations("PowerShell", Shell.GetPowerShellConfig);
-        return new Utf8PrefixedOperations(operations);
+        return new Utf8PrefixedOperations(operations, () =>
+        {
+            try
+            {
+                return Path.GetFileName(Shell.GetPowerShellConfig().Shell) ?? "";
+            }
+            catch
+            {
+                return "";
+            }
+        });
+    }
+
+    /// <summary>
+    /// v1.5.1 #11964 的纯决策叶子：给命令拼 UTF-8 前缀，且仅当 shell 是
+    /// Windows PowerShell 5.1（<c>powershell.exe</c>）且命令不以反引号结尾时追加退出码后缀。
+    /// <paramref name="shellBasename"/> 与 <paramref name="command"/> 由调用方给出，便于逐字回归。
+    /// </summary>
+    internal static string BuildCommand(string command, string shellBasename)
+    {
+        var isWindowsPowerShell51 = string.Equals(
+            shellBasename, "powershell.exe", StringComparison.OrdinalIgnoreCase);
+        var suffix = isWindowsPowerShell51 && !command.EndsWith('`')
+            ? WindowsPowerShellExitSuffix
+            : "";
+        return Utf8OutputPrefix + command + suffix;
     }
 
     /// <summary>The TS <c>createPowerShellToolDefinition(cwd, options)</c>.</summary>
@@ -82,14 +120,15 @@ public static class PowerShellTool
     /// <c>exec</c> arrow drops the signal argument, which the port's
     /// <see cref="IBashToolOperations.ExecAsync"/> carries as a token.
     /// </summary>
-    private sealed class Utf8PrefixedOperations(IBashToolOperations inner) : IBashToolOperations
+    private sealed class Utf8PrefixedOperations(
+        IBashToolOperations inner, Func<string> resolveShellBasename) : IBashToolOperations
     {
         public Task<ShellExecResult> ExecAsync(
             string command,
             string cwd,
             ShellExecOptions options,
             CancellationToken cancellationToken) =>
-            inner.ExecAsync(Utf8OutputPrefix + command, cwd, options, cancellationToken);
+            inner.ExecAsync(BuildCommand(command, resolveShellBasename()), cwd, options, cancellationToken);
     }
 }
 

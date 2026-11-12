@@ -987,6 +987,9 @@ public static class ProviderComposer
         private readonly ProviderConfigInput? _extension;
         private readonly Func<RefreshModelsContext, Task>? _refreshModels;
 
+        /// <summary>v1.5.1 #11679：目录刷新认证方式的组合结果。</summary>
+        private readonly string? _refreshModelsAuth;
+
         /// <summary>最近一次刷新发布的扩展模型列表（覆盖 <see cref="ProviderConfigInput.Models"/>）。</summary>
         private IReadOnlyList<ProviderModelConfig>? _refreshedExtensionModels;
 
@@ -1018,6 +1021,13 @@ public static class ProviderComposer
                 _refreshModels = RefreshModelsAsync;
             }
 
+            // v1.5.1 #11679 / provider-composer.ts：扩展的 refreshModels / oauth.modifyModels
+            // hooks 要读 context.credential，此时不能省略凭据（置 undefined 走默认 credential 刷新）；
+            // 否则转发 base 的 refreshModelsAuth（pi.dev 目录为 "configured"）。
+            var extensionNeedsCredential = extension?.RefreshModels is not null
+                || extension?.OAuth?.ModifyModels is not null;
+            _refreshModelsAuth = extensionNeedsCredential ? null : baseProvider?.RefreshModelsAuth;
+
             // 注册时立刻校验一次，让结构性错误马上暴露。
             GetAllModels();
         }
@@ -1029,6 +1039,9 @@ public static class ProviderComposer
         public string? BaseUrl { get; }
 
         public ProviderAuth? Auth { get; }
+
+        /// <summary>v1.5.1 #11679：见 ctor 的组合判定。</summary>
+        public string? RefreshModelsAuth => _refreshModelsAuth;
 
         // ------------------------------------------------------------------ catalog
 

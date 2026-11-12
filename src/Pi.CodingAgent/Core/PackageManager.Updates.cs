@@ -183,12 +183,29 @@ public sealed partial class DefaultPackageManager
             var gitUpdates = gitCandidates
                 .Select(entry => (Func<Task<bool>>)(async () =>
                 {
+                    var targetDir = GetGitInstallPath(entry.Parsed, entry.Scope);
+                    var from = await ReadGitHeadAsync(targetDir, cancellationToken).ConfigureAwait(false);
                     await WithProgressAsync(
                         "update",
                         entry.Source,
                         $"Updating {entry.Source}...",
                         () => UpdateGitAsync(entry.Parsed, entry.Scope, cancellationToken),
                         cancellationToken).ConfigureAwait(false);
+                    var to = await ReadGitHeadAsync(targetDir, cancellationToken).ConfigureAwait(false);
+                    // v1.5.1 #11707：git 包的 commit 变化也以 result 事件上报，供 CLI 汇总
+                    // （commit 取前 7 位；(none) 表示更新前未安装）。
+                    if (from != to)
+                    {
+                        var scopeSuffix = string.Equals(entry.Scope, SourceScope.Project, StringComparison.Ordinal)
+                            ? " (project)" : "";
+                        string Short(string? head) => head is null ? "(none)" : head[..Math.Min(7, head.Length)];
+                        _progress?.Invoke(new PackageProgressEvent(
+                            "result",
+                            "update",
+                            entry.Source,
+                            $"{entry.Source}{scopeSuffix} {Short(from)} -> {Short(to)}"));
+                    }
+
                     return true;
                 }))
                 .ToArray();
@@ -196,6 +213,34 @@ public sealed partial class DefaultPackageManager
         }
 
         await Task.WhenAll(updates).ConfigureAwait(false);
+    }
+
+    /// <summary>读取 git checkout 的 HEAD；目录不存在或读取失败返回 null（对齐上游 getGitHead 的容错）。</summary>
+    private async Task<string?> ReadGitHeadAsync(string targetDir, CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(targetDir))
+        {
+            return null;
+        }
+
+        try
+        {
+            var head = await RunCommandCaptureAsync(
+                "git",
+                ["rev-parse", "HEAD"],
+                workingDirectory: targetDir,
+                timeoutMs: NetworkTimeoutMs,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(head) ? null : head.Trim();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task<NpmUpdateCheck> ShouldUpdateNpmSourceAsync(
@@ -230,32 +275,43 @@ public sealed partial class DefaultPackageManager
     }
 
     /// <summary>
-    /// npm can resolve stale registry metadata shortly after a publish and install the old version
-    /// without an error. Warn when an announced update did not change the installed version.
-    /// Port of <c>reportUnchangedNpmUpdates</c> (TS <c>0d23d5345</c>).
+    /// 更新完成后逐包上报结果（v1.5.1 #11707 / #11711）：
+    /// 版本真的变了发 <c>result</c> 事件（消息 <c>npm:foo 1.2.0 -&gt; 1.3.0</c>，供 CLI 汇总）；
+    /// npm 因 registry 元数据陈旧仍装回旧版本则发 <c>progress</c> warning（TS <c>0d23d5345</c>）。
+    /// 对未装（InstalledVersion==null）但更新后装上的包，from 记为 "(none)"。
     /// </summary>
-    private void ReportUnchangedNpmUpdates(IReadOnlyList<NpmUpdateTarget> sources, string scope)
+    private void ReportNpmUpdateResults(IReadOnlyList<NpmUpdateTarget> sources, string scope)
     {
         foreach (var entry in sources)
         {
-            if (entry.InstalledVersion is null || entry.TargetVersion is null)
-            {
-                continue;
-            }
-
             var installedPath = GetManagedNpmInstallPath(entry.Parsed, scope);
             var versionAfter = GetInstalledNpmVersion(installedPath);
-            if (versionAfter != entry.InstalledVersion)
+
+            if (versionAfter == entry.InstalledVersion)
             {
+                // 版本没变：若本应升级（有目标版本）则是 registry 陈旧警告，否则无需上报。
+                if (entry.TargetVersion is not null)
+                {
+                    _progress?.Invoke(new PackageProgressEvent(
+                        "progress",
+                        "update",
+                        entry.Source,
+                        $"{entry.Source} is still {versionAfter} (registry reports {entry.TargetVersion}); "
+                        + "npm registry metadata may be stale, try again in a few minutes"));
+                }
+
                 continue;
             }
 
+            var scopeSuffix = string.Equals(scope, SourceScope.Project, StringComparison.Ordinal)
+                ? " (project)" : "";
+            var from = entry.InstalledVersion ?? "(none)";
+            var to = versionAfter ?? "(none)";
             _progress?.Invoke(new PackageProgressEvent(
-                "progress",
+                "result",
                 "update",
                 entry.Source,
-                $"{entry.Source} is still {versionAfter} (registry reports {entry.TargetVersion}); "
-                + "npm registry metadata may be stale, try again in a few minutes"));
+                $"{entry.Source}{scopeSuffix} {from} -> {to}"));
         }
     }
 
@@ -293,7 +349,7 @@ public sealed partial class DefaultPackageManager
             },
             cancellationToken).ConfigureAwait(false);
 
-        ReportUnchangedNpmUpdates(sources, scope);
+        ReportNpmUpdateResults(sources, scope);
     }
 
     private async Task<string> GetLatestNpmVersionAsync(

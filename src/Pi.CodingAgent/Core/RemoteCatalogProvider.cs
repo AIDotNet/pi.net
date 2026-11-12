@@ -66,6 +66,12 @@ public sealed class RemoteCatalogProvider : IProvider, IImagesProvider, IClassif
 
     public ProviderAuth? Auth => _inner.Auth;
 
+    /// <summary>
+    /// v1.5.1 #11679 / 6382d8706：pi.dev 目录由外部源提供，stale provider 登录不应刷新 OAuth token
+    /// 或让目录刷新失败（对应 TS remote-catalog-provider.ts 的 <c>refreshModelsAuth: "configured"</c>）。
+    /// </summary>
+    public string? RefreshModelsAuth => "configured";
+
     public bool SupportsFetchDeferred => _inner.SupportsFetchDeferred;
 
     public bool SupportsCancelDeferred => _inner.SupportsCancelDeferred;

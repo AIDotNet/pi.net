@@ -56,6 +56,15 @@ public interface IProvider
     /// </summary>
     Func<RefreshModelsContext, Task>? RefreshModels => null;
 
+    /// <summary>
+    /// v1.5.1 #11679 / 6382d8706：目录网络刷新阶段需要的认证方式。
+    /// <c>"credential"</c>（默认）= 解析有效凭据，过期 OAuth 先刷新；
+    /// <c>"configured"</c> = 目录由 provider 之外的源提供（如 pi.dev）：只要 provider 已配置就刷新，
+    /// 但**不刷新 OAuth**、<see cref="RefreshModelsContext.Credential"/> 为 null，
+    /// 这样一次过期的登录（invalid_grant）不会让该 provider 的目录刷新失败。
+    /// </summary>
+    string? RefreshModelsAuth => null;
+
     /// <summary>按凭据过滤可用 chat 模型。对应 TS <c>Provider.filterModels</c>。</summary>
     IReadOnlyList<ModelSpec> FilterModels(IReadOnlyList<ModelSpec> models, Credential? credential) => models;
 

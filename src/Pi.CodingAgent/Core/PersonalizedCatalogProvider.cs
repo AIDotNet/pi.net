@@ -52,6 +52,9 @@ public sealed class PersonalizedCatalogProvider : IProvider, IImagesProvider, IC
 
     public ProviderAuth? Auth => _inner.Auth;
 
+    /// <summary>转发 inner 的 refreshModelsAuth（pi.dev 目录为 "configured"，见 #11679）。</summary>
+    public string? RefreshModelsAuth => _inner.RefreshModelsAuth;
+
     public bool SupportsFetchDeferred => _inner.SupportsFetchDeferred;
 
     public bool SupportsCancelDeferred => _inner.SupportsCancelDeferred;
