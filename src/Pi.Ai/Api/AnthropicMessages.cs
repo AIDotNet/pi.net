@@ -45,6 +45,9 @@ public sealed record AnthropicMessagesCompat
     /// <summary>只支持 adaptive thinking。对应 TS <c>forceAdaptiveThinking</c>。</summary>
     public bool ForceAdaptiveThinking { get; init; }
 
+    /// <summary>服务端消息线程（上游 1.5.1 #11545）。缺省仅对直连 Anthropic 端点开启。</summary>
+    public bool SupportsMessageThreads { get; init; }
+
     /// <summary>服务端 fallback 列表。对应 TS <c>allowedFallbackModels</c>。</summary>
     public IReadOnlyList<AnthropicFallbackModel>? AllowedFallbackModels { get; init; }
 }
@@ -81,6 +84,7 @@ public static class AnthropicMessages
     private const string MidConversationOutputConfigBeta = "mid-conversation-output-config-2026-07-01";
     private const string ThinkingBindingControlsBeta = "thinking-binding-controls-2026-08-01";
     private const string InlineToolsBeta = "inline-tools-2026-09-15";
+    private const string MessageThreadsBeta = AnthropicMessageThreads.Beta;
 
     private static readonly HashSet<string> AnthropicMessageEvents =
     [
@@ -142,6 +146,8 @@ public static class AnthropicMessages
             SupportsMidConvoToolChanges = Opt("supportsMidConvoToolChanges", false) ?? false,
             SupportsMidConvoEffort = Opt("supportsMidConvoEffort", false) ?? false,
             ForceAdaptiveThinking = Opt("forceAdaptiveThinking", false) ?? false,
+            SupportsMessageThreads = Opt("supportsMessageThreads", AnthropicMessageThreads.IsEnabledByDefault(model))
+                ?? AnthropicMessageThreads.IsEnabledByDefault(model),
             AllowedFallbackModels = ParseFallbackModels(compat["allowedFallbackModels"]),
         };
     }
@@ -192,7 +198,8 @@ public static class AnthropicMessages
         bool isOAuthToken,
         SimpleStreamOptions? options,
         AnthropicMessagesCompat? compat = null,
-        bool disablePreferredStrictTools = false)
+        bool disablePreferredStrictTools = false,
+        bool messageThreads = false)
     {
         compat ??= GetCompat(model);
         var hasPreferredStrictTools = false;
@@ -250,7 +257,7 @@ public static class AnthropicMessages
             ["stream"] = true,
         };
 
-        var betaFeatures = GetBetaFeatures(model, context, isOAuthToken, nativeToolChanges, options, compat);
+        var betaFeatures = GetBetaFeatures(model, context, isOAuthToken, nativeToolChanges, options, compat, messageThreads);
         if (betaFeatures.Count > 0)
         {
             parameters["betas"] = new JsonArray(betaFeatures.Select(feature => (JsonNode)feature).ToArray());
@@ -399,6 +406,32 @@ public static class AnthropicMessages
     /// </summary>
     public static JsonArray ConvertMessages(IReadOnlyList<ChatMessage> messages)
         => ConvertMessagesCore(messages, false, null, false, null, null).Messages;
+
+    /// <summary>
+    /// 把一条已完成的 assistant 回复转换成「下一次请求会用的形状」（消息线程前缀用）。
+    /// 对应 TS <c>recordThreadReply</c> 里的 convertMessages(transformMessages([output], ...)).messages
+    /// .filter(role === "assistant")。
+    /// </summary>
+    internal static JsonArray ConvertReplyForThread(
+        AssistantMessage output,
+        ModelSpec model,
+        bool isOAuthToken,
+        bool allowEmptySignature)
+    {
+        var transformed = TransformMessages.Transform(
+            [output], model, (id, _, _) => NormalizeToolCallId(id));
+        var converted = ConvertMessagesCore(
+            transformed, isOAuthToken, null, allowEmptySignature, null, null);
+        var result = new JsonArray();
+        foreach (var message in converted.Messages)
+        {
+            if (message is JsonObject obj && obj.Str("role") == "assistant")
+            {
+                result.Add(obj.DeepClone());
+            }
+        }
+        return result;
+    }
 
     private sealed record ConvertedMessages(JsonArray Messages, Dictionary<int, string> AssistantLevels);
 
@@ -796,7 +829,8 @@ public static class AnthropicMessages
         bool isOAuthToken,
         bool nativeToolChanges,
         SimpleStreamOptions? options,
-        AnthropicMessagesCompat compat)
+        AnthropicMessagesCompat compat,
+        bool messageThreads = false)
     {
         string? configuredFeatures = null;
         var configuredExplicitly = false;
@@ -848,6 +882,7 @@ public static class AnthropicMessages
             features.Add(ThinkingBindingControlsBeta);
         }
         if (nativeToolChanges) features.Add(InlineToolsBeta);
+        if (messageThreads) features.Add(MessageThreadsBeta);
         return features.Distinct(StringComparer.Ordinal).ToList();
     }
 
@@ -888,6 +923,15 @@ public static class AnthropicMessages
                     ["properties"] = parameters["properties"]?.DeepClone() ?? new JsonObject(),
                     ["required"] = parameters["required"]?.DeepClone() ?? new JsonArray(),
                 };
+                // 上游 1.5.1 #9557：非 strict 工具也要保留根 $defs/definitions，否则属性里的本地
+                // $ref 指向空、Claude 会给出错误参数。其它根关键字（anyOf/oneOf/allOf）仍排除：Anthropic 会 400。
+                foreach (var key in new[] { "$defs", "definitions" })
+                {
+                    if (parameters[key] is { } shared)
+                    {
+                        inputSchema[key] = shared.DeepClone();
+                    }
+                }
             }
 
             var definition = new JsonObject
@@ -1104,13 +1148,20 @@ public static class AnthropicMessages
                 // prefer 工具的原始 schema 再发一次；require 工具保持 strict（上游 #10409）。
                 // 上游 1.5.1（#11626）：同一会话此前被拒过就一开始就降级，别每轮白挨一次 400。
                 var disablePreferredStrictTools = StrictToolLimits.HasExceeded(options?.SessionId);
+                // 上游 1.5.1（#11545）：仅当启用消息线程、有 sessionId 且 cacheRetention 非 none 时启用。
+                // disableContinuation（重放/缓存预热）只抑制「使用线程」，仍发送 threads beta。
+                var threadSessionId = compat.SupportsMessageThreads && cacheSessionId is not null
+                    ? cacheSessionId
+                    : null;
+                AnthropicMessageThreads.PreparedThreadRequest? usedThread = null;
                 JsonObject payload;
                 HttpResponseMessage response;
                 while (true)
                 {
                     signal.ThrowIfCancellationRequested();
                     var built = BuildParamsForRequest(
-                        model, normalizedContext, isOAuth, options, compat, disablePreferredStrictTools);
+                        model, normalizedContext, isOAuth, options, compat, disablePreferredStrictTools,
+                        messageThreads: threadSessionId is not null);
                     payload = built.Params;
                     if (options?.OnPayload is { } onPayload)
                     {
@@ -1133,16 +1184,16 @@ public static class AnthropicMessages
                         }
                     }
 
-                    try
-                    {
-                        response = await ProviderRetry.RetryAsync(async () =>
+                    // 发送一个具体请求体（线程 create/continue、fallback 重发都复用它）。
+                    Task<HttpResponseMessage> Send(JsonObject body) =>
+                        ProviderRetry.RetryAsync(async () =>
                         {
                             using var perCallCts = CancellationTokenSource.CreateLinkedTokenSource(signal);
                             if (options?.TimeoutMs is { } timeout) perCallCts.CancelAfter(timeout);
                             var request = new HttpRequestMessage(HttpMethod.Post, url)
                             {
                                 Content = new StringContent(
-                                    payload.ToJsonString(), Encoding.UTF8, "application/json"),
+                                    body.ToJsonString(), Encoding.UTF8, "application/json"),
                             };
                             foreach (var (key, value) in headers)
                             {
@@ -1155,11 +1206,11 @@ public static class AnthropicMessages
                                     .ConfigureAwait(false);
                                 if (!httpResponse.IsSuccessStatusCode)
                                 {
-                                    var body = await httpResponse.Content.ReadAsStringAsync(perCallCts.Token)
+                                    var errorBody = await httpResponse.Content.ReadAsStringAsync(perCallCts.Token)
                                         .ConfigureAwait(false);
                                     throw new ProviderHttpException(
-                                        (int)httpResponse.StatusCode, body,
-                                        $"{(int)httpResponse.StatusCode}: {body}",
+                                        (int)httpResponse.StatusCode, errorBody,
+                                        $"{(int)httpResponse.StatusCode}: {errorBody}",
                                         headers: ResponseHeaders(httpResponse));
                                 }
                                 return httpResponse;
@@ -1178,7 +1229,28 @@ public static class AnthropicMessages
                             MaxRetries = options?.MaxRetries,
                             MaxRetryDelayMs = options?.MaxRetryDelayMs,
                             Signal = signal,
-                        }).ConfigureAwait(false);
+                        });
+
+                    var prepared = threadSessionId is not null && options?.DisableContinuation != true
+                        ? AnthropicMessageThreads.PrepareThreadRequest(model, threadSessionId, payload)
+                        : null;
+
+                    try
+                    {
+                        if (prepared is not null)
+                        {
+                            var sent = await AnthropicMessageThreads.SendThreadRequestAsync(
+                                prepared, payload, Send,
+                                diagnostic => output.Diagnostics.Add(diagnostic), signal)
+                                .ConfigureAwait(false);
+                            response = sent.Response;
+                            usedThread = sent.Thread;
+                        }
+                        else
+                        {
+                            response = await Send(payload).ConfigureAwait(false);
+                            usedThread = null;
+                        }
                         break;
                     }
                     catch (ProviderHttpException error) when (
@@ -1532,6 +1604,13 @@ public static class AnthropicMessages
                 if (inputTransformations is { Count: > 0 } transformationList)
                 {
                     output.Diagnostics.Add(BuildInputTransformationsDiagnostic(transformationList));
+                }
+
+                // 上游 1.5.1（#11545）：成功后记录下一次可续接的位置。
+                if (usedThread is not null)
+                {
+                    AnthropicMessageThreads.RecordThreadReply(
+                        model, usedThread, payload, output.Snapshot(), isOAuth, compat.AllowEmptySignature);
                 }
 
                 var final = output.Snapshot();

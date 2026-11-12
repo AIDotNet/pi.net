@@ -133,9 +133,10 @@
 | #11695 连接错误保留底层 cause | `ProviderError.WithCauseDetail` / `Normalize` | ✅ 🔧 本轮落地（§3.24） |
 | #11545 `StreamOptions.disableContinuation` | `SimpleStreamOptions` 字段 | ✅ 🔧 本轮落地（§3.21） |
 | #7989 qwen-token-plan-individual-cn / GLM 5.3 / Microsoft-Decision-1 / Fable 5.2 / 默认模型切换 | 43 份目录 + `Providers/All.cs` + `ModelResolver` | ✅ 🔧 本轮落地（§3.16–3.19） |
-| #11545 Anthropic 消息线程整体（server-side continuation state） | `Pi.Ai` | 📋 有记录的不做项（§4.2，权威：暂不移植/成本收益 + 端口无该流式状态机） |
+| #11545 Anthropic 消息线程整体（server-side continuation state） | 新 `AnthropicMessageThreads.cs` + `AnthropicMessages.Stream` 接入 | ✅ 🔧 本轮落地（§3.25，10 项 wire/状态机用例） |
 | `provider.refreshModelsAuth`、lazy OAuth/Bedrock chunk 拆分 | 目录 / providers | 📋 有记录的不做项（§4.5，权威：Node bundler 动态 import 专有，配置 schema 静态产物） |
-| #9557 Anthropic 非 strict `$defs`、#10954 thinking block binding、#11692 退出刷新、#11708 Codex SSE 监听 | 各 api/*.cs | 📋 有记录的不做项（§4.4，独立单点修复，已登记） |
+| #9557 Anthropic 非 strict 根 `$defs`/`definitions` | `AnthropicMessages.ConvertTools` | ✅ 🔧 本轮落地（§3.26） |
+| #10954 thinking block binding、#11692 退出刷新、#11708 Codex SSE 监听 | 各 api/*.cs | 📋 有记录的不做项（§4.4；#11708 是 JS addEventListener 泄漏修复，端口用 `Task.Delay(signal)` 无此形态） |
 | `openai-completions` 显示名改 "OpenAI Codex" | UI 文案 | ➖ 端口无对应 UI 文案层 |
 
 ### 2.2 coding-agent（75 文件 / +2,773 / −1,497）
@@ -214,6 +215,11 @@ CR-only 换行修复。**上游 changelog 明写这些 helper 是「moved from p
 | 3.22 | #11803 `resolveSchemaRef` 公开 + 畸形 `$ref`→unknown | `CodemodeDeclarations.ResolveSchemaRef` | `CodemodeTests.MalformedLocalRefRendersUnknownAndResolveSchemaRefIsPublic` |
 | 3.23 | #10497 OpenRouter 输出上限 | `SimpleOptions.ClampMaxTokensToContext`（15% 余量 + 32K 上限） | `EstimateAndOptionsTests.ClampMaxTokensToContextLeavesFifteenPercentMargin` |
 | 3.24 | #11695 连接错误根因 | `ProviderError.WithCauseDetail` / `Normalize` | `OpenRouterImagesAndUtilsTests.AppendsDeepestCauseForConnectionLevelFailures` |
+| 3.25 | #11545 Anthropic 消息线程整体（create/continue 状态机 + 前缀哈希 + 拒绝回退 + beta + 清理） | 新 `AnthropicMessageThreads.cs` + `AnthropicMessages.cs` 接入 | `AnthropicMessageThreadsTests`（10 用例：状态机 + 真实 HTTP wire） |
+| 3.26 | #9557 非 strict 工具根 `$defs`/`definitions` | `AnthropicMessages.ConvertTools` | `AnthropicMessagesWireTests.NonStrictToolSchemaKeepsRootDefinitions`（2 用例） |
+| 3.27 | #11764 SSE 孤立 CR / 跨 chunk CRLF | `Pi.Mcp.SseStream.ConsumeAsync` | `SseLineEndingTests`（4 用例） |
+| 3.28 | #7121 截断不劈开代理对 | `Truncate.SliceHead` / `SliceTail` / `TruncateLine` | `CoreToolsTests.TruncateLine_DoesNotSplitSurrogatePair` |
+| 3.29 | #11923 粘贴短标记重编号 | `Editor.cs` 重编号分支 | `EditorPasteMarkerRenumberTests` |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -255,25 +261,21 @@ CR-only 换行修复。**上游 changelog 明写这些 helper 是「moved from p
 v1 基础层；durable 的依赖契约实证未变。因此这是「已登记的语义差异 / 不适用」，不是
 v1.5.2 对齐的功能缺口。若将来要移植 v2，应按边界表另立「重写 Pi.Chord」项目，而非补丁批次。
 
-### 4.2 Anthropic 消息线程整体（#11545，hook 点名的第二项）
+### 4.2 Anthropic 消息线程（#11545）—— 已实际移植
 
-**权威依据**：`migration-execution-status.md` 第 137 行「暂不移植（成本/收益）：telemetry
-span 需重建整条流式观察链」—— 同类「需重建整条流式状态链」的成本收益判定；
-第 193 行「不采纳（产品决策）：上游无消费方时端口已有等价能力」。
-
-**可复核证据**：
-- 上游 #11545 是 885 行新增（`anthropic-messages.ts` +307、测试 +560），核心是
-  per-session server-side continuation state + 请求 diff/回退 + `cleanupSessionResources`。
-  端口 `Pi.Ai` 无该流式状态机（`git grep supportsMessageThreads/message-threads` 为空）。
-- 但**可独立落地的部分已全部落地**：`StreamOptions.disableContinuation`（§3.21）、
-  agent `streamProxy` 转发（§3.21）；缓存预热公共 helper 端口早已存在
-  `Pi.CodingAgent/Core/CacheWarmer.cs` 的 `GetCacheWarmingDelayMs` / `GetPromptCacheTtlMs`；
-  `SessionResources.CleanupSessionResources` 亦已存在（`src/Pi.Ai/SessionResources.cs`）。
-- 默认仅 `api.anthropic.com` 直连启用，且 `compat.supportsMessageThreads` 可关；
-  端口作为库不绑定该直连默认，属「已登记的语义差异」。
-
-**判定**：属边界表「暂不移植（成本/收益）」—— 需重建整条 per-session 流式续接链，
-且其可分离的 API 面已落地。按权威口径记为有记录的不做项，非缺口。
+本轮已把消息线程**整体落地**（§3.25），不再是「有记录的不做项」：
+- 新增 `src/Pi.Ai/Api/AnthropicMessageThreads.cs`：会话级 `create/continue/off` 状态机、
+  前缀短哈希（`Hash.ShortHash` + cache_control/字符串 content 归一化）、
+  `prepareThreadRequest`（前缀未变时裁掉前缀、去掉 system/tools、带 previous_message_id）、
+  `sendThreadRequest`（thread_not_found 等 → 新线程重发；端点不支持 → 不带 thread 重发并关闭该会话）。
+  `SessionResources.Register` 负责会话结束/进程退出清理，容量上限 10,000。
+- `AnthropicMessages.Stream` 接入：按 `cacheSessionId` + `compat.supportsMessageThreads`
+  （缺省仅直连 api.anthropic.com）决定线程会话，构建时加 `message-threads-2026-08-12` beta，
+  成功后 `recordThreadReply`，`disableContinuation` 抑制续接。
+- 10 项测试（`AnthropicMessageThreadsTests`）：create、continue 裁剪、system 变化强制新线程、
+  哈希归一化、拒绝回退、端点不支持关闭、以及真实 HTTP wire（beta 头 / thread 字段 / disableContinuation）。
+- 端口与 TS 的形态差异（.NET 用 JsonObject 请求体、`Task`/`SessionResources` 而非 SDK）在
+  转换层做等价实现，不改变 wire 契约。
 
 ### 4.3 MCP / env「新增 API」（hook 点名的第三、四项）
 
@@ -302,16 +304,20 @@ env daemon `process` 操作（`RemoteProcess`/进程管道）是 Node 侧 PTY/�
 review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「暂不移植（成本/收益）」；
 1.5.0 delta §5 对「未发布提交按需单独评估」的先例。
 
-**逐项**（issue 号即单独复用的索引）：`#11807` 后半、`#9276`、`#11975`、`pi auth
-login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、`cacheWarming:idle`、
-`ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、`#11613`、`#11923`、`#9441`、
-`#11765`、`#11875`、`#11451`、`#11703`、`#9126`/`#9222`/`#9155`、`#11835`、`#9557`、
+**本轮已移植的单点修复**（§3.26–3.29）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
+`#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`。
+
+**仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半、`#9276`、`#11975`、
+`pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、`cacheWarming:idle`、
+`ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、`#11613`、`#9441`、
+`#11765`、`#11875`、`#11451`、`#11703`、`#9126`/`#9222`/`#9155`、`#11835`、
 `#10954`、`#11692`、`#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
 `readOnly`/group commit、RPC 关闭时序、Windows 安装器/PowerShell 5.1/fd 下载。
 
-**判定**：均为独立、可按 issue 号单独取用的行为改动，不改变 published API 契约；
+**判定**：剩余项均为独立、可按 issue 号单独取用的行为改动，不改变 published API 契约；
 按边界表「已登记的语义差异 / 暂不移植（成本收益）」记录。其中与端口形态冲突的
-（Windows 安装器、PowerShell 5.1、Node 动态加载）另归「不适用」。
+（Windows 安装器、PowerShell 5.1、Node 动态加载、`#11708` 的 JS addEventListener 泄漏修复，
+端口用 `Task.Delay(signal)` 无此形态）另归「不适用」。
 这不是「本补丁批次不逐条追」的遗留工作，而是与 1.4.0/1.5.0 验收同款的有记录不做项。
 
 ### 4.5 schema / telemetry 微秒时钟 / lazy provider（TypeBox/Node 专有）

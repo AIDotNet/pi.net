@@ -8,14 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 ## [1.5.2] - 2026-11-12
 
 对齐上游 `v1.5.0 → v1.5.2`（`v1.5.1` 2026-11-09、`v1.5.2` 2026-11-10，共 395 个提交，
-`v1.5.0` 是 `v1.5.2` 的祖先）。逐包差异、处置标记与判定依据见
-`docs/upstream-1.5.2-delta.md`。按本仓库权威工件
-`docs/migration-execution-status.md`（「当前迁移清单、优先级、阶段验收标准和执行记录的权威入口」，
-第 806 行「功能面全部对齐；剩余均为有记录的不做项」）判定：**端口功能面已全部对齐，
-剩余均为「有记录的不做项」**——Chord v2 换根、消息线程整体、MCP/env Node 侧传输、
-TypeBox 构造 API 等逐项在台账 §4 给出权威条目引用与可复核证据（上游多为包位置重定位，
-端口早已实现；或属「不适用（端口形态不同）/ 暂不移植（成本收益）/ 已登记语义差异」）。
-这不是遗留缺口，而是与 1.4.0/1.5.0 验收同款的完整交付定义。
+`v1.5.0` 是 `v1.5.2` 的祖先）。逐包差异与逐项落点见 `docs/upstream-1.5.2-delta.md`。
+本轮把 changelog 中**可复现、可安全移植**的已发布变更逐项落到端口并配套用例；
+范围收窄项（Chord v2 换根等）的判定依据与证据在台账 §4 逐条给出。
 
 ### Added
 
@@ -24,6 +19,15 @@ TypeBox 构造 API 等逐项在台账 §4 给出权威条目引用与可复核�
 - **compat 开关**：`requiresToolsWithToolHistory`（#11843）、`requiresNonNullAssistantContent`
   （#8118）、`promptCacheKeyMode`（#9442，auto / enabled / disabled，覆盖 completions /
   responses / azure 三处 `prompt_cache_key`）。
+- **Anthropic 消息线程**（#11545）：新增 `Pi.Ai.Api.AnthropicMessageThreads`（会话级
+  create/continue 状态机 + 前缀哈希 + 拒绝回退 + `SessionResources` 清理），接入
+  `AnthropicMessages.Stream`；请求带 `thread` 字段与 `message-threads-2026-08-12` beta，
+  支持 `disableContinuation` 抑制。新增 10 项 wire/状态机测试。
+- **`qwen-token-plan-individual-cn` provider**（#7989）：`Providers/QwenTokenPlanIndividualCn.cs`
+  + 目录 + `All.cs`/`ModelCatalog._knownProviders`/`EnvApiKeys` 注册。
+- **`resolveSchemaRef`**（#11803）：`CodemodeDeclarations` 公开本地 `$ref` 解析，畸形百分号
+  转义（`#/$defs/%E0`）退化为 `unknown` 而非抛 `URI malformed`。
+- **`Tx.submission(id)`**（1.5.1）：`ITx` 公开按 ID 读已提交提交记录。
 
 ### Changed
 
@@ -58,13 +62,14 @@ TypeBox 构造 API 等逐项在台账 §4 给出权威条目引用与可复核�
 - **连接错误根因**（#11695）：`ProviderError.Normalize` 在无 status/body 时把最深层
   `InnerException` 原因拼进 message，不再只留 "Connection error."。
 - **`Tx.submission(id)`**（1.5.1）：`ITx` 公开按 ID 读已提交提交记录。
+- **Anthropic 非 strict 工具根 `$defs`/`definitions`**（#9557）：属性里的本地 `$ref` 不再指向空。
+- **SSE 孤立 CR 行尾**（#11764）：`Pi.Mcp.SseStream` 支持 CRLF / LF / 孤立 CR，
+  并正确处理跨 chunk 拆开的 CRLF，不再误分发空事件。
+- **截断不劈开代理对**（#7121）：`Truncate.SliceHead` / `SliceTail` 保持非 BMP 字符完整，
+  grep/codemode/压缩摘要/MCP 错误文本不再出现孤立代理。
+- **粘贴标记重编号**（#11923）：退格删除短标记后，后续短标记不再变成 `[paste #1undefined]`。
 
-### Added（第二批）
-
-- **`qwen-token-plan-individual-cn` provider**（#7989）：`Providers/QwenTokenPlanIndividualCn.cs`
-  + 目录 + `All.cs`/`ModelCatalog._knownProviders`/`EnvApiKeys` 注册。
-- **`resolveSchemaRef`**（#11803）：`CodemodeDeclarations` 公开本地 `$ref` 解析，畸形百分号
-  转义（`#/$defs/%E0`）退化为 `unknown` 而非抛 `URI malformed`。
+### Fixed
 
 - **不支持架构不再错下 x86-64 的 fd/rg**（补齐上游 `c8ec752cf` / #11209）：`ToolsManager` 现在只映射
   x64/arm64 × darwin/linux/win32 的发布包，`arm` / `ia32` 等架构在**任何网络请求之前**返回

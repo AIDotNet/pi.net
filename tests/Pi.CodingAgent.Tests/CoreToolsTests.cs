@@ -577,6 +577,23 @@ public class CoreToolsTests : IDisposable
         Assert.Equal($"{new string('y', 500)}... [truncated]", text);
     }
 
+    /// <summary>上游 1.5.1 #7121：截断不能把非 BMP 字符（代理对）劈成半个，留下孤立代理。</summary>
+    [Fact]
+    public void TruncateLine_DoesNotSplitSurrogatePair()
+    {
+        // 500 个 ASCII + 一个 emoji（占 2 个 UTF-16 码元），使切点正好落在代理对中间。
+        var line = new string('y', 500) + "😀" + new string('z', 20);
+        var (text, wasTruncated) = Truncate.TruncateLine(line);
+        Assert.True(wasTruncated);
+        var head = text.Split("...")[0];
+        Assert.Equal(500, head.Length); // 整个 emoji 被排除，只剩 500 个 ASCII
+        Assert.DoesNotContain(head, char.IsSurrogate);
+
+        // SliceHead / SliceTail 直接契约。
+        Assert.Equal("ab", Truncate.SliceHead("ab\uD83D\uDE00", 3)); // 切点在代理对中间 → 只取 "ab"
+        Assert.Equal("\uD83D\uDE00z", Truncate.SliceTail("x\uD83D\uDE00z", 3)); // 起点落在低位代理 → 从其后开始
+    }
+
     [Fact]
     public void TruncateMiddle_KeepsHeadAndTail()
     {

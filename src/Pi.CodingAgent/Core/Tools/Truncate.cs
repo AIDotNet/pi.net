@@ -345,6 +345,33 @@ public static class Truncate
         return Encoding.UTF8.GetString(buf, start, buf.Length - start);
     }
 
+    /// <summary>取前 maxUnits 个 UTF-16 码元，但不把代理对劈开（上游 1.5.1 #7121）。</summary>
+    public static string SliceHead(string text, int maxUnits)
+    {
+        var end = Math.Max(0, maxUnits);
+        // 切点前一个码元是高位代理、切点是低位代理时，整个字符一起留在切点外。
+        if (end - 1 >= 0 && end - 1 < text.Length && end < text.Length
+            && char.IsHighSurrogate(text[end - 1]) && char.IsLowSurrogate(text[end]))
+        {
+            return text[..(end - 1)];
+        }
+        return text[..Math.Min(end, text.Length)];
+    }
+
+    /// <summary>取后 maxUnits 个 UTF-16 码元，但不把代理对劈开（上游 1.5.1 #7121）。</summary>
+    public static string SliceTail(string text, int maxUnits)
+    {
+        if (maxUnits <= 0) return "";
+        var start = Math.Max(0, text.Length - maxUnits);
+        // 起点是低位代理、起点前是高位代理时，从起点后一个码元开始，避免半个代理对。
+        if (start - 1 >= 0 && start < text.Length
+            && char.IsLowSurrogate(text[start]) && char.IsHighSurrogate(text[start - 1]))
+        {
+            return text[(start + 1)..];
+        }
+        return text[start..];
+    }
+
     /// <summary>Truncate a single line to max characters, adding a <c>... [truncated]</c> suffix. Used for grep match lines.</summary>
     public static (string Text, bool WasTruncated) TruncateLine(string line, int maxChars = GrepMaxLineLength)
     {
@@ -353,7 +380,7 @@ public static class Truncate
             return (line, false);
         }
 
-        return ($"{line[..maxChars]}... [truncated]", true);
+        return ($"{SliceHead(line, maxChars)}... [truncated]", true);
     }
 
     /// <summary>

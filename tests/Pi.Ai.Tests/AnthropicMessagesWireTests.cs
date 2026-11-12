@@ -262,6 +262,41 @@ public class AnthropicMessagesWireTests
         Assert.Contains("inline-tools-2026-09-15", betas);
     }
 
+    /// <summary>
+    /// 上游 1.5.1 #9557：非 strict 工具也要把根 $defs / definitions 带进 input_schema，
+    /// 否则属性里的本地 $ref 解析不到，Claude 会给出错误参数或网关拒收。其它根关键字仍排除。
+    /// </summary>
+    [Theory]
+    [InlineData("$defs")]
+    [InlineData("definitions")]
+    public void NonStrictToolSchemaKeepsRootDefinitions(string key)
+    {
+        var schema = new Dictionary<string, object?>
+        {
+            ["type"] = "object",
+            ["properties"] = new Dictionary<string, object?>
+            {
+                ["settings"] = new Dictionary<string, object?> { ["$ref"] = $"#/{key}/Settings" },
+            },
+            ["required"] = new List<object?> { "settings" },
+            [key] = new Dictionary<string, object?>
+            {
+                ["Settings"] = new Dictionary<string, object?> { ["type"] = "object" },
+            },
+        };
+        var tool = new ToolDefinition("configure", "configure", new ToolSchema(schema));
+
+        var parameters = AnthropicMessages.BuildParams(
+            Spec(),
+            new TranscriptContext([SystemWithTools("", tool), Messages.UserText("hi")]),
+            false,
+            new SimpleStreamOptions(ApiKey: "sk-ant"));
+
+        var inputSchema = Obj(Arr(parameters["tools"])[0]!["input_schema"]);
+        Assert.NotNull(inputSchema[key]);
+        Assert.Null(inputSchema["strict"]); // 非 strict 工具不带 strict 标记
+    }
+
     [Fact]
     public void OAuthUsesClaudeCodeIdentityAndToolNames()
     {

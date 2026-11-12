@@ -1816,9 +1816,9 @@ public class Editor : IEditorComponent, IFocusable
                                 return match.Value;
                             }
 
-                            // TS interpolates `suffixGroup` directly, which renders the literal
-                            // string "undefined" when the optional suffix group did not participate.
-                            var suffix = match.Groups[2].Success ? match.Groups[2].Value : "undefined";
+                            // 上游 1.5.1 #11923：可选 size 后缀未参与匹配时必须为空串，否则短标记
+                            // `[paste #2]` 会被重编号成 `[paste #1undefined]`、提交时把标记文本当成内容。
+                            var suffix = match.Groups[2].Success ? match.Groups[2].Value : "";
                             return $"[paste #{x - 1}{suffix}]";
                         });
                 }

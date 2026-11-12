@@ -49,9 +49,8 @@ public static class SseStream
             eventId = null;
         }
 
-        void ProcessLine(string rawLine)
+        void ProcessLine(string line)
         {
-            var line = rawLine.EndsWith("\r") ? rawLine[..^1] : rawLine;
             if (line.Length == 0) { Dispatch(); return; }
             if (line.StartsWith(':')) return; // 注释行
             var colon = line.IndexOf(':');
@@ -71,27 +70,56 @@ public static class SseStream
             else if (field == "retry" && long.TryParse(value, out var delay)) options.OnRetry?.Invoke(delay);
         }
 
+        // 上游 1.5.1 #11764：SSE 行以 CRLF、LF 或孤立 CR 结尾；CRLF 可能被拆到两个 chunk，
+        // 下一个 chunk 开头的 LF 要跳过（否则会被当成空行分发事件，导致 "stream ended without a response"）。
+        var skipLeadingLf = false;
         var buffered = new StringBuilder();
         var buffer = new byte[8192];
+
+        void ConsumeLines()
+        {
+            var text = buffered.ToString();
+            var start = 0;
+            for (var i = 0; i < text.Length; i++)
+            {
+                var ch = text[i];
+                if (ch != '\r' && ch != '\n') continue;
+                ProcessLine(text[start..i]);
+                if (ch == '\r')
+                {
+                    if (i + 1 < text.Length)
+                    {
+                        if (text[i + 1] == '\n') i++;
+                    }
+                    else
+                    {
+                        // CR 在本 chunk 末尾，标记下个 chunk 开头的 LF 属于同一 CRLF。
+                        skipLeadingLf = true;
+                    }
+                }
+                start = i + 1;
+            }
+            buffered.Clear();
+            buffered.Append(text[start..]);
+        }
+
         while (true)
         {
             var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
             if (read == 0) break;
-            buffered.Append(Encoding.UTF8.GetString(buffer, 0, read));
-            var text = buffered.ToString();
-            buffered.Clear();
-            var newline = text.IndexOf('\n');
-            var consumed = 0;
-            while (newline >= 0)
+            var chunk = Encoding.UTF8.GetString(buffer, 0, read);
+            if (skipLeadingLf && chunk.Length > 0)
             {
-                ProcessLine(text[consumed..newline]);
-                consumed = newline + 1;
-                newline = text.IndexOf('\n', consumed);
+                if (chunk[0] == '\n') chunk = chunk[1..];
+                skipLeadingLf = false;
             }
-            buffered.Append(text[consumed..]);
+            buffered.Append(chunk);
+            ConsumeLines();
             if (Encoding.UTF8.GetByteCount(buffered.ToString()) > maxEventBytes)
                 throw new InvalidOperationException($"MCP SSE event exceeds {maxEventBytes} bytes");
         }
+        if (skipLeadingLf && buffered.Length > 0 && buffered[0] == '\n') buffered.Remove(0, 1);
+        ConsumeLines();
         if (buffered.Length > 0) ProcessLine(buffered.ToString());
         Dispatch();
     }
