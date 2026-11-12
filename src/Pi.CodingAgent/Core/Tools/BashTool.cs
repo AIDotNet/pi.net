@@ -47,6 +47,22 @@ public sealed record ShellExecOptions
 /// <summary>Port of the TS <c>{ exitCode: number | null }</c>.</summary>
 public sealed record ShellExecResult(int? ExitCode);
 
+/// <summary>
+/// 上游 1.5.1 #11613：shell 在超时前就已退出、但它启动的后台进程继续写管道直到超时时，
+/// 记录 shell 自身的退出码与「启动后多少秒退出」，供错误文案一并报告。
+/// </summary>
+public sealed record ShellExitInfo(int ExitCode, double AfterSeconds);
+
+/// <summary>
+/// 本地 shell 后端的超时。消息保持 <c>timeout:&lt;seconds&gt;</c> 形式（自定义 BashOperations
+/// 抛 <c>timeout:N</c> 不受影响）；<see cref="ShellExit"/> 在 shell 已先于超时退出时非空。
+/// </summary>
+internal sealed class ShellTimeoutException(string timeoutSeconds, ShellExitInfo? shellExit)
+    : InvalidOperationException($"timeout:{timeoutSeconds}")
+{
+    public ShellExitInfo? ShellExit { get; } = shellExit;
+}
+
 /// <summary>Port of the TS <c>BashSpawnContext</c>.</summary>
 public sealed record BashSpawnContext(string Command, string Cwd, IReadOnlyDictionary<string, string?> Env);
 
@@ -94,6 +110,23 @@ public sealed record ShellToolConfig
 public static class BashTool
 {
     private const int MaxTimeoutMs = 2_147_483_647;
+
+    /// <summary>
+    /// 上游 1.5.1 #11613：组装超时文案。纯函数便于定向测试。shell 在超时前已退出时，
+    /// 追加「shell 退出码 + 退出耗时」，否则只报普通超时（与自定义 ops 的 <c>timeout:N</c> 一致）。
+    /// </summary>
+    internal static string BuildTimeoutMessage(string timeoutSecs, ShellExitInfo? shellExit)
+    {
+        var status = $"Command timed out after {timeoutSecs} seconds";
+        if (shellExit is { } exit)
+        {
+            var after = exit.AfterSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+            status += $". The shell exited with code {exit.ExitCode} after {after} seconds, " +
+                      "but background processes it started kept writing output until the timeout.";
+        }
+        return status;
+    }
+
 
     /// <summary>Output limit of <c>structuredContent.output</c>, which programmatic callers such as codemode scripts receive.</summary>
     private const int StructuredOutputMaxBytes = 1024 * 1024;
@@ -244,6 +277,11 @@ public static class BashTool
                 Shell.TrackDetachedChildPid(trackedPid);
             }
 
+            // 上游 1.5.1 #11613：记录 shell 启动时刻；并在「超时触发的那一刻」快照 shell 是否已
+            // 自行退出（以及退出时刻），用于区分「shell 先退出、后台进程继续写到超时」与
+            // 「shell 一直运行、被超时杀掉」。数组元素便于 Interlocked 跨线程安全写入。
+            var startedAt = Environment.TickCount64;
+            var shellExitedAtDeadline = new long[1];
             var timedOut = false;
             System.Threading.Timer? timeoutHandle = null;
             void OnAbort()
@@ -263,6 +301,12 @@ public static class BashTool
                         _ =>
                         {
                             timedOut = true;
+                            // #11613：在 kill 之前快照——只有此刻 shell 已自行退出才算「先于超时退出」。
+                            var exitedAt = child.HasExited ? child.ExitedAtMs : 0;
+                            if (exitedAt > startedAt)
+                            {
+                                Interlocked.Exchange(ref shellExitedAtDeadline[0], exitedAt);
+                            }
                             if (child.Id is int pid)
                             {
                                 Shell.KillProcessTree(pid);
@@ -284,16 +328,28 @@ public static class BashTool
                 // on inherited stdio handles held by detached descendants.
                 var exitCode = await child.WaitAsync().ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
+                // A signal-killed shell has no exit code; the port's SignalCode is always null, so the
+                // fallback is the plain failure code 1. Compute before the timeout branch so #11613
+                // can report the shell's real result even though the tool hit its deadline.
+                var resolvedExitCode = exitCode ?? 1;
                 if (timedOut)
                 {
-                    throw new InvalidOperationException($"timeout:{options.Timeout}");
+                    // #11613：仅当「超时那一刻 shell 已自行退出」才把退出码与退出耗时一并报告；
+                    // shell 仍在运行（被超时杀掉）时保持普通超时文案。
+                    ShellExitInfo? shellExit = null;
+                    var exitedAt = Interlocked.Read(ref shellExitedAtDeadline[0]);
+                    if (exitedAt > startedAt)
+                    {
+                        var afterSeconds = Math.Round((exitedAt - startedAt) / 100.0,
+                            MidpointRounding.AwayFromZero) / 10.0;
+                        shellExit = new ShellExitInfo(resolvedExitCode, afterSeconds);
+                    }
+                    throw new ShellTimeoutException(
+                        options.Timeout?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+                        shellExit);
                 }
 
-                // A signal-killed shell has no exit code. Use the standard shell convention so
-                // callers do not mistake the termination for a successful command. The port's
-                // ChildProcessHandle.SignalCode is always null (.NET does not surface signals), so
-                // the fallback is the plain failure code 1.
-                return new ShellExecResult(exitCode ?? 1);
+                return new ShellExecResult(resolvedExitCode);
             }
             finally
             {
@@ -543,7 +599,11 @@ public static class BashTool
                         var snapshot = await FinishOutputAsync().ConfigureAwait(false);
                         var (text, _) = FormatOutput(snapshot, "");
                         var timeoutSecs = error.Message.Split(':')[1];
-                        throw new InvalidOperationException(AppendStatus(text, $"Command timed out after {timeoutSecs} seconds"));
+                        // #11613：本地后端超时可携带 shell 退出信息；自定义 ops 抛的 timeout:N 无该信息，
+                        // 保持普通文案（BuildTimeoutMessage 对 null 的分支）。
+                        var shellExit = (error as ShellTimeoutException)?.ShellExit;
+                        throw new InvalidOperationException(
+                            AppendStatus(text, BuildTimeoutMessage(timeoutSecs, shellExit)));
                     }
 
                     var finalSnapshot = await FinishOutputAsync().ConfigureAwait(false);

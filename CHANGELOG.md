@@ -112,6 +112,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   1 项定向用例（临时 keybindings.json 的 ctrl+p / ctrl+n 经 CLI 装载方法进入全局注册表）。
 - **Windows/WSL Ctrl+V 粘贴键**（#11765）：`AppKeybindings` 的 `app.clipboard.pasteImage`
   在 Windows 下默认键改为 `alt+v` + `ctrl+v`（此前仅 `alt+v`）；1 项定向用例。
+- **bash 超时补报 shell 退出码**（#11613）：shell 已先于超时退出、后台进程持续写输出直到
+  超时时，超时文案追加 shell 的退出码与退出耗时（如「after 1.1 seconds」）；`ShellTimeoutException`
+  保持 `timeout:N` 形式不影响自定义 `BashOperations`，`ChildProcessHandle.ExitedAtMs` 在超时
+  回调快照退出时刻。3 项定向用例 + `CoreToolsTests` 48/48 回归。
 
 ## [1.5.0] - 2026-11-05
 

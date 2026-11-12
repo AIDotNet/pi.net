@@ -58,6 +58,8 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
   terminal, not just WezTerm, fixing Orca showing only the first image row (#11835).
 - `pi config` now loads custom keybindings from `keybindings.json` (#11651).
 - Ctrl+V is a default paste key on Windows/WSL alongside Alt+V (#11765).
+- Bash timeouts now also report the shell's exit code and elapsed time when the
+  shell had already exited but background processes kept writing (#11613).
 
 ## [1.5.0] - 2026-11-05
 

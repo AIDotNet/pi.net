@@ -629,6 +629,14 @@ public sealed class ChildProcessHandle : IDisposable
     /// <summary>The exit code once the process has exited, otherwise <see langword="null"/>.</summary>
     public int? ExitCode { get; private set; }
 
+    private long _exitedAtMs;
+
+    /// <summary>
+    /// <see cref="Environment.TickCount64"/> when the process exited, or 0 while still running (#11613).
+    /// Interlocked-backed so a pool thread (the timeout timer) can read it safely.
+    /// </summary>
+    public long ExitedAtMs => Interlocked.Read(ref _exitedAtMs);
+
     /// <summary>
     /// The signal that terminated the process. .NET does not surface this, so the port always reports
     /// <see langword="null"/>; callers that branch on it must treat a null exit code as a failure.
@@ -681,8 +689,10 @@ public sealed class ChildProcessHandle : IDisposable
         process.EnableRaisingEvents = true;
         process.Exited += (_, _) =>
         {
-            Interlocked.Exchange(ref handle._lastDataMs, NowMs());
+            var now = NowMs();
+            Interlocked.Exchange(ref handle._lastDataMs, now);
             handle.ExitCode = TryReadExitCode(process);
+            Interlocked.Exchange(ref handle._exitedAtMs, now);
             handle._exit.TrySetResult(handle.ExitCode);
         };
 
@@ -698,8 +708,10 @@ public sealed class ChildProcessHandle : IDisposable
 
         if (process.HasExited)
         {
-            Interlocked.Exchange(ref handle._lastDataMs, NowMs());
+            var now = NowMs();
+            Interlocked.Exchange(ref handle._lastDataMs, now);
             handle.ExitCode = TryReadExitCode(process);
+            Interlocked.Exchange(ref handle._exitedAtMs, now);
             handle._exit.TrySetResult(handle.ExitCode);
         }
 
