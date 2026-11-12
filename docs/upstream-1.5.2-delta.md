@@ -188,7 +188,8 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | telemetry | `renderTrace` 控制字符转义 | ✅ 🔧 `TelemetryRender.cs`（§3.9） |
 | telemetry | `telemetryNow()` 微秒时钟 | 📋 有记录的不做项（§4.5，改 `long`→`double` 破坏 public API 且为恒等变换） |
 | tui | #11767 Alacritty / #11710 HTML 注释 | ✅ 🔧 `TerminalImage.cs` / `Markdown.cs`（§3.10/3.11） |
-| tui | #11835 Orca Kitty / #11923 粘贴标记 / #9441 光标标记 | 📋 有记录的不做项（§4.4） |
+| tui | #11835 Orca Kitty 全屏图像按覆盖行之后绘制（去 WezTerm 门控） | ✅ 🔧 `TuiAltScreen.cs`（§3.38） |
+| tui | #11923 粘贴标记 / #9441 光标标记 | 📋 有记录的不做项（§4.4；#11923 短标记重编号已于 §3.29 落地） |
 | codemode | #11901 NaN/Infinity 打印 / `resolveSchemaRef` 公开 / 畸形 `$ref`→unknown | ✅ 🔧 `PreludeSource.cs` / `Declarations.cs`（§3.12/3.22） |
 | agent | `streamProxy()` 转发 `disableContinuation` | ✅ 🔧 `ProxyTypes.cs` / `Proxy.cs`（§3.21） |
 | evals | 无 src 变更 | ➖ |
@@ -234,6 +235,7 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.35 | #11643 read/write 视图新增 Dart/Nix/Groovy/Gradle 高亮 | `ThemeHelpers.ExtensionToLanguage` 新增 `dart`/`nix`/`groovy`/`gradle` 映射 | `ThemeHelpersTests.GetLanguageFromPath_MapsNew152Languages`（4 向量） |
 | 3.36 | #7121 find/ls 的 `limit` 边界（0/负数按 1、恰好 limit 不误报上限、custom glob 多要一条） | `FindTool`（钳 `Math.Max(1,…)`、`--max-results` +1、超一条才报）+ `LsTool`（钳 1） | `FindLsLimitRegressionTests`（6 用例：恰好/超过/0/负/ls 0/负） |
 | 3.37 | #11806 Ctrl+P 单模型 scope 仍可切换、当前模型在 scope 外时 forward/backward 选首/末 | `AgentSession.NextCycleIndex`（nullable，对齐 TS `getNextCycleIndex`）+ `CycleScopedModelAsync`/`CycleAvailableModelAsync` 去掉 `<=1`/`-1→0` 短路 | `AgentSessionLeafTests`（3 用例：wrap / scope 外首末 / 单元素可达）+ `InteractiveModeTests`（124 全绿，含单模型状态用例） |
+| 3.38 | #11835 全屏 Kitty 图像按「所覆盖行」之后绘制（去 WezTerm 门控，修 Orca） | `TuiAltScreen` 去掉 `isWezTerm` 门控，`imageCellsNeedRedraw`/`drawKittyImagesLast` 对所有 Kitty 协议终端生效 | `FullScreenKittyImageOrderTests`（1 用例：无 WezTerm 环境下 transmit 晚于行清除与文本；已用旧门控反向验证该用例确实会失败） |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -335,19 +337,20 @@ Node daemon 的 PTY/进程组消费方。
 review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「暂不移植（成本/收益）」；
 1.5.0 delta §5 对「未发布提交按需单独评估」的先例。
 
-**本轮已移植的单点修复**（§3.26–3.37）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
+**本轮已移植的单点修复**（§3.26–3.38）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
 `#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`、
 以及第三轮真正补上的 `PipeTransport`（新 API，§3.30）、`#11761`（MCP stdio 大消息 O(n²)，§3.31）、
 `#11335`（Streamable HTTP 应答体/错误体上限，§3.32）、`#11703`（预发布版本 changelog，§3.33）、
 `#11729`（oversized SSE 释放连接，§3.34）、`#11643`（read/write 新语言高亮，§3.35）、
-`#7121` find/ls `limit` 边界（§3.36）、`#11806`（单模型 scope 可切换，§3.37）。
+`#7121` find/ls `limit` 边界（§3.36）、`#11806`（单模型 scope 可切换，§3.37）、
+`#11835`（全屏 Kitty 图像去 WezTerm 门控，§3.38）。
 
 **仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半（rg cwd 切到
 `searchPath`）/ `#9276`（上下文行改由 ripgrep 提供，两者与端口 `GrepOperations.ReadFileAsync`
 绝对路径取值链纠缠，且本机无 `rg` 可做运行时回归验证）、`#11975`、
 `pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、`cacheWarming:idle`、
 `ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、`#11613`、`#9441`、
-`#11765`、`#11875`、`#11451`、`#9126`/`#9222`/`#9155`、`#11835`、
+`#11765`、`#11875`、`#11451`、`#9126`/`#9222`/`#9155`、
 `#10954`、`#11692`、`#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
 `readOnly`/group commit、RPC 关闭时序、Windows 安装器/PowerShell 5.1/fd 下载。
 

@@ -2139,11 +2139,10 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
                 && (TerminalImage.IsImageLine(line)
                     || (row < _previousScreen.Length && TerminalImage.IsImageLine(_previousScreen[row]))))
             .Any(value => value);
-        var isWezTerm = Environment.GetEnvironmentVariable("WEZTERM_PANE") is not null
-            || Environment.GetEnvironmentVariable("TERM_PROGRAM")?.ToLowerInvariant() == "wezterm";
+        // 上游 1.5.1 #11835：把 Kitty 图像存在「所覆盖单元格」里的终端不止 WezTerm，还有 Orca 的
+        // xterm.js image addon。故不再以 WEZTERM_PANE/TERM_PROGRAM 门控，对所有 Kitty 协议终端统一处理。
         var imageCellsNeedRedraw =
             !imageAnchorsNeedRedraw
-            && isWezTerm
             && _imageProtocol == ImageProtocol.Kitty
             && changedRows.Any(value => value)
             && screen.Select((line, row) =>
@@ -2193,11 +2192,12 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
         }
         buffer.Append(preparedKittyScreen.EvictedImageDeletion);
 
-        // WezTerm erases intersecting Kitty image cells when a later row write touches a covered row.
-        // Draw image placements after every clear and text write so nothing later intersects them;
-        // preserve the existing interleaved output for text-only frames and every other terminal.
+        // 上游 1.5.1 #11835：部分终端把 Kitty 图像存在所覆盖的单元格里（WezTerm、Orca 的
+        // xterm.js image addon），清除或写入被覆盖的行会抹掉那部分图像。因此把图像 placement
+        // 放在所有 clear / 文本写入之后。图像在独立层的终端（Kitty、Ghostty）结果相同；
+        // 纯文本帧仍走原来的交错输出。不再以 WezTerm 门控。
         var drawKittyImagesLast =
-            redrawImages && _imageProtocol == ImageProtocol.Kitty && screen.Any(TerminalImage.IsImageLine) && isWezTerm;
+            redrawImages && _imageProtocol == ImageProtocol.Kitty && screen.Any(TerminalImage.IsImageLine);
         if (drawKittyImagesLast)
         {
             for (var row = 0; row < height; row++)

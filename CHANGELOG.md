@@ -104,6 +104,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - **Ctrl+P 单模型 scope 可切换**（#11806）：`AgentSession.NextCycleIndex` 改为可空返回并对齐上游
   `getNextCycleIndex`——单元素 scope 仍能选中其唯一模型，当前模型在 scope 外时 forward/backward
   分别选首/末个模型；两处 cycle 方法去掉 `<=1` / `-1→0` 短路；3 项定向用例 + 124 项交互模式用例全绿。
+- **全屏 Kitty 图像按覆盖行之后绘制**（#11835）：`TuiAltScreen` 去掉 WezTerm 门控，
+  `drawKittyImagesLast` / `imageCellsNeedRedraw` 对所有 Kitty 协议终端生效（修 Orca 只显示首行）；
+  1 项定向用例（无 WezTerm 环境下 transmit 晚于行清除与文本，并用旧门控反向验证用例有效）。
 
 ## [1.5.0] - 2026-11-05
 
