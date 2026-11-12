@@ -93,7 +93,6 @@ internal sealed class RpcModeSession
     private readonly Func<Task> _flushOutput;
     private readonly IRpcInput _input;
     private readonly Action<int> _exit;
-    private readonly List<Action> _signalCleanupHandlers = [];
 
     /// <summary>待扩展 UI 响应的请求（只 resolve；TS 存的 reject 槽全程未被调用）。</summary>
     private readonly Dictionary<string, Action<RpcExtensionUIResponse>> _pendingExtensionRequests = [];
@@ -103,6 +102,9 @@ internal sealed class RpcModeSession
     private IDisposable? _unsubscribeBackpressure;
     private bool _shutdownRequested;
     private bool _shuttingDown;
+
+    // 上游 1.5.1 #11599/#11752：信号计数（重复信号才强制退出）+ 共享 dispose。
+    private ShutdownCoordinator? _coord;
 
     public RpcModeSession(AgentSessionRuntime runtimeHost, RpcModeOptions options)
     {
@@ -114,6 +116,7 @@ internal sealed class RpcModeSession
         _flushOutput = options.FlushOutput ?? (() => OutputGuard.FlushRawStdoutAsync());
         _input = options.Input ?? new StdinRpcInput();
         _exit = options.Exit ?? (code => Environment.Exit(code));
+        _coord = new ShutdownCoordinator(DisposeCoreAsync, _exit);
     }
 
     public async Task RunAsync()
@@ -517,14 +520,23 @@ internal sealed class RpcModeSession
     private void RegisterPosixSignal(PosixSignal signal)
     {
         var name = signal == PosixSignal.SIGHUP ? "SIGHUP" : "SIGTERM";
+        var exitCode = name == "SIGHUP" ? 129 : 143;
         void HandleSignal(PosixSignalContext context)
         {
             Shell.KillTrackedDetachedChildren();
-            _ = ShutdownAsync(name == "SIGHUP" ? 129 : 143, name);
+            // 上游 1.5.1 #11599/#11752：首个信号启动正常关闭；关闭期间重复信号才强制退出。
+            // 处理器保持注册直到进程退出，故 dispose 中途的信号不会撞上「无处理器」被默认杀掉。
+            context.Cancel = true;
+            if (!_coord!.OnSignal(exitCode))
+            {
+                return;
+            }
+
+            _ = ShutdownAsync(exitCode, name);
         }
 
-        var registration = PosixSignalRegistration.Create(signal, HandleSignal);
-        _signalCleanupHandlers.Add(registration.Dispose);
+        // 注：不把 registration.Dispose 加入 finally 的清理——处理器须保留到 dispose 完成。
+        _ = PosixSignalRegistration.Create(signal, HandleSignal);
     }
 
     // =========================================================================
@@ -1108,20 +1120,14 @@ internal sealed class RpcModeSession
     {
         if (_shuttingDown)
         {
-            // TS: 重入时直接 process.exit(exitCode)（不再走清理）。
-            _exit(exitCode);
+            // 上游 1.5.1 #11752：stdin EOF 在信号之后到来时不再强制 exit（否则会跳过仍在进行的 dispose）。
             return;
         }
 
         _shuttingDown = true;
-        foreach (var cleanup in _signalCleanupHandlers)
-        {
-            cleanup();
-        }
-
-        _unsubscribe?.Dispose();
-        _unsubscribeBackpressure?.Dispose();
-        await _runtimeHost.DisposeAsync().ConfigureAwait(false);
+        _coord!.BeginShutdown();
+        // 信号处理器保留到进程退出（上游：不再在 shutdown 里 process.off）。dispose 共享同一 Task。
+        await _coord.DisposeAsync().ConfigureAwait(false);
         _input.Stop();
         if (signal != "SIGTERM")
         {
@@ -1129,6 +1135,13 @@ internal sealed class RpcModeSession
         }
 
         _exit(exitCode);
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        _unsubscribe?.Dispose();
+        _unsubscribeBackpressure?.Dispose();
+        await _runtimeHost.DisposeAsync().ConfigureAwait(false);
     }
 
     private async Task CheckShutdownRequestedAsync()

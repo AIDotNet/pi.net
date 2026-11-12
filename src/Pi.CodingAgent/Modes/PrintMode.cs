@@ -52,13 +52,18 @@ internal sealed class PrintModeSession
     private AgentSession _session;
     private IDisposable? _unsubscribe;
     private IDisposable? _unsubscribeBackpressure;
-    private bool _disposed;
+
+    // 上游 1.5.1 #11599/#11752：共享 dispose + 信号计数（重复信号强制退出）。
+    private ShutdownCoordinator? _shutdown;
 
     public PrintModeSession(AgentSessionRuntime runtimeHost, PrintModeOptions options)
     {
         _runtimeHost = runtimeHost;
         _options = options;
         _session = runtimeHost.Session;
+        _shutdown = new ShutdownCoordinator(
+            () => DisposeCoreAsync(),
+            code => Environment.Exit(code));
     }
 
     public async Task<int> RunAsync()
@@ -109,12 +114,14 @@ internal sealed class PrintModeSession
         }
         finally
         {
+            // 上游 1.5.1 #11752：先等 dispose 完成，再移除信号处理器（否则 dispose 中途的信号会
+            // 撞上「无处理器」直接终止进程，例如 pending MCP token 刷新）。dispose 共享同一 Task。
+            await DisposeRuntimeAsync().ConfigureAwait(false);
             foreach (var cleanup in _signalCleanupHandlers)
             {
                 cleanup();
             }
 
-            await DisposeRuntimeAsync().ConfigureAwait(false);
             await OutputGuard.FlushRawStdoutAsync().ConfigureAwait(false);
         }
     }
@@ -211,14 +218,10 @@ internal sealed class PrintModeSession
             : null;
     }
 
-    private async Task DisposeRuntimeAsync()
-    {
-        if (_disposed)
-        {
-            return;
-        }
+    private Task DisposeRuntimeAsync() => _shutdown!.DisposeAsync();
 
-        _disposed = true;
+    private async Task DisposeCoreAsync()
+    {
         _unsubscribe?.Dispose();
         _unsubscribeBackpressure?.Dispose();
         await _runtimeHost.DisposeAsync().ConfigureAwait(false);
@@ -237,13 +240,21 @@ internal sealed class PrintModeSession
     private void RegisterPosixSignal(PosixSignal signal)
     {
         var name = signal == PosixSignal.SIGHUP ? "SIGHUP" : "SIGTERM";
+        var exitCode = name == "SIGHUP" ? 129 : 143;
         void HandleSignal(PosixSignalContext context)
         {
             Shell.KillTrackedDetachedChildren();
+            // 上游 1.5.1 #11752：只有重复信号强制退出；首个信号共享 dispose 并在其完成后正常退出。
+            context.Cancel = true; // 阻止默认终止，让 dispose 跑完。
+            if (!_shutdown!.OnSignal(exitCode))
+            {
+                return;
+            }
+
             _ = Task.Run(async () =>
             {
                 await DisposeRuntimeAsync().ConfigureAwait(false);
-                Environment.Exit(name == "SIGHUP" ? 129 : 143);
+                Environment.Exit(exitCode);
             });
         }
 
