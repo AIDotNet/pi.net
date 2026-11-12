@@ -225,6 +225,7 @@ public sealed class Markdown : IComponent
             // 引用式链接（`[a]: url`）跨块解析：这种文本不复用块，否则改一行定义会让复用的旧块留着旧链接。
             hasLinks = lexer.Links.Count > 0;
             TrimPartialClosingFences(tokens);
+            RemoveHtmlCommentBlocks(tokens);
             _cachedTokens = (normalizedText, tokens, hasLinks);
         }
 
@@ -621,8 +622,8 @@ public sealed class Markdown : IComponent
                 break;
 
             case "html":
-                // Render HTML as plain text (escaped for terminal)
-                lines.Add(ApplyDefaultStyle(JsString.Trim(token.Raw)));
+                // Render HTML as plain text (escaped for terminal), without its comments（#11710）
+                lines.Add(ApplyDefaultStyle(JsString.Trim(StripHtmlComments(token.Raw))));
                 break;
 
             case "space":
@@ -655,8 +656,14 @@ public sealed class Markdown : IComponent
             return string.Join("\n", segments.Select(segment => applyText(segment)));
         }
 
-        foreach (var token in tokens)
+        // 上游 1.5.1（#11710）：行内 HTML 注释不渲染；注释后紧跟的 text 若以空白开头，
+        // 且注释前也是空白结尾，则把这段空白去掉，让 "a <!-- c --> b" 仍是 "a b"。
+        var dropLeadingSpace = false;
+        for (var i = 0; i < tokens.Count; i++)
         {
+            var token = tokens[i];
+            var trimLeadingSpace = dropLeadingSpace;
+            dropLeadingSpace = false;
             switch (token.Type)
             {
                 case "latex":
@@ -680,7 +687,13 @@ public sealed class Markdown : IComponent
                     }
                     else
                     {
-                        result += ApplyTextWithNewlines(token.Text ?? "");
+                        var inlineText = token.Text ?? "";
+                        if (trimLeadingSpace && inlineText.Length > 0
+                            && (inlineText[0] == ' ' || inlineText[0] == '\t'))
+                        {
+                            inlineText = inlineText.TrimStart(' ', '\t');
+                        }
+                        result += ApplyTextWithNewlines(inlineText);
                     }
 
                     break;
@@ -751,8 +764,18 @@ public sealed class Markdown : IComponent
                 }
 
                 case "html":
-                    // Render inline HTML as plain text
-                    result += ApplyTextWithNewlines(token.Raw);
+                    // Render inline HTML as plain text; comments are hidden（#11710）
+                    if (token.Raw.StartsWith("<!--", StringComparison.Ordinal))
+                    {
+                        var previousRaw = i > 0 ? tokens[i - 1].Raw : "";
+                        dropLeadingSpace = i == 0
+                            || (previousRaw.Length > 0
+                                && (previousRaw[^1] == ' ' || previousRaw[^1] == '\t'));
+                    }
+                    else
+                    {
+                        result += ApplyTextWithNewlines(token.Raw);
+                    }
                     break;
 
                 default:
@@ -1119,6 +1142,49 @@ public sealed class Markdown : IComponent
         }
 
         return lines.ToArray();
+    }
+
+    /// <summary>
+    /// 隐藏 HTML 注释（上游 1.5.1 tui #11710 / #11755）。未闭合的注释按 CommonMark 一直吃到块尾，
+    /// 这样流式渲染到一半也不会把注释露出来。
+    /// </summary>
+    private static readonly Regex HtmlCommentRegex = new(@"<!--.*?(?:-->|$)", RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static string StripHtmlComments(string html) => HtmlCommentRegex.Replace(html, "");
+
+    /// <summary>
+    /// 丢掉只含注释的块级 html token，避免它渲染出一个空行；相邻的空行也一并收掉。
+    /// 对应 TS <c>removeHtmlCommentBlocks</c>。
+    /// </summary>
+    private static void RemoveHtmlCommentBlocks(List<MarkedToken> tokens)
+    {
+        for (var i = tokens.Count - 1; i >= 0; i--)
+        {
+            var token = tokens[i];
+            if (token.Type == "list")
+            {
+                foreach (var item in token.Items ?? []) RemoveHtmlCommentBlocks(item.Tokens ?? []);
+            }
+            else if (token.Type == "blockquote")
+            {
+                RemoveHtmlCommentBlocks(token.Tokens ?? []);
+            }
+            else if (token.Type == "html" && StripHtmlComments(token.Raw).Trim().Length == 0)
+            {
+                tokens.RemoveAt(i);
+                if (i < tokens.Count && tokens[i].Type == "space"
+                    && (i == 0 || tokens[i - 1].Type == "space"))
+                {
+                    tokens.RemoveAt(i);
+                }
+                else if (i == tokens.Count && i > 0 && tokens[i - 1].Type == "space")
+                {
+                    // 对齐上游 `tokens.splice(--i, 1)`：这里删的是 i-1，同时要把 i 也退一格，
+                    // 否则 for 循环的 i-- 之后会越界访问被删掉两个元素后的列表尾部。
+                    tokens.RemoveAt(--i);
+                }
+            }
+        }
     }
 
     /// <summary>

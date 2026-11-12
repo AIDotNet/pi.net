@@ -1,4 +1,5 @@
 using Pi.Ai.Models;
+using Pi.Ai.Utils;
 using Xunit;
 
 namespace Pi.Ai.Tests;
@@ -83,6 +84,43 @@ public class ModelCatalogTests
         // chat 桶 1602 → 1598：openrouter 的 openai-completions 组净减 16（+10 / -26），
         // 其余 provider 净增 12。总量反而涨了 2——image / classifier 桶加得更多。
         Assert.Equal(1598, total);
+    }
+
+    /// <summary>
+    /// 上游 1.5.1 #7961：TEMPERATURE_UNSUPPORTED 从 "sonnet-5-5" 收宽为 "sonnet-5"，
+    /// 所有 Claude Sonnet 5（含 5.5 与 :batch 变体）的模型都不支持 temperature。
+    /// </summary>
+    [Fact]
+    public void ClaudeSonnet5ModelsDoNotSupportTemperature()
+    {
+        var checkedCount = 0;
+        foreach (var provider in Pi.Ai.Providers.All.GetBuiltinProviders())
+        {
+            foreach (var (id, model) in ModelCatalog.LoadFromResource(provider).ChatModels)
+            {
+                var lowered = id.ToLowerInvariant();
+                if (!lowered.Contains("sonnet-5", StringComparison.Ordinal)
+                    && !lowered.Contains("sonnet.5", StringComparison.Ordinal)) continue;
+                Assert.NotNull(model.Compat);
+                Assert.Equal(false, model.Compat!.Bool("supportsTemperature"));
+                checkedCount++;
+            }
+        }
+        Assert.True(checkedCount > 0, "没有命中任何 sonnet-5 模型，目录数据结构可能已变化");
+    }
+
+    /// <summary>上游 1.5.1 #11742 / #11948：Azure GPT-6 用 Foundry 的 1.05M 上下文，并保留长上下文价档。</summary>
+    [Fact]
+    public void AzureGptSixModelsUseFoundryWindowAndLongContextTier()
+    {
+        var azure = ModelCatalog.LoadFromResource("azure");
+        foreach (var id in new[] { "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "gpt-6.1-terra" })
+        {
+            var model = azure.ChatModels[id];
+            Assert.Equal(1050000, model.ContextWindow);
+            Assert.NotNull(model.Cost);
+            Assert.True(model.Cost!.Tiers is { Count: > 0 }, $"{id} 缺长上下文价档");
+        }
     }
 
     [Fact]

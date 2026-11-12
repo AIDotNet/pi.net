@@ -37,4 +37,22 @@ public sealed class GrepArgsTests
         // `--` 终止符后紧跟 pattern 与搜索路径。
         Assert.Equal(["Foo", "/tmp"], args.TakeLast(2));
     }
+
+    /// <summary>上游 1.5.1 #10998 / #11807：rg 不匹配前导 "./"，去掉它但保留 "!" 取反。</summary>
+    [Fact]
+    public void ArgsStripLeadingDotSlashFromGlob()
+    {
+        var plain = GrepTool.BuildRgArgs(false, false, "./src/*.ts", "Foo", "/tmp");
+        Assert.Equal("src/*.ts", plain[plain.IndexOf("--glob") + 1]);
+
+        var negated = GrepTool.BuildRgArgs(false, false, "!./build/**", "Foo", "/tmp");
+        Assert.Equal("!build/**", negated[negated.IndexOf("--glob") + 1]);
+
+        var repeated = GrepTool.BuildRgArgs(false, false, "././src/*.ts", "Foo", "/tmp");
+        Assert.Equal("src/*.ts", repeated[repeated.IndexOf("--glob") + 1]);
+
+        // 正常的相对 glob 不受影响。
+        var normal = GrepTool.BuildRgArgs(false, false, "src/**/*.ts", "Foo", "/tmp");
+        Assert.Equal("src/**/*.ts", normal[normal.IndexOf("--glob") + 1]);
+    }
 }

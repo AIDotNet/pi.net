@@ -257,4 +257,17 @@ public class JintEngineTests
         Assert.Equal("undefined", isolated.Value?.GetValue<string>());
         await sandbox.CloseAsync();
     }
+
+    /// <summary>上游 1.5.1 #11901 / #11945：JSON.stringify 会把 NaN/Infinity 变成 null，format 必须直接 String()。</summary>
+    [Fact]
+    public async Task PrintsNonFiniteNumbersAsNumbersInConsoleOutput()
+    {
+        var sandbox = Sandbox();
+        var result = await sandbox.ExecuteAsync("console.log(NaN, Infinity, -Infinity);");
+        var success = Assert.IsType<CodemodeResult.Success>(result);
+        var console = Assert.Single(
+            success.Output.OfType<CodemodeOutputItem.Text>(), item => item.Console == true);
+        Assert.Equal("NaN Infinity -Infinity", console.Value);
+        await sandbox.CloseAsync();
+    }
 }

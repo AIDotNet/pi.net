@@ -569,6 +569,28 @@ public class OpenAiResponsesTests
         Assert.Equal("Bearer only-header", handler.Headers["Authorization"]);
     }
 
+    /// <summary>上游 1.5.2 #11639：会话亲和头是带连字符的 session-id，不再发错误的 session_id。</summary>
+    [Fact]
+    public async Task SendsHyphenatedSessionIdHeader()
+    {
+        using var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        var stream = OpenAiResponses.StreamSimple(
+            ResponsesModel(),
+            Context(new UserMessage([new TextContent("hi")], 1)),
+            new SimpleStreamOptions
+            {
+                MaxRetries = 0,
+                SessionId = "session-123",
+                Headers = new Dictionary<string, string?> { ["Authorization"] = "Bearer sk-test" },
+            },
+            client);
+        await stream.WaitForDoneAsync();
+
+        Assert.Equal("session-123", handler.Headers["session-id"]);
+        Assert.False(handler.Headers.ContainsKey("session_id"));
+    }
+
     /// <summary>记录请求并把最小 SSE 流回给调用方。</summary>
     private sealed class RecordingHandler : HttpMessageHandler
     {

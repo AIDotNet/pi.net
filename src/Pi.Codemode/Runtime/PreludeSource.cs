@@ -84,6 +84,9 @@ public static class CodemodePrelude
 	function format(value) {
 		if (typeof value === "string") return value;
 		if (value instanceof ErrorCtor) return errorText(value);
+		// 上游 1.5.1（#11901 / #11945）：JSON.stringify 会把 NaN/Infinity 变成 "null"，
+		// 数字直接走 String()，与 text() 的打印一致。
+		if (typeof value === "number") return String(value);
 		try {
 			const json = stringify(value);
 			return json === undefined ? String(value) : json;

@@ -5,6 +5,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-12
+
+对齐上游 `v1.5.0 → v1.5.2`（`v1.5.1` 2026-11-09、`v1.5.2` 2026-11-10，共 395 个提交，
+`v1.5.0` 是 `v1.5.2` 的祖先）。逐包差异、处置标记与「不跟」理由见
+`docs/upstream-1.5.2-delta.md`。Chord v2 换根、消息线程、缓存预热、MCP OAuth 拆分、
+durable/env 新增 API 等成体系变更按既定口径暂不跟，逐项备案在该台账 §4。
+
+### Added
+
+- **strict 工具超限按会话记忆**（#11626）：新增 `Pi.Ai.Api.StrictToolLimits`，Anthropic 与
+  Bedrock 共用；会话结束经 `SessionResources.CleanupSessionResources` 释放。
+- **compat 开关**：`requiresToolsWithToolHistory`（#11843）、`requiresNonNullAssistantContent`
+  （#8118）、`promptCacheKeyMode`（#9442，auto / enabled / disabled，覆盖 completions /
+  responses / azure 三处 `prompt_cache_key`）。
+
+### Changed
+
+- **模型目录定点修正**：所有 `sonnet-5*` 模型补 `supportsTemperature: false`（#7961）；
+  Azure GPT-6 五个模型上下文改 1,050,000（#11742）；13 个 Azure 模型补 `cost.tiers`
+  长上下文价档（#11948）。生成器仍不移植，新增 provider 与默认模型切换记为已知缺口（台账 §4.2）。
+- `OpenAiResponses` 的会话亲和头由 `session_id` 改为 `session-id`（#11793 / #11639）。
+- `openai-completions` 默认不再发 `"tools": []`（vLLM 0.20+ 会以
+  `tools must not be an empty array` 拒绝），仅当显式配置 `requiresToolsWithToolHistory` 时才发。
+- Anthropic OAuth 报告的 Claude Code 版本升到 `2.1.322`（上游 1.5.2）。
+- **提示模板参数解析**（#11861）：引号只在参数开头打开，词内撇号保持字面量；未闭合引号当文本；
+  反斜杠只转义当前引号字符。`prompt-corpus.json` 三条旧向量按 1.5.1 语义更新。
+- **TUI**：HTML 注释不再作为可见文本渲染（#11710 / #11755）；Alacritty 无 `TERM_PROGRAM`
+  时靠 `TERM` / `ALACRITTY_WINDOW_ID` 也能启用 OSC 8 超链接（#11767）。
+- **遥测**：`renderTrace` 把 span / 事件名、属性键、错误名 / 消息、link 的 trace / span id 里的
+  C0 / C1 / DEL 控制字符转义成 `\uXXXX`。
+- **codemode**：`console.*` 与抛出的非 Error 值里的 `NaN` / `Infinity` / `-Infinity` 不再打成
+  `null`（#11901 / #11945）。
+- **schema**：`number` 类型不再接受 NaN / Infinity（TypeBox 语义）。
+- **grep**：glob 去掉前导 `./`（rg 不匹配），保留 `!` 取反前缀（#10998 / #11807）。
+- **重试**：上游流被丢弃（"cut short after the reply had begun"）现在触发自动重试（#11879）。
+
 ### Fixed
 
 - **不支持架构不再错下 x86-64 的 fd/rg**（补齐上游 `c8ec752cf` / #11209）：`ToolsManager` 现在只映射

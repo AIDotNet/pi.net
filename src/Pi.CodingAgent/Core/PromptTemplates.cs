@@ -89,12 +89,21 @@ public static partial class PromptTemplates
         // 是否已开始一个 token：让空引号参数（"" 或 ''）保留为参数，而不是被丢掉后
         // 让后续位置参数整体错位、位置默认值失效（上游 #10867）。
         var hasToken = false;
+        // 引号打开的位置：未闭合的引号要退回这里，把引号当普通文本重新解析（上游 1.5.1 #11861）。
+        var quoteStart = 0;
 
-        foreach (var ch in argsString)
+        for (var i = 0; i < argsString.Length; i++)
         {
+            var ch = argsString[i];
             if (inQuote is { } quote)
             {
-                if (ch == quote)
+                // 反斜杠只在它后面紧跟「当前引号字符」时才转义，其余反斜杠保持字面量（保留 Windows 路径）。
+                if (ch == '\\' && i + 1 < argsString.Length && argsString[i + 1] == quote)
+                {
+                    current.Append(quote);
+                    i++;
+                }
+                else if (ch == quote)
                 {
                     inQuote = null;
                 }
@@ -103,9 +112,11 @@ public static partial class PromptTemplates
                     current.Append(ch);
                 }
             }
-            else if (ch is '"' or '\'')
+            else if ((ch is '"' or '\'') && !hasToken)
             {
+                // 引号只在参数开头才打开，所以 doesn't / user's 里的撇号是普通文本。
                 inQuote = ch;
+                quoteStart = i;
                 hasToken = true;
             }
             else if (JsString.IsWhitespace(ch))
@@ -121,6 +132,16 @@ public static partial class PromptTemplates
             {
                 current.Append(ch);
                 hasToken = true;
+            }
+
+            if (inQuote is not null && i == argsString.Length - 1)
+            {
+                // 未闭合的引号：把引号字符本身当文本，从引号处按普通规则重新解析。
+                // 引号打开时 current 必为空（引号只在 token 开头打开），所以这里重置不会丢内容。
+                inQuote = null;
+                current.Clear();
+                current.Append(argsString[quoteStart]);
+                i = quoteStart;
             }
         }
 

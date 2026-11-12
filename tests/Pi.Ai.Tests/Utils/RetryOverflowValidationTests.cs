@@ -65,6 +65,9 @@ public class RetryTests
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error, "Upstream HTTP/2 stream failed")));
         Assert.True(Retry.IsRetryableAssistantError(
             Message(StopReason.Error, "stream disconnected before completion: stream closed")));
+        // 上游 1.5.1 #11879：被丢弃的上游流此前不触发自动重试。
+        Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error,
+            "Claude Code's stream from Anthropic was cut short after the reply had begun")));
 
         // #10996：Google Vertex OAuth token 刷新的瞬时网络错误。
         Assert.True(Retry.IsRetryableAssistantError(Message(StopReason.Error,

@@ -214,9 +214,11 @@ public static class AzureOpenAiResponses
             ["model"] = deploymentName,
             ["input"] = messages,
             ["stream"] = true,
-            ["prompt_cache_key"] = options?.SessionId is { } sessionId
-                ? OpenAiPromptCache.ClampPromptCacheKey(sessionId)
-                : null,
+            ["prompt_cache_key"] = model.Compat?.Str("promptCacheKeyMode") == "disabled"
+                ? null
+                : options?.SessionId is { } sessionId
+                    ? OpenAiPromptCache.ClampPromptCacheKey(sessionId)
+                    : null,
             ["store"] = false,
         };
 

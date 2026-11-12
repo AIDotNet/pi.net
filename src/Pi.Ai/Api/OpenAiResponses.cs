@@ -151,6 +151,7 @@ public static class OpenAiResponses
             ["supportsToolSearch"] = Opt("supportsToolSearch", false),
             ["supportsExplicitPromptCacheMode"] = Opt("supportsExplicitPromptCacheMode", false),
             ["supportsMaxOutputTokens"] = Opt("supportsMaxOutputTokens", true),
+            ["promptCacheKeyMode"] = compat.Str("promptCacheKeyMode") ?? "auto",
         };
     }
 
@@ -206,7 +207,9 @@ public static class OpenAiResponses
             model, normalizedContext, OpenAiToolCallProviders, messageOptions);
 
         var cacheRetention = ResolveCacheRetention(options?.CacheRetention, options?.Env);
-        var cacheSessionId = cacheRetention == "none" ? null : options?.SessionId;
+        // 上游 1.5.1（#9442）：compat.promptCacheKeyMode=disabled 的代理不接受 prompt_cache_key。
+        var sendPromptCacheKey = cacheRetention != "none" && compat.Str("promptCacheKeyMode") != "disabled";
+        var cacheSessionId = sendPromptCacheKey ? options?.SessionId : null;
         // Sign in with ChatGPT 拒绝这些请求字段。
         var omitUnsupportedFields = IsChatGptSignIn(model, options?.ApiKey);
         var requestParams = new JsonObject
@@ -572,7 +575,9 @@ public static class OpenAiResponses
             {
                 if (compat.Str("sessionAffinityFormat") == "openai")
                 {
-                    headers["session_id"] = sessionId;
+                    // 上游 1.5.2（#11793 / #11639）：OpenAI Responses 的会话亲和头是带连字符的
+                    // session-id；旧版的 session_id 是错的，服务端并不认。
+                    headers["session-id"] = sessionId;
                 }
                 headers["x-client-request-id"] = sessionId;
             }

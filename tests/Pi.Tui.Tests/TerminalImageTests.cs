@@ -52,6 +52,7 @@ internal sealed class EnvScope : IDisposable
         ("WARP_SESSION_ID", null),
         ("WARP_TERMINAL_SESSION_UUID", null),
         ("ITERM_SESSION_ID", null),
+        ("ALACRITTY_WINDOW_ID", null),
         ("WT_SESSION", null),
         ("PI_HYPERLINKS", null),
         ("PI_IMAGE_PROTOCOL", null),
@@ -638,6 +639,25 @@ public class TerminalImageCapabilityTests
         using (new EnvScope(("ITERM_SESSION_ID", "w0t0p0")))
         {
             Assert.Equal(ImageProtocol.Iterm2, TerminalImage.DetectCapabilities(() => true).Images);
+        }
+    }
+
+    /// <summary>上游 1.5.1 #11767：Alacritty 不设 TERM_PROGRAM，靠 TERM / ALACRITTY_WINDOW_ID 识别。</summary>
+    [Fact]
+    public void DetectCapabilities_EnablesHyperlinksForAlacrittyWithoutTermProgram()
+    {
+        using var cleared = EnvScope.ClearTerminalEnvironment();
+
+        using (new EnvScope(("TERM", "alacritty"), ("COLORTERM", "truecolor")))
+        {
+            var caps = TerminalImage.DetectCapabilities(() => true);
+            Assert.True(caps.Hyperlinks);
+            Assert.Equal(ImageProtocol.None, caps.Images);
+        }
+
+        using (new EnvScope(("TERM", "xterm-256color"), ("COLORTERM", "truecolor"), ("ALACRITTY_WINDOW_ID", "1")))
+        {
+            Assert.True(TerminalImage.DetectCapabilities(() => true).Hyperlinks);
         }
     }
 

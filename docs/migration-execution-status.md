@@ -4,6 +4,27 @@
 [migration-plan.md](./migration-plan.md) 与 [porting-status.md](./porting-status.md)
 保留历史阶段说明；其汇总快照早于当前代码，不应用来推断当前完成度。
 
+## 当前口径（2026-11-12，对齐上游 v1.5.2）
+
+- **上游目标版本：`v1.5.2`**（tag `b4afdddf4`，2026-11-10，`origin/stable` 同点）。
+  1.5.0 之后上游依次发布了 `v1.5.1`（`dd30101cf`，2026-11-09）与 `v1.5.2`；
+  同步窗口 `v1.5.0..v1.5.2` = **395 个提交**（线性，其中 233 个触及 `packages/`）。
+  逐包差异、处置标记与「不跟」理由见 [upstream-1.5.2-delta.md](./upstream-1.5.2-delta.md)。
+- **参照检出：`a40abecaa`（`main`，v1.5.2 之后的未发布提交）**。`v1.5.2..HEAD` 的
+  p2/p3 实验稿按既定策略先不跟，等下一个 tag。
+- **端口版本：`1.5.2`**（`Directory.Build.props` 的 `<Version>` 为唯一来源）。
+- **本轮落地**：ai 的 11 项（会话亲和头、Claude Code 版本串、`requiresToolsWithToolHistory` /
+  `requiresNonNullAssistantContent` / `promptCacheKeyMode`、strict 工具会话记忆、
+  目录三项定点修正）、提示模板引号解析、glob `./` 剥离、TUI 的 Alacritty 与 HTML 注释、
+  telemetry 控制字符转义、codemode NaN/Infinity、schema 数字有限性。逐项落点与用例见
+  `upstream-1.5.2-delta.md` §3。
+- **不跟**：Chord v2 换根（22,938 行，端口仍是 v1）、消息线程 / 缓存预热、MCP OAuth 拆分、
+  env daemon `process`、durable 新增 API、模型目录完整重导（生成器不移植）、
+  `telemetryNow()` 微秒时钟、grep 的 cwd 切换及若干单点修复。逐项理由见台账 §4。
+
+> 下面「当前口径（2026-11-03，对齐上游 v1.5.0）」及其后所有内容是 **1.5.0 阶段的历史快照**，
+> 保留作批次记录，不代表当前对齐状态。
+
 ## 当前口径（2026-11-03，对齐上游 v1.5.0）
 
 - **上游目标版本：`v1.5.0`**（tag `f9a263655`，2026-11-02）。同步窗口 `v1.4.0..v1.5.0` = 308 个提交，

@@ -284,7 +284,10 @@ internal sealed class SchemaChecker
     /// <summary>Whether <paramref name="value"/> has one of the schema's <c>type</c> names.</summary>
     public static bool MatchesType(JsonNode? value, string type) => type switch
     {
-        "number" => SchemaJson.IsNumber(value, out _),
+        // 上游 1.5.1（#11833 配套，schema/checks.ts）：number 必须有限；
+        // JSON 里没有 NaN/Infinity，只有代码里构造的值才可能是，TypeBox 语义同样拒收。
+        "number" => SchemaJson.IsNumber(value, out var number)
+            && !double.IsNaN(number) && !double.IsInfinity(number),
         "integer" => SchemaJson.IsInteger(value, out _),
         "boolean" => SchemaJson.IsBoolean(value),
         "string" => SchemaJson.IsString(value),

@@ -152,6 +152,10 @@ public static class Retry
         "http2 request did not get a response",
         // 代理包装 Codex CLI 时的流中途断连："stream disconnected before completion: ..."（上游 #11057）。
         "stream disconnected before completion",
+        // 上游 1.5.1 #11879：Magpie 网关转发被丢弃的 Anthropic 流时，
+        // 报 "Claude Code's stream from Anthropic was cut short after the reply had begun"，
+        // 此前不触发自动重试。
+        "cut short after the reply had begun",
         // Node ERR_HTTP2_STREAM_CANCEL：请求发出前 HTTP/2 会话就死了
         // （例如 Bedrock SDK 5 分钟会话超时之后，#10379）。
         "pending stream has been canceled",

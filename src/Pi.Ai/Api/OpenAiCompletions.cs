@@ -32,6 +32,15 @@ public sealed record OpenAiCompletionsCompat
 
     public bool RequiresAssistantAfterToolResult { get; init; }
 
+    /// <summary>回放的纯工具调用 assistant 消息必须发 "" 而非 null content（上游 1.5.1 #8118）。</summary>
+    public bool RequiresNonNullAssistantContent { get; init; }
+
+    /// <summary>无工具但历史含工具调用/结果时仍发 "tools": []（上游 1.5.1 #11843），默认 false 不发。</summary>
+    public bool RequiresToolsWithToolHistory { get; init; }
+
+    /// <summary>prompt_cache_key 策略：auto / enabled / disabled（上游 1.5.1 #9442）。</summary>
+    public string? PromptCacheKeyMode { get; init; }
+
     public bool RequiresThinkingAsText { get; init; }
 
     public bool RequiresReasoningContentOnAssistantMessages { get; init; }
@@ -224,6 +233,8 @@ public static class OpenAiCompletions
             MaxTokensField = useMaxTokens ? "max_tokens" : "max_completion_tokens",
             RequiresToolResultName = false,
             RequiresAssistantAfterToolResult = false,
+            RequiresNonNullAssistantContent = false,
+            RequiresToolsWithToolHistory = false,
             RequiresThinkingAsText = false,
             RequiresReasoningContentOnAssistantMessages = isDeepSeek,
             ThinkingFormat = thinkingFormat,
@@ -267,6 +278,11 @@ public static class OpenAiCompletions
             RequiresToolResultName = compat.Bool("requiresToolResultName") ?? detected.RequiresToolResultName,
             RequiresAssistantAfterToolResult = compat.Bool("requiresAssistantAfterToolResult")
                 ?? detected.RequiresAssistantAfterToolResult,
+            RequiresNonNullAssistantContent = compat.Bool("requiresNonNullAssistantContent")
+                ?? detected.RequiresNonNullAssistantContent,
+            RequiresToolsWithToolHistory = compat.Bool("requiresToolsWithToolHistory")
+                ?? detected.RequiresToolsWithToolHistory,
+            PromptCacheKeyMode = compat.Str("promptCacheKeyMode") ?? detected.PromptCacheKeyMode,
             RequiresThinkingAsText = compat.Bool("requiresThinkingAsText") ?? detected.RequiresThinkingAsText,
             RequiresReasoningContentOnAssistantMessages =
                 compat.Bool("requiresReasoningContentOnAssistantMessages")
@@ -700,7 +716,8 @@ public static class OpenAiCompletions
                     var assistantMessage = new JsonObject
                     {
                         ["role"] = "assistant",
-                        ["content"] = compat.RequiresAssistantAfterToolResult ? "" : null,
+                        ["content"] = compat.RequiresAssistantAfterToolResult
+                            || compat.RequiresNonNullAssistantContent ? "" : null,
                     };
 
                     var assistantTextParts = new List<JsonObject>();
@@ -1059,9 +1076,14 @@ public static class OpenAiCompletions
             ["stream"] = true,
         };
 
-        var usePromptCacheKey =
-            (model.BaseUrl.Contains("api.openai.com", StringComparison.Ordinal) && cacheRetention != "none")
-            || (cacheRetention == "long" && compat.SupportsLongCacheRetention);
+        var promptCacheKeyMode = compat.PromptCacheKeyMode ?? "auto";
+        var supportsPromptCacheKey = promptCacheKeyMode == "enabled"
+            || (promptCacheKeyMode == "auto"
+                && (model.BaseUrl.Contains("api.openai.com", StringComparison.Ordinal)
+                    || (cacheRetention == "long" && compat.SupportsLongCacheRetention)));
+        // 上游 1.5.1（#9442）：compat.promptCacheKeyMode 可强制开启或关闭；
+        // disabled 时代理不接受 prompt_cache_key，auto 沿用旧探测。
+        var usePromptCacheKey = cacheRetention != "none" && supportsPromptCacheKey;
         if (usePromptCacheKey)
         {
             var promptCacheKey = OpenAiPromptCache.ClampPromptCacheKey(options?.SessionId);
@@ -1106,9 +1128,11 @@ public static class OpenAiCompletions
                 parameters["tool_stream"] = true;
             }
         }
-        else if (HasToolHistory(context.Messages))
+        else if (compat.RequiresToolsWithToolHistory && HasToolHistory(context.Messages))
         {
-            // Anthropic（经 LiteLLM/代理）在会话含 tool_calls/tool_result 时要求存在 tools 字段。
+            // 上游 1.5.1（#11843）：默认不再发 "tools": []，vLLM 0.20+ 会以
+            // "tools must not be an empty array" 拒绝；只有显式配置
+            // compat.requiresToolsWithToolHistory 的旧代理（如 LiteLLM + Anthropic）才发。
             parameters["tools"] = new JsonArray();
         }
 

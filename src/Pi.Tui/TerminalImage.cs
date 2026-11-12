@@ -296,7 +296,12 @@ public static partial class TerminalImage
             return new TerminalCapabilities(ImageProtocol.None, true, true);
         }
 
-        if (termProgram is "alacritty" or "vscode" or "zed")
+        // 上游 1.5.1（#11767）：Alacritty 不设 TERM_PROGRAM；装了 terminfo 时 TERM=alacritty，
+        // Unix/macOS 上另有 ALACRITTY_WINDOW_ID。没有这两个信号时旧版不会启用 OSC 8 超链接。
+        var isAlacritty = termProgram == "alacritty"
+            || term.StartsWith("alacritty", StringComparison.Ordinal)
+            || Env("ALACRITTY_WINDOW_ID").Length > 0;
+        if (isAlacritty || termProgram is "vscode" or "zed")
         {
             return new TerminalCapabilities(ImageProtocol.None, true, true);
         }

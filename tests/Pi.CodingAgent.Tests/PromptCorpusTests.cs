@@ -96,6 +96,40 @@ public class PromptCorpusTests : IDisposable
     }
 
     [Fact]
+    public void ParseCommandArgs_ApostrophesInWordsStayLiteral()
+    {
+        // 上游 1.5.1 #11861：引号只在参数开头才打开，doesn't / user's 里的撇号是普通文本。
+        Assert.Equal(
+            ["why", "doesn't", "the", "user's", "cache", "work"],
+            PromptTemplates.ParseCommandArgs("why doesn't the user's cache work").ToList());
+        Assert.Equal(["why", "doesn't", "this", "work"],
+            PromptTemplates.ParseCommandArgs("why doesn't this work").ToList());
+    }
+
+    [Fact]
+    public void ParseCommandArgs_EscapesEnclosingQuoteAndKeepsOtherBackslashes()
+    {
+        // 上游 1.5.1 #11861：反斜杠只转义「当前引号字符」，其余反斜杠保持字面量。
+        Assert.Equal(["quoted \"text\""], PromptTemplates.ParseCommandArgs("\"quoted \\\"text\\\"\"").ToList());
+        Assert.Equal(["it's here", "next"], PromptTemplates.ParseCommandArgs("'it\\'s here' next").ToList());
+        Assert.Equal(["C:\\dir\\file", "\\\\server\\share"],
+            PromptTemplates.ParseCommandArgs("\"C:\\dir\\file\" '\\\\server\\share'").ToList());
+        Assert.Equal(["it's", "a\\\"b"], PromptTemplates.ParseCommandArgs("\"it's\" 'a\\\"b'").ToList());
+        Assert.Equal(["say", "\\\"hi"], PromptTemplates.ParseCommandArgs("say \\\"hi").ToList());
+    }
+
+    [Fact]
+    public void ParseCommandArgs_UnclosedQuoteIsLiteralText()
+    {
+        // 上游 1.5.1 #11861：没有闭合匹配的引号当文本保留，从引号处按普通规则重新解析。
+        Assert.Equal(["'tis", "the", "season"], PromptTemplates.ParseCommandArgs("'tis the season").ToList());
+        Assert.Equal(["say", "\"hello", "world"], PromptTemplates.ParseCommandArgs("say \"hello world").ToList());
+        Assert.Equal(["a", "'"], PromptTemplates.ParseCommandArgs("a '").ToList());
+        Assert.Equal(["\"abc\\\""], PromptTemplates.ParseCommandArgs("\"abc\\\"").ToList());
+        Assert.Equal(["it's", "'x"], PromptTemplates.ParseCommandArgs("\"it's\" 'x").ToList());
+    }
+
+    [Fact]
     public void SubstituteArgs_MatchesTypeScript()
     {
         var failures = new List<string>();

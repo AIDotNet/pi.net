@@ -55,13 +55,13 @@
     {
       "input": "\"unclosed",
       "args": [
-        "unclosed"
+        "\"unclosed"
       ]
     },
     {
       "input": "'unclosed",
       "args": [
-        "unclosed"
+        "'unclosed"
       ]
     },
     {
@@ -81,7 +81,8 @@
     {
       "input": "a'b c'd",
       "args": [
-        "ab cd"
+        "a'b",
+        "c'd"
       ]
     },
     {

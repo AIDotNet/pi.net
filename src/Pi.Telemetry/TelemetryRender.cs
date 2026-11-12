@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -58,20 +59,24 @@ public static class TelemetryRender
             if (span.Status is SpanStatus.ErrorStatus status)
             {
                 error.Append(" error");
-                if (status.Detail is { } detail) error.Append($" {detail.Name}: {detail.Message}");
+                // 上游 1.5.1（telemetry/render.ts）：错误名与消息也可能来自别的进程的 carrier。
+                if (status.Detail is { } detail)
+                {
+                    error.Append($" {EscapeControl(detail.Name)}: {EscapeControl(detail.Message)}");
+                }
             }
             lines.Add(
-                $"{indent}{span.Name}{FormatAttributes(span.Attributes)} " +
+                $"{indent}{EscapeControl(span.Name)}{FormatAttributes(span.Attributes)} " +
                 $"({span.EndedMs - span.StartedMs}ms){error}");
             foreach (var storedEvent in span.Events)
             {
                 lines.Add(
-                    $"{indent}  · {storedEvent.Name}{FormatAttributes(storedEvent.Attributes)} (+{storedEvent.TimeMs}ms)");
+                    $"{indent}  · {EscapeControl(storedEvent.Name)}{FormatAttributes(storedEvent.Attributes)} (+{storedEvent.TimeMs}ms)");
             }
             foreach (var link in span.Links)
             {
                 lines.Add(
-                    $"{indent}  → link trace {link.TraceId} span {link.SpanId}{FormatAttributes(link.Attributes)}");
+                    $"{indent}  → link trace {EscapeControl(link.TraceId)} span {EscapeControl(link.SpanId)}{FormatAttributes(link.Attributes)}");
             }
             if (!children.TryGetValue(span.Id, out var descendants)) continue;
             for (var index = descendants.Count - 1; index >= 0; index--)
@@ -82,6 +87,27 @@ public static class TelemetryRender
         return string.Join("\n", lines);
     }
 
+    /// <summary>
+    /// C0 / C1 控制字符与 DEL 写成 <c>\uXXXX</c>。span 名、事件名、属性键、错误名/消息、link 的
+    /// trace/span id 都可能来自另一进程的 carrier，不能原样送进终端或查看器（上游 1.5.1 telemetry）。
+    /// </summary>
+    private static string EscapeControl(string text)
+    {
+        var result = new StringBuilder(text.Length);
+        foreach (var ch in text)
+        {
+            if (ch <= '\u001f' || (ch >= '\u007f' && ch <= '\u009f'))
+            {
+                result.Append("\\u").Append(((int)ch).ToString("x4", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                result.Append(ch);
+            }
+        }
+        return result.ToString();
+    }
+
     private static string FormatAttributes(SpanAttributes? attributes)
     {
         if (attributes is null || attributes.Count == 0) return string.Empty;
@@ -89,7 +115,7 @@ public static class TelemetryRender
         foreach (var (key, value) in attributes)
         {
             if (value is null) continue;
-            text.Append(' ').Append(key).Append('=').Append(JsonSerializer.Serialize(value, value.GetType()));
+            text.Append(' ').Append(EscapeControl(key)).Append('=').Append(JsonSerializer.Serialize(value, value.GetType()));
         }
         return text.ToString();
     }

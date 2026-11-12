@@ -116,7 +116,8 @@ public static class BedrockConverseStream
                 // （语法太大、strict 工具太多、union 参数太多）。Bedrock 在开流之前就校验工具 schema，
                 // 所以重发不会重复已经流出的内容：命中后把 prefer 工具按原始 schema 再发一次，
                 // require 工具保持 strict（上游 #11416）。
-                var disablePreferredStrictTools = false;
+                // 上游 1.5.1（#11626）：与 Anthropic 共用同一套会话记忆。
+                var disablePreferredStrictTools = StrictToolLimits.HasExceeded(options?.SessionId);
                 JsonObject payload;
                 HttpResponseMessage response;
                 using var perCallCts = CancellationTokenSource.CreateLinkedTokenSource(signal, cancellationToken);
@@ -194,6 +195,7 @@ public static class BedrockConverseStream
                         && IsStrictToolLimitRejection(error))
                     {
                         disablePreferredStrictTools = true;
+                        StrictToolLimits.MarkExceeded(options?.SessionId);
                         output.Diagnostics.Add(new AssistantMessageDiagnostic(
                             "bedrock_strict_tools_fallback",
                             DateTimeOffset.Now.ToUnixTimeMilliseconds(),

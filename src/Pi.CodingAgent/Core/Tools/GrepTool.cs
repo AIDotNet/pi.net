@@ -67,7 +67,9 @@ public static class GrepTool
         if (glob is not null)
         {
             rgArgs.Add("--glob");
-            rgArgs.Add(glob);
+            // 上游 1.5.1（#10998 / #11807）：rg 永远不匹配前导 "./"（"./src/*.ts" 会零结果），
+            // 去掉它但保留 "!" 取反前缀；也允许多次 "./"。
+            rgArgs.Add(System.Text.RegularExpressions.Regex.Replace(glob, @"^(!?)(?:\./)+", "$1"));
         }
 
         rgArgs.Add("--");

@@ -83,6 +83,25 @@ public class TelemetryRenderAndMetricsTests
         Assert.Equal("tool (1ms) error", text);
     }
 
+    /// <summary>上游 1.5.1 telemetry/render.ts：来自别的进程 carrier 的控制字符必须转义。</summary>
+    [Fact]
+    public void EscapesControlCharactersInNamesIdsKeysAndErrors()
+    {
+        var text = TelemetryRender.RenderTrace(
+            [Span("1", "name\u0007with\u001fcontrol", 0, 2,
+                attributes: Attributes(("key\u0001x", "v")),
+                status: new SpanStatus.ErrorStatus(new TelemetryErrorDetail("Err\u0002", "bad\u007fmsg")),
+                events: [new StoredSpanEvent("event\u0003", 1, new SpanAttributes())],
+                links: [new StoredSpanLink("trace\u0004", "span\u009f")])]);
+
+        Assert.Contains("name\\u0007with\\u001fcontrol", text, StringComparison.Ordinal);
+        Assert.Contains("key\\u0001x=", text, StringComparison.Ordinal);
+        Assert.Contains("Err\\u0002: bad\\u007fmsg", text, StringComparison.Ordinal);
+        Assert.Contains("event\\u0003", text, StringComparison.Ordinal);
+        Assert.Contains("trace\\u0004 span span\\u009f", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u0007", text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void SpansWhoseParentIsMissingBecomeRoots()
     {

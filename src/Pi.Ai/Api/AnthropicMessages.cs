@@ -63,7 +63,7 @@ public static class AnthropicMessages
     private const string DefaultBaseUrl = "https://api.anthropic.com";
 
     // Stealth mode: mimic Claude Code's tool naming exactly.
-    private const string ClaudeCodeVersion = "2.1.280";
+    private const string ClaudeCodeVersion = "2.1.322";
 
     private static readonly string[] ClaudeCodeTools =
     [
@@ -1102,7 +1102,8 @@ public static class AnthropicMessages
                 // Anthropic 会用 400 拒绝「strict 工具集超出容量」的请求（语法太大、工具太多、
                 // union 参数太多）。这类拒绝只跟 strict 有关，所以先按原样发一次，命中后用
                 // prefer 工具的原始 schema 再发一次；require 工具保持 strict（上游 #10409）。
-                var disablePreferredStrictTools = false;
+                // 上游 1.5.1（#11626）：同一会话此前被拒过就一开始就降级，别每轮白挨一次 400。
+                var disablePreferredStrictTools = StrictToolLimits.HasExceeded(options?.SessionId);
                 JsonObject payload;
                 HttpResponseMessage response;
                 while (true)
@@ -1188,6 +1189,7 @@ public static class AnthropicMessages
                         && IsStrictToolLimitRejection(error))
                     {
                         disablePreferredStrictTools = true;
+                        StrictToolLimits.MarkExceeded(options?.SessionId);
                         output.Diagnostics.Add(new AssistantMessageDiagnostic(
                             "anthropic_strict_tools_fallback",
                             DateTimeOffset.Now.ToUnixTimeMilliseconds(),

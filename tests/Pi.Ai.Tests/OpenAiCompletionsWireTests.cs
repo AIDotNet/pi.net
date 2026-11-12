@@ -354,8 +354,10 @@ public class OpenAiCompletionsWireTests
     // -----------------------------------------------------------------
 
     [Fact]
-    public void OmitsToolsWhenEmptyButKeepsEmptyArrayWithToolHistory()
+    public void OmitsEmptyToolsArrayByDefaultEvenWithToolHistory()
     {
+        // 上游 1.5.1 #11843：vLLM 0.20+ 会以 "tools must not be an empty array" 拒绝空数组，
+        // 所以默认整个字段都省略；只有显式 compat.requiresToolsWithToolHistory 的旧代理才发 []。
         var model = Spec();
         var noTools = OpenAiCompletions.BuildParams(model,
             new TranscriptContext([Messages.UserText("hi")]),
@@ -371,7 +373,48 @@ public class OpenAiCompletionsWireTests
         var withHistory = OpenAiCompletions.BuildParams(model,
             new TranscriptContext(history),
             new SimpleStreamOptions(ApiKey: "test"));
-        Assert.Empty(Arr(withHistory["tools"]));
+        Assert.False(withHistory.ContainsKey("tools"));
+
+        var optIn = Spec(compat: new JsonObject { ["requiresToolsWithToolHistory"] = true });
+        var withOptIn = OpenAiCompletions.BuildParams(optIn,
+            new TranscriptContext(history),
+            new SimpleStreamOptions(ApiKey: "test"));
+        Assert.Empty(Arr(withOptIn["tools"]));
+    }
+
+    [Fact]
+    public void PromptCacheKeyModeOverridesDetection()
+    {
+        // 上游 1.5.1 #9442：disabled 一律不发 prompt_cache_key，enabled 强制发。
+        var disabled = Spec(compat: new JsonObject { ["promptCacheKeyMode"] = "disabled" });
+        var disabledParams = OpenAiCompletions.BuildParams(disabled,
+            new TranscriptContext([Messages.UserText("hi")]),
+            new SimpleStreamOptions(ApiKey: "test", SessionId: "session-1"));
+        Assert.False(disabledParams.ContainsKey("prompt_cache_key"));
+
+        var enabled = Spec(provider: "proxy", baseUrl: "https://proxy.example/v1",
+            compat: new JsonObject { ["promptCacheKeyMode"] = "enabled" });
+        var enabledParams = OpenAiCompletions.BuildParams(enabled,
+            new TranscriptContext([Messages.UserText("hi")]),
+            new SimpleStreamOptions(ApiKey: "test", SessionId: "session-1"));
+        Assert.Equal("session-1", enabledParams["prompt_cache_key"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void RequiresNonNullAssistantContentSendsEmptyString()
+    {
+        // 上游 1.5.1 #8118：纯工具调用 assistant 消息按 "" 而不是 null 回放。
+        var model = Spec(compat: new JsonObject { ["requiresNonNullAssistantContent"] = true });
+        var messages = OpenAiCompletions.ConvertMessages(
+            model,
+            new TranscriptContext([
+                new AssistantMessage([new ToolCallContent("t1", "noop", new JsonObject())], StopReason.ToolUse),
+                Messages.ToolResult("t1", "noop", "done"),
+                Messages.UserText("next"),
+            ]),
+            OpenAiCompletions.GetCompat(model));
+        var assistant = messages.OfType<JsonObject>().First(m => Text(m, "role") == "assistant");
+        Assert.Equal("", assistant["content"]!.GetValue<string>());
     }
 
     [Fact]
