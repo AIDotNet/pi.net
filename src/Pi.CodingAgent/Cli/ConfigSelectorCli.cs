@@ -2,6 +2,7 @@ using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Modes.Interactive;
 using Pi.CodingAgent.Modes.Interactive.Components;
 using Pi.Tui;
+using KeybindingsManager = Pi.CodingAgent.Core.KeybindingsManager;
 
 namespace Pi.CodingAgent.Cli;
 
@@ -35,11 +36,21 @@ public sealed record ConfigSelectorOptions
 /// <summary>Port of <c>cli/config-selector.ts</c>.</summary>
 public static class ConfigSelectorCli
 {
+    /// <summary>
+    /// 从 <paramref name="agentDir"/> 的 keybindings.json 装载全局键位（#11651）。单独抽出便于定向测试，
+    /// 与 `session-picker` 的装载路径一致。
+    /// </summary>
+    internal static void LoadGlobalKeybindings(string agentDir) =>
+        GlobalKeybindings.Set(KeybindingsManager.Create(agentDir));
+
     /// <summary>对应 TS <c>selectConfig</c>：显示配置选择器，关闭后返回。</summary>
     public static async Task SelectConfigAsync(ConfigSelectorOptions options)
     {
         // 带 watcher 初始化主题（配置文件改动会重载主题），必须在建 TUI 之前。
         ThemeRuntime.InitTheme(options.SettingsManager.GetTheme(), true);
+        // 上游 1.5.1 #11651：config 选择器也要加载用户 keybindings（session-picker 早已如此），
+        // 否则自定义键位在 `pi config` 内不生效。agentDir 指向 keybindings.json 所在目录。
+        LoadGlobalKeybindings(options.AgentDir);
 
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var ui = new TuiMainScreen(

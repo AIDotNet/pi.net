@@ -107,6 +107,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - **全屏 Kitty 图像按覆盖行之后绘制**（#11835）：`TuiAltScreen` 去掉 WezTerm 门控，
   `drawKittyImagesLast` / `imageCellsNeedRedraw` 对所有 Kitty 协议终端生效（修 Orca 只显示首行）；
   1 项定向用例（无 WezTerm 环境下 transmit 晚于行清除与文本，并用旧门控反向验证用例有效）。
+- **`pi config` 加载自定义键位**（#11651）：`ConfigSelectorCli` 在建 TUI 前调用
+  `GlobalKeybindings.Set(KeybindingsManager.Create(agentDir))`，与 session-picker 一致；
+  1 项定向用例（临时 keybindings.json 的 ctrl+p / ctrl+n 经 CLI 装载方法进入全局注册表）。
 
 ## [1.5.0] - 2026-11-05
 

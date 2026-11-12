@@ -56,6 +56,7 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
   the scope selects the first scoped model (#11806).
 - Fullscreen Kitty images are drawn after the rows they cover on every Kitty-capable
   terminal, not just WezTerm, fixing Orca showing only the first image row (#11835).
+- `pi config` now loads custom keybindings from `keybindings.json` (#11651).
 
 ## [1.5.0] - 2026-11-05
 
