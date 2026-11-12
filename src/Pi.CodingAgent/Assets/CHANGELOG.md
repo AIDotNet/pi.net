@@ -61,6 +61,8 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
 - Bash timeouts now also report the shell's exit code and elapsed time when the
   shell had already exited but background processes kept writing (#11613).
 - Resuming after `/tree` navigation no longer restores a stale thinking level (#11451).
+- Tool search and codemode summaries now follow local `$ref`s into `$defs`, so fields
+  behind MCP schema references are found and described (#11803).
 
 ## [1.5.0] - 2026-11-05
 

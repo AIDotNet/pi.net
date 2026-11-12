@@ -417,9 +417,29 @@ public static partial class CodemodeToolApi
     /// <c>{ content, structuredContent?: { results } }</c>. Null for other schemas.
     /// TS <c>describeFields</c>.
     /// </summary>
-    private static string? DescribeFields(JsonNode? schema, int depth)
+    /// <summary>
+    /// 上游 1.5.1 #11803：沿 <c>$ref</c> 链解析到 root 里的子 schema，让把模型放在 <c>$defs</c>
+    /// 的 MCP output schema 也能显示字段名。远程/缺失/畸形/循环引用停在持有它的 schema。
+    /// 对应 TS <c>followRef</c>（<c>seen</c> 防环）。
+    /// </summary>
+    private static JsonNode? FollowRef(JsonNode? schema, JsonNode? root)
     {
-        if (schema is not JsonObject @object) return null;
+        var seen = new HashSet<JsonNode>(ReferenceEqualityComparer.Instance);
+        var current = schema;
+        while (current is JsonObject obj && seen.Add(obj))
+        {
+            var reference = StringValue(obj["$ref"]);
+            if (reference is null) break;
+            var target = CodemodeDeclarations.ResolveSchemaRef(reference, root);
+            if (target is null) break;
+            current = target;
+        }
+        return current;
+    }
+
+    private static string? DescribeFields(JsonNode? schema, JsonNode? root, int depth)
+    {
+        if (FollowRef(schema, root) is not JsonObject @object) return null;
         if (StringValue(@object["type"]) != "object") return null;
         if (@object["properties"] is not JsonObject properties) return null;
 
@@ -433,11 +453,12 @@ public static partial class CodemodeToolApi
         var fields = properties.Select(property =>
         {
             // `const` 字段直接写值（`{ action: "start", id }`），比展开嵌套对象好读（`f6ee9ce9c`）。
-            var constant = (property.Value as JsonObject)?["const"];
+            // #11803：const 与嵌套字段都要先 followRef，才能看到藏在 $defs 里的定义。
+            var constant = (FollowRef(property.Value, root) as JsonObject)?["const"];
             var nested = constant is not null
                 ? constant.ToJsonString()
                 : depth > 0
-                    ? DescribeFields(property.Value, depth - 1)
+                    ? DescribeFields(property.Value, root, depth - 1)
                     : null;
             return $"{property.Key}{(required.Contains(property.Key) ? "" : "?")}{(nested is null ? "" : $": {nested}")}";
         });
@@ -451,13 +472,13 @@ public static partial class CodemodeToolApi
 
     /// <summary>
     /// The field names of each variant of an <c>anyOf</c>/<c>oneOf</c> whose variants are all objects,
-    /// joined by <c>|</c>；否则 null。TS <c>describeUnionFields</c>（`f6ee9ce9c`）。
+    /// joined by <c>|</c>；否则 null。TS <c>describeUnionFields</c>（`f6ee9ce9c`），#11803 跟随 $ref。
     /// </summary>
-    private static string? DescribeUnionFields(JsonNode? schema)
+    private static string? DescribeUnionFields(JsonNode? schema, JsonNode? root)
     {
-        if (schema is not JsonObject @object) return null;
+        if (FollowRef(schema, root) is not JsonObject @object) return null;
         if ((@object["anyOf"] ?? @object["oneOf"]) is not JsonArray variants || variants.Count == 0) return null;
-        var described = variants.Select(variant => DescribeFields(variant, 0)).ToList();
+        var described = variants.Select(variant => DescribeFields(variant, root, 0)).ToList();
         return described.All(fields => fields is not null) ? string.Join(" | ", described) : null;
     }
 
@@ -468,7 +489,8 @@ public static partial class CodemodeToolApi
     /// 大 schema 的完整类型否则会随每次请求发出去（#11501，`f6ee9ce9c`）。
     /// TS <c>describeOutput</c>.
     /// </summary>
-    private static string DescribeOutput(string name, JsonNode? schema)
+    // internal：#11803 定向测试直接驱动 output 摘要（与 GetScriptReach/JsonStringify 同款测试缝）。
+    internal static string DescribeOutput(string name, JsonNode? schema)
     {
         var type = CodemodeDeclarations.RenderToolOutputType(schema);
         if (type == "string")
@@ -476,7 +498,8 @@ public static partial class CodemodeToolApi
             return "a string";
         }
 
-        var fields = DescribeFields(schema, 1) ?? DescribeUnionFields(schema);
+        // #11803：root 就是 schema 本身，传给 followRef 解析本地 $ref。
+        var fields = schema is null ? null : DescribeFields(schema, schema, 1) ?? DescribeUnionFields(schema, schema);
         if (fields is not null) return $"`{fields}`";
         if (!type.Contains('\n')) return $"`{type}`";
         return $"a value; `await describeTool({JsonSerializer.Serialize(name)})` shows its type";

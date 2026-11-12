@@ -120,6 +120,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   （按当前模型钳制后比对，与实时档位不同才写），避免 resume 恢复到旧分支的档位；
   `RecordSelection` 拆出 `RecordThinkingLevel` + 纯判定 `ShouldRecordThinkingLevel`。
   1 项定向用例 + `AgentSessionCompactionTests` 33/33。
+- **tool_search / codemode 跟随本地 `$ref`**（#11803）：MCP 把模型放在 `$defs` 的 schema，
+  tool_search 搜索文本与 codemode output 摘要现在都能解析 `#/$defs/...` 里的属性名与描述
+  （JSON Pointer 转义、畸形 percent escape→跳过、`seen` 防递归/共享重复展开）。
+  `ToolSearch.SchemaText`+`ResolveLocalRef`、`CodemodeToolApi.FollowRef`+`DescribeFields`+
+  `DescribeUnionFields`。6 项定向用例（逐字对照上游）+ `ToolSearchCorpusTests` 66/66、
+  `ToolSearchRankingTests` 7/7、`CodemodeCorpusTests` 29/29。
 
 ## [1.5.0] - 2026-11-05
 

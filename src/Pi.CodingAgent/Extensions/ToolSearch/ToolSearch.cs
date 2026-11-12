@@ -265,12 +265,61 @@ public static partial class ToolSearch
         _ => [],
     };
 
-    /// <summary>Schema descriptions and property names, recursively. Port of the TS <c>schemaText</c>.</summary>
-    private static void SchemaText(object? schema, List<string> parts)
+    /// <summary>
+    /// 上游 1.5.1 #11803：把本地 <c>$ref</c>（<c>#</c> / <c>#/$defs/Item</c>）解析到根 schema，
+    /// 让藏在 <c>$defs</c> 里的属性名与描述也进入搜索文本；<c>seen</c> 防止递归/共享定义被重复展开。
+    /// 端口 schema 是 dictionary 形态，故在此走 dictionary 版的 JSON Pointer（~0/~1、%XX 与
+    /// <c>Declarations.ResolveSchemaRef</c> 语义一致）。畸形 escape 返回 null，交给 unknown 分支。
+    /// </summary>
+    private static object? ResolveLocalRef(string reference, object? root)
+    {
+        if (reference != "#" && !reference.StartsWith("#/", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var current = root;
+        var path = reference.Length <= 2 ? "" : reference[2..];
+        foreach (var rawSegment in path.Split('/').Where(segment => segment.Length > 0))
+        {
+            string key;
+            try
+            {
+                key = Uri.UnescapeDataString(rawSegment).Replace("~1", "/").Replace("~0", "~");
+            }
+            catch (UriFormatException)
+            {
+                return null;
+            }
+
+            if (!TryGetObject(current, out var obj) || !obj.TryGetValue(key, out var next))
+            {
+                return null;
+            }
+
+            current = next;
+        }
+
+        return current;
+    }
+
+    /// <summary>Schema descriptions and property names, recursively following local <c>$ref</c>s (#11803).</summary>
+    private static void SchemaText(object? schema, object? root, List<string> parts, HashSet<object> seen)
     {
         if (!TryGetObject(schema, out var map))
         {
             return;
+        }
+
+        if (map.TryGetValue("$ref", out var refValue) && refValue is string reference)
+        {
+            var target = ResolveLocalRef(reference, root);
+            // 对齐上游 seen.has(target)：在原始对象引用上判重（dictionary 包装可能生成副本）。
+            if (target is not null && TryGetObject(target, out _) && !seen.Contains(target))
+            {
+                seen.Add(target);
+                SchemaText(target, root, parts, seen);
+            }
         }
 
         if (map.TryGetValue("description", out var description) && description is string text)
@@ -283,12 +332,12 @@ public static partial class ToolSearch
             foreach (var (name, property) in props)
             {
                 parts.Add(name);
-                SchemaText(property, parts);
+                SchemaText(property, root, parts, seen);
             }
         }
 
         map.TryGetValue("items", out var items);
-        SchemaText(items, parts);
+        SchemaText(items, root, parts, seen);
 
         foreach (var key in new[] { "anyOf", "oneOf", "allOf" })
         {
@@ -296,7 +345,7 @@ public static partial class ToolSearch
             {
                 foreach (var variant in AsArray(variants))
                 {
-                    SchemaText(variant, parts);
+                    SchemaText(variant, root, parts, seen);
                 }
             }
         }
@@ -321,7 +370,10 @@ public static partial class ToolSearch
         // The ranker reads the name from Name and the namespace from NamespaceText; only the
         // description and the schema go into Text (TS `cc44fa216`).
         var parts = new List<string> { description };
-        SchemaText(parameters.JsonSchema, parts);
+        // #11803：以根 schema 本身为 root 起点，并把根加入 seen（防止 `#` 自引用递归）。
+        // seed 用 parameters.JsonSchema 原对象，与 ResolveLocalRef("#") 返回的对象同引用。
+        var seen = new HashSet<object>(ReferenceEqualityComparer.Instance) { parameters.JsonSchema };
+        SchemaText(parameters.JsonSchema, parameters.JsonSchema, parts, seen);
         // TS joins the three namespace parts unconditionally, so a namespace without description or
         // instructions still yields the name plus two spaces.
         var namespaceText = ns is null ? "" : $"{ns.Name} {ns.Description ?? ""} {ns.Instructions ?? ""}";
