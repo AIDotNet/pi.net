@@ -110,6 +110,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - **`pi config` 加载自定义键位**（#11651）：`ConfigSelectorCli` 在建 TUI 前调用
   `GlobalKeybindings.Set(KeybindingsManager.Create(agentDir))`，与 session-picker 一致；
   1 项定向用例（临时 keybindings.json 的 ctrl+p / ctrl+n 经 CLI 装载方法进入全局注册表）。
+- **Windows/WSL Ctrl+V 粘贴键**（#11765）：`AppKeybindings` 的 `app.clipboard.pasteImage`
+  在 Windows 下默认键改为 `alt+v` + `ctrl+v`（此前仅 `alt+v`）；1 项定向用例。
 
 ## [1.5.0] - 2026-11-05
 

@@ -150,8 +150,9 @@ public static class AppKeybindings
         definitions[AppMessageDequeue] = new KeybindingDefinition(
             Keys(windows ? "alt+q" : "alt+up"),
             "Restore queued messages");
+        // 上游 1.5.1 #11765：Windows/WSL 上 Ctrl+V 也是默认粘贴键（此前只有 alt+v）。
         definitions[AppClipboardPasteImage] = new KeybindingDefinition(
-            Keys(windows ? "alt+v" : "ctrl+v"),
+            windows ? Keys("alt+v", "ctrl+v") : Keys("ctrl+v"),
             "Paste files on macOS, images, or text from clipboard");
         definitions[AppSessionNew] = new KeybindingDefinition(Keys(), "Start a new session");
         definitions[AppSessionTree] = new KeybindingDefinition(Keys(), "Open session tree");

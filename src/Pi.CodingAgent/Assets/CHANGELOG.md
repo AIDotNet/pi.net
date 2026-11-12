@@ -57,6 +57,7 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
 - Fullscreen Kitty images are drawn after the rows they cover on every Kitty-capable
   terminal, not just WezTerm, fixing Orca showing only the first image row (#11835).
 - `pi config` now loads custom keybindings from `keybindings.json` (#11651).
+- Ctrl+V is a default paste key on Windows/WSL alongside Alt+V (#11765).
 
 ## [1.5.0] - 2026-11-05
 
