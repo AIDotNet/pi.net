@@ -1175,7 +1175,7 @@ public static class ProviderComposer
                     ProviderStreamOptions.FromDictionary(options),
                     null,
                     CancellationToken.None));
-            });
+            }, signal: LazyStream.SignalOf(options));
 
         /// <summary>TS <c>supportsBaseApi</c>：base 的 chat 目录里是否有同 api 的模型。</summary>
         private bool SupportsBaseApi(ModelSpec model)

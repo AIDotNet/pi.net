@@ -114,6 +114,19 @@ performance internals — no published feature is recorded as a deliberate non-i
   `scripts/gen_v152_disposition.py`.
 - Symlinked aliases of `auth.json` now share one lock, so two processes cannot refresh the
   same OAuth token at once (#11787 / #11655).
+- Intra-line diff rendering now separates the shared leading indentation before word-diffing,
+  so inserting text at the start of an indented line no longer drops the indentation from the
+  removed line or highlights it as an insertion (#9274).
+- Bash output is reported as truncated when the rolling buffer discarded earlier chunks, so a
+  single oversized chunk followed by a small tail no longer silently loses output (#10165).
+- The disposition table's port-source evidence is now derived from upstream production diffs
+  (multi-hit identifiers in port `.cs` files) instead of subject keyword guessing, with an
+  automated evidence-coverage self-check.
+- Lazy provider setup now ends with an aborted (not error) status when the signal is cancelled
+  (#8635); long tool-call IDs replayed to OpenRouter are shortened without collisions; relative
+  schema root `$id`s are applied only once (#11726); conversation options expose thinking budgets
+  and websocket connect timeout (#10410); `/reload` clears every extension overlay (#11853);
+  the startup-benchmark path disposes the session runtime (#11736).
 
 ## [1.5.0] - 2026-11-05
 

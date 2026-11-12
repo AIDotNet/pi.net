@@ -641,6 +641,53 @@ public sealed class SessionRuntimeLeafTests : IDisposable
         Assert.Null(result.ExitCode);
     }
 
+    // ---- bash-executor: 滚动缓冲丢弃过旧输出须上报截断（v1.5.2 #10165） -----
+
+    [Fact]
+    public async Task BashExecutor_ReportsTruncatedWhenRollingBufferDiscardsAHugeChunk()
+    {
+        // 单个超大 chunk 被滚动缓冲淘汰后只剩小尾巴，truncateTail(留存尾部) 判定「未截断」，
+        // 若没有 discardedOutput 标记就会静默丢弃 200KB 输出而不告知用户。
+        var huge = new string('x', Truncate.DefaultMaxBytes * 4); // 200KB > 2× 滚动上限
+        string? fullPath = null;
+        try
+        {
+            var result = await BashExecutor.ExecuteBashWithOperationsAsync(
+                "custom",
+                _root,
+                new ChunkedBashOperations([Chunk(huge), Chunk("tail\n")], null),
+                new BashExecutorOptions());
+
+            fullPath = result.FullOutputPath;
+            Assert.Equal("tail\n", result.Output);      // 输出仍是留存尾部
+            Assert.True(result.Truncated);              // 但必须上报「曾被截断」
+            Assert.NotNull(fullPath);                  // 完整输出已落临时文件
+            Assert.False(result.Cancelled);
+        }
+        finally
+        {
+            if (fullPath is not null)
+            {
+                try { File.Delete(fullPath); } catch (IOException) { }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task BashExecutor_DoesNotReportTruncationWhenNothingIsDiscarded()
+    {
+        // 对照：输出从未超过滚动上限，discardedOutput 保持 false，不应误报截断。
+        var result = await BashExecutor.ExecuteBashWithOperationsAsync(
+            "custom",
+            _root,
+            new ChunkedBashOperations([Chunk("short output\n")], null),
+            new BashExecutorOptions());
+
+        Assert.Equal("short output\n", result.Output);
+        Assert.False(result.Truncated);
+        Assert.Null(result.FullOutputPath);
+    }
+
     // ---- bash-executor: escape sequences split across chunks (pi#10504) -----
 
     [Fact]

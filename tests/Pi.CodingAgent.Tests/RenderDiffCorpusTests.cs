@@ -114,6 +114,58 @@ public sealed class RenderDiffCorpusTests
             DiffRenderer.RenderDiff("-1     indented = true;\n+1     indented = false;", null, Theme));
     }
 
+    // ── v1.5.2 #9274：行首插入时共享缩进不得被当作新增内容高亮 ─────────────────────────
+    // 上游 v1.5.2 新增 test/diff.test.ts，把 renderIntraLineDiff 改为「先分离共享前导缩进，
+    // 再对余下内容做词级 diff」；此前仅靠剥离首个 inverse 片段的前导空白，在行首插入场景下
+    // 会把共享缩进一起卷入反色片段。下面三条断言逐字对应上游的三个用例。
+
+    private static string StripRenderMarkers(string value) =>
+        System.Text.RegularExpressions.Regex.Replace(value, @"</?toolDiff[A-Za-z]+>|</>|\[/?inv\]", "");
+
+    [Theory]
+    [InlineData("-83   await commitRecordingChunk({\n+83   const result = await commitRecordingChunk({")]
+    [InlineData("-12     const value = oldValue\n+12     const value = newValue")]
+    public void RenderDiff_PreservesIndentationTextWhenTextChanges(string diff)
+    {
+        // 去掉渲染标记后文本应与输入逐字一致（上游 stripAnsi(rendered) 断言）。
+        Assert.Equal(diff, StripRenderMarkers(DiffRenderer.RenderDiff(diff, null, Theme)));
+    }
+
+    [Fact]
+    public void RenderDiff_DoesNotInvertSharedIndentationOnLeadingInsertion()
+    {
+        var rendered = DiffRenderer.RenderDiff(
+            "-83   await commitRecordingChunk({\n+83   const result = await commitRecordingChunk({",
+            null, Theme);
+        var inverseInsertion = Theme.Inverse("const result = ");
+
+        // 逐字固定 v1.5.2 行为：共享缩进同时保留在 removed 与 added 行，且只在插入片段上反色。
+        // 旧实现（仅剥离首个 inverse 片段前导空白）会丢掉 removed 行的共享缩进并反色插入缩进。
+        Assert.Equal(
+            "<toolDiffRemoved>-83   await commitRecordingChunk({</>\n" +
+            "<toolDiffAdded>+83   " + inverseInsertion + "await commitRecordingChunk({</>",
+            rendered);
+        // 共享缩进必须先于插入片段出现（未被卷入反色片段）。
+        Assert.True(
+            rendered.IndexOf("+83   ", StringComparison.Ordinal) <
+            rendered.IndexOf(inverseInsertion, StringComparison.Ordinal));
+        Assert.DoesNotContain(Theme.Inverse("  const result = "), rendered);
+        Assert.DoesNotContain("[inv] ", rendered);
+    }
+
+    [Fact]
+    public void RenderDiff_DoesNotInvertSharedIndentationOnIndentedReplacement()
+    {
+        var rendered = DiffRenderer.RenderDiff(
+            "-12     const value = oldValue\n+12     const value = newValue", null, Theme);
+
+        Assert.Contains(Theme.Inverse("oldValue"), rendered);
+        Assert.Contains(Theme.Inverse("newValue"), rendered);
+        // 前导缩进在任何 inverse 片段之外。
+        Assert.DoesNotContain("[inv]     ", rendered);
+        Assert.DoesNotContain("[inv] ", rendered);
+    }
+
     [Fact]
     public void RenderDiff_ExpandsTabsToThreeSpaces()
     {

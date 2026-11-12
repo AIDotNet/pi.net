@@ -2614,6 +2614,45 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         Assert.Equal("done", await mount);
     }
 
+    // 上游 1.5.2 #11853：/reload 与切会话丢弃扩展 overlay 时不调用 done()，必须逐个精确移除
+    // 所有扩展 overlay（旧实现的 _ui.HideOverlay() 只移除栈顶一个），且不动 pi 自己的 overlay。
+    [Fact]
+    public async Task ResetRemovesAndDisposesAllExtensionOverlays()
+    {
+        var host = await CreateHostAsync();
+        var mode = await CreateModeAsync(host: host);
+
+        // pi 自己的 overlay 先挂，reset 之后应仍在。
+        _ = mode.UiForTests.ShowOverlay(new Pi.Tui.Components.Text("pi-owned", 1, 0));
+
+        var a = new DisposableText();
+        var b = new DisposableText();
+        _ = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, _) => Task.FromResult<IComponent>(a),
+            new ExtensionCustomOptions
+            {
+                Overlay = true,
+                Blocked = new BlockedStatus(ProgramStatusKind.Question, "A?"),
+            });
+        await WaitUntilAsync(() => mode.BlockingOverlaySourcesCountForTests == 1, "A never opened");
+        _ = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, _) => Task.FromResult<IComponent>(b),
+            new ExtensionCustomOptions
+            {
+                Overlay = true,
+                Blocked = new BlockedStatus(ProgramStatusKind.Question, "B?"),
+            });
+        await WaitUntilAsync(() => mode.BlockingOverlaySourcesCountForTests == 2, "B never opened");
+
+        // DisposeAsync 会调用 setBeforeSessionInvalidate → ResetExtensionUI。
+        await host.DisposeAsync();
+
+        Assert.Equal(0, mode.BlockingOverlaySourcesCountForTests);
+        Assert.True(a.Disposed, "lower extension overlay was not removed/disposed by reset");
+        Assert.True(b.Disposed, "upper extension overlay was not removed/disposed by reset");
+        Assert.True(mode.UiForTests.HasOverlay(), "reset must leave pi's own overlay intact");
+    }
+
     // Regression for #10648: closing a lower overlay used to remove the topmost overlay instead,
     // leaving the finished one on screen and the dialog above it unresolved.
     [Fact]

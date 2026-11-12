@@ -966,7 +966,7 @@ public sealed class ModelRuntime : IModelResolverRuntime
             ModelOperations.AssertChatModel(model);
             var prepared = await PrepareChatRequestAsync(model, options).ConfigureAwait(false);
             return prepared.Provider.Stream(prepared.Model, context, prepared.Options);
-        });
+        }, signal: ReadSignal(options));
 
     public async Task<AssistantMessage> CompleteAsync(
         ModelSpec model, IReadOnlyList<ChatMessage> context, IReadOnlyDictionary<string, object?>? options = null,
@@ -1018,7 +1018,7 @@ public sealed class ModelRuntime : IModelResolverRuntime
                 if (maxTokens is { } budget) requestOptions["maxTokens"] = budget;
                 requestOptions["reasoning"] = reasoning;
                 return StreamSimple(route.Model, context, requestOptions);
-            });
+            }, signal: ReadSignal(options));
         }
 
         return LazyStream.Run(model, async () =>
@@ -1026,7 +1026,7 @@ public sealed class ModelRuntime : IModelResolverRuntime
             ModelOperations.AssertChatModel(model);
             var prepared = await PrepareChatRequestAsync(model, options).ConfigureAwait(false);
             return prepared.Provider.StreamSimple(prepared.Model, context, prepared.Options);
-        });
+        }, signal: ReadSignal(options));
     }
 
     public async Task<AssistantMessage> CompleteSimpleAsync(
@@ -1049,7 +1049,7 @@ public sealed class ModelRuntime : IModelResolverRuntime
             return prepared.Provider.StreamDeferred(prepared.Model, handle, prepared.Options)
                 ?? throw new ModelsError(ModelsErrorCode.Provider,
                     $"Provider {model.Provider} does not support deferred responses");
-        });
+        }, signal: ReadSignal(options));
 
     public async Task<AssistantMessage> FetchDeferredAsync(
         ModelSpec model, DeferredHandle handle, IReadOnlyDictionary<string, object?>? options = null,

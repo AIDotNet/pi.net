@@ -669,6 +669,12 @@ public sealed record ConversationStreamOptions
 
     public int? TimeoutMs { get; init; }
 
+    /// <summary>WebSocket 建连/握手超时；流空闲超时仍用 <see cref="TimeoutMs"/>（上游 #10410）。</summary>
+    public int? WebsocketConnectTimeoutMs { get; init; }
+
+    /// <summary>基于 token 的 provider 各思考档位的自定义预算（上游 #10410）。</summary>
+    public Pi.Ai.Types.ThinkingBudgets? ThinkingBudgets { get; init; }
+
     /// <summary>单次请求尝试内的 provider/SDK 重试。</summary>
     public int? MaxRetries { get; init; }
 

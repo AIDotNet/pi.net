@@ -646,6 +646,9 @@ public static class Main
                 // (Kitty keyboard protocol, device attributes, cell size) before restoring.
                 await Task.Delay(150).ConfigureAwait(false);
                 interactiveMode.Stop();
+                // 上游 1.5.2 #11736：benchmark 路径不走 RunAsync/ShutdownAsync，需显式释放运行时，
+                // 否则会话/扩展/OAuth 凭据写入等资源在退出时未结算。
+                await runtime.DisposeAsync().ConfigureAwait(false);
                 ThemeRuntime.StopThemeWatcher();
                 Timings.Print();
                 await output.FlushAsync().ConfigureAwait(false);

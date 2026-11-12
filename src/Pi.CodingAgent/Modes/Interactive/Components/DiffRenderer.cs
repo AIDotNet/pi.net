@@ -141,18 +141,29 @@ public static partial class DiffRenderer
     }
 
     /// <summary>
-    /// Compute word-level diff and render with inverse on changed parts. Uses
-    /// <see cref="JsDiff.DiffWords"/> which groups whitespace with adjacent words for cleaner
-    /// highlighting. Strips leading whitespace from the first inverse span to avoid highlighting
-    /// indentation.
+    /// Compute word-level diff and render with inverse on changed parts. Separates common indentation
+    /// before diffing so a leading insertion cannot consume it (v1.5.2 #9274).
     /// </summary>
     private static (string RemovedLine, string AddedLine) RenderIntraLineDiff(
         string oldContent, string newContent, IRenderDiffTheme theme)
     {
-        var wordDiff = JsDiff.DiffWords(oldContent, newContent);
+        // v1.5.2 #9274：先分离两行共享的前导缩进，再只对余下内容做词级 diff。
+        // 否则在行首插入内容时，共享缩进会被并进插入片段，缩进被误当作新增内容高亮。
+        // 上游用 `/\s/` 判定，端口复用已按 JS \s 集合实现的 IsJsWhitespace。
+        var commonIndentLength = 0;
+        while (commonIndentLength < oldContent.Length &&
+               commonIndentLength < newContent.Length &&
+               oldContent[commonIndentLength] == newContent[commonIndentLength] &&
+               IsJsWhitespace(oldContent[commonIndentLength]))
+        {
+            commonIndentLength++;
+        }
 
-        var removedLine = new StringBuilder();
-        var addedLine = new StringBuilder();
+        var commonIndent = oldContent[..commonIndentLength];
+        var wordDiff = JsDiff.DiffWords(oldContent[commonIndentLength..], newContent[commonIndentLength..]);
+
+        var removedLine = new StringBuilder(commonIndent);
+        var addedLine = new StringBuilder(commonIndent);
         var isFirstRemoved = true;
         var isFirstAdded = true;
 

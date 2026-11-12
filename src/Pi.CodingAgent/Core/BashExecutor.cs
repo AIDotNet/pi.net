@@ -66,6 +66,9 @@ public static class BashExecutor
         options ??= new BashExecutorOptions();
         var outputChunks = new List<string>();
         var outputBytes = 0;
+        // v1.5.2 #10165：滚动缓冲淘汰过旧 chunk 后，即使留存尾部未超阈值，也必须向用户报告
+        // 「输出曾被截断」——否则单个超大 chunk 被淘汰、只剩小尾巴时会静默丢失大量输出。
+        var discardedOutput = false;
         var maxOutputBytes = Truncate.DefaultMaxBytes * 2;
 
         string? tempFilePath = null;
@@ -118,6 +121,7 @@ public static class BashExecutor
                 var removed = outputChunks[0];
                 outputChunks.RemoveAt(0);
                 outputBytes -= removed.Length;
+                discardedOutput = true;
             }
 
             options!.OnChunk?.Invoke(text);
@@ -184,7 +188,7 @@ public static class BashExecutor
             Output = truncationResult.Truncated ? truncationResult.Content : fullOutput,
             ExitCode = cancelled ? null : exitCode,
             Cancelled = cancelled,
-            Truncated = truncationResult.Truncated,
+            Truncated = discardedOutput || truncationResult.Truncated,
             FullOutputPath = tempFilePath,
         };
     }

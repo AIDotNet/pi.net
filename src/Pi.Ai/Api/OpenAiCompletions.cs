@@ -576,7 +576,15 @@ public static class OpenAiCompletions
             return $"{prefix}_{hash}";
         }
 
-        if (model.Provider == "openai" && id.Length > 40) return id[..40];
+        // 上游 1.5.2 #5bdf988b7：OpenAI 拒绝过长的 tool call id（此处限 40，OpenRouter 转发到的
+        // Responses API 限 64）。OpenRouter 可把请求路由到任意 provider，因此它的 id 也要截到 40；
+        // 用 `前 31 字符 + _ + shortHash 前 8 位`，让共享长前缀的两个 id 仍彼此不同。
+        if ((model.Provider == "openai" || OpenRouterCost.IsOpenRouterModel(model)) && id.Length > 40)
+        {
+            var hash = Hash.ShortHash(id);
+            if (hash.Length > 8) hash = hash[..8];
+            return $"{id[..31]}_{hash}";
+        }
         return id;
     }
 

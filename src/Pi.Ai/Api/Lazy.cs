@@ -28,10 +28,11 @@ public static class LazyStream
     /// 准备失败时构造的错误终态消息（零用量 + StopReason.Error）。
     /// <paramref name="timestamp"/> 是流创建时刻——准备失败消息沿用请求开始时间，而不是失败发生的时刻。
     /// </summary>
-    public static AssistantMessage SetupErrorMessage(ModelSpec model, Exception error, long timestamp)
+    public static AssistantMessage SetupErrorMessage(
+        ModelSpec model, Exception error, long timestamp, StopReason stopReason = StopReason.Error)
         => new(
             Content: [],
-            StopReason: StopReason.Error,
+            StopReason: stopReason,
             ErrorMessage: error.Message,
             UsageStats: new Usage(0, 0),
             Model: model.Id,
@@ -40,11 +41,23 @@ public static class LazyStream
             Timestamp: timestamp);
 
     /// <summary>
+    /// 从 provider 选项字典取取消信号（<c>options["signal"]</c>）。对应 TS 把
+    /// <c>options?.signal</c> 一路透传进 <c>lazyStream</c> 的做法（上游 #8635）。
+    /// </summary>
+    public static CancellationToken SignalOf(IReadOnlyDictionary<string, object?>? options)
+        => options is not null
+           && options.TryGetValue("signal", out var value)
+           && value is CancellationToken token
+            ? token
+            : default;
+
+    /// <summary>
     /// 运行延迟准备并把内层事件流转发到外层流。对应 TS <c>lazyStream</c> +
     /// <c>forwardStream</c>：逐事件 push，随后以 <c>WaitForDoneAsync</c> 取终态收尾。
     /// </summary>
     public static IAssistantMessageEventStream Run(
-        ModelSpec model, Func<Task<IAssistantMessageEventStream>> setup, ILazyStreamObserver? observer = null)
+        ModelSpec model, Func<Task<IAssistantMessageEventStream>> setup,
+        ILazyStreamObserver? observer = null, CancellationToken signal = default)
     {
         var startedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var outer = new AssistantMessageEventStream();
@@ -66,7 +79,12 @@ public static class LazyStream
             }
             catch (Exception error)
             {
-                var message = SetupErrorMessage(model, error, startedAt);
+                // 上游 #8635：准备阶段被取消时以 aborted 终态收尾，而不是 error（哪怕抛出的
+                // 不是 OperationCanceledException，只要信号已取消就按 aborted 记）。
+                var reason = signal.IsCancellationRequested || error is OperationCanceledException
+                    ? StopReason.Aborted
+                    : StopReason.Error;
+                var message = SetupErrorMessage(model, error, startedAt, reason);
                 observer?.OnResult(null);
                 outer.Push(new AssistantMessageEvent.Error(message.StopReason, message.ErrorMessage!, message));
                 outer.End(message);
@@ -96,9 +114,11 @@ public static class LazyApi
         var streams = new ProviderStreams
         {
             Stream = (model, context, options) => LazyStream.Run(model, async () =>
-                (await load().ConfigureAwait(false)).Stream(model, context, options)),
+                (await load().ConfigureAwait(false)).Stream(model, context, options),
+                signal: LazyStream.SignalOf(options)),
             StreamSimple = (model, context, options) => LazyStream.Run(model, async () =>
-                (await load().ConfigureAwait(false)).StreamSimple(model, context, options)),
+                (await load().ConfigureAwait(false)).StreamSimple(model, context, options),
+                signal: LazyStream.SignalOf(options)),
         };
 
         if (capabilities?.FetchDeferred == true)
@@ -114,7 +134,7 @@ public static class LazyApi
                             "API does not support deferred responses");
                     }
                     return implementation.FetchDeferred(model, handle, options);
-                }),
+                }, signal: LazyStream.SignalOf(options)),
             };
         }
         if (capabilities?.CancelDeferred == true)

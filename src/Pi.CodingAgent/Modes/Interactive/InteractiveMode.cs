@@ -116,6 +116,10 @@ public partial class InteractiveMode
     // 关闭一个不影响其它仍在等待的提问；/reload 与切会话会丢弃 overlay 而不调用 done()，需一并清空。
     private int _nextBlockingOverlayId;
     private readonly HashSet<string> _blockingOverlaySources = new(StringComparer.Ordinal);
+    // 上游 1.5.2 #11853：已打开的扩展 overlay（custom with overlay:true）及其移除动作，按打开顺序登记。
+    // /reload 与切会话丢弃扩展时不调用 done()，reset 需逆序逐个精确移除（不动 pi 自己的 overlay）。
+    private readonly Dictionary<OverlayHandle, Action> _extensionOverlays =
+        new(ReferenceEqualityComparer.Instance);
 
     // Stored so the same manager can be injected into custom editors, selectors, and extension UI.
     private readonly Core.KeybindingsManager _keybindings;
@@ -1280,6 +1284,33 @@ public partial class InteractiveMode
             _ui.RequestRender();
         }
 
+        void DisposeComponent()
+        {
+            try
+            {
+                if (component is IDisposable disposable) disposable.Dispose();
+            }
+            catch
+            {
+                // ignore dispose errors
+            }
+        }
+
+        // 上游 1.5.2 #11853：done() 与 ResetExtensionUI() 共用的精确移除动作。
+        // 先从 map 删除再执行，使重复调用成为空操作；只移除本 overlay，不影响其上方的其它 overlay，
+        // 也不触碰 pi 自己的 overlay。reset 走这里时 promise 保持 pending（与 inline dialog 一致）。
+        void RemoveOverlay()
+        {
+            if (overlayHandle is null || !_extensionOverlays.Remove(overlayHandle)) return;
+            overlayHandle.Hide();
+            if (overlayStatusSource is not null)
+            {
+                _blockingOverlaySources.Remove(overlayStatusSource);
+                _programStatus.SetBlocked(overlayStatusSource, null);
+            }
+            DisposeComponent();
+        }
+
         void Close(T result)
         {
             if (closed)
@@ -1290,35 +1321,16 @@ public partial class InteractiveMode
             closed = true;
             if (isOverlay)
             {
-                // Remove this overlay, not the topmost one: another overlay may have opened above it.
-                overlayHandle?.Hide();
+                RemoveOverlay();
             }
             else
             {
                 RestoreEditor();
-            }
-
-            if (overlayStatusSource is not null)
-            {
-                _blockingOverlaySources.Remove(overlayStatusSource);
-                _programStatus.SetBlocked(overlayStatusSource, null);
+                DisposeComponent();
             }
 
             // Note: both branches above already call requestRender
             completion.TrySetResult(result);
-            try
-            {
-                switch (component)
-                {
-                    case IDisposable disposable:
-                        disposable.Dispose();
-                        break;
-                }
-            }
-            catch
-            {
-                // ignore dispose errors
-            }
         }
 
         try
@@ -1335,6 +1347,8 @@ public partial class InteractiveMode
                 var overlayOptions = options?.OverlayOptions;
                 var handle = _ui.ShowOverlay(component, overlayOptions);
                 overlayHandle = new OverlayHandle(handle);
+                // 上游 1.5.2 #11853：登记精确移除动作，供 reset 逆序清空所有扩展 overlay。
+                _extensionOverlays[overlayHandle] = RemoveOverlay;
                 if (overlayStatusSource is not null)
                 {
                     _blockingOverlaySources.Add(overlayStatusSource);
@@ -1519,9 +1533,11 @@ public partial class InteractiveMode
             ShowTopExtensionDialog();
         }
 
-        _ui.HideOverlay();
-        // 上游 1.5.1 #11851：/reload 与切会话丢弃 overlay 时不会调用 done()，需清掉它们的 blocked 状态，
-        // 否则终端会一直停在 blocked。
+        // 上游 1.5.2 #11853：/reload 与切会话丢弃扩展时不调用 done()，逐个精确移除所有扩展 overlay
+        // （逆序，与 done() 相同），不动 pi 自己的 overlay；promise 保持 pending（与 inline dialog 一致）。
+        // 不再用 _ui.HideOverlay()——它只移除栈顶一个，可能漏掉堆叠的 overlay 或误删 pi 自己的。
+        foreach (var removeOverlay in _extensionOverlays.Values.Reverse().ToArray()) removeOverlay();
+        // 兜底：任何未随 overlay 登记的 blocked 源也要回落，避免终端一直停在 blocked。
         foreach (var source in _blockingOverlaySources)
         {
             _programStatus.SetBlocked(source, null);

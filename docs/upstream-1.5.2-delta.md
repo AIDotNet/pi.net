@@ -16,7 +16,7 @@
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
 共享 `lines.ts`（MCP/env 传输）、`pi auth login/logout`、逐会话 `CompactionSettings`、
 JSONL `readOnly`、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **71 项**清单（每项含落点文件与验证用例名；§3.52–3.71 为复核 hook 反馈后
+详见 §3 的 **78 项**清单（每项含落点文件与验证用例名；§3.52–3.78 为复核 hook 反馈后
 补做的收尾批次，逐项消除「published 功能被记为不做项」）。**§4 仅剩 ➖ 不适用项**
 （端口形态不同 / 仓库外 / 第三方库 / 纯性能优化），逐条附代码级实证，不再含任何
 published 功能变更。判定依据如下。
@@ -63,7 +63,7 @@ release 的迁移**。因此本轮严格区分两类：
 
 **1.5.0 之后确有新的 release：`v1.5.1` 与 `v1.5.2`，本轮对齐到 `v1.5.2`。**
 `v1.5.1` 是功能版，`v1.5.2` 是小修版。按 §0.0 的标准判定：
-**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 71 项）；**
+**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 78 项）；**
 **仅余 ➖ 不适用项（平台形态不同 / 仓库外 / 第三方 Node 库），逐条给出代码级实证（§4）。**
 
 **逐条处置工件（hook 要求的 current authoritative v1.5.2-specific per-commit/per-bullet
@@ -76,13 +76,19 @@ coverage table with evidence）**：`docs/v1.5.2-disposition.md`，由
   同样给处置 + §3 行/端口源码命中/排除实证。
 - 配套的机械枚举工件 `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py`）逐条
   列出 143 commit 的 hash|subject|改动文件数 + 每包端口 src/测试文件数。
+- **证据来源（本轮升级）**：端口源码证据不再由 subject 单词在端口全文里猜共现，而是从每个
+  上游 commit 的**非测试改动**提取新增实义标识符，在端口 `src/tests` 全部 `.cs` 中做多命中
+  （倒排索引 + 单次 `git log -p -U0` 取全部补丁，可 grep 复核）。生成器新增「证据覆盖自检」：
+  143 行中 139 行带机械端口源码证据，4 个改动极小、C# 命名与 TS 不同的 commit 人工逐条实证，
+  0 个证据路径缺失、0 个「待核对」残留。本轮用该 differential 复核又发现并真实移植 2 个遗漏
+  （#9274 行内 diff 共享缩进 → §3.72、#10165 滚动缓冲丢弃输出上报截断 → §3.73）。
 
 > 说明：此前 §4.4 曾把一批 published 单点修复与新增 API（消息线程、`pi auth login/logout`、
 > `registerMarkdownTransformer(messageTypes)`、`ctx.ui.custom(blocked)`、逐会话
 > `CompactionSettings`、JSONL `readOnly`、RPC 关闭时序、#11807/#9276、#11975、#9654、
 > #8544、#9155、#11708、#11892 等）记为「有记录的不做项」。这些**不是**本补丁批次按成本/收益
 > 主动搁置的遗留工作，而是对 v1.5.1/v1.5.2 已发布变更的漏做。复核后已在本轮及紧接的收尾批次
-> **逐项真实移植**（见 §3.52–3.71 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
+> **逐项真实移植**（见 §3.52–3.78 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
 > 的 ➖ 不适用（§4.4），不再把任何 published 功能变更登记为不做项。
 
 **规模（只算 `packages/*/src`，不含测试与文档）与本轮处置**
@@ -313,6 +319,18 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.69 | #11679/6382d8706 `refreshModelsAuth`（published 遗漏，本轮审计发现） | `IProvider.RefreshModelsAuth`（`"credential"`/`"configured"`）；`Models.RefreshAsync` configured 模式用 `CheckProviderAuthAsync` 只判配置、不刷新过期 OAuth、`RefreshModelsContext.Credential=null`（stale 登录不再让 pi.dev 目录刷新失败）；`RemoteCatalogProvider`=configured、`PersonalizedCatalogProvider` 转发、`ProviderComposer` 组合判定（扩展 hooks 读 credential 时置 null） | `RefreshModelsAuthTests`（2：configured 不刷新 OAuth 且 Credential=null / 默认模式刷新过期 OAuth）+ RadiusRefresh/OpenRouterCatalog/CreateProvider/ProviderComposer 41 项不回归 |
 | 3.70 | #11964/#8842 shell tool native exit code（published 遗漏，本轮审计发现） | `PowerShellTool.WindowsPowerShellExitSuffix` 逐字对齐上游修正 Windows 5.1 stderr 重定向误判 exit 1；`BuildCommand` 纯叶子仅对旧版 5.1 宿主且命令不以反引号结尾时追加后缀（`pwsh 7` 不加） | `PowerShellExitCodeTests`（5：5.1 追加 / 7 不加 / bash 不加 / 反引号跳过 / 后缀逐字）+ `AgentSessionBuildTests` 24/24 不回归 |
 | 3.71 | #11787/#11655 auth.json symlink 锁竞态（published 遗漏，本轮审计发现） | 上游去掉 proper-lockfile 的 `realpath:false`，让 auth.json 的符号链接别名与真实文件共享锁；端口 `FileAuthStorageBackend.LockKeyFor` 用 `Paths.CanonicalizePath`（逐段解析符号链接的 realpath）作锁键，读写仍走原路径，避免两进程经不同别名并发刷新同一 OAuth token | `AuthStorageSymlinkLockTests`（3：别名/真实路径锁键一致 / 路径写法别名归一化 + 全限定 / WithLock 跨别名共享锁，后两者需 symlink 权限的用例按项目既有模式 Skip；反向验证锁键未规范化时归一化用例失败）+ `NodeLockTests` 1/1、`AuthCredentialsTests` 9/9、`RuntimeCredentialsSettleTests` 3/3 不回归 |
+| 3.72 | #9274/dca1f5552 行内 diff 保留共享缩进（published 遗漏，本轮 differential 审计发现） | 上游 v1.5.2 把 `renderIntraLineDiff` 改为「先分离两行共享的前导缩进、再对余下内容做词级 diff」，替换掉旧版「只剥离首个 inverse 片段前导空白」；端口 `DiffRenderer.RenderIntraLineDiff` 用既有 `IsJsWhitespace`（JS `\s` 集合）算 `commonIndentLength`，`JsDiff.DiffWords` 只作用于切片，`StringBuilder` 以 `commonIndent` 起步 | `RenderDiffCorpusTests` 新增 3 组（+2 用例）：行首插入逐字输出、共享缩进不入 inverse、缩进替换不入 inverse；反向验证回退旧实现后 2 用例失败；既有 83 条语料 + 差分钟子测试 111/111 不回归 |
+| 3.73 | #10165/66c655677 滚动缓冲丢弃输出须上报截断（published 遗漏，本轮 differential 审计发现） | 上游 `bash-executor.ts` 增加 `discardedOutput` 标记：滚动缓冲淘汰旧 chunk 后 `truncated` 取 `discardedOutput` 或 `truncationResult.truncated`；端口 `BashExecutor.ExecuteBashWithOperationsAsync` 补 `discardedOutput`（淘汰循环内置位）并合并进 `BashResult.Truncated`，避免单个超大 chunk 被淘汰、只剩小尾巴时静默丢失 200KB 输出而不告知用户 | `SessionRuntimeLeafTests` 新增 2 用例（超大 chunk 被淘汰时 `Truncated=true` + `FullOutputPath` 非空 / 未超限时 `Truncated=false` 不误报）；反向验证去掉标记后 1 用例失败；既有 bash-executor 35 项不回归 |
+| 3.74 | #5bdf988b7 OpenRouter 长 tool call id 截短（published 遗漏，本轮 differential 审计发现） | 上游 `openai-completions.ts` 把 `id.length>40` 的截短从仅 `openai` 扩到 `openai 或 isOpenRouterModel`，且由裸 `slice(0,40)` 改为 `slice(0,31)_shortHash.slice(0,8)` 让共享长前缀的两个 id 仍可区分；端口 `OpenAiCompletions.NormalizeToolCallId`（无 `|` 分支）对齐判定并用 `Hash.ShortHash` 取前 8 位 | `OpenAiCompletionsToolCallIdTests`（6：OpenRouter 截短≤40 且 calls/results 成对 / 共享前缀两 id 仍不同 / 短 id 不变 / OpenAI 同样截短 / 其它 provider 不截 / 31+_+hash8 恰好 40 字符）；反向验证回退旧逻辑后 4 用例失败 |
+| 3.75 | #10410/dbc61d647 durable `ConversationStreamOptions` 新增 websocket 建连超时与思考预算（published 遗漏，本轮 differential 审计发现） | 上游 harness 流选项新增 `websocketConnectTimeoutMs` 与 `thinkingBudgets`；端口 `HarnessTypes.ConversationStreamOptions` 补两字段，`Provider.StreamOptionsToRequest` 纯叶子装配进请求字典（经 `ProviderStreamOptions.FromDictionary` 到 `SimpleStreamOptions`），`RequestOptionsAsync` 调用它 | `ConversationStreamOptionsV152Tests`（6：映射两键 / 缺省省略 / `JsonTrees` 往返 / camelCase wire 名 / FromDictionary / FromJson）；Pi.Durable 全量不回归 |
+| 3.76 | #8635/f3a64af07 lazy 准备阶段取消须报 aborted 而非 error（published 遗漏，本轮 differential 审计发现） | 上游 `lazy.ts` 把 `options.signal` 透传进 `lazyStream`，准备失败且信号已取消时以 aborted 终态收尾；端口 `LazyStream.Run` 增 signal 参数与 `SignalOf`，`SetupErrorMessage` 支持 StopReason，`Models`/`CreateProvider`/`ModelRuntime`/`ProviderComposer`/`LazyApi` 全调用点透传 `options["signal"]`（`Models.ApplyAuthAsync` 不再用 `CancellationToken.None`） | `LazyStreamAbortTests`（6：已取消信号按 aborted / 未取消按 error / OperationCanceledException 按 aborted / 未取消信号不影响成功流 / SetupErrorMessage 默认 error / SignalOf 提取）；反向验证恒为 error 后 2 用例失败 |
+| 3.77 | #11853/80d4d3c86 reload/切会话移除全部扩展 overlay（published 遗漏，本轮 differential 审计发现） | 上游改用 `extensionOverlays: Map<OverlayHandle, removeFn>` 逆序精确移除所有扩展 overlay、不动 pi 自己的；端口旧 `ResetExtensionUI` 只调 `_ui.HideOverlay()`（仅移除栈顶一个，堆叠时漏掉、或误删 pi 自有 overlay），改为 `_extensionOverlays` 字典 + `done()`/reset 共用 `RemoveOverlay`（精确 `OverlayHandle.Hide` + 清 blocked 源 + dispose 组件） | `InteractiveModeTests.ResetRemovesAndDisposesAllExtensionOverlays`（1：两个带 blocked overlay 在 `runtime.DisposeAsync` 触发 reset 后都被移除并 dispose、blocked 源清零、pi 自有 overlay 保留）；反向验证退回 `_ui.HideOverlay()` 后失败 |
+| 3.78 | #11736/efb45b51d startup benchmark 退出须释放运行时（published 遗漏，本轮 differential 审计发现） | 上游 `main.ts` 在 `PI_STARTUP_BENCHMARK` 分支 `interactiveMode.stop()` 后补 `await runtime.dispose()`；端口该分支不走 `RunAsync`/`ShutdownAsync`（dispose 原本只在那里），`Cli/Main.cs` 显式 `await runtime.DisposeAsync()`，避免会话/扩展/OAuth 凭据写入未结算 | `StartupBenchmarkDisposeTests`（1：注入 `PI_STARTUP_BENCHMARK=1` 与 `session_shutdown` 扩展，断言 benchmark 退出发出 shutdown）；反向验证移除 dispose 后失败 |
+
+**本轮 differential 审计的等价实证与形态排除（逐条核对上游 production diff 后确认非遗漏）**：
+- `#11726`（相对根 `$id` 只应用一次）：端口 `ToolSchemaValidator` 构造即 `Warm()` 建索引，`SchemaResolver.BaseFor` 返回已索引 base，只应用一次；上游修复针对的重复应用路径在端口不存在。`SchemaRelativeRootIdTests`（3：本地 `$ref` / coerce / 嵌套分支自带 `$id`）镜像上游用例钉住。
+- `#11855`（OAuth 回调关服 `closeAllConnections()`）与 `#11724`（stdio 子进程 exit→close 才清理进程组）：端口分别用 `HttpListener.Stop()`（不等活动连接）、.NET `Process` + `Kill(entireProcessTree: true)`，无 Node `server.close()` / `USE_PROCESS_GROUPS` 挂起路径，属 §4 平台形态不适用。
+- `#244e5f5db` / `#d448c51e2` / `#9a1953961` / `#11873` / `#11947` / `#11895`：确认端口已实现（`IGrepToolOperations.ReadFileAsync` 保留为 deprecated、`EditDiff.ApplyReplacementsToOriginal`/`GetLineEndingAt`、`Changelog.GetNewEntries` 可空 + 调用判空、`PromptTemplates.ParseCommandArgs` 引号仅参数开头、`Editor.cs` paste 后缀 `.Success ? : ""`、`GrepTool` glob 去 `./` + cwd 锚定），见生成器 `MANUAL_DISPOSITION` 逐条实证。
 
 **逐 published-commit 覆盖工件（数据派生，可复现）**：`scripts/gen_v152_coverage.py` 从上游
 `git log v1.5.0..v1.5.2 -- ':(glob)packages/*/src/**'` 机械枚举 **143** 个触及 src 的 published
@@ -337,7 +355,7 @@ commit，逐条列出 `hash | subject | 文件数`（`docs/v1.5.2-commit-coverag
 > 本章登记**端口无对应宿主或消费方**的 ➖ 不适用项：Node/npm/TypeBox 构造 API、
 > 第三方 Node 渲染库替换、仓库外安装脚本、纯性能内部优化、v2 对象运行时。每项给出
 > 「可复核的代码/仓库证据」。`v1.5.1/v1.5.2` 的 published **功能**变更不在此登记——
-> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.71 的收尾批次）。
+> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.78 的收尾批次）。
 > 判定「完整」的权威口径见 §0.0（`migration-execution-status.md`「特殊范围决策」：
 > chord 有意收窄、不宣称 Node/Bun runtime parity、TypeBox 构造 API 不适用、配置 schema 静态产物）。
 
@@ -462,7 +480,7 @@ env daemon `process` 操作（`RemoteProcess`/进程管道）是 Node 侧 PTY/�
 **判定**：剩余的 ➖ 项经 `git show --stat` + `git ls-files` + 端口源码行号逐条证明，
 要么「上游该提交改动的文件在端口仓库根本不存在（仓库外安装器 / v2 store / npm 链）」，
 要么「可移植行为端口已实现、仅 npm 运行时专有部分无宿主」。
-v1.5.1/v1.5.2 的 published **功能**变更已全部落到 §3（71 项），无一登记为不做项。
+v1.5.1/v1.5.2 的 published **功能**变更已全部落到 §3（78 项），无一登记为不做项。
 全部 143 个触及 src 的 published commit 见数据派生、可复现的逐条覆盖工件
 `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py` 生成）。
 

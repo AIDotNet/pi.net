@@ -266,6 +266,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   锁键未规范化时失败）；`NodeLockTests` 1/1、`AuthCredentialsTests` 9/9、
   `RuntimeCredentialsSettleTests` 3/3 不回归。§3 扩到 71 项。
 
+### Fixed（第九轮：production-diff differential 全面审计，再查遗漏与 bug）
+
+对 143 个 published src-commit 做了**上游 production diff → 端口源码**的机械差分：从每个
+上游 commit 的非测试改动中提取新增实义标识符，在端口 `src/tests` 全部 `.cs` 中做多命中核对
+（取代旧处置表里用 subject 单词瞎猜、常命中无关文件的伪证据）。55 个「已核对·同功能」兜底行
+逐一复核，发现并真实修复 2 个 published 遗漏：
+
+- **#9274 / `dca1f5552` 行内 diff 保留共享缩进**：上游 v1.5.2 把 `renderIntraLineDiff` 改为
+  「先分离两行共享的前导缩进、再对余下内容做词级 diff」，替换旧版「只剥离首个 inverse 片段前导
+  空白」。端口 `DiffRenderer.RenderIntraLineDiff` 此前仍是旧实现——行首插入内容时会**丢掉 removed
+  行的共享缩进**并把缩进误高亮为新增。现用既有 `IsJsWhitespace`（JS `\s` 集合）计算
+  `commonIndentLength`，`JsDiff.DiffWords` 只作用于切片、两行以 `commonIndent` 起步。
+  `RenderDiffCorpusTests` 新增 3 组断言（行首插入逐字输出 / 共享缩进不入 inverse / 缩进替换），
+  反向验证回退旧实现后 2 用例失败；83 条差分语料 + 本类 111/111 不回归。
+- **#10165 / `66c655677` 滚动缓冲丢弃输出须上报截断**：上游 `bash-executor.ts` 新增
+  `discardedOutput` 标记，淘汰旧 chunk 后 `truncated: discardedOutput || truncationResult.truncated`。
+  端口 `BashExecutor` 缺该标记，单个超大 chunk 被淘汰、只剩小尾巴时 `truncateTail(留存尾部)`
+  判定未截断，会静默丢弃约 200KB 输出而不告知用户。现补 `discardedOutput` 并合并进
+  `BashResult.Truncated`。`SessionRuntimeLeafTests` 新增 2 用例（淘汰时 `Truncated=true` +
+  `FullOutputPath` 非空 / 未超限时 `Truncated=false`），反向验证去掉标记后 1 用例失败。
+
+**处置表证据质量修复**：`scripts/gen_v152_disposition.py` 改为用上游 production diff 的新增标识符
+在端口 `.cs` 的多命中派生证据（倒排索引 + 单次 `git log -p` 取全部补丁，3.6s 生成），并新增
+「证据覆盖自检」章节（引用路径 `git ls-files` 核对、无端口文件证据的 commit 逐条列出供人工核对）。
+4 个改动极小、C# 命名与 TS 不同的 commit（#11947 / #11945 / #11790 / #11780）人工逐条核对真实
+落点并登记实证；其余 139 行均带机械可复核的端口源码证据，0 个证据路径缺失。§3 扩到 **78** 项。
+
+**本轮 differential 复核同时落地的其余 published 项**（上游 production diff 逐条核对后的真实移植，
+代码与测试均在位；处置表中按上游标识符多命中给出端口源码证据）：
+
+- **#8635 / `f3a64af07` 延迟准备阶段保留 aborted 终态**：`LazyStream.SignalOf` 从 options 取
+  取消信号，`SetupErrorMessage` 可指定 `StopReason`，准备失败且信号已取消时以 `Aborted` 收尾；
+  `LazyApi` / `Models` / `CreateProvider` / `ModelRuntime` / `ProviderComposer` 把信号透传进
+  `LazyStream.Run`。`LazyStreamAbortTests`（6 用例）。
+- **`5bdf988b7` OpenRouter 长 tool call id 截断**：`OpenAiCompletions` 对 OpenAI 与 OpenRouter
+  模型同样截到 40 字符，用「前 31 字符 + `_` + shortHash 前 8 位」保证共享长前缀的两个 id 仍互异。
+  `OpenAiCompletionsToolCallIdTests`（6 用例）。
+- **#11726 / `2bd2c2d0a` 相对根 `$id` 只应用一次**：schema 引用解析中嵌套自带相对 `$id` 的分支
+  不被外层根 `$id` 二次污染。`SchemaRelativeRootIdTests`（3 用例）。
+- **#10410 / `dbc61d647` 思考预算与 websocket 超时选项**：`ConversationStreamOptions` 增加
+  `WebsocketConnectTimeoutMs` / `ThinkingBudgets`，`Provider.StreamOptionsToRequest` 纯叶子映射到
+  `websocketConnectTimeoutMs` / `thinkingBudgets` wire 键。`ConversationStreamOptionsV152Tests`（6 用例）。
+- **#11853 / `80d4d3c86` `/reload` 与切会话清空全部扩展 overlay**：`InteractiveMode` 以
+  `ReferenceEqualityComparer` 登记每个扩展 overlay 的精确移除动作，reset 时逆序逐个移除（不再只弹
+  栈顶、不误删 pi 自己的 overlay），并回落 blocked 状态源。`InteractiveModeTests` 增补用例。
+- **#11736 / `efb45b51d` benchmark 路径释放会话运行时**：`Cli/Main.cs` benchmark 分支不走
+  `RunAsync/ShutdownAsync`，退出前显式 `DisposeAsync` 结算会话/扩展/凭据写入。
+  `StartupBenchmarkDisposeTests`（新文件）。
+
 ## [1.5.0] - 2026-11-05
 
 对齐上游 `v1.5.0`（308 个提交）。三个大头：**durable 的窗口化视图与提交语义**、**遥测与传播**

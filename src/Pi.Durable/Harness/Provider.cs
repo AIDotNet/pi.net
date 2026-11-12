@@ -55,14 +55,19 @@ public static class Provider
     /// （off 省略）。C# 的 Models 门面以字典承载请求选项，信号等非 JSON 值按
     /// <c>ProviderStreamOptions.FromDictionary</c> 的约定原样携带。对应 TS <c>…streamOptions, signal, sessionId, reasoning</c> 展开。
     /// </summary>
-    public static async Task<Dictionary<string, object?>> RequestOptionsAsync(
-        ITaskRuntime runtime, ConversationStreamOptions streamOptions, Pi.Ai.Types.ThinkingLevel thinkingLevel,
-        long? maxTokens = null, string? cacheRetention = null)
+    /// <summary>
+    /// 把 <see cref="ConversationStreamOptions"/> 映射成 provider 请求选项键（纯函数）。
+    /// 与 TS <c>…streamOptions</c> 展开一致；供 <see cref="RequestOptionsAsync"/> 装配与回归验证。
+    /// </summary>
+    public static Dictionary<string, object?> StreamOptionsToRequest(ConversationStreamOptions streamOptions)
     {
-        var sessionId = await EnsureProviderSessionIdAsync(runtime, Context.Background).ConfigureAwait(false);
         var options = new Dictionary<string, object?>();
         if (streamOptions.Transport is not null) options["transport"] = streamOptions.Transport;
         if (streamOptions.TimeoutMs is { } timeout) options["timeoutMs"] = (long)timeout;
+        if (streamOptions.WebsocketConnectTimeoutMs is { } websocketTimeout)
+            options["websocketConnectTimeoutMs"] = (long)websocketTimeout;
+        if (streamOptions.ThinkingBudgets is { } thinkingBudgets)
+            options["thinkingBudgets"] = thinkingBudgets;
         if (streamOptions.MaxRetries is { } retries) options["maxRetries"] = (long)retries;
         if (streamOptions.MaxRetryDelayMs is { } retryDelay) options["maxRetryDelayMs"] = (long)retryDelay;
         if (streamOptions.Headers is { } headers)
@@ -75,8 +80,7 @@ public static class Provider
             options["metadata"] = System.Text.Json.JsonSerializer.SerializeToNode(metadata);
         }
 
-        if (cacheRetention is not null) options["cacheRetention"] = cacheRetention;
-        else if (streamOptions.CacheRetention is not null) options["cacheRetention"] = streamOptions.CacheRetention;
+        if (streamOptions.CacheRetention is not null) options["cacheRetention"] = streamOptions.CacheRetention;
         if (streamOptions.Deferred is { } deferred)
         {
             // 与 TS 一致：deferred 透传布尔或 {window} 形状。
@@ -86,6 +90,17 @@ public static class Provider
                     ? new Dictionary<string, object?> { ["window"] = window }
                     : null;
         }
+
+        return options;
+    }
+
+    public static async Task<Dictionary<string, object?>> RequestOptionsAsync(
+        ITaskRuntime runtime, ConversationStreamOptions streamOptions, Pi.Ai.Types.ThinkingLevel thinkingLevel,
+        long? maxTokens = null, string? cacheRetention = null)
+    {
+        var sessionId = await EnsureProviderSessionIdAsync(runtime, Context.Background).ConfigureAwait(false);
+        var options = StreamOptionsToRequest(streamOptions);
+        if (cacheRetention is not null) options["cacheRetention"] = cacheRetention;
 
         if (maxTokens is { } tokens) options["maxTokens"] = tokens;
         options["signal"] = runtime.Signal;

@@ -138,7 +138,8 @@ public static class ProviderFactory
             if (streams is null)
             {
                 return LazyStream.Run(model, () => throw new ModelsError(ModelsErrorCode.Stream,
-                    $"Provider {_input.Id} has no API implementation for \"{model.Api}\""));
+                    $"Provider {_input.Id} has no API implementation for \"{model.Api}\""),
+                    signal: LazyStream.SignalOf(options));
             }
             return select(streams)(model, new TranscriptContext(context), options);
         }
@@ -163,7 +164,7 @@ public static class ProviderFactory
                         $"Provider {_input.Id} does not support deferred responses for \"{model.Api}\"");
                 }
                 return Task.FromResult(implementation.FetchDeferred(model, handle, options));
-            });
+            }, signal: LazyStream.SignalOf(options));
         }
 
         public async Task CancelDeferredAsync(ModelSpec model, DeferredHandle handle,
