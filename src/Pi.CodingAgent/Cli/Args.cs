@@ -534,7 +534,7 @@ public static class CliArgs
               {{Config.AppName}} update [source|self|pi]   Update pi, extensions, or model catalogs
               {{Config.AppName}} list                      List installed extensions from settings
               {{Config.AppName}} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
-              {{Config.AppName}} auth <command>            Print credentials or check provider readiness
+              {{Config.AppName}} auth <command>            Log in or out, print credentials, or check provider readiness
               {{Config.AppName}} mcp <command>             Check MCP servers, sign in to or out of OAuth servers
               {{Config.AppName}} doctor [--json]           Diagnose local configuration, tools, and credential sources offline
               {{Config.AppName}} <command> --help          Show help for install/remove/uninstall/update/list/config/auth/mcp/doctor

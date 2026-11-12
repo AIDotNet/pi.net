@@ -764,6 +764,21 @@ public static class Main
             return AuthCommandRunResult.Done();
         }
 
+        // v1.5.1 (9b9cb30ae): login/logout 早于 parseAuthCommand 分流，且不把 --offline 传给命令。
+        if (args.Count >= 2 && args[0] == "auth" && args[1] == "login")
+        {
+            var loginArgs = args.Skip(2).Where(arg => arg != "--offline").ToList();
+            return AuthCommandRunResult.Done(
+                await RunAuthLoginCommandAsync(loginArgs, output, error).ConfigureAwait(false));
+        }
+
+        if (args.Count >= 2 && args[0] == "auth" && args[1] == "logout")
+        {
+            var logoutArgs = args.Skip(2).Where(arg => arg != "--offline").ToList();
+            return AuthCommandRunResult.Done(
+                await RunAuthLogoutCommandAsync(logoutArgs, output, error).ConfigureAwait(false));
+        }
+
         AuthCommand command;
         try
         {
@@ -917,6 +932,76 @@ public static class Main
         }
 
         return AuthCommandRunResult.Done(authExitCode);
+    }
+
+    /// <summary>
+    /// Port of <c>runAuthLoginCommand</c> (v1.5.1): 建不带联网的 ModelRuntime、进程登录终端，
+    /// 把 SIGINT 接到取消、Radius MCP 写入接到全局 mcp.json，再交给 <see cref="AuthLoginCommand.RunAsync"/>。
+    /// </summary>
+    internal static async Task<int> RunAuthLoginCommandAsync(
+        IReadOnlyList<string> args, TextWriter output, TextWriter error)
+    {
+        var cwd = Environment.CurrentDirectory;
+        var agentDir = Config.GetAgentDir();
+        var settings = SettingsManager.Create(cwd, agentDir, new SettingsManagerCreateOptions
+        {
+            ProjectTrusted = false,
+        });
+        HttpDispatcher.ApplyHttpProxySettings(settings.GetGlobalSettings().HttpProxy);
+
+        using var createCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var modelRuntime = await ModelRuntime.CreateAsync(new CreateModelRuntimeOptions
+        {
+            AllowModelNetwork = false,
+            Signal = createCts.Token,
+        }).ConfigureAwait(false);
+
+        using var interruptCts = new CancellationTokenSource();
+        void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
+        {
+            e.Cancel = true;
+            interruptCts.Cancel();
+        }
+
+        Console.CancelKeyPress += OnCancelKeyPress;
+        try
+        {
+            var runtime = new ModelRuntimeAuthLoginRuntime(modelRuntime);
+            var terminal = new ProcessLoginTerminal(output, error, interruptCts.Cancel);
+            return await AuthLoginCommand.RunAsync(args, new AuthLoginOptions(
+                runtime,
+                terminal,
+                agentDir,
+                cwd,
+                settings.GetOrCreateDeviceId,
+                interruptCts.Token,
+                Config.AppName,
+                Config.GetAuthPath(),
+                Radius.McpUrl,
+                () => McpConfig.Load(agentDir, cwd, false).Servers,
+                plan => McpConfig.Add(plan.McpPath, plan.Name, plan.Config),
+                McpServers.Namespace)).ConfigureAwait(false);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= OnCancelKeyPress;
+        }
+    }
+
+    /// <summary>Port of <c>runAuthLogoutCommand</c> (v1.5.1)：15s 超时 + 简易 write/error 终端。</summary>
+    internal static async Task<int> RunAuthLogoutCommandAsync(
+        IReadOnlyList<string> args, TextWriter output, TextWriter error)
+    {
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var modelRuntime = await ModelRuntime.CreateAsync(new CreateModelRuntimeOptions
+        {
+            AllowModelNetwork = false,
+            Signal = timeoutCts.Token,
+        }).ConfigureAwait(false);
+        var runtime = new ModelRuntimeAuthLoginRuntime(modelRuntime);
+        var terminal = new ProcessLoginTerminal(output, error, timeoutCts.Cancel);
+        return await AuthLogoutCommand.RunAsync(
+            args, new AuthLogoutOptions(runtime, terminal, timeoutCts.Token, Config.AppName)).ConfigureAwait(false);
     }
 
     /// <summary>Port of <c>prepareInitialMessage</c>.</summary>

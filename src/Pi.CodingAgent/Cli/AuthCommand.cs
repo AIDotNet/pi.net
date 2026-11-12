@@ -96,11 +96,35 @@ public static partial class AuthCommands
     public static void PrintAuthCommandHelp()
     {
         Console.WriteLine($"Usage:\n" +
+            "  pi auth login <provider> [--api-key] [--no-browser]\n" +
+            "  pi auth logout <provider>\n" +
             "  pi auth print-api-key [--provider <provider>] [--model <model>]\n" +
             "  pi auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]\n" +
             "  pi auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]\n" +
             "\n" +
-            "Auth commands require at least one of --provider or --model. Checks refresh expired OAuth credentials by default; --no-refresh prevents this. --credentials emits the credential, or includes it in JSON output.");
+            "Log in to and out of model providers, print their credentials for external clients, or check that they are ready.\n" +
+            "Credentials are stored in ~/.pi/agent/auth.json.\n" +
+            "\n" +
+            "Commands:\n" +
+            "  login <provider>        Sign in with an account in the browser, or save an API key, then exit\n" +
+            "  logout <provider>       Remove the stored credentials; environment variables and models.json stay\n" +
+            "  print-api-key           Print the resolved API key\n" +
+            "  print-bearer-token      Print a resolved OAuth bearer token (refreshes if expired)\n" +
+            "  check                   Print ready, not_ready, or invalid; exit with 0, 1, or 2\n" +
+            "\n" +
+            "Options for print-api-key, print-bearer-token, and check (at least one is required):\n" +
+            "  --provider <provider>   Resolve credentials for a provider\n" +
+            "  --model <model>         Resolve credentials from a model\n" +
+            "\n" +
+            "Options for login:\n" +
+            "  --api-key               Save an API key instead of signing in with an account\n" +
+            "  --no-browser            Do not open a browser; use another sign-in method, e.g. device code\n" +
+            "\n" +
+            "Other options:\n" +
+            "  --min-expiry <duration> Minimum remaining token lifetime for print-bearer-token, e.g. 30m or 1h\n" +
+            "  --json                  Print the check result as JSON\n" +
+            "  --credentials           Emit the credential from check, or include it in JSON output\n" +
+            "  --no-refresh            Do not refresh expired OAuth credentials during check");
     }
 
     /// <summary>对应 TS <c>parseAuthCommand</c>：非 auth 命令返回 <c>null</c>。</summary>
@@ -124,7 +148,7 @@ public static partial class AuthCommands
         {
             var unknown = args.Count > 1 ? args[1] : "";
             throw new AuthCommandError(
-                $"Unknown auth command \"{unknown}\". Use \"{Config.AppName} auth print-api-key\", \"{Config.AppName} auth print-bearer-token\", or \"{Config.AppName} auth check\".");
+                $"Unknown auth command \"{unknown}\". Use \"{Config.AppName} auth login\", \"{Config.AppName} auth logout\", \"{Config.AppName} auth print-api-key\", \"{Config.AppName} auth print-bearer-token\", or \"{Config.AppName} auth check\".");
         }
 
         var commandArgs = new List<string>();
