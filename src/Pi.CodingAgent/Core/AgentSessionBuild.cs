@@ -123,6 +123,12 @@ public partial class AgentSession
     private bool _agentRunAbortRequested;
     private TaskCompletionSource? _idleWaitTcs;
 
+    /// <summary>
+    /// 上游 1.5.1 #9155：prompt 的异步预检（input 处理器 / 模板展开 / 鉴权）期间占位计数，
+    /// 让树导航不能与之重叠。_startRun 会同步把 run 标记为 active，故二者之间没有空隙。
+    /// </summary>
+    private int _promptPreflightCount;
+
     /// <summary>Tracks pending steering messages for UI display. Removed when delivered.</summary>
     private readonly List<string> _steeringMessages = [];
 
@@ -1512,16 +1518,8 @@ public partial class AgentSession
         string targetId, NavigateTreeSessionOptions? options = null)
     {
         options ??= new NavigateTreeSessionOptions();
-        if (IsStreaming)
-        {
-            throw new InvalidOperationException("Wait for the current response to finish before navigating the session tree.");
-        }
-
-        if (IsCompacting)
-        {
-            throw new InvalidOperationException(
-                "Wait for the current compaction or tree navigation to finish before navigating the session tree.");
-        }
+        // 上游 1.5.1 #9155：prompt 的异步预检期间树导航也要拒绝（此时 IsStreaming 仍为 false）。
+        ThrowIfTreeNavigationBlocked(IsStreaming, IsCompacting, _promptPreflightCount > 0);
 
         var oldLeafId = SessionManager.GetLeafId();
 

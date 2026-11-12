@@ -65,6 +65,22 @@ public sealed class AgentSessionTreeTests
     }
 
     [Fact]
+    public void ThrowIfTreeNavigationBlocked_PreflightActiveUsesStreamingMessage()
+    {
+        // 上游 1.5.1 #9155：prompt 的异步预检期间 IsStreaming=false，但树导航仍按 streaming 那条拒绝。
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => AgentSession.ThrowIfTreeNavigationBlocked(
+                isStreaming: false, isCompacting: false, promptPreflightActive: true));
+        Assert.Equal(
+            "Wait for the current response to finish before navigating the session tree.",
+            ex.Message);
+
+        // 预检结束（计数归零）后允许导航。
+        AgentSession.ThrowIfTreeNavigationBlocked(
+            isStreaming: false, isCompacting: false, promptPreflightActive: false);
+    }
+
+    [Fact]
     public void IsTreeNavigationNoOp_ComparesByIdentityOfValue()
     {
         Assert.True(AgentSession.IsTreeNavigationNoOp("a", "a"));

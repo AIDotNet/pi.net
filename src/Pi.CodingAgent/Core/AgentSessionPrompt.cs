@@ -59,12 +59,44 @@ public partial class AgentSession
             }
         }
 
-        if (_compactionAbortController is not null)
+        // 上游 1.5.1 #9155：压缩或分支摘要进行中拒绝提交提示词（原先只查 manual compaction）。
+        if (_compactionAbortController is not null || _branchSummaryAbortController is not null)
         {
             throw new InvalidOperationException(
                 "Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.");
         }
 
+        // 上游 1.5.1 #9155：异步预检（input 处理器 / 鉴权）期间占位，避免树导航与之重叠。
+        // StartRunAsync 会同步把 run 标记为 active，故预检结束与 run 开始之间没有空隙。
+        _promptPreflightCount++;
+        ExtensionEvent.BeforeAgentStartTrigger.User? trigger;
+        try
+        {
+            trigger = await PreparePromptAsync(text, options, expandPromptTemplates, preflightResult)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _promptPreflightCount--;
+        }
+
+        if (trigger is not null)
+        {
+            await StartRunAsync(trigger, ()
+                => preflightResult?.Invoke(PromptDisposition.Started)).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 上游 1.5.1 #9155 的 <c>_preparePrompt</c>：input 事件 → skill/模板展开 → 流式中排队 →
+    /// 模型/鉴权校验，返回 run 触发器；被处理或排队时返回 <c>null</c>（并上报处置）。
+    /// </summary>
+    private async Task<ExtensionEvent.BeforeAgentStartTrigger.User?> PreparePromptAsync(
+        string text,
+        PromptOptions? options,
+        bool expandPromptTemplates,
+        Action<string>? preflightResult)
+    {
         // input 事件在 skill/模板展开**之前**派发，供扩展拦截。
         var processedInput = await RunInputHandlersAsync(
             text,
@@ -74,7 +106,7 @@ public partial class AgentSession
         if (processedInput is null)
         {
             preflightResult?.Invoke(PromptDisposition.Handled);
-            return;
+            return null;
         }
 
         var currentText = processedInput.Text;
@@ -105,7 +137,7 @@ public partial class AgentSession
             }
 
             preflightResult?.Invoke(PromptDisposition.Queued);
-            return;
+            return null;
         }
 
         var model = Model;
@@ -129,8 +161,7 @@ public partial class AgentSession
             throw new InvalidOperationException(AuthGuidance.FormatNoApiKeyFoundMessage(model.Provider));
         }
 
-        await StartRunAsync(new ExtensionEvent.BeforeAgentStartTrigger.User(expandedText, currentImages), ()
-            => preflightResult?.Invoke(PromptDisposition.Started)).ConfigureAwait(false);
+        return new ExtensionEvent.BeforeAgentStartTrigger.User(expandedText, currentImages);
     }
 
     /// <summary>

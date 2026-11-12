@@ -65,10 +65,12 @@ public partial class AgentSession
 
     /// <summary>
     /// 对应 TS <c>navigateTree</c> 开头的两条守卫。两者都抛错而不是返回。
+    /// 上游 1.5.1 #9155：prompt 的异步预检（input/before_agent_start 钩子）期间也要按 streaming 那条拒绝。
     /// </summary>
-    public static void ThrowIfTreeNavigationBlocked(bool isStreaming, bool isCompacting)
+    public static void ThrowIfTreeNavigationBlocked(
+        bool isStreaming, bool isCompacting, bool promptPreflightActive = false)
     {
-        if (isStreaming)
+        if (isStreaming || promptPreflightActive)
         {
             throw new InvalidOperationException(
                 "Wait for the current response to finish before navigating the session tree.");
