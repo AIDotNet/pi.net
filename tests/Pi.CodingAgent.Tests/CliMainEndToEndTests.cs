@@ -88,7 +88,9 @@ public sealed class CliMainEndToEndTests : IDisposable
         var (code, output, error) = await RunAsync(["update", "--extensions"]);
 
         Assert.Equal(0, code);
-        Assert.Contains("Updated packages", output, StringComparison.Ordinal);
+        // v1.5.1 #11707/#11711：空包且无 warning 时上游打印 "Packages are already up to date"
+        // （旧版固定打印 "Updated packages"），CLI 已对齐三态汇总。
+        Assert.Contains("Packages are already up to date", output, StringComparison.Ordinal);
         Assert.Empty(error);
     }
 
