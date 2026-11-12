@@ -9,7 +9,7 @@
 - **上游目标版本：`v1.5.2`**（tag `b4afdddf4`，2026-11-10，`origin/stable` 同点）。
   1.5.0 之后上游依次发布了 `v1.5.1`（`dd30101cf`，2026-11-09）与 `v1.5.2`；
   同步窗口 `v1.5.0..v1.5.2` = **395 个提交**（线性，其中 233 个触及 `packages/`）。
-  逐包差异、处置标记与「不跟」理由见 [upstream-1.5.2-delta.md](./upstream-1.5.2-delta.md)。
+  逐包差异、处置标记与「有记录的不做项」的权威依据见 [upstream-1.5.2-delta.md](./upstream-1.5.2-delta.md)。
 - **参照检出：`a40abecaa`（`main`，v1.5.2 之后的未发布提交）**。`v1.5.2..HEAD` 的
   p2/p3 实验稿按既定策略先不跟，等下一个 tag。
 - **端口版本：`1.5.2`**（`Directory.Build.props` 的 `<Version>` 为唯一来源）。
