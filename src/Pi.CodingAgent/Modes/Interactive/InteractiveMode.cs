@@ -112,6 +112,11 @@ public partial class InteractiveMode
     /// <summary>Reports working, blocked, done, and error states to terminals that support OSC 7501.</summary>
     private readonly ProgramStatusReporter _programStatus;
 
+    // 上游 1.5.1 #11851：ctx.ui.custom() overlay 带 blocked 时各自登记独立 program status 源，
+    // 关闭一个不影响其它仍在等待的提问；/reload 与切会话会丢弃 overlay 而不调用 done()，需一并清空。
+    private int _nextBlockingOverlayId;
+    private readonly HashSet<string> _blockingOverlaySources = new(StringComparer.Ordinal);
+
     // Stored so the same manager can be injected into custom editors, selectors, and extension UI.
     private readonly Core.KeybindingsManager _keybindings;
     private readonly string _version;
@@ -275,6 +280,7 @@ public partial class InteractiveMode
     internal IReadOnlyList<IComponent> ChatChildrenForTests => _chatContainer.GetChildrenSnapshot();
     internal IReadOnlyList<IComponent> PendingMessagesContainerChildrenForTests => _pendingMessagesContainer.GetChildrenSnapshot();
     internal int PendingBashComponentsCountForTests => _pendingBashComponents.Count;
+    internal int BlockingOverlaySourcesCountForTests => _blockingOverlaySources.Count;
     internal void AddPendingChildForTests(IComponent child) => _pendingMessagesContainer.AddChild(child);
     internal void AddPendingBashComponentForTests(BashExecutionComponent component)
     {
@@ -1253,6 +1259,12 @@ public partial class InteractiveMode
         var savedText = _editor.GetText();
         var isOverlay = options?.Overlay ?? false;
 
+        // 上游 1.5.1 #11851：带 blocked 的 overlay 在整个交互期间（含 setHidden 隐藏时）保持 blocked，
+        // 直到 done() 结束；每个 overlay 一个独立源，关闭一个不影响其它仍在等待的提问。
+        var overlayStatusSource = isOverlay && options?.Blocked is not null
+            ? $"extension-overlay:{_nextBlockingOverlayId++}"
+            : (string?)null;
+
         var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         var closed = false;
         IComponent? component = null;
@@ -1286,6 +1298,12 @@ public partial class InteractiveMode
                 RestoreEditor();
             }
 
+            if (overlayStatusSource is not null)
+            {
+                _blockingOverlaySources.Remove(overlayStatusSource);
+                _programStatus.SetBlocked(overlayStatusSource, null);
+            }
+
             // Note: both branches above already call requestRender
             completion.TrySetResult(result);
             try
@@ -1317,6 +1335,12 @@ public partial class InteractiveMode
                 var overlayOptions = options?.OverlayOptions;
                 var handle = _ui.ShowOverlay(component, overlayOptions);
                 overlayHandle = new OverlayHandle(handle);
+                if (overlayStatusSource is not null)
+                {
+                    _blockingOverlaySources.Add(overlayStatusSource);
+                    _programStatus.SetBlocked(overlayStatusSource, options?.Blocked);
+                }
+
                 // 把 TUI 的真实句柄交给扩展；overlay 关闭后该句柄的后续调用为空操作。
                 options?.OnHandle?.Invoke(overlayHandle);
             }
@@ -1496,6 +1520,14 @@ public partial class InteractiveMode
         }
 
         _ui.HideOverlay();
+        // 上游 1.5.1 #11851：/reload 与切会话丢弃 overlay 时不会调用 done()，需清掉它们的 blocked 状态，
+        // 否则终端会一直停在 blocked。
+        foreach (var source in _blockingOverlaySources)
+        {
+            _programStatus.SetBlocked(source, null);
+        }
+
+        _blockingOverlaySources.Clear();
         ClearExtensionTerminalInputListeners();
         SetExtensionFooter(null);
         SetExtensionHeader(null);

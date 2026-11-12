@@ -249,6 +249,74 @@ public sealed class ExtensionRunnerTests
         Assert.Null(runner.GetEntryRenderer("missing"));
     }
 
+    // ------------------------------------------------------------------ #11756 markdown transformer messageTypes
+
+    private static string TransformAt(
+        IReadOnlyList<MarkdownTransformer> transformers, string markdown, string messageType)
+    {
+        var context = new MarkdownTransformContext
+        {
+            MessageType = messageType, IsStreaming = false, AvailableWidth = 80,
+        };
+        var result = markdown;
+        foreach (var transformer in transformers)
+        {
+            result = transformer(result, context);
+        }
+
+        return result;
+    }
+
+    [Fact]
+    public async Task MarkdownTransformer_DefaultRunsOnTranscriptTypesOnly()
+    {
+        // 上游 #11756 默认 messageTypes = [user, assistant, assistant-thinking]。
+        var extension = NewExtension("<inline>");
+        extension.MarkdownTransformer = new MarkdownTransformer((md, _) => md.ToUpperInvariant());
+        // 未指定 messageTypes（null）→ 默认三种。
+        var runner = await CreateRunnerAsync([extension]);
+        var transformers = runner.GetMarkdownTransformers();
+
+        Assert.Equal("ABC", TransformAt(transformers, "abc", MarkdownMessageTypes.User));
+        Assert.Equal("ABC", TransformAt(transformers, "abc", MarkdownMessageTypes.Assistant));
+        Assert.Equal("ABC", TransformAt(transformers, "abc", MarkdownMessageTypes.AssistantThinking));
+        Assert.Equal("abc", TransformAt(transformers, "abc", MarkdownMessageTypes.Custom));
+        Assert.Equal("abc", TransformAt(transformers, "abc", MarkdownMessageTypes.Summary));
+        Assert.Equal("abc", TransformAt(transformers, "abc", MarkdownMessageTypes.Changelog));
+    }
+
+    [Fact]
+    public async Task MarkdownTransformer_OptedInSurfacesRun_EverythingElseUnchanged()
+    {
+        // options.messageTypes 选择 custom + summary；其余（含默认 transcript）都不运行。
+        var extension = NewExtension("<inline>");
+        extension.MarkdownTransformer = new MarkdownTransformer((md, _) => md.ToUpperInvariant());
+        extension.MarkdownTransformerMessageTypes =
+            new HashSet<string>([MarkdownMessageTypes.Custom, MarkdownMessageTypes.Summary], StringComparer.Ordinal);
+        var runner = await CreateRunnerAsync([extension]);
+        var transformers = runner.GetMarkdownTransformers();
+
+        Assert.Equal("ABC", TransformAt(transformers, "abc", MarkdownMessageTypes.Custom));
+        Assert.Equal("ABC", TransformAt(transformers, "abc", MarkdownMessageTypes.Summary));
+        Assert.Equal("abc", TransformAt(transformers, "abc", MarkdownMessageTypes.User));
+        Assert.Equal("abc", TransformAt(transformers, "abc", MarkdownMessageTypes.Assistant));
+        Assert.Equal("abc", TransformAt(transformers, "abc", MarkdownMessageTypes.Changelog));
+    }
+
+    [Fact]
+    public async Task MarkdownTransformer_EmptyMessageTypes_RunsNowhere()
+    {
+        // options.messageTypes = [] 时，任何表面都不运行（对照上游 new Set([])）。
+        var extension = NewExtension("<inline>");
+        extension.MarkdownTransformer = new MarkdownTransformer((md, _) => md.ToUpperInvariant());
+        extension.MarkdownTransformerMessageTypes = new HashSet<string>(StringComparer.Ordinal);
+        var runner = await CreateRunnerAsync([extension]);
+        var transformers = runner.GetMarkdownTransformers();
+
+        Assert.Equal("abc", TransformAt(transformers, "abc", MarkdownMessageTypes.User));
+        Assert.Equal("abc", TransformAt(transformers, "abc", MarkdownMessageTypes.Changelog));
+    }
+
     // ------------------------------------------------------------------ contexts
 
     [Fact]

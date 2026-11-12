@@ -570,10 +570,21 @@ public sealed class ExtensionRunner
         return null;
     }
 
-    /// <summary>Markdown transformers of every extension, in load order.</summary>
+    /// <summary>
+    /// Markdown transformers of every extension, in load order（上游 1.5.1 #11756）。
+    /// 每个 transformer 被包一层：只对登记的表面生效，未登记的表面原样返回 Markdown。
+    /// </summary>
     public IReadOnlyList<MarkdownTransformer> GetMarkdownTransformers() =>
         [.. extensions.Where(extension => extension.MarkdownTransformer is not null)
-            .Select(extension => extension.MarkdownTransformer!)];
+            .Select<Extension, MarkdownTransformer>(extension =>
+            {
+                var transformer = extension.MarkdownTransformer!;
+                var messageTypes = extension.MarkdownTransformerMessageTypes is { } explicitTypes
+                    ? explicitTypes
+                    : new HashSet<string>(MarkdownMessageTypes.Default, StringComparer.Ordinal);
+                return (markdown, context) =>
+                    messageTypes.Contains(context.MessageType) ? transformer(markdown, context) : markdown;
+            })];
 
     /// <summary>Renderers of calls to <paramref name="toolName"/>: extension resolvers in load order, then <paramref name="base"/>.</summary>
     public ToolRenderers? ResolveToolRenderers(string toolName, Func<ToolRenderers?> @base)

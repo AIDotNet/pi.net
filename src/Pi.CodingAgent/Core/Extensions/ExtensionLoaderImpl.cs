@@ -416,10 +416,14 @@ internal sealed class ExtensionApiImpl : IExtensionApi
         extension.MessageRenderers[customType] = renderer;
     }
 
-    public void RegisterMarkdownTransformer(MarkdownTransformer transformer)
+    public void RegisterMarkdownTransformer(MarkdownTransformer transformer, MarkdownTransformerOptions? options = null)
     {
         AssertActive();
         extension.MarkdownTransformer = transformer;
+        // 上游 1.5.1 #11756：登记运行的消息表面；null 保留默认（runner 按默认三种解释）。
+        extension.MarkdownTransformerMessageTypes = options?.MessageTypes is { } types
+            ? new HashSet<string>(types, StringComparer.Ordinal)
+            : null;
     }
 
     public void RegisterEntryRenderer(string customType, EntryRenderer renderer)

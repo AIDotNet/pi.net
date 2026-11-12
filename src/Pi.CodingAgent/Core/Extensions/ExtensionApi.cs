@@ -316,8 +316,12 @@ public interface IExtensionApi
     /// <summary>Register a custom renderer for CustomMessageEntry.</summary>
     void RegisterMessageRenderer(string customType, MessageRenderer renderer);
 
-    /// <summary>Register a transformer for user and assistant Markdown before Pi renders it.</summary>
-    void RegisterMarkdownTransformer(MarkdownTransformer transformer);
+    /// <summary>
+    /// Register a transformer for Markdown before Pi renders it in interactive mode. By default it runs on
+    /// user / assistant / thinking Markdown; <paramref name="options"/>.MessageTypes selects the surfaces
+    /// instead（上游 1.5.1 #11756）.
+    /// </summary>
+    void RegisterMarkdownTransformer(MarkdownTransformer transformer, MarkdownTransformerOptions? options = null);
 
     /// <summary>Register a custom renderer for CustomEntry. Custom entries do not participate in LLM context.</summary>
     void RegisterEntryRenderer(string customType, EntryRenderer renderer);

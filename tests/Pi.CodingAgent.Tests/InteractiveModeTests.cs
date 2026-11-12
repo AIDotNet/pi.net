@@ -2542,6 +2542,78 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
     // 4f-4m-6：扩展自产组件（TS showExtensionCustom L2946-3010）
     // ==================================================================
 
+    // ---------------------------------------------------------------- #11851 (v1.5.1) overlay blocked status
+
+    [Fact]
+    public async Task BlockingOverlay_ReportsBlockedUntilDone()
+    {
+        // 上游 1.5.1 #11851：带 blocked 的 ctx.ui.custom() overlay 从 showOverlay 起报告 blocked，
+        // 直到 done()；普通 overlay（无 blocked）不登记状态。
+        var mode = await CreateModeAsync();
+        Action<string> close = _ => { };
+        var blocked = new BlockedStatus(ProgramStatusKind.Question, "Answer me");
+        var mount = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, complete) =>
+            {
+                close = complete;
+                return Task.FromResult<IComponent>(new Pi.Tui.Components.Text("Q", 1, 0));
+            },
+            new ExtensionCustomOptions { Overlay = true, Blocked = blocked });
+
+        await WaitUntilAsync(() => mode.BlockingOverlaySourcesCountForTests == 1, "overlay never registered blocked");
+        Assert.Equal(ProgramStatusState.Blocked, _terminal.ProgramStatuses[^1].State);
+        Assert.Equal("Answer me", _terminal.ProgramStatuses[^1].Message);
+
+        close("ok");
+        Assert.Equal("ok", await mount);
+        Assert.Equal(0, mode.BlockingOverlaySourcesCountForTests);
+        // 关闭后最后一条状态不再是 blocked（ProgramStatusReporter.CurrentStatus 回落）。
+        Assert.NotEqual(ProgramStatusState.Blocked, _terminal.ProgramStatuses[^1].State);
+    }
+
+    [Fact]
+    public async Task TwoBlockingOverlays_ClosingOneKeepsTheOtherBlocked()
+    {
+        // 上游 1.5.1 #11851：每个 overlay 独立源；关掉一个仍保留另一个的 blocked 状态。
+        var mode = await CreateModeAsync();
+        Action<string> closeA = _ => { };
+        Action<string> closeB = _ => { };
+        var a = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, complete) => { closeA = complete; return Task.FromResult<IComponent>(new Pi.Tui.Components.Text("A", 1, 0)); },
+            new ExtensionCustomOptions { Overlay = true, Blocked = new BlockedStatus(ProgramStatusKind.Question, "A?") });
+        await WaitUntilAsync(() => mode.BlockingOverlaySourcesCountForTests == 1, "A never opened");
+        var b = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, complete) => { closeB = complete; return Task.FromResult<IComponent>(new Pi.Tui.Components.Text("B", 1, 0)); },
+            new ExtensionCustomOptions { Overlay = true, Blocked = new BlockedStatus(ProgramStatusKind.Question, "B?") });
+        await WaitUntilAsync(() => mode.BlockingOverlaySourcesCountForTests == 2, "B never opened");
+        // 最近显示的提问提供 message。
+        Assert.Equal("B?", _terminal.ProgramStatuses[^1].Message);
+
+        closeB("b");
+        Assert.Equal("b", await b);
+        Assert.Equal(1, mode.BlockingOverlaySourcesCountForTests);
+        Assert.Equal(ProgramStatusState.Blocked, _terminal.ProgramStatuses[^1].State);
+        Assert.Equal("A?", _terminal.ProgramStatuses[^1].Message);
+
+        closeA("a");
+        Assert.Equal("a", await a);
+        Assert.Equal(0, mode.BlockingOverlaySourcesCountForTests);
+    }
+
+    [Fact]
+    public async Task NonBlockingOverlay_DoesNotRegisterBlockedStatus()
+    {
+        var mode = await CreateModeAsync();
+        Action<string> close = _ => { };
+        var mount = mode.ShowExtensionCustomAsync<string>(
+            (_, _, _, complete) => { close = complete; return Task.FromResult<IComponent>(new Pi.Tui.Components.Text("loader", 1, 0)); },
+            new ExtensionCustomOptions { Overlay = true }); // 无 Blocked
+        await WaitUntilAsync(() => mode.UiForTests.HasOverlay(), "overlay never opened");
+        Assert.Equal(0, mode.BlockingOverlaySourcesCountForTests);
+        close("done");
+        Assert.Equal("done", await mount);
+    }
+
     // Regression for #10648: closing a lower overlay used to remove the topmost overlay instead,
     // leaving the finished one on screen and the dialog above it unresolved.
     [Fact]

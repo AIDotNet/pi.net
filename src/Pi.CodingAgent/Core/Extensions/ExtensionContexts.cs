@@ -123,8 +123,8 @@ public sealed record ExtensionCustomOptions
     public Action<OverlayHandle>? OnHandle { get; init; }
 
     /// <summary>
-    /// Report the program as blocked on user input (OSC 7501) while this component is visible.
-    /// Only applies to inline components, not overlays. TS <c>c1810bf70</c>.
+    /// Report the program as blocked on user input (OSC 7501) while this component waits for input.
+    /// 内联组件在可见期间报告；overlay 从 showOverlay 起直到 done()，含 setHidden 隐藏期间（上游 1.5.1 #11851）。
     /// </summary>
     public BlockedStatus? Blocked { get; init; }
 }

@@ -1154,10 +1154,35 @@ public sealed record MessageRenderOptions
     public Func<string, string, string> KeyHint { get; init; } = Modes.Interactive.Components.KeybindingHints.KeyHint;
 }
 
+/// <summary>
+/// 上游 1.5.1 #11756：Markdown transformer 可以运行的消息表面。
+/// 默认仅三种 transcript 消息；扩展可通过 <see cref="MarkdownTransformerOptions.MessageTypes"/>
+/// 选择 custom（自定义消息/展开的 skill 块）、summary（分支/压缩摘要）、changelog 等表面。
+/// </summary>
+public static class MarkdownMessageTypes
+{
+    public const string User = "user";
+    public const string Assistant = "assistant";
+    public const string AssistantThinking = "assistant-thinking";
+    public const string Custom = "custom";
+    public const string Summary = "summary";
+    public const string Changelog = "changelog";
+
+    /// <summary>注册时未指定 messageTypes 时的默认表面（逐字对照上游 DEFAULT_MARKDOWN_MESSAGE_TYPES）。</summary>
+    public static readonly string[] Default = [User, Assistant, AssistantThinking];
+}
+
+/// <summary>上游 1.5.1 #11756 <c>MarkdownTransformerOptions</c>。</summary>
+public sealed record MarkdownTransformerOptions
+{
+    /// <summary>transformer 运行的表面；null 时用 <see cref="MarkdownMessageTypes.Default"/>。</summary>
+    public IReadOnlyList<string>? MessageTypes { get; init; }
+}
+
 /// <summary>TS <c>MarkdownTransformContext</c>.</summary>
 public sealed record MarkdownTransformContext
 {
-    /// <summary>"user", "assistant" or "assistant-thinking".</summary>
+    /// <summary>TS <c>MarkdownMessageType</c>：user / assistant / assistant-thinking / custom / summary / changelog。</summary>
     public required string MessageType { get; init; }
 
     public bool IsStreaming { get; init; }

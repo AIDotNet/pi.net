@@ -188,6 +188,12 @@ public sealed class Extension
     /// <summary>Markdown transformer, when the extension registered one.</summary>
     public MarkdownTransformer? MarkdownTransformer { get; set; }
 
+    /// <summary>
+    /// 上游 1.5.1 #11756：该 transformer 运行的消息表面；null 表示用默认三种 transcript 表面。
+    /// 由 <c>RegisterMarkdownTransformer(transformer, options)</c> 写入，runner 据此过滤。
+    /// </summary>
+    public HashSet<string>? MarkdownTransformerMessageTypes { get; set; }
+
     /// <summary>Custom entry renderers by custom entry type.</summary>
     public Dictionary<string, Delegate> EntryRenderers { get; } = new(StringComparer.Ordinal);
 
