@@ -75,7 +75,7 @@ public class ProviderFactoriesTests
     public void BuiltinModelsRegistersEveryProvider()
     {
         var models = All.BuiltinModels();
-        Assert.Equal(42, models.GetProviders().Count);
+        Assert.Equal(43, models.GetProviders().Count);
         Assert.NotNull(models.GetModel("deepseek", "deepseek-v4-pro"));
     }
 

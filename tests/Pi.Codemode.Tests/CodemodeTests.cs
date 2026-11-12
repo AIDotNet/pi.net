@@ -186,6 +186,22 @@ public class DeclarationTests
         Assert.Equal("unknown", CodemodeDeclarations.SchemaToType(Schema("""{"$ref":"https://example.com/s.json"}""")));
     }
 
+    /// <summary>上游 1.5.1 #11803：畸形百分号转义的本地 $ref 不能让整个脚本渲染抛 URI malformed，
+    /// 参数退化为 unknown；并新增公开的 resolveSchemaRef 供宿主复用。</summary>
+    [Fact]
+    public void MalformedLocalRefRendersUnknownAndResolveSchemaRefIsPublic()
+    {
+        var malformed = Schema("""{"$defs":{"Bad":{"$ref":"#/$defs/%E0"}},"type":"object","properties":{"a":{"$ref":"#/$defs/%E0"}}}""");
+        Assert.Equal("{ a?: unknown; }", CodemodeDeclarations.SchemaToType(malformed));
+
+        var root = Schema("""{"$defs":{"Item":{"type":"string"}}}""");
+        Assert.NotNull(CodemodeDeclarations.ResolveSchemaRef("#/$defs/Item", root));
+        Assert.Equal("string", CodemodeDeclarations.ResolveSchemaRef("#/$defs/Item", root)!["type"]!.GetValue<string>());
+        Assert.Null(CodemodeDeclarations.ResolveSchemaRef("#/$defs/%E0", root));
+        Assert.Null(CodemodeDeclarations.ResolveSchemaRef("https://example.com/x", root));
+        Assert.Null(CodemodeDeclarations.ResolveSchemaRef("#/$defs/Missing", root));
+    }
+
     [Fact]
     public void MaxCharsFallsBackToUnknown()
     {

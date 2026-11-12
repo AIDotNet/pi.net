@@ -65,6 +65,9 @@ public record ProxySerializableStreamOptions
 
     public string? SessionId { get; init; }
 
+    /// <summary>上游 1.5.1 #11545：随请求转发，重放类请求不使用/覆盖服务端续接状态。</summary>
+    public bool DisableContinuation { get; init; }
+
     public System.Collections.Generic.IReadOnlyDictionary<string, string?>? Headers { get; init; }
 
     public System.Text.Json.Nodes.JsonObject? Metadata { get; init; }

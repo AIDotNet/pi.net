@@ -116,6 +116,19 @@ public class ProviderErrorTests
         Assert.Equal("503: upstream exploded", ProviderError.Format(norm));
     }
 
+    /// <summary>上游 1.5.1 #11695：连接级失败（无 status/body）把最深层 cause 拼进 message，
+    /// 避免 "Connection error." 这类泛化文案丢掉 ECONNREFUSED 等根因。</summary>
+    [Fact]
+    public void AppendsDeepestCauseForConnectionLevelFailures()
+    {
+        var error = new Exception("Connection error.",
+            new Exception("fetch failed", new Exception("connect ECONNREFUSED 127.0.0.1:443")));
+        var norm = ProviderError.Normalize(error);
+        Assert.Null(norm.Status);
+        Assert.Null(norm.Body);
+        Assert.Contains("ECONNREFUSED", norm.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FormatWithPrefix()
     {

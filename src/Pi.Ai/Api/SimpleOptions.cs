@@ -13,6 +13,11 @@ public static class SimpleOptions
 {
     private const int ContextSafetyTokens = 4096;
     private const int MinMaxTokens = 1;
+    // 上游 1.5.1 #10497：OpenRouter 用自己的 tokenizer 计输入，可能比 provider 高约 12%，
+    // 且会在路由前拒绝 input + max_tokens 超窗。留 15% 余量，仅当仍留得下这么多输出时启用；
+    // 否则退回固定余量并把输出压到 32K，避免大窗临近写满时被误判为溢出而提前压缩。
+    private const double ContextSafetyRatio = 0.15;
+    private const int MinOutputWithRatioMargin = 32768;
 
     /// <summary>思考预算共享响应上限时给答案预留的 token。对应 TS <c>MIN_ANSWER_TOKENS</c>。</summary>
     public const int MinAnswerTokens = 1024;
@@ -24,8 +29,14 @@ public static class SimpleOptions
     public static int ClampMaxTokensToContext(ModelSpec model, TranscriptContext context, int maxTokens)
     {
         if (model.ContextWindow <= 0) return Math.Max(MinMaxTokens, maxTokens);
-        var available = model.ContextWindow - Pi.Ai.Utils.Estimate.EstimateContextTokens(context).Tokens - ContextSafetyTokens;
-        return Math.Min(maxTokens, (int)Math.Max(MinMaxTokens, available));
+        var input = Pi.Ai.Utils.Estimate.EstimateContextTokens(context).Tokens;
+        var margin = (int)Math.Max(ContextSafetyTokens, Math.Ceiling(input * ContextSafetyRatio));
+        var room = model.ContextWindow - input - margin;
+        if (room < MinOutputWithRatioMargin)
+        {
+            room = Math.Min(MinOutputWithRatioMargin, model.ContextWindow - input - ContextSafetyTokens);
+        }
+        return (int)Math.Min(maxTokens, Math.Max(MinMaxTokens, room));
     }
 
     /// <summary>

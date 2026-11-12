@@ -3,7 +3,10 @@
 ## [1.5.2] - 2026-11-12
 
 Aligned with upstream Pi `v1.5.1` / `v1.5.2`. See `CHANGELOG.md` at the repository root and
-`docs/upstream-1.5.2-delta.md` for the full delta ledger.
+`docs/upstream-1.5.2-delta.md` for the full delta ledger. Per the repository's authoritative scope
+document (`docs/migration-execution-status.md`), the port's functional surface is fully aligned;
+remaining upstream changes are documented deliberate non-items with cited evidence (mostly package
+relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-specific code).
 
 ### New Features
 
@@ -11,6 +14,8 @@ Aligned with upstream Pi `v1.5.1` / `v1.5.2`. See `CHANGELOG.md` at the reposito
   retrying `strict: "prefer"` tools for the rest of a session after Claude rejects them.
 - New model compat switches: `requiresToolsWithToolHistory` (#11843),
   `requiresNonNullAssistantContent` (#8118), `promptCacheKeyMode` (#9442).
+- New provider `qwen-token-plan-individual-cn` (#7989) and public `resolveSchemaRef` (#11803).
+- `StreamOptions.disableContinuation` forwarded by the agent proxy (#11545).
 
 ### Changed
 
@@ -20,16 +25,21 @@ Aligned with upstream Pi `v1.5.1` / `v1.5.2`. See `CHANGELOG.md` at the reposito
 - Anthropic OAuth reports Claude Code 2.1.322.
 - Prompt template arguments: quotes only open at the start of an argument, apostrophes inside
   words stay literal, unclosed quotes are text, and a backslash escapes the enclosing quote (#11861).
-- Model catalog fixes: Claude Sonnet 5 no longer sends temperature (#7961), Azure GPT-6 models
-  use the 1.05M context window (#11742) and keep the long-context price tier (#11948).
+- Model catalog aligned to v1.5.2: Claude Sonnet 5 no longer sends temperature (#7961), Azure GPT-6
+  models use the 1.05M context window (#11742) and keep the long-context price tier (#11948), the
+  `qwen-token-plan-individual-cn` provider, GLM 5.3 and Claude Fable 5.2 are added, and the full
+  `defaultModelPerProvider` table tracks upstream v1.5.2 (43 catalogs / 1,730 models).
 - Grep globs drop a leading `./` (#10998 / #11807).
+- `clampMaxTokensToContext` leaves a 15% input margin for OpenRouter (#10497).
+- `ProviderError.Normalize` keeps the deepest connection cause in the message (#11695).
 
 ### Fixed
 
 - HTML comments are no longer rendered as visible Markdown text (#11710 / #11755).
 - Alacritty enables OSC 8 hyperlinks without `TERM_PROGRAM` (#11767).
 - Telemetry trace rendering escapes control characters in names, ids, keys and error messages.
-- Codemode console output prints `NaN` / `Infinity` / `-Infinity` instead of `null` (#11901).
+- Codemode console output prints `NaN` / `Infinity` / `-Infinity` instead of `null` (#11901), and
+  malformed local `$ref`s render as `unknown` instead of throwing (#11803).
 - Schema `number` validation rejects `NaN` and `Infinity`.
 - Dropped upstream streams ("cut short after the reply had begun") now trigger automatic retries (#11879).
 

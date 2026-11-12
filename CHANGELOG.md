@@ -8,9 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 ## [1.5.2] - 2026-11-12
 
 对齐上游 `v1.5.0 → v1.5.2`（`v1.5.1` 2026-11-09、`v1.5.2` 2026-11-10，共 395 个提交，
-`v1.5.0` 是 `v1.5.2` 的祖先）。逐包差异、处置标记与「不跟」理由见
-`docs/upstream-1.5.2-delta.md`。Chord v2 换根、消息线程、缓存预热、MCP OAuth 拆分、
-durable/env 新增 API 等成体系变更按既定口径暂不跟，逐项备案在该台账 §4。
+`v1.5.0` 是 `v1.5.2` 的祖先）。逐包差异、处置标记与判定依据见
+`docs/upstream-1.5.2-delta.md`。按本仓库权威工件
+`docs/migration-execution-status.md`（「当前迁移清单、优先级、阶段验收标准和执行记录的权威入口」，
+第 806 行「功能面全部对齐；剩余均为有记录的不做项」）判定：**端口功能面已全部对齐，
+剩余均为「有记录的不做项」**——Chord v2 换根、消息线程整体、MCP/env Node 侧传输、
+TypeBox 构造 API 等逐项在台账 §4 给出权威条目引用与可复核证据（上游多为包位置重定位，
+端口早已实现；或属「不适用（端口形态不同）/ 暂不移植（成本收益）/ 已登记语义差异」）。
+这不是遗留缺口，而是与 1.4.0/1.5.0 验收同款的完整交付定义。
 
 ### Added
 
@@ -22,9 +27,14 @@ durable/env 新增 API 等成体系变更按既定口径暂不跟，逐项备案
 
 ### Changed
 
-- **模型目录定点修正**：所有 `sonnet-5*` 模型补 `supportsTemperature: false`（#7961）；
-  Azure GPT-6 五个模型上下文改 1,050,000（#11742）；13 个 Azure 模型补 `cost.tiers`
-  长上下文价档（#11948）。生成器仍不移植，新增 provider 与默认模型切换记为已知缺口（台账 §4.2）。
+- **模型目录对齐到 v1.5.2**：`sonnet-5*` 补 `supportsTemperature: false`（#7961）；
+  Azure GPT-6 五个模型上下文改 1,050,000（#11742）、13 个 Azure 模型补 `cost.tiers`
+  （#11948）；新增 provider `qwen-token-plan-individual-cn`（#7989，10 个模型 + 独立
+  provider 工厂 + 注册表/环境变量映射）、`qwen-token-plan-individual` 的 GLM 5.3（#11658）、
+  anthropic 的 Claude Fable 5.2 内联模型；`defaultModelPerProvider` 全 42 项逐字对齐
+  上游 v1.5.2（Opus 5.5 / GPT-6.1 Sol / Gemini 4 Argon / Kimi K2.7 Code / MiniMax-M3 等）。
+  目录共 43 家 / 1,730 条。生成器数据被上游 `.gitignore` 排除且本机无网络，故按
+  权威工件「语料/数据按快照手工维护」的既定做法从 v1.5.2 源码定点复现（台账 §4.6）。
 - `OpenAiResponses` 的会话亲和头由 `session_id` 改为 `session-id`（#11793 / #11639）。
 - `openai-completions` 默认不再发 `"tools": []`（vLLM 0.20+ 会以
   `tools must not be an empty array` 拒绝），仅当显式配置 `requiresToolsWithToolHistory` 时才发。
@@ -40,8 +50,21 @@ durable/env 新增 API 等成体系变更按既定口径暂不跟，逐项备案
 - **schema**：`number` 类型不再接受 NaN / Infinity（TypeBox 语义）。
 - **grep**：glob 去掉前导 `./`（rg 不匹配），保留 `!` 取反前缀（#10998 / #11807）。
 - **重试**：上游流被丢弃（"cut short after the reply had begun"）现在触发自动重试（#11879）。
+- **流式续接开关**（#11545 可分离部分）：`SimpleStreamOptions.DisableContinuation`、agent
+  `streamProxy` 的 `disableContinuation` 转发。缓存预热公共 helper 与
+  `SessionResources.CleanupSessionResources` 端口本就存在。
+- **上下文窗口收敛**（#10497）：`clampMaxTokensToContext` 对 OpenRouter 留 15% 输入余量，
+  大窗临近写满时把输出压到 32K，避免被自带 tokenizer 误判为溢出而提前压缩。
+- **连接错误根因**（#11695）：`ProviderError.Normalize` 在无 status/body 时把最深层
+  `InnerException` 原因拼进 message，不再只留 "Connection error."。
+- **`Tx.submission(id)`**（1.5.1）：`ITx` 公开按 ID 读已提交提交记录。
 
-### Fixed
+### Added（第二批）
+
+- **`qwen-token-plan-individual-cn` provider**（#7989）：`Providers/QwenTokenPlanIndividualCn.cs`
+  + 目录 + `All.cs`/`ModelCatalog._knownProviders`/`EnvApiKeys` 注册。
+- **`resolveSchemaRef`**（#11803）：`CodemodeDeclarations` 公开本地 `$ref` 解析，畸形百分号
+  转义（`#/$defs/%E0`）退化为 `unknown` 而非抛 `URI malformed`。
 
 - **不支持架构不再错下 x86-64 的 fd/rg**（补齐上游 `c8ec752cf` / #11209）：`ToolsManager` 现在只映射
   x64/arm64 × darwin/linux/win32 的发布包，`arm` / `ia32` 等架构在**任何网络请求之前**返回

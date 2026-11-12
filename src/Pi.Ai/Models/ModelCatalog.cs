@@ -142,7 +142,7 @@ public sealed class ModelCatalog
         "kimi-coding", "meta", "minimax", "minimax-cn", "mistral",
         "moonshotai", "moonshotai-cn", "nvidia", "openai", "openai-codex",
         "opencode", "opencode-go", "openrouter", "qwen-token-plan", "qwen-token-plan-cn",
-        "qwen-token-plan-individual", "radius", "together", "typesafe", "vercel-ai-gateway",
+        "qwen-token-plan-individual", "qwen-token-plan-individual-cn", "radius", "together", "typesafe", "vercel-ai-gateway",
         "xai", "xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp",
         "zai", "zai-coding-cn",
     ];

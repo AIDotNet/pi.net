@@ -113,6 +113,7 @@ public static class Proxy
             Reasoning = options.Reasoning,
             CacheRetention = options.CacheRetention,
             SessionId = options.SessionId,
+            DisableContinuation = options.DisableContinuation,
             Headers = options.Headers,
             Metadata = options.Metadata,
             Transport = options.Transport,

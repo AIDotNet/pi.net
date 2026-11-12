@@ -159,6 +159,10 @@ public interface ITx
     Task<Page<TaskRecord>> ScanTasksAsync(
         TaskQuery query, int limit, IReadOnlyDictionary<string, object?>? cursor = null);
 
+    /// <summary>按 ID 读已提交提交记录（上游 1.5.1 <c>Tx.submission(id)</c>：工具可据此找
+    /// <c>pi.live.run.inputs</c> 的条目，无需扫描 transcript）。</summary>
+    Task<SubmissionRecord?> GetSubmissionAsync(SubmissionId id);
+
     /// <summary>带对话作用域去重键的已提交提交。</summary>
     Task<SubmissionRecord?> GetSubmissionByRequestAsync(ConversationId conversationId, string requestId);
 

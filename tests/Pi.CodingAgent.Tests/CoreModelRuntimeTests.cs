@@ -339,7 +339,7 @@ public class CoreModelRuntimeTests
     {
         var runtime = await CreateAsync();
 
-        Assert.Equal(42, runtime.GetProviders().Count);
+        Assert.Equal(43, runtime.GetProviders().Count);
         Assert.NotNull(runtime.GetProvider("anthropic"));
         Assert.NotNull(runtime.GetProvider("radius"));
         Assert.Null(runtime.GetError());

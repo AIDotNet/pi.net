@@ -129,6 +129,27 @@ public class EstimateAndOptionsTests
         Assert.Equal(50, SimpleOptions.ClampMaxTokensToContext(big, context, 50));
     }
 
+    /// <summary>上游 1.5.1 #10497：OpenRouter 自带 tokenizer 可能把输入计高约 12%，
+    /// 固定 4096 余量不够；改为留 15%，并在大窗临近写满时把输出压到 32K。</summary>
+    [Fact]
+    public void ClampMaxTokensToContextLeavesFifteenPercentMargin()
+    {
+        // 约 40_000 tokens 的输入，15% = 6000 > 4096，余量取 6000。
+        var context = Context(new UserMessage([new TextContent(new string('a', 140_000))], 1));
+        var input = Estimate.EstimateContextTokens(context).Tokens;
+        var margin = (int)Math.Max(4096, Math.Ceiling(input * 0.15));
+
+        // 余量充足（room >= 32768）：按 15% 收敛。
+        var roomy = Model(contextWindow: 200_000);
+        var expected = (int)Math.Max(1, roomy.ContextWindow - input - margin);
+        Assert.Equal(expected, SimpleOptions.ClampMaxTokensToContext(roomy, context, int.MaxValue));
+
+        // 大窗临近写满（room < 32768）：改用固定余量并把输出压到 32768 以内。
+        var tight = Model(contextWindow: input + 4096 + 20_000);
+        var clamped = SimpleOptions.ClampMaxTokensToContext(tight, context, int.MaxValue);
+        Assert.True(clamped <= 32_768, $"clamped={clamped}");
+    }
+
     [Fact]
     public void ResolveSamplingParamsMergesModelLevelThenRequestLevel()
     {

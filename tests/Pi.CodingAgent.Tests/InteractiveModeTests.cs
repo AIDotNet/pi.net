@@ -2081,17 +2081,18 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
     [Fact]
     public async Task CompleteProviderAuthenticationSelectsTheProviderDefaultModel()
     {
-        var host = await CreateHostAsync(new NamedModelProvider("anthropic", "claude-opus-4-8"));
+        var host = await CreateHostAsync(new NamedModelProvider("anthropic", "claude-opus-5-5"));
         var mode = await CreateModeAsync(host: host);
 
         await mode.CompleteProviderAuthenticationForTestsAsync(
             "anthropic", "Anthropic", CredentialKind.OAuth, UnknownModel());
 
         // previousModel 是 unknown 占位 → 选默认模型并 persist；defaultModelPerProvider["anthropic"]
-        // = "claude-opus-4-8"，该模型在 available 快照中（provider 已配置）。
-        Assert.Equal("claude-opus-4-8", host.Session.Model?.Id);
+        // 上游 1.5.1 起 defaultModelPerProvider["anthropic"] 由 4-8 改为 5-5；
+        // 该模型在 available 快照中（provider 已配置）。
+        Assert.Equal("claude-opus-5-5", host.Session.Model?.Id);
         var rendered = AnsiText.StripAnsi(RenderChat(mode, 120));
-        Assert.Contains("Logged in to Anthropic. Selected claude-opus-4-8. Credentials saved to", rendered);
+        Assert.Contains("Logged in to Anthropic. Selected claude-opus-5-5. Credentials saved to", rendered);
     }
 
     [Fact]

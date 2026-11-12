@@ -29,12 +29,12 @@ public class ModelCatalogTests
         Assert.Equal("openai-decisions", Assert.Single(openai.ClassifierModels.Values).Api);
     }
 
-    /// <summary>42 份随包目录都必须能解析出模型，且 provider 键与文件名一致。</summary>
+    /// <summary>43 份随包目录都必须能解析出模型，且 provider 键与文件名一致。</summary>
     [Fact]
     public void EveryEmbeddedCatalogParses()
     {
         var providers = Pi.Ai.Providers.All.GetBuiltinProviders();
-        Assert.Equal(42, providers.Count);
+        Assert.Equal(43, providers.Count);
 
         var empty = new List<string>();
         var total = 0;
@@ -50,8 +50,9 @@ public class ModelCatalogTests
         Assert.Empty(empty);
         // 上游 v1.4.0 的 42 份数据 flatten 后按 id 去重 1713 个条目；1.4.4 补入
         // GPT-6.1 Terra（openai / openai-codex / azure 三条），总计 1716。
-        // 1.5.0 批重新导出后为 1718。
-        Assert.Equal(1718, total);
+        // 1.5.0 批重新导出后为 1718。1.5.2 补入 qwen-token-plan-individual-cn（10 条）、
+        // qwen-token-plan-individual 的 glm-5.3、anthropic 的 claude-fable-5-2，共 +12 → 1730。
+        Assert.Equal(1730, total);
     }
 
     /// <summary>
@@ -83,7 +84,8 @@ public class ModelCatalogTests
         Assert.Empty(incomplete);
         // chat 桶 1602 → 1598：openrouter 的 openai-completions 组净减 16（+10 / -26），
         // 其余 provider 净增 12。总量反而涨了 2——image / classifier 桶加得更多。
-        Assert.Equal(1598, total);
+        // 1.5.2 新增 12 个 chat 模型 → 1610。
+        Assert.Equal(1610, total);
     }
 
     /// <summary>
@@ -109,7 +111,9 @@ public class ModelCatalogTests
         Assert.True(checkedCount > 0, "没有命中任何 sonnet-5 模型，目录数据结构可能已变化");
     }
 
-    /// <summary>上游 1.5.1 #11742 / #11948：Azure GPT-6 用 Foundry 的 1.05M 上下文，并保留长上下文价档。</summary>
+    /// <summary>
+    /// 上游 1.5.1 #11742 / #11948：Azure GPT-6 用 Foundry 的 1.05M 上下文，并保留长上下文价档。
+    /// </summary>
     [Fact]
     public void AzureGptSixModelsUseFoundryWindowAndLongContextTier()
     {
@@ -121,6 +125,31 @@ public class ModelCatalogTests
             Assert.NotNull(model.Cost);
             Assert.True(model.Cost!.Tiers is { Count: > 0 }, $"{id} 缺长上下文价档");
         }
+    }
+
+    /// <summary>上游 1.5.1：新增 provider / 模型 / allowlist / 默认模型切换逐项可查。</summary>
+    [Fact]
+    public void Version152CatalogAdditionsArePresent()
+    {
+        // #7989：CN 端点上的 Individual provider，模型来自 cn 目录 ∩ Individual allowlist。
+        var individualCn = ModelCatalog.LoadFromResource("qwen-token-plan-individual-cn");
+        Assert.Equal(10, individualCn.ChatModels.Count);
+        Assert.Equal("qwen-token-plan-individual-cn", individualCn.Provider);
+        Assert.All(individualCn.ChatModels.Values, m => Assert.Equal("qwen-token-plan-individual-cn", m.Provider));
+        Assert.Contains("qwen3.8-max", individualCn.ChatModels.Keys);
+        Assert.Contains("glm-5.3", individualCn.ChatModels.Keys);
+
+        // #11658：GLM 5.3 加入 Individual allowlist。
+        var individual = ModelCatalog.LoadFromResource("qwen-token-plan-individual");
+        Assert.Contains("glm-5.3", individual.ChatModels.Keys);
+
+        // 1.5.1 内联新增 Claude Fable 5.2；finalize 规则带来 mid-convo effort 与 fallback。
+        var anthropic = ModelCatalog.LoadFromResource("anthropic");
+        var fable = anthropic.ChatModels["claude-fable-5-2"];
+        Assert.Equal(1000000, fable.ContextWindow);
+        Assert.Equal(8, fable.Cost!.Input);
+        Assert.True(fable.Compat!.Bool("supportsMidConvoEffort"));
+        Assert.True(fable.Compat!.Bool("supportsMidConvoSystemMessages"));
     }
 
     [Fact]

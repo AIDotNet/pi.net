@@ -77,6 +77,7 @@ public static class All
         QwenTokenPlan.Provider(),
         QwenTokenPlanCn.Provider(),
         QwenTokenPlanIndividual.Provider(),
+        QwenTokenPlanIndividualCn.Provider(),
         Radius.Provider(),
         Together.Provider(),
         Typesafe.Provider(),

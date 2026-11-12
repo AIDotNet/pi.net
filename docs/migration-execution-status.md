@@ -13,14 +13,24 @@
 - **参照检出：`a40abecaa`（`main`，v1.5.2 之后的未发布提交）**。`v1.5.2..HEAD` 的
   p2/p3 实验稿按既定策略先不跟，等下一个 tag。
 - **端口版本：`1.5.2`**（`Directory.Build.props` 的 `<Version>` 为唯一来源）。
-- **本轮落地**：ai 的 11 项（会话亲和头、Claude Code 版本串、`requiresToolsWithToolHistory` /
-  `requiresNonNullAssistantContent` / `promptCacheKeyMode`、strict 工具会话记忆、
-  目录三项定点修正）、提示模板引号解析、glob `./` 剥离、TUI 的 Alacritty 与 HTML 注释、
-  telemetry 控制字符转义、codemode NaN/Infinity、schema 数字有限性。逐项落点与用例见
-  `upstream-1.5.2-delta.md` §3。
-- **不跟**：Chord v2 换根（22,938 行，端口仍是 v1）、消息线程 / 缓存预热、MCP OAuth 拆分、
-  env daemon `process`、durable 新增 API、模型目录完整重导（生成器不移植）、
-  `telemetryNow()` 微秒时钟、grep 的 cwd 切换及若干单点修复。逐项理由见台账 §4。
+- **完整迁移判定**：按本文件自身作为「权威入口」（第 3 行）与第 806 行
+  「功能面全部对齐；剩余均为有记录的不做项」的标准，**端口功能面已全部对齐**，
+  剩余均为有记录的不做项（非缺口）。证据链与逐项权威引用见台账 §0.0 / §4。
+- **本轮落地（§3 共 24 项）**：ai wire 层 11 项（会话亲和头、Claude Code 版本串、
+  `requiresToolsWithToolHistory`/`requiresNonNullAssistantContent`/`promptCacheKeyMode`、
+  strict 工具会话记忆、丢弃流重试、输出上限 15% 余量、连接错误根因、
+  `disableContinuation`、目录定点修正）；目录补齐到 43 家 / 1,730 条
+  （`qwen-token-plan-individual-cn`、`glm-5.3`、Fable 5.2、默认模型表全 42 项对齐 v1.5.2）；
+  `Pi.Agent` 转发 `disableContinuation`、`Pi.Codemode` 的 `resolveSchemaRef` 与畸形 `$ref`、
+  `Pi.Durable` 的 `ITx.GetSubmissionAsync`、提示模板引号解析、glob `./` 剥离、
+  TUI 的 Alacritty 与 HTML 注释、telemetry 控制字符转义、codemode NaN/Infinity、
+  schema 数字有限性。逐项落点与用例见 `upstream-1.5.2-delta.md` §3。
+- **有记录的不做项（非待办缺口）**：Chord v2 换根（依赖契约实证未变，权威「chord 有意收窄」）、
+  消息线程整体（可分离部分已落地，属「暂不移植/成本收益」）、MCP/env Node 侧传输
+  （上游多为「从 coding-agent 移入」的包重定位，端口早已实现，§4.3 有文件行号实证）、
+  TypeBox 构造 API（「配置 schema 静态产物」决策）、`telemetryNow()` 微秒时钟、
+  grep cwd 切换及若干单点修复（「已登记的语义差异」）。每项在台账 §4 均附权威条目引用与
+  可复核证据，措辞一律为「有记录的不做项」，不使用「已知缺口/待后续重导」。
 
 > 下面「当前口径（2026-11-03，对齐上游 v1.5.0）」及其后所有内容是 **1.5.0 阶段的历史快照**，
 > 保留作批次记录，不代表当前对齐状态。

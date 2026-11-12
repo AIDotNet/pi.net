@@ -208,14 +208,29 @@ public static partial class CodemodeDeclarations
         public bool Tags { get; init; }
     }
 
-    private static JsonNode? ResolveRef(string reference, JsonNode? root)
+    /// <summary>
+    /// 解析本地 <c>$ref</c>（<c>#</c> / <c>#/$defs/Item</c>）指向的子 schema；远程引用、指向不存在的定义、
+    /// 以及畸形转义（上游 1.5.1 #11803 的 <c>#/$defs/%E0</c>）一律返回 null，调用方渲染成 <c>unknown</c>。
+    /// 对应 TS 1.5.1 导出的 <c>resolveSchemaRef(ref, root)</c>。
+    /// </summary>
+    public static JsonNode? ResolveSchemaRef(string reference, JsonNode? root)
     {
         if (reference != "#" && !reference.StartsWith("#/", StringComparison.Ordinal)) return null;
         var current = root;
         var path = reference.Length <= 2 ? "" : reference[2..];
         foreach (var rawSegment in path.Split('/').Where(segment => segment.Length > 0))
         {
-            var key = Uri.UnescapeDataString(rawSegment).Replace("~1", "/").Replace("~0", "~");
+            // .NET 的 UnescapeDataString 对非法 %XX 不抛异常（与 JS decodeURIComponent 不同），
+            // 保留原串即可让查表失败、走 unknown；此处显式 try 保证跨运行时行为一致。
+            string key;
+            try
+            {
+                key = Uri.UnescapeDataString(rawSegment).Replace("~1", "/").Replace("~0", "~");
+            }
+            catch (UriFormatException)
+            {
+                return null;
+            }
             if (current is not JsonObject obj || !obj.TryGetPropertyValue(key, out var next)) return null;
             current = next;
         }
@@ -233,7 +248,7 @@ public static partial class CodemodeDeclarations
         if (StringValue(obj["$ref"]) is { } reference)
         {
             if (context.Resolving.Contains(reference) || context.Expansions >= MaxRefExpansions) return "unknown";
-            var target = ResolveRef(reference, context.Root);
+            var target = ResolveSchemaRef(reference, context.Root);
             if (target is null) return "unknown";
             context.Expansions++;
             context.Resolving.Add(reference);

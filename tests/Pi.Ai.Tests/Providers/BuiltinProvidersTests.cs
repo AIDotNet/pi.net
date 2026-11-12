@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Pi.Ai.Tests.Providers;
 
-/// <summary>内建 provider 全家桶（42 家）与 all.ts 目录读取测试。</summary>
+/// <summary>内建 provider 全家桶（43 家，1.5.1 新增 qwen-token-plan-individual-cn）与 all.ts 目录读取测试。</summary>
 public class BuiltinProvidersTests
 {
 
@@ -17,7 +17,7 @@ public class BuiltinProvidersTests
     public void CatalogHasAllFortyTwoProviders()
     {
         var ids = All.GetBuiltinProviders();
-        Assert.Equal(42, ids.Count);
+        Assert.Equal(43, ids.Count);
         Assert.Equal(ids.Count, ids.Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(ids, All.GetBuiltinProviders());
         Assert.Contains("amazon-bedrock", ids);
@@ -77,7 +77,7 @@ public class BuiltinProvidersTests
     public void BuiltinModelsRegistersEveryProvider()
     {
         var models = All.BuiltinModels();
-        Assert.Equal(42, models.GetProviders().Count);
+        Assert.Equal(43, models.GetProviders().Count);
         Assert.NotNull(models.GetProvider("deepseek"));
         Assert.NotNull(models.GetProvider("radius"));
         Assert.NotNull(models.GetModel("deepseek", "deepseek-v4-pro"));

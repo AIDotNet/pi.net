@@ -376,7 +376,7 @@ public sealed class Transaction : ITx
         TaskQuery query, int limit, IReadOnlyDictionary<string, object?>? cursor = null)
         => ReadAsync("scanTasks", () => _host.Storage.ScanTasksAsync(query, limit, cursor));
 
-    /// <summary>内部：已提交提交记录。</summary>
+    /// <summary>按 ID 读已提交提交记录。对应 TS 1.5.1 起公开的 <c>Tx.submission(id)</c>。</summary>
     public Task<SubmissionRecord?> GetSubmissionAsync(SubmissionId id)
         => ReadAsync("submission", () => _host.Storage.GetSubmissionAsync(id));
 

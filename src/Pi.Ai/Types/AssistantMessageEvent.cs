@@ -93,7 +93,9 @@ public sealed record SimpleStreamOptions(
     int? MaxTokens = null,
     double? Temperature = null,
     IReadOnlyList<string>? StopSequences = null,
-    string? SessionId = null)
+    string? SessionId = null,
+    // 上游 1.5.1 #11545：重放类请求（如缓存预热）不得使用或覆盖服务端续接状态（如 Anthropic 消息线程）。
+    bool DisableContinuation = false)
 {
     /// <summary>附加请求头（调用方值覆盖默认）。</summary>
     public IReadOnlyDictionary<string, string?>? Headers { get; init; }

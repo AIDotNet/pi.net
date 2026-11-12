@@ -59,7 +59,7 @@ dotnet run --project samples/Pi.Samples.CodingSession
 
 | 项目 | .cs | 里面有什么 |
 |---|---|---|
-| `Pi.Ai` | 159 | `Api/` 10 个原生 API 实现 · `Providers/` 42 家 provider 目录 · `ModelData/` 1713 条模型数据 · `Auth/` OAuth（PKCE / 设备码 / 回环） · `Stream/` · `Types/` · `Compat/` |
+| `Pi.Ai` | 159 | `Api/` 10 个原生 API 实现 · `Providers/` 43 家 provider 目录 · `ModelData/` 1730 条模型数据 · `Auth/` OAuth（PKCE / 设备码 / 回环） · `Stream/` · `Types/` · `Compat/` |
 | `Pi.Agent` | 9 | 状态机 + 双队列（steering / follow-up）、agent-loop 主循环、串行/并行工具执行 |
 | `Pi.CodingAgent` | 366 | `Core/` 会话与内置工具 · `Cli/` 参数解析（`Args.cs`） · `Modes/` 交互 / print / json · `Extensions/` · `Utils/` · `Assets/` 主题、schema、随包文档 |
 | `Pi.Tui` | 61 | `Components/` 渲染组件 · `Marked/` markdown；差量渲染、字素级换行、ANSI/OSC、Kitty 键盘、浮层、全屏渲染 |
@@ -147,7 +147,7 @@ dotnet run --project samples/Pi.Samples.CodingSession
 - **测试分两档**。`bash scripts/gate-tests.sh` 是门禁（11 个不依赖宿主环境的工程，与 CI / 发布流程同一份清单）；`Pi.Tui.Tests`（要交互终端）与 `Pi.Env.Tests`（要本地 sshd）不在门禁内——GitHub runner 上同一份代码实测 959（ubuntu）/ 369（windows）项失败，绝大多数来自这两个。
 - **`Pi.Mcp` 需要 ASP.NET Core 框架引用**（`Microsoft.AspNetCore.App`），消费方得用 `Web` SDK 或加 `FrameworkReference`。
 - **别动 SourceLink 的版本**。当前锁 `10.0.401`：更早的版本经 `Microsoft.Build.Tasks.Git` 命中 CVE-2026-62900（GHSA-23fw-v26w-5fgq），NU1902 会被 `TreatWarningsAsErrors` 升级成 error，restore 直接失败。
-- **模型目录别手写**。42 份目录、1,718 条模型由上游 1.5.0 的生成器从 models.dev v2 重导（`src/Pi.Ai/ModelData/`）。回归守卫是 `ModelCatalogTests.EveryEmbeddedCatalogParses`（42 个 provider 全部可解析）与 `LoadsFromEmbeddedResources`（抽样字段：api、baseUrl、contextWindow、分类桶）。编造 id 会在解析或抽样断言里被抓住。
+- **模型目录别手写**。43 份目录、1,730 条模型（1.5.0 重导 42 份/1,718 条，1.5.1/1.5.2 补入 qwen-token-plan-individual-cn 与定点模型，`src/Pi.Ai/ModelData/`）。回归守卫是 `ModelCatalogTests.EveryEmbeddedCatalogParses`（43 个 provider 全部可解析）与 `LoadsFromEmbeddedResources`（抽样字段：api、baseUrl、contextWindow、分类桶）。编造 id 会在解析或抽样断言里被抓住。
 
 ## 可选
 

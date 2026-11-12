@@ -110,6 +110,35 @@ public class ProxyTests
         Assert.Contains("bad token", result.ErrorMessage);
     }
 
+    /// <summary>上游 1.5.1 #11545：proxy 请求转发 disableContinuation（重放类请求不续接）。</summary>
+    [Fact]
+    public async Task ForwardsDisableContinuationInProxyRequest()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(SseBody(Ev("start"), Ev("done", ("reason", "stop"), ("usage", ZeroUsage())))),
+        });
+        using var client = new HttpClient(handler);
+        var stream = Proxy.StreamProxy(
+            TestModel,
+            Transcript.NormalizeContext("", null, []),
+            new ProxyStreamOptions
+            {
+                AuthToken = "test-token",
+                ProxyUrl = "https://proxy.example.com",
+                SessionId = "session-1",
+                DisableContinuation = true,
+            },
+            client);
+        await stream.WaitForDoneAsync();
+
+        var request = Assert.Single(handler.Requests);
+        var payload = JsonNode.Parse(await request.Content!.ReadAsStringAsync())!.AsObject();
+        var options = payload["options"]!.AsObject();
+        Assert.Equal("session-1", options["sessionId"]!.GetValue<string>());
+        Assert.True(options["disableContinuation"]!.GetValue<bool>());
+    }
+
     private static async Task<(List<AssistantMessageEvent> Events, AssistantMessage Result)> RunAsync(
         FakeHandler handler)
     {

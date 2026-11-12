@@ -49,19 +49,40 @@ public static class ProviderError
     public const int MaxProviderErrorBodyChars = 4000;
 
     /// <summary>规范化异常：提取 status 与 body。对应 TS <c>normalizeProviderError</c>。</summary>
+    /// 上游 1.5.1 #11695：连接级失败无 status/body 且 SDK 只给泛化文案时，把最深层 InnerException
+    /// 的原因拼进 Message，避免只看 Message 的调用方丢失根因（如 connect ECONNREFUSED）。
     public static NormalizedProviderError Normalize(Exception error)
     {
         var status = ExtractStatus(error);
         var body = ExtractBody(error);
         var messageCarriesBody = body is null || error.Message.Contains(body, StringComparison.Ordinal);
+        var message = status is null && body is null ? WithCauseDetail(error) : error.Message;
 
         return new NormalizedProviderError
         {
             Status = status,
             Body = body,
-            Message = error.Message,
+            Message = message,
             MessageCarriesBody = messageCarriesBody,
         };
+    }
+
+    private const int MaxCauseDepth = 5;
+
+    /// <summary>对应 TS <c>withCauseDetail(error)</c>：把 cause 链最深层的原因附加到 message。</summary>
+    public static string WithCauseDetail(Exception error)
+    {
+        Exception? deepest = null;
+        Exception? current = error.InnerException;
+        for (var depth = 0; depth < MaxCauseDepth && current is not null; depth++)
+        {
+            deepest = current;
+            current = current.InnerException;
+        }
+        if (deepest is null) return error.Message;
+        var detail = (string.IsNullOrEmpty(deepest.Message) ? deepest.GetType().Name : deepest.Message).Trim();
+        if (detail.Length == 0 || error.Message.Contains(detail, StringComparison.Ordinal)) return error.Message;
+        return error.Message.Length == 0 ? detail : $"{error.Message}: {detail}";
     }
 
     /// <summary>

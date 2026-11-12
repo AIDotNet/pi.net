@@ -69,7 +69,7 @@ public class ModelsStoreAndImageModelsTests
         Assert.Equal("openrouter-images", flux!.Api);
         Assert.NotEmpty(ImageModels.GetImageModels("openrouter"));
         Assert.Contains("openrouter", ImageModels.GetImageProviders());
-        Assert.Equal(42, All.GetBuiltinProviders().Count);
+        Assert.Equal(43, All.GetBuiltinProviders().Count);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class ModelsStoreAndImageModelsTests
     {
         var providers = All.BuiltinProviders();
         var ids = providers.Select(provider => provider.Id).ToList();
-        Assert.Equal(42, ids.Count);
+        Assert.Equal(43, ids.Count);
         Assert.Equal(ids.Count, ids.Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(ids, All.GetBuiltinProviders());
         // 每个 provider 都有认证语义（apiKey 或 oauth 至少其一）。
