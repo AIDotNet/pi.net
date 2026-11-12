@@ -65,6 +65,8 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
   behind MCP schema references are found and described (#11803).
 - Internal cursor markers no longer leak into terminal output, including with multiple
   markers or horizontally clipped content (#9441).
+- Shutdown now waits for in-flight OAuth token refresh writes, so a rotated token is
+  not lost when pi exits during a background catalog refresh (#11692).
 
 ## [1.5.0] - 2026-11-05
 

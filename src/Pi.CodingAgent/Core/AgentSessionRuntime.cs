@@ -329,6 +329,8 @@ public sealed class AgentSessionRuntime
             BuildSessionShutdownEvent(SessionEventReason.Quit));
         _beforeSessionInvalidate?.Invoke();
         Session.Dispose();
+        // 上游 1.5.1 #11692：退出前等待进行中的凭据写入（OAuth 刷新）落盘，避免丢失新 token。
+        await _services.ModelRuntime.SettleCredentialWritesAsync().ConfigureAwait(false);
     }
 
     private async Task<SessionReplacementResult> EmitBeforeSwitchAsync(

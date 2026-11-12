@@ -130,6 +130,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   光标标记、`ExtractCursorPosition` 整行剥离、`TextLayout.SliceWithWidth` 仅把非 APC 序列
   作为 pendingAnsi 带过切片边界（多标记 / 水平裁剪 / 其他行残留的 APC 不再被终端渲染出来）。
   4 项定向用例 + 全量 `Pi.Tui.Tests` 23973/23973。
+- **退出前等待 OAuth 刷新写入落盘**（#11692）：`RuntimeCredentials.SettledAsync` 登记进行中
+  的凭据写入（含失败也要结算），`ModelRuntime.SettleCredentialWritesAsync` 暴露，
+  `AgentSessionRuntime.DisposeAsync` 在关闭时 await，避免后台目录刷新用掉一次性 refresh token
+  却丢失新 token。3 项定向用例 + `AgentSessionRuntimeTests` 23/23、`CoreRuntimeTests` 19/19、
+  `ClientRuntimeTests` 14/14。
 
 ## [1.5.0] - 2026-11-05
 

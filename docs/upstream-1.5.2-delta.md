@@ -15,7 +15,7 @@
 **本轮的实际工作是「把已发布变更真正移植到代码并用定向用例钉住」，而非给排除项改名。**
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
 共享 `lines.ts`（MCP/env 传输）、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **44 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
+详见 §3 的 **45 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
 
 「完整的迁移」在本项目**不是**「把上游每个 TS 文件逐字搬过来」，而是由**先前既存、跨版本生效**
 的权威工件定义的。该工件是 `docs/migration-execution-status.md`，其权威地位与范围收窄章节
@@ -129,7 +129,8 @@
 | `provider.refreshModelsAuth`、lazy OAuth/Bedrock chunk 拆分 | 目录 / providers | 📋 有记录的不做项（§4.5，权威：Node bundler 动态 import 专有，配置 schema 静态产物） |
 | #9557 Anthropic 非 strict 根 `$defs`/`definitions` | `AnthropicMessages.ConvertTools` | ✅ 🔧 本轮落地（§3.26） |
 | #10954 OpenCode Zen/Go Claude 逐消息 effort + `thinking.block_binding: drop_block` | `AnthropicMessages.cs`（`SupportsMidConvoEffort` 分支发 `drop_block`）+ `opencode*.json` 目录标志 | ✅ 已覆盖：v1.5.0 基线生成器已为 5 个 opencode Claude 模型写入 `supportsMidConvoEffort`，wire 层早已据其发 `drop_block`（§3 前既有，非缺口） |
-| #11692 退出刷新、#11708 Codex SSE 监听 | 各 api/*.cs | 📋 有记录的不做项（§4.4；#11708 是 JS addEventListener 泄漏修复，端口用 `Task.Delay(signal)` 无此形态） |
+| #11692 退出前等待 OAuth 刷新写入 | `RuntimeCredentials` / `ModelRuntime` / `AgentSessionRuntime` | ✅ 🔧 已落地（§3.45） |
+| #11708 Codex SSE 监听 | 各 api/*.cs | 📋 有记录的不做项（§4.4；JS addEventListener 泄漏修复，端口用 `Task.Delay(signal)` 无此形态） |
 | `openai-completions` 显示名改 "OpenAI Codex" | UI 文案 | ➖ 端口无对应 UI 文案层 |
 
 ### 2.2 coding-agent（75 文件 / +2,773 / −1,497）
@@ -151,6 +152,7 @@
 | #11451 `/tree` 导航后恢复旧思考档位 | ✅ 🔧 `RecordSelection` 拆出 `RecordThinkingLevel` + `ShouldRecordThinkingLevel`（§3.42） |
 | #11803 tool_search 文本 + codemode output 摘要跟随本地 `$ref` 到 `$defs` | ✅ 🔧 `ToolSearch.SchemaText`+`ResolveLocalRef` / `CodemodeToolApi.FollowRef`+`DescribeFields`+`DescribeUnionFields`（§3.43） |
 | #9441 内部光标标记不外泄到终端输出 | ✅ 🔧 `Tui.ApplyLineResets` / `ExtractCursorPosition` / `TextLayout.SliceWithWidth`（§3.44） |
+| #11692 退出前等待进行中的 OAuth 刷新写入落盘 | ✅ 🔧 `RuntimeCredentials.SettledAsync` + `ModelRuntime.SettleCredentialWritesAsync` + `AgentSessionRuntime.DisposeAsync`（§3.45） |
 | #9654 read 流式、#8544 edit 混合换行、#11738 图片缩放、#11875 `ctrl+o`、#9126/#9222/#9155 会话并发 | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
 | Node/npm 专有：`pi update` 摘要、扩展 npm 依赖解析、Windows 安装器、PowerShell 5.1、fd 下载 | ➖ 不适用 |
 | 示例扩展（subagent / plan-mode）修复 | ➖ 不适用（权威：上游 docs/examples 保留为 TS 参考） |
@@ -242,6 +244,7 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.42 | #11451 `/tree` 导航后 resume 恢复到旧分支的思考档位 | `AgentSessionPrompt.RecordSelection` 拆出 `RecordThinkingLevel`（按当前模型钳制后比对、不同则补记实时档位）+ `ShouldRecordThinkingLevel` 纯判定 | `AgentSessionCompactionTests.ShouldRecordThinkingLevel_OnlyWhenClampedRecordedDiffersFromLive`（1 用例，含「钳制后相等不写」对齐上游第二用例）+ 该套件 33/33 |
 | 3.43 | #11803 tool_search 文本 / codemode output 摘要找不到本地 `$ref`（`$defs`）后面的属性名 | tool_search：`ToolSearch.SchemaText` 跟随本地 `$ref`（`ResolveLocalRef` 字典版 JSON Pointer，~0/~1、%XX，畸形→null）+ `seen` 防递归；codemode：`CodemodeToolApi.FollowRef`（seen 防环）+ `DescribeFields`/`DescribeUnionFields` 传 root 解析 `$ref`/const | `ToolSearchSchemaRefTests`（4 用例逐字对照上游：本地 / 转义段 / 递归共享只读一次 / 远程缺失畸形未引用不展开）+ `CodemodeSchemaRefTests`（2 用例：对象字段 / union 分支，逐字对照上游 harness 期望）+ `ToolSearchCorpusTests` 66/66、`ToolSearchRankingTests` 7/7、`CodemodeCorpusTests` 29/29 |
 | 3.44 | #9441 内部光标标记（APC）泄漏到终端输出（多标记 / 水平裁剪 / 其他行） | `Tui.ApplyLineResets` normalize 前剥离全部 marker；`ExtractCursorPosition` 首个 marker 定列、整行剥离全部 marker；`TextLayout.SliceWithWidth` 非 APC 才作为 pendingAnsi 带过边界 | `TextEngineTests`（2 用例：marker 不进后续切片 / SGR 仍带过）+ `FakeCursorTests`（2 用例：多标记 / 其他行不外泄）+ 全量 `Pi.Tui.Tests` 23973/23973 |
+| 3.45 | #11692 进程退出时丢失后台 OAuth 刷新写入（一次性 refresh token 已用掉、新 token 未保存） | `RuntimeCredentials.SettledAsync`（登记进行中/失败写入、退出前等待结算）+ `ModelRuntime.SettleCredentialWritesAsync` + `AgentSessionRuntime.DisposeAsync` 末尾 await | `RuntimeCredentialsSettleTests`（3 用例：等待在途写入 / 失败写入仍结算 / 无写入立即完成）+ `AgentSessionRuntimeTests` 23/23、`CoreRuntimeTests` 19/19、`ClientRuntimeTests` 14/14 |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -343,7 +346,7 @@ Node daemon 的 PTY/进程组消费方。
 review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「暂不移植（成本/收益）」；
 1.5.0 delta §5 对「未发布提交按需单独评估」的先例。
 
-**本轮已移植的单点修复**（§3.26–3.44，含 §3.22 的 #11803 前置）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
+**本轮已移植的单点修复**（§3.26–3.45，含 §3.22 的 #11803 前置）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
 `#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`、
 以及第三轮真正补上的 `PipeTransport`（新 API，§3.30）、`#11761`（MCP stdio 大消息 O(n²)，§3.31）、
 `#11335`（Streamable HTTP 应答体/错误体上限，§3.32）、`#11703`（预发布版本 changelog，§3.33）、
@@ -352,7 +355,7 @@ review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「
 `#11835`（全屏 Kitty 图像去 WezTerm 门控，§3.38）、`#11651`（`pi config` 加载自定义键位，§3.39）、
 `#11765`（Windows/WSL Ctrl+V 粘贴键，§3.40）、`#11613`（bash 超时补报 shell 退出码，§3.41）、
 `#11451`（`/tree` 导航后思考档位恢复，§3.42）、`#11803`（tool_search 文本 + codemode output 摘要跟随本地 `$ref`，§3.43）、
-`#9441`（内部光标标记不外泄，§3.44）。
+`#9441`（内部光标标记不外泄，§3.44）、`#11692`（退出前等待 OAuth 刷新写入，§3.45）。
 
 **仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半（rg cwd 切到
 `searchPath`）/ `#9276`（上下文行改由 ripgrep 提供，两者与端口 `GrepOperations.ReadFileAsync`
@@ -360,7 +363,7 @@ review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「
 `pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、`cacheWarming:idle`、
 `ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、
 `#11875`、`#9126`/`#9222`/`#9155`、
-`#11692`、`#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
+`#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
 `readOnly`/group commit、RPC 关闭时序、Windows 安装器/PowerShell 5.1/fd 下载。
 
 **判定**：剩余项均为独立、可按 issue 号单独取用的行为改动，不改变 published API 契约；

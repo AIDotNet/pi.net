@@ -702,6 +702,12 @@ public sealed class ModelRuntime : IModelResolverRuntime
     public Task<IReadOnlyList<CredentialInfo>> ListCredentialsAsync(CancellationToken signal = default)
         => _credentials.ListAsync(signal);
 
+    /// <summary>
+    /// 上游 1.5.1 #11692：进程退出前等待已开始的凭据写入落盘（例如后台目录刷新触发的 OAuth
+    /// refresh），避免一次性 refresh token 已用掉、新 token 却没保存下来。
+    /// </summary>
+    public Task SettleCredentialWritesAsync() => _credentials.SettledAsync();
+
     public AuthStatus GetProviderAuthStatus(string providerId)
     {
         if (_credentials.HasRuntimeApiKey(providerId))
