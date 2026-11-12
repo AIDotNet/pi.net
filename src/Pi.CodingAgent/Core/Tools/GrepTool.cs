@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using Pi.Agent.Types;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core.Extensions;
@@ -27,7 +26,11 @@ public interface IGrepToolOperations
     /// <summary>Check if path is a directory. Throws if path does not exist.</summary>
     Task<bool> IsDirectoryAsync(string absolutePath);
 
-    /// <summary>Read file contents for context lines.</summary>
+    /// <summary>
+    /// 上游 1.5.1 #9276 起**不再调用**：上下文行改由 ripgrep 的 <c>--context</c> 事件直接给出。
+    /// 保留此成员以兼容既有自定义实现（上游把 readFile 标为 deprecated 且不再读取）。
+    /// 要远程搜索请直接覆写工具的 execute。
+    /// </summary>
     Task<string> ReadFileAsync(string absolutePath);
 }
 
@@ -51,7 +54,16 @@ public static class GrepTool
     /// <c>RIPGREP_CONFIG_PATH</c> 等外部配置影响，否则用户配置里的 <c>--fixed-strings</c>
     /// 会静默把正则搜索变成字面量搜索，模型拿到不完整结果且没有报错（上游 #11203）。
     /// </summary>
-    internal static List<string> BuildRgArgs(bool ignoreCase, bool literal, string? glob, string pattern, string searchPath)
+    /// <param name="contextValue">&gt;0 时向 rg 传 <c>--context N</c> 由它给出上下文行（#9276）。</param>
+    /// <param name="isDirectory">目录搜索时搜索 <c>.</c> 并把 cwd 设为 searchPath，令 glob 锚定在 path（#11807）。</param>
+    internal static List<string> BuildRgArgs(
+        bool ignoreCase,
+        bool literal,
+        string? glob,
+        string pattern,
+        string searchPath,
+        int contextValue = 0,
+        bool isDirectory = false)
     {
         var rgArgs = new List<string> { "--no-config", "--json", "--line-number", "--color=never", "--hidden" };
         if (ignoreCase)
@@ -72,10 +84,49 @@ public static class GrepTool
             rgArgs.Add(System.Text.RegularExpressions.Regex.Replace(glob, @"^(!?)(?:\./)+", "$1"));
         }
 
+        // 上游 1.5.1 #9276：上下文行改由 ripgrep 以 context 事件直接给出，不再整文件读回内存
+        // （大文件 OOM / UTF-16 / 孤立 CR 一并解决）。
+        if (contextValue > 0)
+        {
+            rgArgs.Add("--context");
+            rgArgs.Add(contextValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
         rgArgs.Add("--");
         rgArgs.Add(pattern);
-        rgArgs.Add(searchPath);
+        // 上游 1.5.1 #11807：rg 把 --glob 锚在自己的 cwd；目录搜索改在 searchPath 里搜 "."，
+        // 输出既已相对，formatPath 再把它解析回 searchPath 求相对路径（同时规避符号链接的实路径问题）。
+        rgArgs.Add(isDirectory ? "." : searchPath);
         return rgArgs;
+    }
+
+    /// <summary>
+    /// 上游 1.5.1 #11807：rg 的 <c>--glob</c> 锚在自己的 cwd，目录搜索必须以 searchPath 为 cwd，
+    /// 才能让 <c>path:"repo", glob:"migrations/main/*.js"</c> 命中；单文件搜索仍沿用进程 cwd。
+    /// </summary>
+    internal static string RgWorkingDirectory(string cwd, string searchPath, bool isDirectory) =>
+        isDirectory ? searchPath : cwd;
+
+    /// <summary>
+    /// 上游 1.5.1 #11807：目录搜索时 rg 输出的是 <c>./a.js</c> 之类的相对路径，先按 searchPath
+    /// 解析成绝对路径再求相对（<c>path.relative(searchPath, path.resolve(searchPath, filePath))</c>）；
+    /// 不在 searchPath 下时回落到文件名。
+    /// </summary>
+    internal static string FormatRgPath(string searchPath, string filePath, bool isDirectory)
+    {
+        if (isDirectory)
+        {
+            // 先把 base 变成完全限定路径，Path.GetFullPath(path, basePath) 在 Windows 上否则会抛。
+            var basePath = Path.GetFullPath(searchPath);
+            var resolved = Path.GetFullPath(filePath, basePath);
+            var relative = Path.GetRelativePath(basePath, resolved);
+            if (relative.Length > 0 && !relative.StartsWith("..", StringComparison.Ordinal))
+            {
+                return relative.Replace('\\', '/');
+            }
+        }
+
+        return Path.GetFileName(filePath);
     }
 
     private static readonly ToolSchema GrepSchema = new(new Dictionary<string, object?>
@@ -96,7 +147,7 @@ public static class GrepTool
             ["glob"] = new Dictionary<string, object?>
             {
                 ["type"] = "string",
-                ["description"] = "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'",
+                ["description"] = "Filter files by glob pattern, relative to path, e.g. '*.ts', 'src/**/*.ts' or '**/*.spec.ts'. A pattern without '/' matches file names at any depth",
             },
             ["ignoreCase"] = new Dictionary<string, object?>
             {
@@ -172,120 +223,74 @@ public static class GrepTool
                     throw new InvalidOperationException($"Path not found: {searchPath}");
                 }
 
+                // 上游 #9276：钳制避免 String() 出现科学计数法（rg 会拒绝）；int 已天然有界。
                 var contextValue = context is > 0 ? context.Value : 0;
                 var effectiveLimit = Math.Max(1, limit ?? DefaultLimit);
 
-                string FormatPath(string filePath)
-                {
-                    if (isDirectory)
-                    {
-                        var relative = Path.GetRelativePath(searchPath, filePath);
-                        if (relative.Length > 0 && !relative.StartsWith("..", StringComparison.Ordinal))
-                        {
-                            return relative.Replace('\\', '/');
-                        }
-                    }
+                // 上游 1.5.1 #9276：上下文行由 rg 的 context 事件直接给出，此纯叶子完成
+                // pushLine / limit / 字节截断，端口不再整文件读回内存（也不再调用 ReadFileAsync）。
+                var processor = new GrepRgEventProcessor(
+                    filePath => FormatRgPath(searchPath, filePath, isDirectory),
+                    contextValue,
+                    effectiveLimit,
+                    Truncate.DefaultMaxBytes);
 
-                    return Path.GetFileName(filePath);
-                }
-
-                var fileCache = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-                async Task<List<string>> GetFileLines(string filePath)
-                {
-                    if (fileCache.TryGetValue(filePath, out var cached))
-                    {
-                        return cached;
-                    }
-
-                    List<string> lines;
-                    try
-                    {
-                        var content = await ops.ReadFileAsync(filePath).ConfigureAwait(false);
-                        // 只归一 CRLF，孤立 CR 不能当换行：ripgrep 只按 LF 计行，
-                        // 把 CR 也折成行会让匹配点之后的行号整体偏移一位（上游 #11398）。
-                        lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
-                    }
-                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-                    {
-                        lines = [];
-                    }
-
-                    fileCache[filePath] = lines;
-                    return lines;
-                }
-
-                var rgArgs = BuildRgArgs(ignoreCase, literal, glob, pattern, searchPath);
-
-                var matches = new List<(string FilePath, int LineNumber, string? LineText)>();
-                var outputLines = new List<string>();
-                var matchCount = 0;
-                var matchLimitReached = false;
-                var linesTruncated = false;
+                var rgArgs = BuildRgArgs(ignoreCase, literal, glob, pattern, searchPath, contextValue, isDirectory);
                 var killedDueToLimit = false;
                 var stderr = new StringBuilder();
 
                 var child = ChildProcess.SpawnProcess(rgPath, rgArgs, new SpawnOptions
                 {
-                    Cwd = cwd,
+                    // 上游 1.5.1 #11807：让 rg 的 --glob 锚定在 path（目录搜索）。
+                    Cwd = RgWorkingDirectory(cwd, searchPath, isDirectory),
                     Stdio = [StdioMode.Ignore, StdioMode.Pipe, StdioMode.Pipe],
                     WindowsHide = true,
                 });
 
+                // ripgrep 每行一个 JSON 事件；按字节缓冲并按 '\n' 切分（对齐 Node readline），
+                // 这样跨 chunk 的长行（含 base64 bytes）也不会被截断。
+                var pending = new List<byte>();
+
+                void ProcessLine(string line)
+                {
+                    if (processor.Done)
+                    {
+                        return;
+                    }
+
+                    if (!GrepRgEventProcessor.TryParseRgEvent(line, out var ev))
+                    {
+                        return;
+                    }
+
+                    // processor.Process 在「limit 已被证明」时返回 true → finish()：停掉 rg 子进程。
+                    if (processor.Process(ev) && child.Id is int pid)
+                    {
+                        Shell.KillProcessTree(pid);
+                        killedDueToLimit = true;
+                    }
+                }
+
                 child.StdoutData += data =>
                 {
-                    // ripgrep emits one JSON event per line; the port buffers the raw bytes and
-                    // splits them the way Node's readline interface does.
-                    var text = Encoding.UTF8.GetString(data);
-                    foreach (var line in text.Split('\n'))
+                    pending.AddRange(data);
+                    while (true)
                     {
-                        if (line.Trim().Length == 0 || matchCount >= effectiveLimit)
+                        var nl = pending.IndexOf((byte)'\n');
+                        if (nl < 0)
                         {
-                            continue;
+                            break;
                         }
 
-                        JsonDocument? doc = null;
-                        try
+                        var arr = pending.GetRange(0, nl).ToArray();
+                        pending.RemoveRange(0, nl + 1);
+                        var length = arr.Length;
+                        if (length > 0 && arr[length - 1] == (byte)'\r')
                         {
-                            doc = JsonDocument.Parse(line);
-                        }
-                        catch (JsonException)
-                        {
-                            continue;
+                            length--; // CRLF
                         }
 
-                        using (doc)
-                        {
-                            var root = doc.RootElement;
-                            if (root.TryGetProperty("type", out var typeElement)
-                                && typeElement.GetString() == "match"
-                                && root.TryGetProperty("data", out var dataElement))
-                            {
-                                matchCount++;
-                                var filePath = dataElement.TryGetProperty("path", out var pathElement)
-                                    ? pathElement.GetProperty("text").GetString()
-                                    : null;
-                                var lineNumber = dataElement.TryGetProperty("line_number", out var lineNumberElement)
-                                    ? lineNumberElement.GetInt32()
-                                    : (int?)null;
-                                var lineText = dataElement.TryGetProperty("lines", out var linesElement)
-                                    ? linesElement.GetProperty("text").GetString()
-                                    : null;
-                                if (filePath is not null && lineNumber is not null)
-                                {
-                                    matches.Add((filePath, lineNumber.Value, lineText));
-                                }
-
-                                if (matchCount >= effectiveLimit)
-                                {
-                                    matchLimitReached = true;
-                                    if (child.Id is int pid)
-                                    {
-                                        Shell.KillProcessTree(pid);
-                                        killedDueToLimit = true;
-                                    }
-                                }
-                            }
-                        }
+                        ProcessLine(Encoding.UTF8.GetString(arr, 0, length));
                     }
                 };
 
@@ -302,6 +307,19 @@ public static class GrepTool
                 var exitCode = await child.WaitAsync().ConfigureAwait(false);
                 signal.ThrowIfCancellationRequested();
 
+                // readline 在流关闭时会把最后一行（无换行结尾）也发出去。
+                if (pending.Count > 0)
+                {
+                    var arr = pending.ToArray();
+                    var length = arr.Length;
+                    if (length > 0 && arr[length - 1] == (byte)'\r')
+                    {
+                        length--;
+                    }
+
+                    ProcessLine(Encoding.UTF8.GetString(arr, 0, length));
+                }
+
                 // ripgrep exits 0 on matches, 1 on no matches; anything else is a real failure.
                 if (!killedDueToLimit && exitCode is not 0 and not 1)
                 {
@@ -310,105 +328,7 @@ public static class GrepTool
                         errorMsg.Length > 0 ? errorMsg : $"ripgrep exited with code {exitCode}");
                 }
 
-                if (matchCount == 0)
-                {
-                    return new AgentToolResult([new TextContent("No matches found")]);
-                }
-
-                async Task<List<string>> FormatBlock(string filePath, int lineNumber)
-                {
-                    var relativePath = FormatPath(filePath);
-                    var lines = await GetFileLines(filePath).ConfigureAwait(false);
-                    if (lines.Count == 0)
-                    {
-                        return [$"{relativePath}:{lineNumber}: (unable to read file)"];
-                    }
-
-                    var block = new List<string>();
-                    var start = contextValue > 0 ? Math.Max(1, lineNumber - contextValue) : lineNumber;
-                    var end = contextValue > 0 ? Math.Min(lines.Count, lineNumber + contextValue) : lineNumber;
-                    for (var current = start; current <= end; current++)
-                    {
-                        var lineText = lines[current - 1];
-                        var sanitized = lineText.Replace("\r", "", StringComparison.Ordinal);
-                        var isMatchLine = current == lineNumber;
-                        var (truncatedText, wasTruncated) = Truncate.TruncateLine(sanitized);
-                        if (wasTruncated)
-                        {
-                            linesTruncated = true;
-                        }
-
-                        block.Add(isMatchLine
-                            ? $"{relativePath}:{current}: {truncatedText}"
-                            : $"{relativePath}-{current}- {truncatedText}");
-                    }
-
-                    return block;
-                }
-
-                foreach (var match in matches)
-                {
-                    if (contextValue == 0 && match.LineText is not null)
-                    {
-                        var relativePath = FormatPath(match.FilePath);
-                        var sanitized = match.LineText
-                            .Replace("\r\n", "\n", StringComparison.Ordinal)
-                            .Replace("\r", "", StringComparison.Ordinal);
-                        if (sanitized.EndsWith('\n'))
-                        {
-                            sanitized = sanitized[..^1];
-                        }
-
-                        var (truncatedText, wasTruncated) = Truncate.TruncateLine(sanitized);
-                        if (wasTruncated)
-                        {
-                            linesTruncated = true;
-                        }
-
-                        outputLines.Add($"{relativePath}:{match.LineNumber}: {truncatedText}");
-                    }
-                    else
-                    {
-                        outputLines.AddRange(await FormatBlock(match.FilePath, match.LineNumber).ConfigureAwait(false));
-                    }
-                }
-
-                var rawOutput = string.Join("\n", outputLines);
-                // Apply byte truncation. There is no line limit here because the match limit already capped rows.
-                var truncation = Truncate.TruncateHead(rawOutput, new Truncate.TruncationOptions
-                {
-                    MaxLines = int.MaxValue,
-                });
-                var output = truncation.Content;
-                var notices = new List<string>();
-                if (matchLimitReached)
-                {
-                    notices.Add($"{effectiveLimit} matches limit reached. Use limit={effectiveLimit * 2} for more, or refine pattern");
-                }
-
-                if (truncation.Truncated)
-                {
-                    notices.Add($"{Truncate.FormatSize(Truncate.DefaultMaxBytes)} limit reached");
-                }
-
-                if (linesTruncated)
-                {
-                    notices.Add($"Some lines truncated to {Truncate.GrepMaxLineLength} chars. Use read tool to see full lines");
-                }
-
-                GrepToolDetails? details = notices.Count > 0
-                    ? new GrepToolDetails
-                    {
-                        Truncation = truncation.Truncated ? truncation : null,
-                        MatchLimitReached = matchLimitReached ? effectiveLimit : null,
-                        LinesTruncated = linesTruncated ? true : null,
-                    }
-                    : null;
-                if (notices.Count > 0)
-                {
-                    output += $"\n\n[{string.Join(". ", notices)}]";
-                }
-
+                var (output, details) = processor.Finalize();
                 return new AgentToolResult([new TextContent(output)], Details: details);
             },
         };
