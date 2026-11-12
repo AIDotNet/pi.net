@@ -96,6 +96,12 @@ performance internals — no published feature is recorded as a deliberate non-i
   navigation (#9155); Markdown transformers can opt into more surfaces (#11756) and overlay
   `blocked` status survives until `done()` (#11851); RPC/print shutdown awaits dispose (#11599 /
   #11752); missing session cwd offers continue/fork/cancel (#11975).
+- Mermaid diagrams colour semantic spans through the theme's foreground ANSI codes (edge labels
+  use the text colour, titles are bold) and OSC 8 links only label text when the terminal supports
+  hyperlinks (#8158).
+- Codex SSE retry backoff no longer leaves abort registrations behind and consistently reports
+  "Request was aborted" (#11725); group-commit-equivalent sequential batches are verified to
+  agree with the in-memory reference storage (fabf916fc / 8889e623d).
 
 ## [1.5.0] - 2026-11-05
 

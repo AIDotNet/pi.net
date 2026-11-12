@@ -198,10 +198,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   端口 `_dirty` 前置清零 + 每遍全量重算架构本就免疫）。
 - **仅余 ➖ 不适用（代码级实证，非 published 功能漏做）**：Mermaid 升级（第三方 Node 库
   替换，端口 `Mermaid.cs` 的 `render()` 是注入 seam）、`SqliteStorage.commit(batches)` 与
-  chord store group commit（纯性能优化 / v2 store，端口无对应优化面）、#11725 Codex SSE
-  abort 监听（JS `addEventListener` 泄漏，端口 `Task.Delay(ms, signal)` 无此形态）、
-  Windows 安装器 `install.ps1` / PowerShell 5.1（修复在 pi.dev 仓库，端口无该脚本）、
-  TypeBox 构造 API / 微秒时钟 / Node 动态 import。逐条证据见台账 §4.4。
+  chord store group commit、#11725 Codex SSE abort 监听——这几项在第六轮已进一步
+  真实移植 / 等价回归，见下。仍为 ➖ 不适用且附当前源码级实证的仅：Windows 安装器
+  `install.ps1` / PowerShell 5.1（修复在 pi.dev 仓库，`git ls-files` 证明端口无该脚本）、
+  `pi update --self` npm 自更新（非 npm 包）、TypeBox 构造 API / 微秒时钟 / Node 动态
+  import。逐条证据见台账 §4.4。
+
+### Fixed（第六轮：复核 hook 第四次反馈，把 §4.4 剩余 published 项逐项真实移植/等价回归）
+
+- **#8158 Mermaid 渲染升级**：`Mermaid.cs` 真实移植 published 的可观察着色语义——
+  `MermaidSpan` 加 `Href`/`Role`；`MermaidAnsiTheme.From(getFgAnsi)` 派生 SGR 参数串
+  （edgeLabel `muted`→`text`、title 前置 `1;` 加粗）；`Mermaid.ToAnsi` 按语义类输出
+  ANSI，且仅当 `role=="text"` + `GetCapabilities().Hyperlinks` 时给标签加 OSC 8 链接。
+  `RuntimeTheme` 委托 `Theme.GetFgAnsi` + 终端能力。`MermaidAnsiTests` 5 用例逐字对照
+  上游 mermaid.test.ts；既有 `MermaidTests` 27/27 不回归。
+- **#11725 Codex SSE 重试 abort 监听泄漏**：`OpenAiCodexResponses.AbortableDelayAsync`
+  升为 internal，等价契约（多次 backoff 无残留注册、abort 抛 `"Request was aborted"`）
+  由 `CodexSseRetryBackoffTests` 4 用例钉住。
+- **group commit（fabf916fc / 8889e623d）**：`GroupCommitDifferentialTests` 2 用例把
+  上游「differential against MemoryStorage」的目标语义（多批顺序、后批依赖前批、
+  seq 严格递增）在端口可观察层面钉住；`git show fabf916fc --stat` 证明其不碰
+  `types.ts` 接口（纯 SQL 合并优化），chord store.ts 属端口无对应物的 v2 层
+  （`git ls-files src/Pi.Chord` 实证）。
+- **验证覆盖补齐**：hook 指出 gate 不含 `Pi.Tui.Tests` / `Pi.Env.Tests`、且最后一次
+  代码改动后缺完整 Debug 门禁，本轮补跑（见收口记录）。
 
 ## [1.5.0] - 2026-11-05
 

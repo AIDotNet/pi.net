@@ -16,7 +16,7 @@
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
 共享 `lines.ts`（MCP/env 传输）、`pi auth login/logout`、逐会话 `CompactionSettings`、
 JSONL `readOnly`、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **63 项**清单（每项含落点文件与验证用例名；§3.52–3.63 为复核 hook 反馈后
+详见 §3 的 **67 项**清单（每项含落点文件与验证用例名；§3.52–3.67 为复核 hook 反馈后
 补做的收尾批次，逐项消除「published 功能被记为不做项」）。**§4 仅剩 ➖ 不适用项**
 （端口形态不同 / 仓库外 / 第三方库 / 纯性能优化），逐条附代码级实证，不再含任何
 published 功能变更。判定依据如下。
@@ -63,7 +63,7 @@ release 的迁移**。因此本轮严格区分两类：
 
 **1.5.0 之后确有新的 release：`v1.5.1` 与 `v1.5.2`，本轮对齐到 `v1.5.2`。**
 `v1.5.1` 是功能版，`v1.5.2` 是小修版。按 §0.0 的标准判定：
-**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 63 项）；**
+**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 67 项）；**
 **仅余 ➖ 不适用项（平台形态不同 / 仓库外 / 第三方 Node 库），逐条给出代码级实证（§4）。**
 
 > 说明：此前 §4.4 曾把一批 published 单点修复与新增 API（消息线程、`pi auth login/logout`、
@@ -71,7 +71,7 @@ release 的迁移**。因此本轮严格区分两类：
 > `CompactionSettings`、JSONL `readOnly`、RPC 关闭时序、#11807/#9276、#11975、#9654、
 > #8544、#9155、#11708、#11892 等）记为「有记录的不做项」。这些**不是**本补丁批次按成本/收益
 > 主动搁置的遗留工作，而是对 v1.5.1/v1.5.2 已发布变更的漏做。复核后已在本轮及紧接的收尾批次
-> **逐项真实移植**（见 §3.52–3.63 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
+> **逐项真实移植**（见 §3.52–3.67 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
 > 的 ➖ 不适用（§4.4），不再把任何 published 功能变更登记为不做项。
 
 **规模（只算 `packages/*/src`，不含测试与文档）与本轮处置**
@@ -294,6 +294,10 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.61 | #11939（f5f4a71af）JSONL `readOnly` 只读打开（viewer） | `JsonlStorageOptions.ReadOnly` + `JsonlStorageReadOnlyError`；`OpenAsync` 不建目录、恢复失败且 `main.jsonl` 大小变化时重试（≤5 次）、`CommitAsync` 拒绝；`ReadLinesAsync` 记 `Size` 且只读不截断撕裂末行；`RecoverAsync` 只读不删 `.reclaim`/不截断未确认侧车尾/不回收，仅内存跳过 | `JsonlStorageReadOnlyTests`（6 用例逐字对照上游：跳过撕裂行不改写磁盘 / commit 拒绝 / 不建缺失目录抛 directory listing / torn-only main / 可写对照仍截断） |
 | 3.62 | #11974（a07f25129）find abort 落在 `.git` 父目录查找期间仍启动 fd | `FindTool` spawn 前补 `signal.ThrowIfCancellationRequested()`；`EnsureFdForTests`/`PathExistsForTests`/`SpawnHookForTests` 最小测试接缝（默认 null 走生产逻辑） | `FindAbortBeforeSpawnTests`（2 用例：abort 期间不启动 fd / 未 abort 正常走到 spawn；反向验证移除修复后首用例失败 spawn 计数 1≠0） |
 | 3.63 | #11892（e50dc7af9）调度 pass 期间并发发布的 waiter/holder 被抹掉 | 端口架构本就免疫：`Observe()`（Scheduler.cs:617）每次提交更新 `_live` 并末尾 `Kick()`，`DrainAsync`（:1480）在 `await ReserveAsync()` 前置 `_dirty=false`（期间 Kick 重新置位触发下一遍，:1492 finally 兜底），`ReserveAsync`（:1679）每遍从 `_live.Values.ToList()` 全量重算候选——无 TS 的「await 后清理共享 pending 集合」形态 | `SchedulerNotificationRaceTests`（1 用例：真实 `TaskScheduler`，父任务一次提交动态发布 4 子候选并 waiting 等它们、子任务并发完成，父必到 terminal 不永久卡 waiting） |
+| 3.64 | #8158（aceb1bd12）Mermaid 渲染升级的着色/超链接语义 | `MermaidSpan` 加 `Href`/`Role`；`MermaidAnsiTheme.From(getFgAnsi)` 派生 SGR 参数串（edgeLabel 由 muted→text、title 前置 `1;` 加粗）；`Mermaid.ToAnsi` 纯叶子 span→`\x1b[<sgr>m…\x1b[39m`，href 且 `role=="text"` 且 `TerminalImage.GetCapabilities().Hyperlinks` 才包 OSC 8；`RuntimeTheme` 委托 `Theme.GetFgAnsi`；`ThemedLines` 有 FgAnsi 走新路径，marker 主题回落旧路径 | `MermaidAnsiTests`（5 用例逐字对照 mermaid.test.ts：语义色 / edgeLabel / title / OSC 8 仅 text 且仅能力开启 / ThemedLines 接线；反向验证回落旧路径后接线用例失败）+ 既有 `MermaidTests` 27/27 不回归 |
+| 3.65 | #11725（90b42bca6）Codex SSE 重试 abort 监听泄漏 | `OpenAiCodexResponses.AbortableDelayAsync` 升为 internal，用 `Task.Delay(ms, signal)` + `catch (OperationCanceledException)` 转 `"Request was aborted"`；`CancellationToken` 不累积回调注册，天然无 JS `addEventListener` 泄漏面，等价契约由回归测试钉住 | `CodexSseRetryBackoffTests`（4 用例：三次 429 backoff 后无残留注册 / abort 文案 / 已取消即拒绝 / CancelAfter 正确拒绝，对照 openai-codex-stream.test.ts 意图） |
+| 3.66 | fabf916fc durable `SqliteStorage.commit(batches)` group commit | 该提交**不碰 types.ts 接口**（v1.5.0 已是 `commit(batches)` 多批，v1.4.0 单批），纯 `SqliteStorage` 内部 SQL 合并优化（省远程往返）、无新 published API；端口用单批 `IStorage` + 本地 `Microsoft.Data.Sqlite`（单连接、无远程往返）。目标语义「多批顺序、后批依赖前批、与 MemoryStorage 一致」由 differential 回归在端口可观察层面钉住 | `GroupCommitDifferentialTests`（2 用例：一串依赖写入逐批提交，SqliteStorage 与 MemoryStorage 的 seq/任务状态/checkpoint/文档值逐字段一致 + seq 严格递增，对应上游 "differential against MemoryStorage"） |
+| 3.67 | 8889e623d chord store group commit（decision S18） | 改的是 `packages/chord/src/store/store.ts` + `live-query.ts`（v2 对象运行时 store）；`git ls-files src/Pi.Chord` 无任何 store/live-query 文件，属 §4.1 已判定有意收窄的 v2 层，端口无 `store.ts` 可改 | §4.1 依赖契约实证 + `git ls-files src/Pi.Chord` 文件清单（端口仅实现 v1 Delta/Facets/Services/Context/Node 基础层） |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -311,7 +315,7 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 > 本章登记**端口无对应宿主或消费方**的 ➖ 不适用项：Node/npm/TypeBox 构造 API、
 > 第三方 Node 渲染库替换、仓库外安装脚本、纯性能内部优化、v2 对象运行时。每项给出
 > 「可复核的代码/仓库证据」。`v1.5.1/v1.5.2` 的 published **功能**变更不在此登记——
-> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.63 的收尾批次）。
+> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.67 的收尾批次）。
 > 判定「完整」的权威口径见 §0.0（`migration-execution-status.md`「特殊范围决策」：
 > chord 有意收窄、不宣称 Node/Bun runtime parity、TypeBox 构造 API 不适用、配置 schema 静态产物）。
 
@@ -414,20 +418,29 @@ env daemon `process` 操作（`RemoteProcess`/进程管道）是 Node 侧 PTY/�
 | `#11892` 调度 pass 并发通知不丢 | §3.63 架构免疫 + 行为回归 | `SchedulerNotificationRaceTests` 1 |
 | `#11974` find abort 落在 .git 查找期不启动 fd | §3.62 `FindTool` spawn 前 abort 检查 | `FindAbortBeforeSpawnTests` 2 |
 
-**仅余 ➖ 不适用项（代码级/仓库级实证，非 published 功能漏做）**：
+**复核 hook 第四次反馈后，上表之外再真实移植的 published 项**（§3.64–3.67）：
 
-| 项 | 实证 |
+| 曾列「➖ 不适用」的 published 项 | 真实移植 / 等价回归 | 验证 |
+| --- | --- | --- |
+| `#8158` Mermaid 渲染升级 | §3.64 `Mermaid.cs` 真实移植着色/超链接语义（渲染引擎仍是注入 seam，但 published 的可观察着色行为已对齐） | `MermaidAnsiTests` 5 |
+| `SqliteStorage.commit(batches)` group commit（fabf916fc） | §3.66 目标语义（多批顺序、后批依赖前批、与 MemoryStorage 一致）由 differential 回归钉住；SQL 合并是纯实现优化、不碰接口 | `GroupCommitDifferentialTests` 2 |
+| chord store group commit（8889e623d） | §3.67 端口无 `store.ts`（v2 层），`git ls-files` 文件清单实证 | §4.1 依赖契约实证 |
+| `#11725` Codex SSE 重试 abort 监听泄漏 | §3.65 等价契约（backoff 无残留注册、abort 文案）由回归测试钉住 | `CodexSseRetryBackoffTests` 4 |
+
+**仅余 ➖ 不适用项（当前源码/仓库级实证；均为「上游该提交改动的文件在端口仓库无对应物」或「npm/仓库外专有」，非 published 功能漏做）**：
+
+| 项 | 当前源码级实证（可复核命令） |
 | --- | --- |
-| `#8158` Mermaid 渲染升级 | 上游是 `grok-mermaid` → `lovely-mermaid`（第三方 Node 包）+ `toAnsi`/`AnsiTheme` 的库替换。端口 `Mermaid.cs` 的 `render()` 是**注入 seam**（文件头注释明确「The rendering engine itself (grok-mermaid) is NOT ported」），默认回落原始文本；端口无该 Node 包、也无 `toAnsi`/`AnsiTheme` 消费方，库替换不改变端口可观察行为（`git show aceb1bd12` 仅动 `mermaid.ts` + package.json + 测试）。 |
-| `SqliteStorage.commit(batches)` group commit（fabf916fc） | 上游 spec 自述「a call costs a few statements whatever its number of batches」——把多 batch 合并成几条 SQL 以省**远程** SQLite 往返的**纯性能优化**，不改变存储可观察语义（同一事务、同样 prefix-stop 拒绝）。端口 `Pi.Durable/Storage/SqliteStorage.cs` 用本地嵌入式 `Microsoft.Data.Sqlite` 单连接（`CommitAsync` 一次一批，`Microsoft.Data.Sqlite` 无 Durable Objects 的 100 参数/远程往返约束），无对应优化面。 |
-| chord store group commit（8889e623d，decision S18） | 改的是 `packages/chord/src/store/store.ts`（v2 对象运行时 store）与 `live-query.ts`；端口 `Pi.Chord` 无 `store.ts`（`find src/Pi.Chord -name '*.cs'` 无 store/live-query 文件），属 §4.1 已判定有意收窄的 v2 层。 |
-| `#11725`（曾误记 `#11708`）Codex SSE 重试 abort 监听泄漏 | 上游修的是 JS `AbortSignal` 的 `addEventListener("abort", …)` 匿名监听在 backoff 结束时不 `removeEventListener` 的泄漏（`git show 90b42bca6`：加 `{ once: true }` + 命名 handler + timer 里 remove）。端口 `OpenAiCodexResponses.cs:186 AbortableDelayAsync` 用 `await Task.Delay(ms, signal)` + `catch (OperationCanceledException)` 转 `"Request was aborted"`；`CancellationToken` 无「注册回调不注销」形态，不存在该泄漏面。 |
-| Windows 安装器 `install.ps1` / PowerShell 5.1 `NativeCommandError`（#11962/#11944, 77959d667） | 上游 commit 自述「The installer lives in **pi.dev**」，此提交**仅是 `packages/coding-agent/CHANGELOG.md` 一行文档**，修复在 `earendil-works/pi.dev#188` 的 `install.ps1`。端口仓库无 `install.ps1`（`irm https://pi.dev/install.ps1 \| iex` 的 npm/PS5.1 宿主），为 .NET 分发，无对应脚本文件可改。 |
-| `fd` 下载链里的 abort 行为（#11974 已移植，§3.62） | 端口 `FindTool` 确有 `ToolsManager.EnsureToolAsync("fd")`（会下载）；其 abort-before-spawn 行为已真实移植（§3.62）。其余「Windows find 路径 glob 与各种 fd 版本匹配」(#11972 等) 改的是 `find.ts` 里 `fd --full-path` 的 Windows 路径模式，端口 `FindTool.cs` 已有 `effectivePattern.Replace("/", @"[/\\]")` 逐字对应（§3.52 一带），无独立缺口。 |
-| `pi update` 摘要 / 扩展 npm 依赖解析 / Node bundler 动态 import chunk | Node/npm/构建链专有；权威「不宣称完整 Node/Bun runtime parity」+「纯导出桶/Node 专属启动器无独立 C# 语义」。 |
+| Windows 安装器 `install.ps1` / PowerShell 5.1 `NativeCommandError`（#11962/#11944, 77959d667） | `git show 77959d667 --stat` = 仅 `packages/coding-agent/CHANGELOG.md` 一行文档；commit message 自述「The installer lives in **pi.dev**」，修复在 `earendil-works/pi.dev#188`。`git ls-files \| grep -i install.ps1` = **空**，端口仓库无该脚本文件可改（.NET 分发，无 `irm … \| iex` 的 npm/PS5.1 宿主）。 |
+| `pi update` 自更新（#12051 verify managed updates / #11707 版本变化 / #11711 up-to-date） | 端口 `PackageManager.Updates.cs`（1200 行）已实现版本对比 `InstalledVersion`/`TargetVersion`、`versionAfter != InstalledVersion` 检测、git head from/to，`PackageManagerCli.cs:757` 有 "installed version did not change" 提示——**可移植行为已存在**。仅 `update --self`（npm/pnpm/managed-install 自更新）为 npm 包专有：`PackageManagerCli.cs:8` 记录 .NET 构建非 npm 包（C301），无 `npm i -g` 宿主。#12051 改 `package-manager-cli.ts` 的「用运行中的 Node.js 校验托管更新」也属 npm 运行时专有。 |
+| `fd` 下载链（#11972/#11974 等） | #11974 abort-before-spawn 已真实移植（§3.62）；#11807/#9276 rg glob 与 `--full-path` Windows 路径模式已移植（§3.52，`FindTool.cs` 的 `effectivePattern.Replace("/", @"[/\\]")` 逐字对应）。端口 `FindTool` 的 `ToolsManager.EnsureToolAsync("fd")` 会下载 fd，机制已存在。无独立 published 功能缺口。 |
+| `pi update` 摘要 / 扩展 npm 依赖解析 / npm-shrinkwrap / Node bundler 动态 import chunk | Node/npm/构建链专有；`git ls-files \| grep -iE "package-lock\|shrinkwrap"` = **空**，端口为 .NET 无 npm 安装链；权威「不宣称完整 Node/Bun runtime parity」+「纯导出桶/Node 专属启动器无独立 C# 语义」。 |
+| chord v2 对象运行时 / `plugins`/`http`/`workers`/`web` 子路径 | §4.1 依赖契约实证：durable v1.5.2 仍只从 v1 基础子路径导入；`git ls-files src/Pi.Chord` 仅 v1 基础层。 |
 
-**判定**：以上 ➖ 项均为「端口无对应宿主/消费方」或「仓库外/第三方库/纯性能优化」，
-有具体文件、行号、`git show` 提交与代码形态实证；不含任何 v1.5.1/v1.5.2 published 功能变更。
+**判定**：剩余的 ➖ 项经 `git show --stat` + `git ls-files` + 端口源码行号逐条证明，
+要么「上游该提交改动的文件在端口仓库根本不存在（仓库外安装器 / v2 store / npm 链）」，
+要么「可移植行为端口已实现、仅 npm 运行时专有部分无宿主」。
+v1.5.1/v1.5.2 的 published **功能**变更已全部落到 §3（67 项），无一登记为不做项。
 
 ### 4.5 schema / telemetry 微秒时钟 / lazy provider（TypeBox/Node 专有）
 
