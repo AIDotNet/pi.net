@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json.Nodes;
 using Pi.Agent.Types;
 using Pi.CodingAgent.Core.Extensions;
@@ -266,18 +266,25 @@ public static class EditTool
 
                         // Strip BOM before matching. The model will not include an invisible BOM in oldText.
                         var (bom, content) = Text.SplitBom(rawContent);
-                        var originalEnding = EditDiff.DetectLineEnding(content);
                         var normalizedContent = EditDiff.NormalizeToLf(content);
-                        var (baseContent, newContent) =
-                            EditDiff.ApplyEditsToNormalizedContent(normalizedContent, edits, path);
+                        var applied = EditDiff.ApplyEditsToNormalizedContent(normalizedContent, edits, path);
+                        var (baseContent, newContent) = applied;
+                        var replacements = applied.Replacements;
                         ThrowIfAborted();
 
-                        var finalContent = bom + EditDiff.RestoreLineEndings(newContent, originalEnding);
-                        await ops.WriteFileAsync(absolutePath, finalContent, signal).ConfigureAwait(false);
-                        ThrowIfAborted();
-
+                        // 上游 1.5.1 #8544：diff/patch 在写盘之前计算（大文件 diff 失败时文件不被改动）。
                         var diffResult = EditDiff.GenerateDiffString(baseContent, newContent);
                         var patch = EditDiff.GenerateUnifiedPatch(path, baseContent, newContent);
+                        ThrowIfAborted();
+
+                        // 无 CR 的原始文件直接写归一化结果；否则把替换映射回原始字节就地拼接，
+                        // 保留未改动行的 CRLF / 孤立 CR 行尾（不再整篇按一种行尾重写）。
+                        var writtenContent = content == normalizedContent
+                            ? newContent
+                            : EditDiff.ApplyReplacementsToOriginal(content, replacements);
+                        var finalContent = bom + writtenContent;
+                        await ops.WriteFileAsync(absolutePath, finalContent, signal).ConfigureAwait(false);
+                        ThrowIfAborted();
                         return new AgentToolResult(
                             [new TextContent($"Successfully replaced {edits.Count} block(s) in {path}.")],
                             new EditToolDetails

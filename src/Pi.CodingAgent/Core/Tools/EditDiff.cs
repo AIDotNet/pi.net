@@ -29,7 +29,15 @@ public sealed record FuzzyMatchResult
 }
 
 /// <summary>Port of the TS <c>AppliedEditsResult</c>.</summary>
-public sealed record AppliedEditsResult(string BaseContent, string NewContent);
+public sealed record AppliedEditsResult(string BaseContent, string NewContent)
+{
+    /// <summary>
+    /// 上游 1.5.1 #8544：按 baseContent（LF 归一化文本）偏移升序的替换，供
+    /// <see cref="EditDiff.ApplyReplacementsToOriginal"/> 映射回原始字节、保留未改动行的行尾。
+    /// 保留为可空默认，兼容既有二元组解构。
+    /// </summary>
+    public IReadOnlyList<EditDiff.TextReplacement> Replacements { get; init; } = [];
+}
 
 /// <summary>Port of the TS <c>EditDiffResult</c>.</summary>
 public sealed record EditDiffResult
@@ -103,6 +111,88 @@ public static partial class EditDiff
     /// <summary>The TS <c>restoreLineEndings</c>.</summary>
     public static string RestoreLineEndings(string text, string ending) =>
         ending == "\r\n" ? text.Replace("\n", "\r\n", StringComparison.Ordinal) : text;
+
+    /// <summary>
+    /// 上游 1.5.1 #8544：把在 LF 归一化文本上匹配到的 replacements 映射回原始文本并就地拼接，
+    /// 未改动区间连字节带行尾一起保留（原来是把整篇按一种行尾重写，会改掉未触碰行的 CRLF/孤立 CR）。
+    /// <para>归一化只把 CRLF 缩成 LF（孤立 CR 变成 LF 但长度不变），故归一化偏移 = 原始偏移 −
+    /// 其前的 CRLF 个数；覆盖到归一化 LF 的区间自然覆盖整个 CRLF。</para>
+    /// <para>拼接缝：一段以 CR 结尾、下一段以 LF 开头时会并成一个 CRLF 行尾，导致写出的文件
+    /// 归一化后与 diff/patch 描述不符；此时在缝上补一个 LF，把该 CR 变成独立的 CRLF。</para>
+    /// </summary>
+    public static string ApplyReplacementsToOriginal(
+        string originalContent, IReadOnlyList<TextReplacement> replacements)
+    {
+        var crlfBefore = 0;
+        var nextCrlf = originalContent.IndexOf("\r\n", StringComparison.Ordinal);
+
+        // 归一化偏移 → 原始偏移。replacements 按 matchIndex 升序、区间不重叠，故 nextCrlf 只需前进。
+        int ToOriginal(int offset)
+        {
+            while (nextCrlf != -1 && nextCrlf - crlfBefore < offset)
+            {
+                crlfBefore++;
+                nextCrlf = originalContent.IndexOf("\r\n", nextCrlf + 2, StringComparison.Ordinal);
+            }
+
+            return offset + crlfBefore;
+        }
+
+        var parts = new List<string>();
+        var endsWithCr = false;
+        void Push(string part)
+        {
+            if (part.Length == 0)
+            {
+                return;
+            }
+
+            if (endsWithCr && part[0] == '\n')
+            {
+                parts.Add("\n"); // 缝：保留的 CR 与新 LF 相遇时补一个 LF
+            }
+
+            parts.Add(part);
+            endsWithCr = part[^1] == '\r';
+        }
+
+        var position = 0;
+        foreach (var replacement in replacements)
+        {
+            var start = ToOriginal(replacement.MatchIndex);
+            Push(originalContent[position..start]);
+            var ending = GetLineEndingAt(originalContent, start);
+            Push(ending == "\n"
+                ? replacement.NewText
+                : replacement.NewText.Replace("\n", ending, StringComparison.Ordinal));
+            position = ToOriginal(replacement.MatchIndex + replacement.MatchLength);
+        }
+
+        Push(originalContent[position..]);
+        return string.Concat(parts);
+    }
+
+    /// <summary>
+    /// 上游 1.5.1 #8544：offset 所在行的行尾（自身的 LF/CRLF，未终止末行用前一行的行尾）。
+    /// 孤立 CR 只在完全不含 LF 的文件（经典 Mac）里才当行尾，否则更可能是行内控制字符。
+    /// </summary>
+    private static string GetLineEndingAt(string content, int offset)
+    {
+        var lineFeed = content.IndexOf('\n', offset);
+        if (lineFeed == -1)
+        {
+            lineFeed = offset < content.Length
+                ? content.LastIndexOf('\n', offset)
+                : content.LastIndexOf('\n');
+        }
+
+        if (lineFeed == -1)
+        {
+            return content.Contains('\r') ? "\r" : "\n";
+        }
+
+        return lineFeed > 0 && content[lineFeed - 1] == '\r' ? "\r\n" : "\n";
+    }
 
     /// <summary>
     /// Normalize text for fuzzy matching. Applies progressive transformations: strip trailing
@@ -220,7 +310,7 @@ public static partial class EditDiff
         return (startLine, endLine + 1);
     }
 
-    private static string ApplyReplacements(string content, List<TextReplacement> replacements, int offset = 0)
+    internal static string ApplyReplacements(string content, List<TextReplacement> replacements, int offset = 0)
     {
         var result = content;
         for (var i = replacements.Count - 1; i >= 0; i--)
@@ -234,17 +324,17 @@ public static partial class EditDiff
     }
 
     /// <summary>
-    /// Apply replacements matched against <c>baseContent</c> to <c>originalContent</c> while
-    /// preserving unchanged line blocks from the original. Each replacement is widened to the lines
-    /// it actually touches, those touched lines are rewritten from the normalized base, and all
-    /// other lines are copied back from <c>originalContent</c>.
+    /// 上游 1.5.1 #8544 的 <c>widenReplacementsToLines</c>：把在 <c>baseContent</c>（模糊归一化视图）
+    /// 上匹配到的 replacements 转成在 <c>originalContent</c>（LF 归一化文本）上的替换，每条放宽到
+    /// 它实际触及的整行；未触及的行保持在原始文本里，不重建整篇。
+    /// 供 <see cref="ApplyReplacementsToOriginal"/> 映射回原始字节、保留未改动行行尾。
     /// </summary>
-    public static string ApplyReplacementsPreservingUnchangedLines(
+    public static List<TextReplacement> WidenReplacementsToLines(
         string originalContent,
         string baseContent,
         List<TextReplacement> replacements)
     {
-        var originalLines = SplitLinesWithEndings(originalContent);
+        var originalLines = GetLineSpans(originalContent);
         var baseLines = GetLineSpans(baseContent);
         if (originalLines.Count != baseLines.Count)
         {
@@ -272,25 +362,35 @@ public static partial class EditDiff
             groups.Add((range.StartLine, range.EndLine, new List<TextReplacement> { replacement }));
         }
 
-        var originalLineIndex = 0;
-        var result = "";
+        var result = new List<TextReplacement>(groups.Count);
         foreach (var group in groups)
         {
-            result += string.Join("", originalLines.GetRange(originalLineIndex, group.StartLine - originalLineIndex));
-
             var groupStartOffset = baseLines[group.StartLine].Start;
             var groupEndOffset = baseLines[group.EndLine - 1].End;
-            result += ApplyReplacements(
-                baseContent[groupStartOffset..groupEndOffset],
-                group.Replacements,
-                groupStartOffset);
-            originalLineIndex = group.EndLine;
+            var originalStart = originalLines[group.StartLine].Start;
+            var originalEnd = originalLines[group.EndLine - 1].End;
+            result.Add(new TextReplacement(
+                originalStart,
+                originalEnd - originalStart,
+                ApplyReplacements(
+                    baseContent[groupStartOffset..groupEndOffset],
+                    group.Replacements,
+                    groupStartOffset)));
         }
-
-        result += string.Join("", originalLines.GetRange(originalLineIndex, originalLines.Count - originalLineIndex));
 
         return result;
     }
+
+    /// <summary>
+    /// 兼容旧调用：把宽化后的替换应用到 <c>originalContent</c> 得到结果文本。
+    /// 上游 1.5.1 起改用 <see cref="WidenReplacementsToLines"/> + <see cref="ApplyReplacementsToOriginal"/>，
+    /// 这里保留供既有调用方按旧语义（在归一化文本上重建）使用。
+    /// </summary>
+    public static string ApplyReplacementsPreservingUnchangedLines(
+        string originalContent,
+        string baseContent,
+        List<TextReplacement> replacements) =>
+        ApplyReplacements(originalContent, WidenReplacementsToLines(originalContent, baseContent, replacements));
 
     // ---------- fuzzy matching ----------
 
@@ -444,21 +544,22 @@ public static partial class EditDiff
         }
 
         var baseContent = normalizedContent;
-        var newContent = usedFuzzyMatch
-            ? ApplyReplacementsPreservingUnchangedLines(
-                normalizedContent,
-                replacementBaseContent,
-                sortedEdits.Select(edit => new TextReplacement(edit.MatchIndex, edit.MatchLength, edit.NewText)).ToList())
-            : ApplyReplacements(
-                replacementBaseContent,
-                sortedEdits.Select(edit => new TextReplacement(edit.MatchIndex, edit.MatchLength, edit.NewText)).ToList());
+        // 上游 1.5.1 #8544：精确匹配直接用归一化文本上的匹配区间；模糊匹配先放宽到整行并映射回
+        // 归一化文本坐标。replacements 供写盘时映射回原始字节、保留未改动行的行尾。
+        var rawReplacements = sortedEdits
+            .Select(edit => new TextReplacement(edit.MatchIndex, edit.MatchLength, edit.NewText))
+            .ToList();
+        var replacements = usedFuzzyMatch
+            ? WidenReplacementsToLines(normalizedContent, replacementBaseContent, rawReplacements)
+            : rawReplacements;
+        var newContent = ApplyReplacements(baseContent, replacements);
 
         if (baseContent == newContent)
         {
             throw GetNoChangeError(path, normalizedEdits.Count);
         }
 
-        return new AppliedEditsResult(baseContent, newContent);
+        return new AppliedEditsResult(baseContent, newContent) { Replacements = replacements };
     }
 
     // ---------- diff rendering ----------
