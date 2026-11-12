@@ -324,6 +324,9 @@ public sealed class AgentSessionRuntime
     /// <summary>关闭运行时。对应 TS <c>dispose</c>。</summary>
     public async Task DisposeAsync()
     {
+        // 上游 1.5.1 #9126（7a53c310a）：与 TeardownCurrentAsync 一致，先结算正在进行的回复，
+        // 好让被中止回合里的工具结果与最终助手消息在断开持久化/释放之前落库。
+        await Session.AbortAsync().ConfigureAwait(false);
         await ExtensionRunner.EmitSessionShutdownEventAsync(
             Session.ExtensionRunner,
             BuildSessionShutdownEvent(SessionEventReason.Quit));

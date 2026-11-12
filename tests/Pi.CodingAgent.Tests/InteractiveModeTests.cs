@@ -1097,6 +1097,36 @@ public sealed class InteractiveModeTests : SelectorTestFixture, IDisposable
         Assert.Empty(mode.PendingMessagesContainerChildrenForTests);
     }
 
+    // ---------------------------------------------------------------- #11875 (v1.5.1)
+
+    [Fact]
+    public async Task SetToolsExpanded_ReachesPendingMessagesContainerChildren()
+    {
+        // ctrl+o 也要作用到 agent 工作期间放在 pending 区的 `!`/`!!` 输出框。
+        var mode = await CreateModeAsync();
+        var expandable = new ExpandableText(() => "COLLAPSED", () => "EXPANDED");
+        mode.AddPendingChildForTests(expandable);
+
+        mode.SetToolsExpanded(true);
+
+        var rendered = AnsiText.StripAnsi(string.Join("\n", ((IComponent)expandable).Render(80)));
+        Assert.Contains("EXPANDED", rendered);
+    }
+
+    [Fact]
+    public async Task UpdatePendingMessagesDisplay_KeepsPendingBashComponents()
+    {
+        var mode = await CreateModeAsync();
+        var bash = new BashExecutionComponent("cmd", new FakeTui());
+        mode.AddPendingBashComponentForTests(bash);
+        Assert.Contains(mode.PendingMessagesContainerChildrenForTests, item => ReferenceEquals(item, bash));
+
+        // 排队消息会重建 pending 区；#11875 要求先放回仍在等待移入 chat 的 bash 输出框。
+        mode.QueueCompactionMessage("queued-1", CompactionQueueModes.Steer);
+
+        Assert.Contains(mode.PendingMessagesContainerChildrenForTests, item => ReferenceEquals(item, bash));
+    }
+
     [Fact]
     public async Task RestoreQueuedMessagesToEditorIsANoOpWhenNothingIsQueued()
     {

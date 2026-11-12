@@ -136,6 +136,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   却丢失新 token。3 项定向用例 + `AgentSessionRuntimeTests` 23/23、`CoreRuntimeTests` 19/19、
   `ClientRuntimeTests` 14/14。
 
+### Fixed（第四轮：队列图片 / 空串出队 / pending 区展开 / 缓存默认档位 / 会话结算与 reload 守卫）
+
+- **排队消息图片按当前模型档位缩放**（#11738）：steering/follow-up（含 `prompt()` streaming）
+  的图片此前按全尺寸发送与入库；现在在 `message_start` 出队后、扩展事件与落库之前，复用空闲
+  提示词的 `NormalizePromptImagesAsync`/`ProcessPromptImageAsync` 原地归一化（`UserMessage.Content`
+  由 `init` 放宽为 `set`），缩放提示追加到首段文本。`_queuedMessagesWithImages` 按引用跟踪、
+  投递时移除，`ClearQueue` 清理。3 项静态叶子用例 + 3 项 `AgentSessionQueuedImagesTests`
+  端到端用例（对照上游 `agent-session-queued-images.test.ts`，SkiaSharp 超高 PNG 触发缩放）。
+- **纯图片排队消息不再滞留队列**（#8612）：去掉 `DequeueMatchingUserText` 与
+  `HandleAgentEventAsync` 里的非空文本守卫，无条件按 `contentText`（空串）出队，对齐上游
+  v1.5.2 的无条件 `indexOf`。1 项定向用例（steering 空串出队 / 回落 followUp 空串）。
+- **`ctrl+o` 作用到 agent 工作期间的 `!`/`!!` 输出框**（#11875 / 上游 #11886）：
+  `SetToolsExpanded` 把 `_pendingMessagesContainer` 纳入遍历；排队消息重建时先放回 pending
+  bash 输出框；`agent_settled` 时冲刷进 chat；切会话清空；新建输出框以当前展开态开始。
+  2 项定向用例。
+- **`cacheWarming` 默认档位 `streaming` → `idle`**（v1.5.1，7bcc15c92）：符合条件的提示缓存
+  在两次 agent run 之间继续保温；`SettingsManager.GetCacheWarmingMode` 回落值与
+  `Assets/schemas/settings.schema.json` 的 `default` 同步改为 `idle`。2 项定向用例
+  （运行期回落值 + schema 产物默认值）。
+- **dispose 前先结算在途回合**（#9126，7a53c310a）：`AgentSessionRuntime.DisposeAsync` 在
+  `EmitSessionShutdownEventAsync` 之前 `await Session.AbortAsync()`，避免被中止回合残留
+  「有 tool call 无 tool result」的助手消息（与 `TeardownCurrentAsync` 一致）。1 项定向用例。
+- **核心 reload 的 streaming/compacting 守卫**（#9222，c3b938e3e）：把原先只在 TUI 侧的
+  入口检查下沉到 `AgentSession.ReloadAsync`，让 RPC / SDK 调用方同样在 `IsStreaming` /
+  `IsCompacting` 时被拒，避免扩展工具 ctx 变 stale。1 项定向用例。
+- 上述六项合计 `V152BatchRegressionTests`（5 用例）+ `AgentSessionQueuedImagesTests`（3 用例）
+  + 静态叶子/出队/交互模式用例，全量门禁 11/11 绿。
+
 ## [1.5.0] - 2026-11-05
 
 对齐上游 `v1.5.0`（308 个提交）。三个大头：**durable 的窗口化视图与提交语义**、**遥测与传播**

@@ -661,6 +661,8 @@ public partial class InteractiveMode
         {
             // Create UI component for display
             _bashComponent = new BashExecutionComponent(command, _ui, excludeFromContext, _outputPad);
+            // #11875：新建的 `!`/`!!` 输出框以当前展开态开始（此前恒为折叠）。
+            _bashComponent.SetExpanded(_toolOutputExpanded);
             if (Session.IsStreaming)
             {
                 _pendingMessagesContainer.AddChild(_bashComponent);
@@ -695,6 +697,8 @@ public partial class InteractiveMode
         // Normal execution path (possibly with custom operations)
         var isDeferred = Session.IsStreaming;
         _bashComponent = new BashExecutionComponent(command, _ui, excludeFromContext, _outputPad);
+        // #11875：新建的 `!`/`!!` 输出框以当前展开态开始（此前恒为折叠）。
+        _bashComponent.SetExpanded(_toolOutputExpanded);
 
         if (isDeferred)
         {

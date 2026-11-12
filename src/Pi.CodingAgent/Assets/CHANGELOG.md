@@ -67,6 +67,20 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
   markers or horizontally clipped content (#9441).
 - Shutdown now waits for in-flight OAuth token refresh writes, so a rotated token is
   not lost when pi exits during a background catalog refresh (#11692).
+- Images in steering and follow-up messages (including `prompt()` while streaming) are
+  resized to the current model's limits at delivery, like idle prompts, instead of being
+  sent and saved at full size (#11738).
+- Image-only steering and follow-up messages no longer remain stuck in the pending queue
+  after being delivered (#8612).
+- `ctrl+o` expands and collapses `!`/`!!` output shown while the agent is working; new
+  output starts in the current expand state, survives queued-message updates, and moves
+  into the chat when the agent settles (#11875).
+- `cacheWarming` now defaults to `"idle"` instead of `"streaming"`, keeping eligible prompt
+  caches warm for up to 30 minutes between agent runs when a refresh pays for itself.
+- Disposing a runtime during tool execution now settles the interrupted turn first, so
+  its tool result and final assistant message are persisted before shutdown (#9126).
+- Reloading while streaming or compacting is now rejected at the core session layer,
+  matching the TUI entry checks and preventing stale extension contexts (#9222).
 
 ## [1.5.0] - 2026-11-05
 

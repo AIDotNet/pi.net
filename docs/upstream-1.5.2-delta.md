@@ -15,7 +15,7 @@
 **本轮的实际工作是「把已发布变更真正移植到代码并用定向用例钉住」，而非给排除项改名。**
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
 共享 `lines.ts`（MCP/env 传输）、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **45 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
+详见 §3 的 **51 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
 
 「完整的迁移」在本项目**不是**「把上游每个 TS 文件逐字搬过来」，而是由**先前既存、跨版本生效**
 的权威工件定义的。该工件是 `docs/migration-execution-status.md`，其权威地位与范围收窄章节
@@ -141,7 +141,8 @@
 | #10998 glob 前导 `./` 剥离 | ✅ 🔧 `GrepTool.BuildRgArgs`（§3.14） |
 | 1.5.1 默认模型表切换（`defaultModelPerProvider`） | ✅ 🔧 `ModelResolver.DefaultModelPerProvider` 逐字对齐 v1.5.2 42 项（§3.18） |
 | #11807 后半（rg cwd 切到 searchPath）/ #9276（上下文行改由 ripgrep 提供） | 📋 有记录的不做项（§4.4，与端口 `GrepOperations.readFile` 取值链纠缠） |
-| #11975 Fork 会话、`pi auth login/logout`、`registerMarkdownTransformer({messageTypes})`、Mermaid 升级、`cacheWarming:"idle"`、`ctx.ui.custom(blocked)` | 📋 有记录的不做项（§4.4，成体系新系统/扩展 API/TUI 渲染） |
+| #11975 Fork 会话、`pi auth login/logout`、`registerMarkdownTransformer({messageTypes})`、Mermaid 升级、`ctx.ui.custom(blocked)` | 📋 有记录的不做项（§4.4，成体系新系统/扩展 API/TUI 渲染） |
+| `cacheWarming` 默认档位 `streaming` → `idle`（7bcc15c92）、#9126 dispose 先结算（7a53c310a）、#9222 核心 reload 守卫（c3b938e3e） | ✅ 🔧 `SettingsManager.GetCacheWarmingMode` + `Assets/schemas/settings.schema.json` 默认值 / `AgentSessionRuntime.DisposeAsync` / `AgentSession.ReloadAsync`（§3.49–3.51） |
 | #11703 预发布版本 changelog | ✅ 🔧 `Changelog.GetNewEntries` 只读前导三元组、无三元组返回 `null` + 两处调用点（§3.33） |
 | #11643 read/write 新增 Dart/Nix/Groovy/Gradle 高亮 | ✅ 🔧 `ThemeHelpers.ExtensionToLanguage` 4 映射（§3.35） |
 | #7121 find/ls `limit` 边界（0 按 1、恰好 limit 不误报） | ✅ 🔧 `FindTool`/`LsTool`（§3.36） |
@@ -153,7 +154,8 @@
 | #11803 tool_search 文本 + codemode output 摘要跟随本地 `$ref` 到 `$defs` | ✅ 🔧 `ToolSearch.SchemaText`+`ResolveLocalRef` / `CodemodeToolApi.FollowRef`+`DescribeFields`+`DescribeUnionFields`（§3.43） |
 | #9441 内部光标标记不外泄到终端输出 | ✅ 🔧 `Tui.ApplyLineResets` / `ExtractCursorPosition` / `TextLayout.SliceWithWidth`（§3.44） |
 | #11692 退出前等待进行中的 OAuth 刷新写入落盘 | ✅ 🔧 `RuntimeCredentials.SettledAsync` + `ModelRuntime.SettleCredentialWritesAsync` + `AgentSessionRuntime.DisposeAsync`（§3.45） |
-| #9654 read 流式、#8544 edit 混合换行、#11738 图片缩放、#11875 `ctrl+o`、#9126/#9222/#9155 会话并发 | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
+| #11738 排队/steering 图片投递时按当前模型档位缩放、#8612 纯图片排队消息不滞留队列、#11875 `ctrl+o` 作用到 pending 区 `!`/`!!` 输出框 | ✅ 🔧 `AgentSessionQueue._queuedMessagesWithImages` + `BuildNormalizedQueuedMessageContentAsync`（原地替换 `UserMessage.Content`） / `DequeueMatchingUserText` 去空串守卫 / `SetToolsExpanded`+`UpdatePendingMessagesDisplay`+`FlushPendingBashComponents`+`SetExpanded`（§3.46–3.48） |
+| #9654 read 流式、#8544 edit 混合换行、#9155 会话并发 | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
 | Node/npm 专有：`pi update` 摘要、扩展 npm 依赖解析、Windows 安装器、PowerShell 5.1、fd 下载 | ➖ 不适用 |
 | 示例扩展（subagent / plan-mode）修复 | ➖ 不适用（权威：上游 docs/examples 保留为 TS 参考） |
 
@@ -245,6 +247,12 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.43 | #11803 tool_search 文本 / codemode output 摘要找不到本地 `$ref`（`$defs`）后面的属性名 | tool_search：`ToolSearch.SchemaText` 跟随本地 `$ref`（`ResolveLocalRef` 字典版 JSON Pointer，~0/~1、%XX，畸形→null）+ `seen` 防递归；codemode：`CodemodeToolApi.FollowRef`（seen 防环）+ `DescribeFields`/`DescribeUnionFields` 传 root 解析 `$ref`/const | `ToolSearchSchemaRefTests`（4 用例逐字对照上游：本地 / 转义段 / 递归共享只读一次 / 远程缺失畸形未引用不展开）+ `CodemodeSchemaRefTests`（2 用例：对象字段 / union 分支，逐字对照上游 harness 期望）+ `ToolSearchCorpusTests` 66/66、`ToolSearchRankingTests` 7/7、`CodemodeCorpusTests` 29/29 |
 | 3.44 | #9441 内部光标标记（APC）泄漏到终端输出（多标记 / 水平裁剪 / 其他行） | `Tui.ApplyLineResets` normalize 前剥离全部 marker；`ExtractCursorPosition` 首个 marker 定列、整行剥离全部 marker；`TextLayout.SliceWithWidth` 非 APC 才作为 pendingAnsi 带过边界 | `TextEngineTests`（2 用例：marker 不进后续切片 / SGR 仍带过）+ `FakeCursorTests`（2 用例：多标记 / 其他行不外泄）+ 全量 `Pi.Tui.Tests` 23973/23973 |
 | 3.45 | #11692 进程退出时丢失后台 OAuth 刷新写入（一次性 refresh token 已用掉、新 token 未保存） | `RuntimeCredentials.SettledAsync`（登记进行中/失败写入、退出前等待结算）+ `ModelRuntime.SettleCredentialWritesAsync` + `AgentSessionRuntime.DisposeAsync` 末尾 await | `RuntimeCredentialsSettleTests`（3 用例：等待在途写入 / 失败写入仍结算 / 无写入立即完成）+ `AgentSessionRuntimeTests` 23/23、`CoreRuntimeTests` 19/19、`ClientRuntimeTests` 14/14 |
+| 3.46 | #11738 steering/follow-up（含 `prompt()` streaming）里的图片未按空闲提示词同档缩放，全尺寸发送与入库 | `AgentSessionQueue.QueueSteer/FollowUp` 用 `_queuedMessagesWithImages`（引用同一性）登记带图消息；`HandleAgentEventAsync` 在 `message_start` 出队后、`EmitExtensionEvent` 前调用 `NormalizeQueuedMessageImagesAsync` → 静态叶子 `BuildNormalizedQueuedMessageContentAsync`（复用 `NormalizePromptImagesAsync`/`ProcessPromptImageAsync`，首块文本追加 hints、图片替换为缩放结果）；`UserMessage.Content` 由 `init` 放宽为 `set` 以便原地替换（落库/扩展/上下文共用同一 message 对象）；`ClearQueue` 清理跟踪集 | `AgentSessionLoopTests.BuildNormalizedQueuedMessageContent_*`（3 用例：缩放 + hints 顺序 + 原列表不动 / 首块非文本·无图·空列表返回 null / 全失败仍追加 hint）+ `AgentSessionLoopTests`+`AgentSessionLeafTests`+`InteractiveModeTests` 定向 198/198 |
+| 3.47 | #8612 纯图片 steering/follow-up 消息投递后仍滞留在 pending 队列（contentText 为空串，旧守卫 `if (messageText)` 直接跳过出队） | `AgentSession.DequeueMatchingUserText` 去掉 `messageText.Length == 0` 提前返回；`HandleAgentEventAsync` 去掉 `messageText.Length > 0` 外层守卫，无条件按 `contentText`（空串）出队，对齐 TS v1.5.2 的无条件 `indexOf` | `AgentSessionLeafTests.DequeueMatchingUserText_RemovesImageOnlyEmptyTextEntry`（1 用例：steering 空串出队 / 回落 followUp 空串）+ 既有 `DequeueMatchingUserText_PrefersSteeringThenFollowUp` 不回归 |
+| 3.48 | #11875 `ctrl+o` 无法展开/折叠 agent 工作期间 `!`/`!!` 输出框；排队消息更新时输出框消失、要等下次空闲提交才进 chat | `SetToolsExpanded` 把 `_pendingMessagesContainer` 纳入遍历；`UpdatePendingMessagesDisplay` 重建时先放回 `_pendingBashComponents`；`RenderCurrentSessionState` 清空该列表（`/new`/`/resume`/`/fork` 不带入下一会话）；`AgentSettledEvent` 触发 `FlushPendingBashComponents` + `RequestRender`；两处 `BashExecutionComponent` 新建后 `SetExpanded(_toolOutputExpanded)`；新增 4 个测试 seam | `InteractiveModeTests.SetToolsExpanded_ReachesPendingMessagesContainerChildren` + `UpdatePendingMessagesDisplay_KeepsPendingBashComponents`（2 用例，对照上游 #11886 commit `acd059b72` 五处改动）+ 该套件定向 198/198 |
+| 3.49 | v1.5.1 默认把 `cacheWarming` 档位从 `streaming` 改为 `idle`，让符合条件的提示缓存在两次 agent run 之间继续保温 | `SettingsManager.GetCacheWarmingMode` 回落值 `streaming` → `idle`；`Assets/schemas/settings.schema.json` 的 `properties.cacheWarming.default` 同步为 `idle`（对照上游 `settings-defaults.ts` 与 schema 的 `7bcc15c92`） | `V152BatchRegressionTests.CacheWarmingMode_DefaultsToIdle` + `SettingsSchema_CacheWarmingDefaultIsIdle`（2 用例：运行期回落值 / schema 产物默认值） |
+| 3.50 | #9126 运行时 dispose 在工具执行中被调用时，会先断开持久化，导致被中止回合残留「有 tool call 无 tool result」的助手消息 | `AgentSessionRuntime.DisposeAsync` 在 `EmitSessionShutdownEventAsync` 之前 `await Session.AbortAsync()`，与 `TeardownCurrentAsync` 一致，让被中止回合的工具结果与最终助手消息先落库（对照上游 `7a53c310a` 的 `await this.session.abort()`） | `V152BatchRegressionTests.DisposeAsync_SettlesInFlightRunBeforeDisconnecting`（1 用例：不 await runTask，dispose 返回后即断言 aborted 助手消息已落库且 runTask 不挂起） |
+| 3.51 | #9222 RPC / SDK 调用方在 `isStreaming` / `isCompacting` 时 reload 会让扩展工具的 ctx 变 stale（旧实现只在 TUI 侧做入口检查） | `AgentSession.ReloadAsync` 把守卫下沉到核心：先 `IsStreaming` / `IsCompacting` 抛 `InvalidOperationException`，文案逐字对齐上游 `c3b938e3e`（"Wait for the current response to finish before reloading." / "Wait for compaction to finish before reloading."） | `V152BatchRegressionTests.ReloadAsync_WhileStreaming_Throws`（1 用例：streaming 中 reload 抛错且文案一致） |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -346,7 +354,7 @@ Node daemon 的 PTY/进程组消费方。
 review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「暂不移植（成本/收益）」；
 1.5.0 delta §5 对「未发布提交按需单独评估」的先例。
 
-**本轮已移植的单点修复**（§3.26–3.45，含 §3.22 的 #11803 前置）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
+**本轮已移植的单点修复**（§3.26–3.51，含 §3.22 的 #11803 前置）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
 `#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`、
 以及第三轮真正补上的 `PipeTransport`（新 API，§3.30）、`#11761`（MCP stdio 大消息 O(n²)，§3.31）、
 `#11335`（Streamable HTTP 应答体/错误体上限，§3.32）、`#11703`（预发布版本 changelog，§3.33）、
@@ -355,14 +363,17 @@ review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「
 `#11835`（全屏 Kitty 图像去 WezTerm 门控，§3.38）、`#11651`（`pi config` 加载自定义键位，§3.39）、
 `#11765`（Windows/WSL Ctrl+V 粘贴键，§3.40）、`#11613`（bash 超时补报 shell 退出码，§3.41）、
 `#11451`（`/tree` 导航后思考档位恢复，§3.42）、`#11803`（tool_search 文本 + codemode output 摘要跟随本地 `$ref`，§3.43）、
-`#9441`（内部光标标记不外泄，§3.44）、`#11692`（退出前等待 OAuth 刷新写入，§3.45）。
+`#9441`（内部光标标记不外泄，§3.44）、`#11692`（退出前等待 OAuth 刷新写入，§3.45）、
+`#11738`（排队图片投递时缩放，§3.46）、`#8612`（纯图片排队消息出队，§3.47）、
+`#11875`（`ctrl+o` 作用到 pending 区 `!`/`!!` 输出框，§3.48）、
+`cacheWarming:"idle"` 默认档位（§3.49）、`#9126`（dispose 先结算，§3.50）、
+`#9222`（核心 reload 守卫，§3.51）。
 
 **仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半（rg cwd 切到
 `searchPath`）/ `#9276`（上下文行改由 ripgrep 提供，两者与端口 `GrepOperations.ReadFileAsync`
 绝对路径取值链纠缠，且本机无 `rg` 可做运行时回归验证）、`#11975`、
-`pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、`cacheWarming:idle`、
-`ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、
-`#11875`、`#9126`/`#9222`/`#9155`、
+`pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、
+`ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#9155`、
 `#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
 `readOnly`/group commit、RPC 关闭时序、Windows 安装器/PowerShell 5.1/fd 下载。
 

@@ -936,20 +936,26 @@ public partial class AgentSession
         {
             _overflowRecoveryAttempted = false;
             var messageText = Pi.Ai.Utils.Text.ContentText(userMessage.Content, "");
-            if (messageText.Length > 0)
+            // #8612（v1.5.1）：不再用非空文本把出队包起来。纯图片 steering/follow-up 的
+            // contentText 为空串，旧守卫会把那条空串永久留在队列里；TS 1.5.2 也是无条件 indexOf。
+            var steeringBefore = _steeringMessages.Count;
+            var followUpBefore = _followUpMessages.Count;
+            var (steering, followUp) = AgentSession.DequeueMatchingUserText(
+                _steeringMessages, _followUpMessages, messageText);
+            if (steering.Count != steeringBefore || followUp.Count != followUpBefore)
             {
-                var steeringBefore = _steeringMessages.Count;
-                var followUpBefore = _followUpMessages.Count;
-                var (steering, followUp) = AgentSession.DequeueMatchingUserText(
-                    _steeringMessages, _followUpMessages, messageText);
-                if (steering.Count != steeringBefore || followUp.Count != followUpBefore)
-                {
-                    _steeringMessages.Clear();
-                    _steeringMessages.AddRange(steering);
-                    _followUpMessages.Clear();
-                    _followUpMessages.AddRange(followUp);
-                    EmitQueueUpdate();
-                }
+                _steeringMessages.Clear();
+                _steeringMessages.AddRange(steering);
+                _followUpMessages.Clear();
+                _followUpMessages.AddRange(followUp);
+                EmitQueueUpdate();
+            }
+
+            // #11738：带图片的排队消息在投递时归一化（出队匹配用改文本前的内容，故放在其后），
+            // 让扩展、监听器、落库与请求上下文都在原地看到与空闲提示词一致的缩放结果。
+            if (_queuedMessagesWithImages.Remove(userMessage))
+            {
+                await NormalizeQueuedMessageImagesAsync(userMessage).ConfigureAwait(false);
             }
         }
 
@@ -1019,6 +1025,55 @@ public partial class AgentSession
         {
             FlushPendingCustomMessages();
         }
+    }
+
+    /// <summary>
+    /// TS <c>_normalizeQueuedMessageImages(message)</c>（#11738）：把排队用户消息里的图片
+    /// 用与空闲提示词相同的 <see cref="AgentSession.NormalizePromptImagesAsync"/> 原地替换，
+    /// 并把缩放提示追加到首段文本。直接改写 <see cref="UserMessage.Content"/>（TS 直接赋值
+    /// <c>message.content</c>），因为落库、后续事件与 agent 上下文持有的是同一个 message 对象。
+    /// </summary>
+    private async Task NormalizeQueuedMessageImagesAsync(UserMessage message)
+    {
+        var content = await AgentSession.BuildNormalizedQueuedMessageContentAsync(
+            message.Content.ToBlocks(), ProcessPromptImageAsync).ConfigureAwait(false);
+        if (content is not null)
+        {
+            // TS 直接赋值 message.content；端口 UserMessage.Content 已是 set，同一 message 对象
+            // 的落库、扩展事件与 agent 上下文都会看到归一化后的图片。
+            message.Content = MessageContent.BlocksOf(content);
+        }
+    }
+
+    /// <summary>
+    /// #11738 静态叶子：把排队用户消息里的图片按 <paramref name="processImage"/>（与空闲提示词同一
+    /// 处理链）缩放，把缩放提示追加到首段文本，返回重建后的内容块；无图片或首块非文本时返回
+    /// <c>null</c>（调用方不改写 content）。对应 TS <c>_normalizeQueuedMessageImages</c>。
+    /// </summary>
+    internal static async Task<List<ContentBlock>?> BuildNormalizedQueuedMessageContentAsync(
+        IReadOnlyList<ContentBlock> blocks,
+        Func<ImageContent, Task<ProcessImageResult>> processImage)
+    {
+        if (blocks.Count == 0 || blocks[0] is not TextContent first)
+        {
+            return null;
+        }
+
+        var images = blocks.Skip(1).OfType<ImageContent>().ToList();
+        if (images.Count == 0)
+        {
+            return null;
+        }
+
+        var normalized = await NormalizePromptImagesAsync(images, processImage).ConfigureAwait(false);
+        var text = normalized.Hints.Count > 0
+            ? $"{first.Text}\n\n{string.Join("\n", normalized.Hints)}"
+            : first.Text;
+
+        var content = new List<ContentBlock> { new TextContent(text) };
+        content.AddRange(blocks.Skip(1).Where(block => block is not ImageContent));
+        content.AddRange(normalized.Images);
+        return content;
     }
 
     /// <summary>TS <c>_willRetryAfterAgentEnd(event)</c>（TS 1197-1213）。</summary>

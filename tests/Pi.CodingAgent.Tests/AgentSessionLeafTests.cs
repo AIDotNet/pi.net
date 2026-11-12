@@ -321,6 +321,21 @@ public sealed class AgentSessionLeafTests : IDisposable
     }
 
     [Fact]
+    public void DequeueMatchingUserText_RemovesImageOnlyEmptyTextEntry()
+    {
+        // #8612（v1.5.1）：纯图片 steering/follow-up 的 contentText 是 ""，队列里排的也是 ""。
+        // 无条件 IndexOf("") 才能把它出队；旧实现提前 return 会让空串永久留在 pending 队列。
+        var (steering, followUp) = AgentSession.DequeueMatchingUserText(["", "a"], ["x"], "");
+        Assert.Equal(["a"], steering);
+        Assert.Equal(["x"], followUp);
+
+        // steering 没有空串时回落到 followUp。
+        (steering, followUp) = AgentSession.DequeueMatchingUserText(["a"], ["", "y"], "");
+        Assert.Equal(["a"], steering);
+        Assert.Equal(["y"], followUp);
+    }
+
+    [Fact]
     public void FormatExpiredOAuthMessage_IncludesLoginHint()
     {
         Assert.Equal(

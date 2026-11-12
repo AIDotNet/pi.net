@@ -129,6 +129,12 @@ public partial class AgentSession
     /// <summary>Tracks pending follow-up messages for UI display. Removed when delivered.</summary>
     private readonly List<string> _followUpMessages = [];
 
+    /// <summary>
+    /// #11738：带图片的排队用户消息，投递（message_start）时按当前模型档位归一化图片。
+    /// 记录按引用同一性（TS 的 WeakSet），投递时移除。
+    /// </summary>
+    private readonly HashSet<ChatMessage> _queuedMessagesWithImages = new(ReferenceEqualityComparer.Instance);
+
     /// <summary>Messages queued to be included with the next user prompt as context ("asides").</summary>
     private readonly List<CustomMessage> _pendingNextTurnMessages = [];
 
@@ -854,6 +860,18 @@ public partial class AgentSession
     /// </remarks>
     public async Task ReloadAsync(ReloadOptions? options = null)
     {
+        // 上游 1.5.1 #9222（c3b938e3e）：把 TUI 已有的入口检查下沉到核心 reload，
+        // 让 RPC / SDK 调用方在 isStreaming / isCompacting 时同样被拒，避免扩展工具的
+        // ctx 在 reload 后变成 stale（原实现只在 TUI 侧检查）。
+        if (IsStreaming)
+        {
+            throw new InvalidOperationException("Wait for the current response to finish before reloading.");
+        }
+        if (IsCompacting)
+        {
+            throw new InvalidOperationException("Wait for compaction to finish before reloading.");
+        }
+
         var oldRunner = _extensionRunner;
         var previousFlagValues = oldRunner.GetFlagValues();
         await ExtensionRunner.EmitSessionShutdownEventAsync(
@@ -1174,6 +1192,8 @@ public partial class AgentSession
         var followUp = _followUpMessages.ToArray();
         _steeringMessages.Clear();
         _followUpMessages.Clear();
+        // #11738：被清掉、不会再投递的带图消息不该继续占用引用跟踪集合。
+        _queuedMessagesWithImages.Clear();
         _agent.ClearAllQueues();
         EmitQueueUpdate();
         return (steering, followUp);

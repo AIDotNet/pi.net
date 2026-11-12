@@ -274,6 +274,13 @@ public partial class InteractiveMode
     internal bool ActiveWorkingIndicatorEmbeddedForTests => _activeWorkingIndicatorEmbedded;
     internal IReadOnlyList<IComponent> ChatChildrenForTests => _chatContainer.GetChildrenSnapshot();
     internal IReadOnlyList<IComponent> PendingMessagesContainerChildrenForTests => _pendingMessagesContainer.GetChildrenSnapshot();
+    internal int PendingBashComponentsCountForTests => _pendingBashComponents.Count;
+    internal void AddPendingChildForTests(IComponent child) => _pendingMessagesContainer.AddChild(child);
+    internal void AddPendingBashComponentForTests(BashExecutionComponent component)
+    {
+        _pendingMessagesContainer.AddChild(component);
+        _pendingBashComponents.Add(component);
+    }
     internal SessionManager SessionManagerForTests => SessionManager;
     internal IReadOnlyList<IComponent> EditorContainerChildrenForTests => _editorContainer.GetChildrenSnapshot();
     internal IReadOnlyList<IComponent> FooterContainerChildrenForTests => _footerContainer.GetChildrenSnapshot();
@@ -1532,7 +1539,8 @@ public partial class InteractiveMode
             expandableHeader.SetExpanded(expanded);
         }
 
-        foreach (var container in new[] { _loadedResourcesContainer, _chatContainer })
+        // #11875（v1.5.1）：ctrl+o 也要作用到 agent 工作期间放在 pending 区的 `!`/`!!` 输出框。
+        foreach (var container in new[] { _loadedResourcesContainer, _chatContainer, _pendingMessagesContainer })
         {
             foreach (var child in container.GetChildrenSnapshot())
             {

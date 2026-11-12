@@ -537,6 +537,8 @@ public partial class InteractiveMode
         _loadedResourcesContainer.Clear();
         _chatContainer.Clear();
         _pendingMessagesContainer.Clear();
+        // #11875：/new /resume /fork 切会话时不能把上一会话的 pending bash 框带进新 chat。
+        _pendingBashComponents.Clear();
         _compactionQueuedMessages.Clear();
         _streamingComponent = null;
         _streamingMessage = null;
@@ -808,6 +810,13 @@ public partial class InteractiveMode
     internal void UpdatePendingMessagesDisplay()
     {
         _pendingMessagesContainer.Clear();
+        // #11875：排队消息更新会重建 pending 区；先放回仍在等待移入 chat 的 `!`/`!!` 输出框，
+        // 否则它们会消失、ctrl+o 也触达不到，要等下一次空闲提交才以旧展开态重现。
+        foreach (var component in _pendingBashComponents)
+        {
+            _pendingMessagesContainer.AddChild(component);
+        }
+
         var (steeringMessages, followUpMessages) = GetAllQueuedMessages();
         if (steeringMessages.Count > 0 || followUpMessages.Count > 0)
         {
@@ -1179,6 +1188,10 @@ public partial class InteractiveMode
                 break;
 
             case AgentSessionEvent.AgentSettledEvent:
+                // #11875：session 在 settle 时记下 deferred bash 结果，pending 区输出框此时就该移入
+                // chat，而不是等下一次空闲提交。
+                FlushPendingBashComponents();
+                _ui.RequestRender();
                 CheckShutdownRequested();
                 break;
 

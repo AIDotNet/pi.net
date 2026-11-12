@@ -137,7 +137,14 @@ public partial class AgentSession
     {
         _steeringMessages.Add(text);
         EmitQueueUpdate();
-        _agent.Steer(QueuedUserMessage(text, images));
+        var message = QueuedUserMessage(text, images);
+        // #11738：带图片则登记，投递时按当前模型档位归一化（保持入队同步）。
+        if (images is { Count: > 0 })
+        {
+            _queuedMessagesWithImages.Add(message);
+        }
+
+        _agent.Steer(message);
         return Task.CompletedTask;
     }
 
@@ -146,7 +153,14 @@ public partial class AgentSession
     {
         _followUpMessages.Add(text);
         EmitQueueUpdate();
-        _agent.FollowUp(QueuedUserMessage(text, images));
+        var message = QueuedUserMessage(text, images);
+        // #11738：同 steer。
+        if (images is { Count: > 0 })
+        {
+            _queuedMessagesWithImages.Add(message);
+        }
+
+        _agent.FollowUp(message);
         return Task.CompletedTask;
     }
 

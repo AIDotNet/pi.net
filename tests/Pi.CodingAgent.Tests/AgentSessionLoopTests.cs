@@ -436,6 +436,69 @@ public sealed class AgentSessionLoopTests
         Assert.Null(noImages.Images);
     }
 
+    // ---------------------------------------------------------------------
+    // #11738（v1.5.1）：steering/follow-up 排队消息的图片在投递时按空闲提示词同档缩放
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task BuildNormalizedQueuedMessageContent_ResizesImagesAndAppendsHintsInPlaceOrder()
+    {
+        // 与上游 `_normalizeQueuedMessageImages` 同形：首段文本 + 若干块，其中夹杂图片与文本块。
+        var blocks = new List<ContentBlock>
+        {
+            new TextContent("look"),
+            new ImageContent("b2s=", "image/png"),
+            new TextContent("note"),
+            new ImageContent("YmFk", "image/png"),
+            new ImageContent("b2sy", "image/jpeg"),
+        };
+
+        var content = await AgentSession.BuildNormalizedQueuedMessageContentAsync(
+            blocks,
+            image => Task.FromResult<ProcessImageResult>(
+                image.Data switch
+                {
+                    "YmFk" => new ProcessImageResult.Fail("too large"),
+                    "b2s=" => new ProcessImageResult.Ok("cmVzaXplZA==", "image/png", ["downscaled"]),
+                    _ => new ProcessImageResult.Ok("cmVzaXplZDI=", "image/jpeg", []),
+                }));
+
+        Assert.NotNull(content);
+        // 提示按 \n\n 追加到首段文本；失败图片只留 hint。
+        Assert.Equal("look\n\ndownscaled\ntoo large", Assert.IsType<TextContent>(content[0]).Text);
+        // 非图片块保持，归一化后的图片统一排在末尾，替换掉原来的图片块。
+        Assert.Equal("note", Assert.IsType<TextContent>(content[1]).Text);
+        var images = content.OfType<ImageContent>().ToList();
+        Assert.Equal(2, images.Count);
+        Assert.Equal("cmVzaXplZA==", images[0].Data);
+        Assert.Equal("cmVzaXplZDI=", images[1].Data);
+        // 返回的是重建的新列表，原列表不动（由调用方把它写回 message.Content）。
+        Assert.Equal(5, blocks.Count);
+    }
+
+    [Fact]
+    public async Task BuildNormalizedQueuedMessageContent_ReturnsNullWhenNothingToNormalize()
+    {
+        Assert.Null(await AgentSession.BuildNormalizedQueuedMessageContentAsync(
+            [], _ => throw new InvalidOperationException("不应被调用")));
+        Assert.Null(await AgentSession.BuildNormalizedQueuedMessageContentAsync(
+            [new ImageContent("aGk=", "image/png")], _ => throw new InvalidOperationException("首块非文本")));
+        Assert.Null(await AgentSession.BuildNormalizedQueuedMessageContentAsync(
+            [new TextContent("only text")], _ => throw new InvalidOperationException("无图片")));
+    }
+
+    [Fact]
+    public async Task BuildNormalizedQueuedMessageContent_AllImagesFailStillAppendsHints()
+    {
+        var content = await AgentSession.BuildNormalizedQueuedMessageContentAsync(
+            [new TextContent("hi"), new ImageContent("YmFk", "image/png")],
+            _ => Task.FromResult<ProcessImageResult>(new ProcessImageResult.Fail("too large")));
+
+        Assert.NotNull(content);
+        Assert.Equal("hi\n\ntoo large", Assert.IsType<TextContent>(content[0]).Text);
+        Assert.DoesNotContain(content, block => block is ImageContent);
+    }
+
     [Fact]
     public void HandlerEditedSelectedTools_DetectsLengthAndElementDifferences()
     {

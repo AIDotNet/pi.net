@@ -400,11 +400,8 @@ public partial class AgentSession
     {
         var steeringList = steering.ToList();
         var followUpList = followUp.ToList();
-        if (messageText.Length == 0)
-        {
-            return (steeringList, followUpList);
-        }
-
+        // #8612（v1.5.1）：不再对空文本提前返回。纯图片 steering/follow-up 的 contentText 为 ""，
+        // 队列里排的也是 ""；无条件 IndexOf("") 才能把它出队，否则该消息会一直留在 pending 队列。
         var steeringIndex = steeringList.IndexOf(messageText);
         if (steeringIndex >= 0)
         {

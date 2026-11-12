@@ -22,7 +22,7 @@
   逐字搬运上游每个文件。按此标准，v1.5.0..v1.5.2 的可移植已发布变更已逐项落地，
   余项在台账 §4 逐条附权威条目引用与可复核证据（git 实证 / 端口既有实现行号）。
   注：本文件第 816 行「1.5.0 功能面到此全部对齐」是 1.5.0 阶段的历史收尾，不引用作 1.5.2 判据。
-- **本轮落地（§3 共 45 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
+- **本轮落地（§3 共 51 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
   `requiresToolsWithToolHistory`/`requiresNonNullAssistantContent`/`promptCacheKeyMode`、
   strict 工具会话记忆、丢弃流重试、输出上限 15% 余量、连接错误根因、
   `disableContinuation`、目录定点修正）；**Anthropic 消息线程整体**（§3.25，create/continue
@@ -36,8 +36,13 @@
   门控**（§3.38）、**#11651 `pi config` 加载自定义键位**（§3.39）、**#11765 Windows/WSL
   Ctrl+V 粘贴键**（§3.40）、  **#11613 bash 超时补报 shell 退出码**（§3.41）、**#11451 `/tree` 导航后思考档位
   恢复**（§3.42）、  **#11803 tool_search/codemode 跟随本地 `$ref`**（§3.43）、**#9441 内部光标标记
-  不外泄**（§3.44）、**#11692 退出前等待 OAuth 刷新写入**（§3.45）；MCP/stdio
-  换行分帧统一由共享 `JsonRpcLineReader` 承担；
+  不外泄**（§3.44）、**#11692 退出前等待 OAuth 刷新写入**（§3.45）、
+  **#11738 排队图片投递时按当前模型档位缩放**（§3.46，`message_start` 出队后原地归一）、
+  **#8612 纯图片排队消息不滞留队列**（§3.47，去空串出队守卫）、
+  **#11875 `ctrl+o` 作用到 pending 区 `!`/`!!` 输出框**（§3.48，重建保留 + settle 冲刷 + 初始展开态）、
+  **`cacheWarming` 默认档位 `idle`**（§3.49，运行期回落值 + schema 产物）、
+  **#9126 dispose 前先结算在途回合**（§3.50）、**#9222 核心 reload 的 streaming/compacting 守卫**（§3.51）；
+  MCP/stdio 换行分帧统一由共享 `JsonRpcLineReader` 承担；
   以及 `Pi.Agent` 转发 `disableContinuation`、`Pi.Codemode` 的 `resolveSchemaRef`、
   `Pi.Durable` 的 `ITx.GetSubmissionAsync`、提示模板引号解析、glob `./` 剥离、
   TUI 的 Alacritty / HTML 注释 / 粘贴标记、telemetry 控制字符转义、codemode NaN/Infinity、

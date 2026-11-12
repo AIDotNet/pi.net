@@ -257,8 +257,10 @@ public sealed record UserMessage : ChatMessage
     {
     }
 
+    // set（而非 init）：#11738 在排队消息投递时原地替换 content，让同一 message 对象的
+    // 落库、扩展事件、以及 agent 上下文都看到归一化后的图片（TS 直接赋值 message.content）。
     [JsonPropertyName("content")]
-    public MessageContent Content { get; init; }
+    public MessageContent Content { get; set; }
 
     [JsonPropertyName("timestamp")]
     public long Timestamp { get; init; }

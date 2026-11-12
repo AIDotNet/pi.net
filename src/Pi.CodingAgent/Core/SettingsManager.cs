@@ -1093,7 +1093,9 @@ public sealed class SettingsManager
     public string GetCacheWarmingMode()
     {
         var mode = AsString(_globalSettings["cacheWarming"]);
-        return mode is not null && CacheWarmingModes.Contains(mode, StringComparer.Ordinal) ? mode : "streaming";
+        // 上游 1.5.1（7bcc15c92）：默认档位由 streaming 改为 idle，让符合条件的提示缓存
+        // 在两次 agent run 之间继续保温（最多 30 分钟）。端口 CacheWarmer 早已实现 idle 相位。
+        return mode is not null && CacheWarmingModes.Contains(mode, StringComparer.Ordinal) ? mode : "idle";
     }
 
     public void SetCacheWarmingMode(string mode)
