@@ -19,11 +19,11 @@
   Node/Bun runtime parity、TypeBox 构造 API 不适用、Node 适配器不逐字移植等）定义——
   即端口形态收窄项属 ➖ 不适用。但 hook 复核明确：**v1.5.1/v1.5.2 的 published 功能变更
   不得登记为「有记录的不做项」**，那等于没完成该 release 的迁移。因此本轮严格区分：
-  published 功能变更一律真实移植（§3，共 67 项）；仅「端口无对应宿主/消费方」的形态项
+  published 功能变更一律真实移植（§3，共 70 项）；仅「端口无对应宿主/消费方」的形态项
   （§4）为 ➖ 不适用，逐条附代码级/`git show` 实证。1.5.0 阶段第 816 行「剩余均为有记录的
   不做项」是历史收尾，不作为 1.5.2 的判据，也不用于把 1.5.2 published 功能登记为不做项。
-  §3.52–3.67 为复核反馈后补做的收尾批次（此前 §4.4 误记的一批 published 项已逐项落地）。
-- **本轮落地（§3 共 67 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
+  §3.52–3.70 为复核反馈后补做的收尾批次（此前 §4.4 误记的一批 published 项已逐项落地）。
+- **本轮落地（§3 共 70 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
   `requiresToolsWithToolHistory`/`requiresNonNullAssistantContent`/`promptCacheKeyMode`、
   strict 工具会话记忆、丢弃流重试、输出上限 15% 余量、连接错误根因、
   `disableContinuation`、目录定点修正）；**Anthropic 消息线程整体**（§3.25，create/continue
@@ -48,7 +48,7 @@
   `Pi.Durable` 的 `ITx.GetSubmissionAsync`、提示模板引号解析、glob `./` 剥离、
   TUI 的 Alacritty / HTML 注释 / 粘贴标记、telemetry 控制字符转义、codemode NaN/Infinity、
   schema 数字有限性、截断不劈代理对。逐项落点与用例见 `upstream-1.5.2-delta.md` §3。
-- **收尾批次（§3.52–3.67，复核 hook 反馈后逐项真实移植）**：#11807/#9276 rg glob 锚定 path
+- **收尾批次（§3.52–3.70，复核 hook 反馈后逐项真实移植）**：#11807/#9276 rg glob 锚定 path
   + 上下文行事件（§3.52）、#9155 prompt 预检 / 树导航（§3.53）、#8544 edit 保留未改动行
   行尾（§3.54）、#11756 `registerMarkdownTransformer(messageTypes)` + #11851
   `ctx.ui.custom(blocked)`（§3.55）、#9654 read 流式选行（§3.56）、#11599/#11752
@@ -56,8 +56,17 @@
   **`pi auth login/logout`**（9b9cb30ae，§3.59，30 用例）、**逐会话 `CompactionSettings`**
   （#11771，§3.60，11 用例）、**JSONL `readOnly`**（#11939，§3.61，6 用例）、
   **#11974 find abort 不启动 fd**（§3.62，2 用例）、**#11892 调度并发通知不丢**
-  （§3.63，真实 TaskScheduler 行为回归）。此前 §4.4 曾把这些 published 项误记为
+  （§3.63，真实 TaskScheduler 行为回归）、#8158 Mermaid 着色/超链接语义（§3.64）、
+  #11725 Codex SSE backoff 等价契约（§3.65）、group commit differential（§3.66）、
+  chord v2 store 排除（§3.67）。此前 §4.4 曾把这些 published 项误记为
   「有记录的不做项」，现已全部消除。
+- **全面审计批次（§3.68–3.70，新 goal「检查遗漏与 bug」从上游 CHANGELOG 1.5.1/1.5.2
+  210 bullets + git log 143 src-commit 逐条核对后真实移植 3 个遗漏）**：#11707/#11711
+  `pi update` 四态报告 + 版本变化 result 事件（§3.68）、#11679 `refreshModelsAuth`
+  configured 模式不刷新过期 OAuth（§3.69）、#11964/#8842 shell tool 5.1 native exit code
+  后缀（§3.70）。数据派生、可复现的逐 published-commit 覆盖工件：
+  `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py` 从上游 git 机械枚举
+  143 commit 逐条列出，非手写分类）。
 - **➖ 不适用（非 published 功能变更，逐项代码级实证，见台账 §4）**：Chord v2 换根
   （依赖契约实证未变，权威「chord 有意收窄」）、env daemon `process` 操作（SSH 远程环境，
   无 Node PTY 消费方）、上游「从 coding-agent 移入 mcp/ai」的 helper（包位置重定位，端口早已

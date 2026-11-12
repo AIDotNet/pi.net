@@ -227,6 +227,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   （首次 1 例 `LoaderTests.Stop_HaltsTheAnimation` 负载 flake，隔离 14/14、全量重跑全绿）、
   `Pi.Env.Tests` 50/54（4 项需 sshd 跳过）。
 
+### Fixed（第七轮：全面审计 1.5.2 迁移遗漏与 bug，逐条代码核对后修复）
+
+以「全面检查迁移是否完成、有无遗漏和 bug、修复到上线标准」为目标，从上游权威
+`packages/*/CHANGELOG.md` 1.5.1/1.5.2 段（210 bullets / 11 包）与
+`git log v1.5.0..v1.5.2`（143 个触及 `packages/*/src` 的 published commit）逐条核对，
+发现并真实移植 3 个端口确实缺失的可移植行为：
+
+- **#11707/#11711 `pi update` 报告**：更新完成后逐包发 `result` 事件（npm 版本变化
+  `npm:foo 1.2.0 -> 1.3.0`、git commit from/to、registry 陈旧 warning），新增
+  `PackageUpdateReport` 纯叶子四态汇总（offline 跳过 / warned-up-to-date /
+  already-up-to-date / `Updated N packages:` + 版本变化行），CLI 收集 result/warning
+  输出。`PackageUpdateReportTests` 5 + `PackageManagerUpdateTests` 3 集成用例。
+- **#11679 `refreshModelsAuth`**：`IProvider.RefreshModelsAuth`（`"credential"`/
+  `"configured"`），`Models.RefreshAsync` configured 模式只判配置、不刷新过期 OAuth、
+  `context.credential=null`，pi.dev 目录刷新不再被 stale 登录拖垮；`RemoteCatalogProvider`
+  =configured、`PersonalizedCatalogProvider` 转发、`ProviderComposer` 组合判定。
+  `RefreshModelsAuthTests` 2 用例钉住两模式差异。
+- **#11964/#8842 shell tool native exit code**：`PowerShellTool` 新增退出码后缀，逐字对齐
+  上游修正 Windows 5.1 stderr 重定向误判 exit 1；`BuildCommand` 纯叶子仅旧版宿主且命令
+  不以反引号结尾时追加。`PowerShellExitCodeTests` 5 用例。
+- **数据派生覆盖工件**：`scripts/gen_v152_coverage.py` 从上游 git 机械枚举 143 个
+  published src-commit，逐条列出 `hash | subject | 文件数` 并对照端口各项目 src/测试文件数，
+  生成 `docs/v1.5.2-commit-coverage.md`（可脚本重跑核对，非手写分类表）。
+
 ## [1.5.0] - 2026-11-05
 
 对齐上游 `v1.5.0`（308 个提交）。三个大头：**durable 的窗口化视图与提交语义**、**遥测与传播**

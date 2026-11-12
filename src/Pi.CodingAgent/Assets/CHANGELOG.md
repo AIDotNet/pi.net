@@ -102,6 +102,14 @@ performance internals — no published feature is recorded as a deliberate non-i
 - Codex SSE retry backoff no longer leaves abort registrations behind and consistently reports
   "Request was aborted" (#11725); group-commit-equivalent sequential batches are verified to
   agree with the in-memory reference storage (fabf916fc / 8889e623d).
+- `pi update` reports each changed package (`npm:foo 1.2.0 -> 1.3.0`) and distinguishes
+  offline / warned / already-up-to-date outcomes (#11707 / #11711).
+- pi.dev-backed catalogs declare `refreshModelsAuth: "configured"`, so a stale provider
+  login no longer fails a catalog refresh with `invalid_grant` (#11679).
+- The Windows PowerShell 5.1 shell tool no longer reports a successful native command as
+  exit code 1 when its stderr was redirected (#11964 / #8842).
+- A full, data-derived per-commit coverage artifact (`docs/v1.5.2-commit-coverage.md`)
+  is reproducible via `scripts/gen_v152_coverage.py`.
 
 ## [1.5.0] - 2026-11-05
 
