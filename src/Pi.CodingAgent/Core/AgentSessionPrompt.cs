@@ -610,8 +610,20 @@ public partial class AgentSession
     // 选择记录与扩展失败事件（TS 612-626 / 1041-1045）
     // =========================================================================
 
-    /// <summary>TS <c>_recordSelection()</c>（TS 612-626）。</summary>
+    /// <summary>
+    /// 上游 1.5.1 #11451：每次 prompt 前把「实时模型 + 实时思考档位」都记到当前分支上，
+    /// 以便 resume 恢复。TS <c>_recordSelection()</c> 拆成 <c>_recordModelSelection</c> +
+    /// <c>_recordThinkingLevel</c> 两半，各自带独立守卫。
+    /// </summary>
     private void RecordSelection()
+    {
+        var branch = SessionManager.GetBranch();
+        RecordModelSelection(branch);
+        RecordThinkingLevel(branch);
+    }
+
+    /// <summary>TS <c>_recordModelSelection(branch)</c>（原 _recordSelection 的模型半部）。</summary>
+    private void RecordModelSelection(IReadOnlyList<SessionEntry> branch)
     {
         var model = Model;
         if (model is null)
@@ -620,7 +632,7 @@ public partial class AgentSession
         }
 
         var recorded = VirtualModels.GetBranchSelection(
-            SessionManager.GetBranch(),
+            branch,
             (provider, modelId) => _modelRuntime.GetPhysicalModel(provider, modelId));
 
         BranchModelSelection? recordedSelection = recorded is { } selection
@@ -643,6 +655,35 @@ public partial class AgentSession
         }
 
         SessionManager.AppendModelChange(model.Provider, model.Id);
+    }
+
+    /// <summary>
+    /// 上游 1.5.1 #11451：分支上最后一条 <c>thinking_level_change</c> 与实时档位不一致时，
+    /// 在当前分支补记实时档位（对比前先按当前模型钳制，避免把 resume 时被钳低的档位
+    /// 反写成用户请求的高档位）。`/tree` 导航后之前分支的最新档位不该被恢复。
+    /// </summary>
+    private void RecordThinkingLevel(IReadOnlyList<SessionEntry> branch)
+    {
+        var recorded = branch.LastOrDefault(entry => entry is ThinkingLevelChangeEntry);
+        if (recorded is not ThinkingLevelChangeEntry thinkingEntry)
+        {
+            return;
+        }
+
+        var recordedLevel = Core.ThinkingLevels.Parse(thinkingEntry.ThinkingLevel);
+        if (recordedLevel is not { } level)
+        {
+            return;
+        }
+
+        var availableLevels = GetAvailableThinkingLevels();
+        var effective = availableLevels.Contains(level) ? level : ClampThinkingLevel(level, availableLevels);
+        if (!ShouldRecordThinkingLevel(effective, ThinkingLevel))
+        {
+            return;
+        }
+
+        SessionManager.AppendThinkingLevelChange(Core.ThinkingLevels.ToText(ThinkingLevel));
     }
 
     /// <summary>TS <c>_emitSessionCompactFailed(event)</c>（TS 1041-1045）。</summary>

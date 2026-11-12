@@ -116,6 +116,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   超时时，超时文案追加 shell 的退出码与退出耗时（如「after 1.1 seconds」）；`ShellTimeoutException`
   保持 `timeout:N` 形式不影响自定义 `BashOperations`，`ChildProcessHandle.ExitedAtMs` 在超时
   回调快照退出时刻。3 项定向用例 + `CoreToolsTests` 48/48 回归。
+- **`/tree` 导航后思考档位恢复**（#11451）：每次 prompt 前把实时思考档位补记到当前分支
+  （按当前模型钳制后比对，与实时档位不同才写），避免 resume 恢复到旧分支的档位；
+  `RecordSelection` 拆出 `RecordThinkingLevel` + 纯判定 `ShouldRecordThinkingLevel`。
+  1 项定向用例 + `AgentSessionCompactionTests` 33/33。
 
 ## [1.5.0] - 2026-11-05
 

@@ -15,7 +15,7 @@
 **本轮的实际工作是「把已发布变更真正移植到代码并用定向用例钉住」，而非给排除项改名。**
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
 共享 `lines.ts`（MCP/env 传输）、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **41 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
+详见 §3 的 **42 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
 
 「完整的迁移」在本项目**不是**「把上游每个 TS 文件逐字搬过来」，而是由**先前既存、跨版本生效**
 的权威工件定义的。该工件是 `docs/migration-execution-status.md`，其权威地位与范围收窄章节
@@ -148,7 +148,8 @@
 | #11651 `pi config` 加载用户自定义 keybindings.json | ✅ 🔧 `ConfigSelectorCli.LoadGlobalKeybindings(agentDir)`（§3.39） |
 | #11765 Windows/WSL Ctrl+V 也作默认粘贴键 | ✅ 🔧 `AppKeybindings` pasteImage 默认键（§3.40） |
 | #11613 bash 超时后补报 shell 退出码/退出耗时 | ✅ 🔧 `ShellTimeoutException` + `BuildTimeoutMessage` + `ChildProcess.ExitedAtMs`（§3.41） |
-| #9654 read 流式、#8544 edit 混合换行、#11738 图片缩放、#11613 bash 超时退出码、#9441 光标标记、#11765 Windows Ctrl+V、#11875 `ctrl+o`、#11451 思考档位、#9126/#9222/#9155 会话并发、#11803 `$ref` 搜索（tool_search 经本地 `$ref` 找工具） | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
+| #11451 `/tree` 导航后恢复旧思考档位 | ✅ 🔧 `RecordSelection` 拆出 `RecordThinkingLevel` + `ShouldRecordThinkingLevel`（§3.42） |
+| #9654 read 流式、#8544 edit 混合换行、#11738 图片缩放、#9441 光标标记、#11875 `ctrl+o`、#9126/#9222/#9155 会话并发、#11803 `$ref` 搜索（tool_search 经本地 `$ref` 找工具） | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
 | Node/npm 专有：`pi update` 摘要、扩展 npm 依赖解析、Windows 安装器、PowerShell 5.1、fd 下载 | ➖ 不适用 |
 | 示例扩展（subagent / plan-mode）修复 | ➖ 不适用（权威：上游 docs/examples 保留为 TS 参考） |
 
@@ -235,6 +236,7 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.39 | #11651 `pi config` 忽略自定义 keybindings.json | `ConfigSelectorCli.LoadGlobalKeybindings(agentDir)`（`GlobalKeybindings.Set(KeybindingsManager.Create)`），`SelectConfigAsync` 建 TUI 前调用 | `ConfigSelectorKeybindingsTests`（1 用例：临时 keybindings.json 的 ctrl+p / ctrl+n 经 CLI 装载方法进入全局注册表） |
 | 3.40 | #11765 Windows/WSL 上 Ctrl+V 不是默认粘贴键 | `AppKeybindings` 的 `app.clipboard.pasteImage` 默认键：Windows 下 `alt+v` + `ctrl+v`（其余 `ctrl+v`） | `WindowsPasteKeybindingsTests`（1 用例：win32/WSL 判定 + 本机默认键含两者，已用旧默认值反向验证会失败） |
 | 3.41 | #11613 bash 超时后只报「Command timed out」，丢弃 shell 的真实退出码 | `ShellTimeoutException`（保持 `timeout:N` 形式、携带 `ShellExitInfo`）+ `BashTool.BuildTimeoutMessage` + `ChildProcessHandle.ExitedAtMs`（超时回调快照 shell 是否已先退出） | `BashTimeoutExitCodeTests`（3 用例：普通超时 / 报退出码与 1.1s / 秒数不变文化格式）+ `CoreToolsTests` 48/48、`ExperimentalServicesTests` 25、`ExperimentalServerProviderTests` 12 |
+| 3.42 | #11451 `/tree` 导航后 resume 恢复到旧分支的思考档位 | `AgentSessionPrompt.RecordSelection` 拆出 `RecordThinkingLevel`（按当前模型钳制后比对、不同则补记实时档位）+ `ShouldRecordThinkingLevel` 纯判定 | `AgentSessionCompactionTests.ShouldRecordThinkingLevel_OnlyWhenClampedRecordedDiffersFromLive`（1 用例，含「钳制后相等不写」对齐上游第二用例）+ 该套件 33/33 |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -336,21 +338,22 @@ Node daemon 的 PTY/进程组消费方。
 review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「暂不移植（成本/收益）」；
 1.5.0 delta §5 对「未发布提交按需单独评估」的先例。
 
-**本轮已移植的单点修复**（§3.26–3.41）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
+**本轮已移植的单点修复**（§3.26–3.42）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
 `#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`、
 以及第三轮真正补上的 `PipeTransport`（新 API，§3.30）、`#11761`（MCP stdio 大消息 O(n²)，§3.31）、
 `#11335`（Streamable HTTP 应答体/错误体上限，§3.32）、`#11703`（预发布版本 changelog，§3.33）、
 `#11729`（oversized SSE 释放连接，§3.34）、`#11643`（read/write 新语言高亮，§3.35）、
 `#7121` find/ls `limit` 边界（§3.36）、`#11806`（单模型 scope 可切换，§3.37）、
 `#11835`（全屏 Kitty 图像去 WezTerm 门控，§3.38）、`#11651`（`pi config` 加载自定义键位，§3.39）、
-`#11765`（Windows/WSL Ctrl+V 粘贴键，§3.40）、`#11613`（bash 超时补报 shell 退出码，§3.41）。
+`#11765`（Windows/WSL Ctrl+V 粘贴键，§3.40）、`#11613`（bash 超时补报 shell 退出码，§3.41）、
+`#11451`（`/tree` 导航后思考档位恢复，§3.42）。
 
 **仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半（rg cwd 切到
 `searchPath`）/ `#9276`（上下文行改由 ripgrep 提供，两者与端口 `GrepOperations.ReadFileAsync`
 绝对路径取值链纠缠，且本机无 `rg` 可做运行时回归验证）、`#11975`、
 `pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、`cacheWarming:idle`、
 `ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、`#9441`、
-`#11875`、`#11451`、`#9126`/`#9222`/`#9155`、
+`#11875`、`#9126`/`#9222`/`#9155`、
 `#11692`、`#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
 `readOnly`/group commit、RPC 关闭时序、Windows 安装器/PowerShell 5.1/fd 下载。
 

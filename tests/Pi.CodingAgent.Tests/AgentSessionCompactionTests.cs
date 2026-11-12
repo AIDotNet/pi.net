@@ -398,6 +398,18 @@ public sealed class AgentSessionCompactionTests
             recorded, "anthropic", "claude-y", false, true));
     }
 
+    // 上游 1.5.1 #11451：分支上最后记录的思考档位（按当前模型钳制后）与实时档位不同时，
+    // 要把实时档位补记到当前分支；相同则不写，避免 resume 把钳低后的档位反写回高档位。
+    [Fact]
+    public void ShouldRecordThinkingLevel_OnlyWhenClampedRecordedDiffersFromLive()
+    {
+        Assert.True(AgentSession.ShouldRecordThinkingLevel(ThinkingLevel.High, ThinkingLevel.Low));
+        Assert.True(AgentSession.ShouldRecordThinkingLevel(ThinkingLevel.Low, ThinkingLevel.High));
+        Assert.False(AgentSession.ShouldRecordThinkingLevel(ThinkingLevel.High, ThinkingLevel.High));
+        // xhigh 被当前模型钳成 off、而实时档位也是 off → 不写（对齐上游第二个用例：钳制后相等）。
+        Assert.False(AgentSession.ShouldRecordThinkingLevel(ThinkingLevel.Off, ThinkingLevel.Off));
+    }
+
     // ---------------------------------------------------------------------
     // Retry
     // ---------------------------------------------------------------------

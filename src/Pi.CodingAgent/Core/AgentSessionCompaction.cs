@@ -315,6 +315,14 @@ public partial class AgentSession
         return modelIsVirtual || recordedModelIsVirtual == true;
     }
 
+    /// <summary>
+    /// 上游 1.5.1 #11451 的纯判定：分支上最后记录的思考档位按当前模型钳制后若仍与实时档位
+    /// 不同，就应把实时档位补记到当前分支（`/tree` 导航后旧分支的档位不该被恢复）。
+    /// <paramref name="clampedRecorded"/> 是调用方按可用档位钳制后的记录档位。
+    /// </summary>
+    public static bool ShouldRecordThinkingLevel(ThinkingLevel clampedRecorded, ThinkingLevel current)
+        => clampedRecorded != current;
+
     // =========================================================================
     // Retry
     // =========================================================================

@@ -22,7 +22,7 @@
   逐字搬运上游每个文件。按此标准，v1.5.0..v1.5.2 的可移植已发布变更已逐项落地，
   余项在台账 §4 逐条附权威条目引用与可复核证据（git 实证 / 端口既有实现行号）。
   注：本文件第 816 行「1.5.0 功能面到此全部对齐」是 1.5.0 阶段的历史收尾，不引用作 1.5.2 判据。
-- **本轮落地（§3 共 41 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
+- **本轮落地（§3 共 42 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
   `requiresToolsWithToolHistory`/`requiresNonNullAssistantContent`/`promptCacheKeyMode`、
   strict 工具会话记忆、丢弃流重试、输出上限 15% 余量、连接错误根因、
   `disableContinuation`、目录定点修正）；**Anthropic 消息线程整体**（§3.25，create/continue
@@ -34,8 +34,9 @@
   **#11643 read/write 新语言高亮**（§3.35）、**#7121 find/ls `limit` 边界**（§3.36）、
   **#11806 Ctrl+P 单模型 scope 可切换**（§3.37）、**#11835 全屏 Kitty 图像去 WezTerm
   门控**（§3.38）、**#11651 `pi config` 加载自定义键位**（§3.39）、**#11765 Windows/WSL
-  Ctrl+V 粘贴键**（§3.40）、**#11613 bash 超时补报 shell 退出码**（§3.41）；MCP/stdio
-  换行分帧统一由共享 `JsonRpcLineReader` 承担；
+  Ctrl+V 粘贴键**（§3.40）、**#11613 bash 超时补报 shell 退出码**（§3.41）、
+  **#11451 `/tree` 导航后思考档位恢复**（§3.42）；MCP/stdio 换行分帧统一由共享
+  `JsonRpcLineReader` 承担；
   以及 `Pi.Agent` 转发 `disableContinuation`、`Pi.Codemode` 的 `resolveSchemaRef`、
   `Pi.Durable` 的 `ITx.GetSubmissionAsync`、提示模板引号解析、glob `./` 剥离、
   TUI 的 Alacritty / HTML 注释 / 粘贴标记、telemetry 控制字符转义、codemode NaN/Infinity、
