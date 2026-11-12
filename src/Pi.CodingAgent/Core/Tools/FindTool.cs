@@ -51,6 +51,11 @@ public static class FindTool
 
     private const int DefaultLimit = 1000;
 
+    // 测试接缝（默认 null 走生产逻辑）：让 #11974 的「abort 落在 .git 查找期间」可被精确复现。
+    internal static Func<CancellationToken, Task<string?>>? EnsureFdForTests;
+    internal static Func<string, Task<bool>>? PathExistsForTests;
+    internal static Action? SpawnHookForTests;
+
     private static readonly ToolSchema FindSchema = new(new Dictionary<string, object?>
     {
         ["type"] = "object",
@@ -176,7 +181,9 @@ public static class FindTool
                 }
 
                 // Default implementation uses fd.
-                var fdPath = await ToolsManager.EnsureToolAsync("fd", cancellationToken: signal).ConfigureAwait(false);
+                var fdPath = EnsureFdForTests is { } ensureFd
+                    ? await ensureFd(signal).ConfigureAwait(false)
+                    : await ToolsManager.EnsureToolAsync("fd", cancellationToken: signal).ConfigureAwait(false);
                 signal.ThrowIfCancellationRequested();
                 if (fdPath is null)
                 {
@@ -191,7 +198,11 @@ public static class FindTool
                 var insideGitRepo = false;
                 for (var current = searchPath; ;)
                 {
-                    if (await ToolPathUtils.PathExistsAsync(Path.Combine(current, ".git")).ConfigureAwait(false))
+                    var gitPath = Path.Combine(current, ".git");
+                    var gitExists = PathExistsForTests is { } pathExists
+                        ? await pathExists(gitPath).ConfigureAwait(false)
+                        : await ToolPathUtils.PathExistsAsync(gitPath).ConfigureAwait(false);
+                    if (gitExists)
                     {
                         insideGitRepo = true;
                         break;
@@ -238,8 +249,13 @@ public static class FindTool
                 fdArgs.Add(effectivePattern);
                 fdArgs.Add(searchPath);
 
+                // v1.5.1 #11974：abort 可能落在上面的 .git 父目录查找期间（调用已被拒绝，但那时
+                // 还没有可停止的子进程）。spawn 之前再确认一次，避免启动一个随后无人回收的 fd。
+                signal.ThrowIfCancellationRequested();
+
                 var lines = new List<string>();
                 var stderr = new StringBuilder();
+                SpawnHookForTests?.Invoke();
                 var child = ChildProcess.SpawnProcess(fdPath, fdArgs, new SpawnOptions
                 {
                     Cwd = cwd,
