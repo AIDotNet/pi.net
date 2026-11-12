@@ -1,4 +1,4 @@
-﻿using Pi.Agent.Types;
+using Pi.Agent.Types;
 using Pi.CodingAgent.Core.Extensions;
 using ToolDefinition = Pi.CodingAgent.Core.Extensions.ToolDefinition;
 using Pi.Ai.Models;
@@ -28,6 +28,13 @@ public interface IReadToolOperations
 
     /// <summary>Detect image MIME type; null for non-images.</summary>
     Func<string, Task<string?>>? DetectImageMimeType { get; }
+
+    /// <summary>
+    /// 上游 1.5.1 #9654：流式读取文件字节块。存在时文本文件走流式选行（只存要显示的行），
+    /// 否则回退到 <see cref="ReadFileAsync"/> 整篇加载。取消时停止消费流。
+    /// 自定义远程操作不实现时用整篇路径（行为不变）。
+    /// </summary>
+    IAsyncEnumerable<byte[]>? CreateReadStream(string absolutePath, CancellationToken cancellationToken) => null;
 }
 
 /// <summary>Port of the TS <c>ReadToolOptions</c>.</summary>
@@ -127,6 +134,38 @@ public static class ReadTool
 
         public Func<string, Task<string?>>? DetectImageMimeType =>
             filePath => Mime.DetectSupportedImageMimeTypeFromFileAsync(filePath);
+
+        /// <summary>
+        /// 上游 1.5.1 #9654：像 fs.readFile 那样——普通文件读到打开时的大小（追加内容不计入、
+        /// 持续增长的文件仍能结束）；size 0（如 /proc）或其它类型读到 EOF。64KB 块。
+        /// </summary>
+        public async IAsyncEnumerable<byte[]> CreateReadStream(
+            string absolutePath,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            using var stream = new FileStream(
+                absolutePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 64 * 1024, useAsync: true);
+            long remaining = stream.Length > 0 ? stream.Length : long.MaxValue;
+            var buffer = new byte[64 * 1024];
+            while (remaining > 0)
+            {
+                var want = (int)Math.Min(buffer.Length, remaining);
+                var read = await stream.ReadAsync(buffer.AsMemory(0, want), cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                var chunk = new byte[read];
+                Buffer.BlockCopy(buffer, 0, chunk, 0, read);
+                yield return chunk;
+                if (remaining != long.MaxValue)
+                {
+                    remaining -= read;
+                }
+            }
+        }
     }
 
     /// <summary>The image block and its note, or the text for text files and images that could not be processed.</summary>
@@ -236,45 +275,51 @@ public static class ReadTool
                 }
                 else
                 {
-                    // Read text content.
-                    var buffer = await ops.ReadFileAsync(absolutePath, signal).ConfigureAwait(false);
-                    var textContent = System.Text.Encoding.UTF8.GetString(buffer);
-                    var allLines = textContent.Split('\n');
-                    var totalFileLines = allLines.Length;
-
-                    // Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
+                    // Read text content（上游 1.5.1 #9654）：有流式操作且区间可流式时只存要显示的行，
+                    // 否则回退整篇字节加载。两条路径都产出 totalFileLines / truncation / firstLineBytes。
+                    // Convert offset from 1-indexed input to 0-indexed line access.
                     var startLine = offset is > 0 ? Math.Max(0, offset.Value - 1) : 0;
                     var startLineDisplay = startLine + 1;
 
-                    // Check if offset is out of bounds.
-                    if (startLine >= allLines.Length)
+                    ReadStreamSelector.SelectedLines selected;
+                    var stream = ops.CreateReadStream(absolutePath, signal);
+                    if (stream is not null && ReadStreamSelector.IsStreamableRange(offset, limit))
                     {
-                        throw new InvalidOperationException(
-                            $"Offset {offset} is beyond end of file ({allLines.Length} lines total)");
-                    }
-
-                    string selectedContent;
-                    int? userLimitedLines = null;
-
-                    // If limit is specified by the user, honor it first. Otherwise truncateHead decides.
-                    if (limit is not null)
-                    {
-                        var endLine = Math.Min(startLine + limit.Value, allLines.Length);
-                        selectedContent = string.Join("\n", allLines[startLine..endLine]);
-                        userLimitedLines = endLine - startLine;
+                        selected = await ReadStreamSelector
+                            .SelectLinesAsync(stream, startLine, limit, signal).ConfigureAwait(false);
                     }
                     else
                     {
-                        selectedContent = string.Join("\n", allLines[startLine..]);
+                        var buffer = await ops.ReadFileAsync(absolutePath, signal).ConfigureAwait(false);
+                        var allLines = System.Text.Encoding.UTF8.GetString(buffer).Split('\n');
+                        var endLine = limit is null ? allLines.Length : Math.Min(startLine + limit.Value, allLines.Length);
+                        var trunc = Truncate.TruncateHead(string.Join("\n", allLines[startLine..endLine]));
+                        var firstLineBytes = startLine < allLines.Length
+                            ? System.Text.Encoding.UTF8.GetByteCount(allLines[startLine])
+                            : 0;
+                        selected = new ReadStreamSelector.SelectedLines(allLines.Length, trunc, firstLineBytes);
                     }
 
-                    // Apply truncation, respecting both line and byte limits.
-                    var truncation = Truncate.TruncateHead(selectedContent);
+                    var totalFileLines = selected.TotalFileLines;
+                    var truncation = selected.Truncation;
+                    signal.ThrowIfCancellationRequested();
+
+                    // Check if offset is out of bounds.
+                    if (startLine >= totalFileLines)
+                    {
+                        throw new InvalidOperationException(
+                            $"Offset {offset} is beyond end of file ({totalFileLines} lines total)");
+                    }
+
+                    // A user-specified limit is honored before truncation.
+                    var userLimitedLines = limit is null
+                        ? (int?)null
+                        : Math.Min(startLine + limit.Value, totalFileLines) - startLine;
                     string outputText;
                     if (truncation.FirstLineExceedsLimit)
                     {
                         // First line alone exceeds the byte limit. Point the model at a bash fallback.
-                        var firstLineSize = Truncate.FormatSize(System.Text.Encoding.UTF8.GetByteCount(allLines[startLine]));
+                        var firstLineSize = Truncate.FormatSize(selected.FirstLineBytes);
                         outputText =
                             $"[Line {startLineDisplay} is {firstLineSize}, exceeds {Truncate.FormatSize(Truncate.DefaultMaxBytes)} limit. Use bash: sed -n '{startLineDisplay}p' {path} | head -c {Truncate.DefaultMaxBytes}]";
                         details = new ReadToolDetails { Truncation = truncation };
@@ -298,10 +343,10 @@ public static class ReadTool
 
                         details = new ReadToolDetails { Truncation = truncation };
                     }
-                    else if (userLimitedLines is not null && startLine + userLimitedLines.Value < allLines.Length)
+                    else if (userLimitedLines is not null && startLine + userLimitedLines.Value < totalFileLines)
                     {
                         // User-specified limit stopped early, but the file still has more content.
-                        var remaining = allLines.Length - (startLine + userLimitedLines.Value);
+                        var remaining = totalFileLines - (startLine + userLimitedLines.Value);
                         var nextOffset = startLine + userLimitedLines.Value + 1;
                         outputText =
                             $"{truncation.Content}\n\n[{remaining} more lines in file. Use offset={nextOffset} to continue.]";
