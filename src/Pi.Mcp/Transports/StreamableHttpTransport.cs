@@ -217,7 +217,7 @@ public sealed partial class StreamableHttpTransport : TransportEvents
             JsonRpc.Serialize(message).ToJsonString(),
             includeSession: true,
             cancellationToken).ConfigureAwait(false);
-        await CheckResponseAsync(response).ConfigureAwait(false);
+        await CheckResponseAsync(response, cancellationToken).ConfigureAwait(false);
         CaptureSession(response);
 
         if (message is not JsonRpcMessage.Request)
@@ -231,7 +231,12 @@ public sealed partial class StreamableHttpTransport : TransportEvents
         var contentType = response.Content.Headers.ContentType?.MediaType?.ToLowerInvariant();
         if (contentType == "application/json")
         {
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            // 上游 1.5.1 #11335：JSON 应答同样受 maxMessageBytes 约束，超限时取消剩余响应体并拒绝，
+            // 不能把整个应答读进内存（SSE 分支早已有此上限）。
+            var maxBytes = _options.MaxMessageBytes ?? SseStream.DefaultMaxMessageBytes;
+            var (body, truncated) = await ReadBodyTextAsync(response, maxBytes, cancellationToken).ConfigureAwait(false);
+            if (truncated)
+                throw new InvalidOperationException($"MCP JSON response exceeds {maxBytes} bytes");
             var node = JsonNode.Parse(body);
             foreach (var item in node is JsonArray array ? array : [node])
                 EmitMessage(JsonRpc.Parse(item));
@@ -429,11 +434,12 @@ public sealed partial class StreamableHttpTransport : TransportEvents
         }
     }
 
-    private async Task CheckResponseAsync(HttpResponseMessage response)
+    private async Task CheckResponseAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode) return;
+        // 上游 1.5.1 #11335：只读错误体前 8 KiB、其余取消，避免超大错误体被整体缓冲。
         var body = string.Empty;
-        try { body = (await response.Content.ReadAsStringAsync().ConfigureAwait(false))[..Math.Min(MaxErrorBodyBytes, (await response.Content.ReadAsStringAsync().ConfigureAwait(false)).Length)]; }
+        try { body = (await ReadBodyTextAsync(response, MaxErrorBodyBytes, cancellationToken).ConfigureAwait(false)).Text; }
         catch { /* 体不可读时保留空摘要 */ }
         if ((int)response.StatusCode == 401)
         {
@@ -444,5 +450,31 @@ public sealed partial class StreamableHttpTransport : TransportEvents
             throw new McpSessionExpiredError(body);
         throw new McpHttpError((long)response.StatusCode,
             $"MCP HTTP request failed with status {(int)response.StatusCode}", body);
+    }
+
+    /// <summary>
+    /// 分块读取响应体，最多保留 <paramref name="maxBytes"/> 字节；一旦超限即停止读取并释放流（取消
+    /// 剩余响应体、关闭连接），返回 <c>truncated: true</c>。对齐上游 <c>readBodyText</c>（#11335）。
+    /// </summary>
+    private static async Task<(string Text, bool Truncated)> ReadBodyTextAsync(
+        HttpResponseMessage response, int maxBytes, CancellationToken cancellationToken)
+    {
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var kept = new MemoryStream();
+        var buffer = new byte[8192];
+        while (true)
+        {
+            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read == 0) break;
+            var remaining = maxBytes - (int)kept.Length;
+            if (read > remaining)
+            {
+                kept.Write(buffer, 0, remaining);
+                // 释放流会取消剩余响应体；只保留已读到的前缀进入应答/错误文本。
+                return (Encoding.UTF8.GetString(kept.ToArray()), true);
+            }
+            kept.Write(buffer, 0, read);
+        }
+        return (Encoding.UTF8.GetString(kept.ToArray()), false);
     }
 }

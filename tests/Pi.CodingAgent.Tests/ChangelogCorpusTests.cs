@@ -169,15 +169,29 @@ public class ChangelogCorpusTests
         {
             var lastVersion = vector.GetProperty("lastVersion").GetString()!;
             var entries = vector.GetProperty("entries").EnumerateArray().Select(ReadEntry).ToArray();
-            var expected = vector.GetProperty("expected").EnumerateArray().Select(item => item.GetString()!).ToArray();
+            var expectedElement = vector.GetProperty("expected");
+            var actual = Changelog.GetNewEntries(entries, lastVersion);
 
-            var actual = Changelog.GetNewEntries(entries, lastVersion).Select(entry => entry.Content).ToArray();
-            if (!expected.SequenceEqual(actual))
+            if (expectedElement.ValueKind == JsonValueKind.Null)
+            {
+                // #11703: unreadable saved version yields no notes (undefined in TypeScript).
+                if (actual is not null)
+                {
+                    failures.Add(
+                        $"getNewEntries(entries, \"{Quote(lastVersion)}\"): " +
+                        $"expected no notes (undefined), got [{string.Join(", ", actual.Select(e => $"\"{Quote(e.Content)}\""))}]");
+                }
+                continue;
+            }
+
+            var expected = expectedElement.EnumerateArray().Select(item => item.GetString()!).ToArray();
+            var actualContent = (actual ?? []).Select(entry => entry.Content).ToArray();
+            if (!expected.SequenceEqual(actualContent))
             {
                 failures.Add(
                     $"getNewEntries(entries, \"{Quote(lastVersion)}\"): " +
                     $"expected [{string.Join(", ", expected.Select(item => $"\"{item}\""))}], " +
-                    $"got [{string.Join(", ", actual.Select(item => $"\"{item}\""))}]");
+                    $"got [{(actual is null ? "undefined" : string.Join(", ", actualContent.Select(item => $"\"{item}\"")))}]");
             }
         }
 

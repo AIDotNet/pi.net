@@ -321,6 +321,13 @@ public partial class InteractiveMode
         }
 
         var newEntries = Changelog.GetNewEntries(entries, lastVersion!);
+        if (newEntries is null)
+        {
+            // Unreadable saved version (#11703): show nothing and record the current one so later
+            // updates compare again.
+            SettingsManager.SetLastChangelogVersion(Config.Version);
+            return null;
+        }
         if (newEntries.Count > 0)
         {
             SettingsManager.SetLastChangelogVersion(Config.Version);
@@ -379,6 +386,13 @@ public partial class InteractiveMode
 
             var newEntries = Changelog.GetNewEntries(
                 Changelog.ParseChangelog(sourceInfo.ChangelogPath), lastVersion);
+            if (newEntries is null)
+            {
+                // Unreadable saved version (#11703): show nothing and record the current one so later
+                // updates compare again.
+                SettingsManager.SetExtensionChangelogVersion(key, packageVersion);
+                continue;
+            }
             if (newEntries.Count == 0)
             {
                 continue;

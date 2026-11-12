@@ -240,6 +240,48 @@ public class StdioTransportTests
     }
 
     [Fact]
+    public async Task LargeMessageSplitAcrossManyChunksIsAssembledOnce()
+    {
+        // 上游 1.5.1 #11761：大消息分多次到达时按 chunk 累积、到换行才合并一次。
+        // 换行只在末尾出现，且总量远超单次 ReadAsync 的 8192 字节，迫使每个中间块都走
+        // 「未完成消息」累积路径；最终仍只分发一条完整的 40 KiB 消息。
+        const int blobLength = 40_000;
+        var transport = new StdioTransport(EchoOptions("""
+            const line = JSON.stringify({jsonrpc:"2.0",id:1,result:{blob:"A".repeat(40000)}}) + "\n";
+            for (let i = 0; i < line.length; i += 300) {
+              process.stdout.write(line.slice(i, i + 300));
+            }
+            process.stdin.on("end", () => process.exit(0));
+            process.stdin.resume();
+            """));
+        var messages = new List<JsonRpcMessage.SuccessResponse>();
+        var received = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var listener = transport.OnMessage(message =>
+        {
+            if (message is JsonRpcMessage.SuccessResponse { Result: JsonObject result })
+            {
+                lock (messages) messages.Add((JsonRpcMessage.SuccessResponse)message);
+                received.TrySetResult(result);
+            }
+        });
+
+        try
+        {
+            await transport.StartAsync();
+            var result = await received.Task.WaitAsync(TimeSpan.FromSeconds(20));
+            Assert.Equal(new string('A', blobLength), result["blob"]!.GetValue<string>());
+            lock (messages)
+            {
+                Assert.Single(messages);
+            }
+        }
+        finally
+        {
+            await transport.CloseAsync();
+        }
+    }
+
+    [Fact]
     public async Task RejectsSendBeforeStartAndAfterClose()
     {
         var transport = new StdioTransport(EchoOptions());

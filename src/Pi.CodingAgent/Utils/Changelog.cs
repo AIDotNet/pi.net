@@ -35,6 +35,10 @@ public static class Changelog
     private static readonly Regex VersionHeaderRegex =
         new(@"##\s+\[?(\d+)\.(\d+)\.(\d+)\]?", RegexOptions.Compiled);
 
+    /// <summary>Only the leading <c>major.minor.patch</c> of a saved version (#11703).</summary>
+    private static readonly Regex LeadingVersionRegex =
+        new(@"^v?(\d+)\.(\d+)\.(\d+)", RegexOptions.Compiled);
+
     /// <summary>
     /// Where <c>parseChangelog</c> reports an unreadable file. The TypeScript writes to
     /// <c>console.error</c>; routing it through a writer keeps tests off the process-wide console.
@@ -244,23 +248,32 @@ public static class Changelog
     }
 
     /// <summary>
-    /// The entries newer than <paramref name="lastVersion"/>. A malformed version contributes whatever
-    /// leading numbers it has and zeroes for the rest, which is what <c>split(".").map(Number)</c> yields.
+    /// The entries newer than <paramref name="lastVersion"/>, or <see langword="null"/> when the saved
+    /// version has no leading <c>major.minor.patch</c> to compare against (#11703).
     /// </summary>
-    public static IReadOnlyList<ChangelogEntry> GetNewEntries(IReadOnlyList<ChangelogEntry> entries, string lastVersion)
+    /// <remarks>
+    /// Reads only the leading version triple, like the changelog headings, so a prerelease such as
+    /// <c>0.1.5-20261020.7</c> counts as <c>0.1.5</c> and its notes are not shown again on every
+    /// launch. A saved version with no leading triple (e.g. <c>latest</c>, <c>0.1</c>) is unreadable:
+    /// the caller records the current version and shows no notes.
+    /// </remarks>
+    public static IReadOnlyList<ChangelogEntry>? GetNewEntries(
+        IReadOnlyList<ChangelogEntry> entries, string lastVersion)
     {
-        var parts = lastVersion.Split('.');
+        var match = LeadingVersionRegex.Match(lastVersion.Trim());
+        if (!match.Success)
+        {
+            return null;
+        }
+
         var last = new ChangelogEntry(
-            ParsePart(parts, 0),
-            ParsePart(parts, 1),
-            ParsePart(parts, 2),
+            ToVersionNumber(match.Groups[1].Value),
+            ToVersionNumber(match.Groups[2].Value),
+            ToVersionNumber(match.Groups[3].Value),
             string.Empty);
 
         return [.. entries.Where(entry => CompareVersions(entry, last) > 0)];
     }
-
-    private static int ParsePart(string[] parts, int index) =>
-        index >= parts.Length ? 0 : ToVersionNumber(parts[index]);
 
     /// <summary>
     /// <c>Number(part) || 0</c> from the original. <c>Number</c> is not <c>parseInt</c>: it accepts a

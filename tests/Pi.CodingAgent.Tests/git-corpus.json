@@ -2346,10 +2346,7 @@
      "content": "zero"
     }
    ],
-   "expected": [
-    "two",
-    "one-five"
-   ]
+   "expected": null
   },
   {
    "lastVersion": "1.5",
@@ -2379,9 +2376,7 @@
      "content": "zero"
     }
    ],
-   "expected": [
-    "two"
-   ]
+   "expected": null
   },
   {
    "lastVersion": "",
@@ -2411,12 +2406,7 @@
      "content": "zero"
     }
    ],
-   "expected": [
-    "two",
-    "one-five",
-    "one",
-    "zero"
-   ]
+   "expected": null
   },
   {
    "lastVersion": "not-a-version",
@@ -2446,12 +2436,7 @@
      "content": "zero"
     }
    ],
-   "expected": [
-    "two",
-    "one-five",
-    "one",
-    "zero"
-   ]
+   "expected": null
   },
   {
    "lastVersion": "1.5.0.1",
@@ -2583,6 +2568,155 @@
     "two",
     "one-five"
    ]
+  },
+  {
+   "lastVersion": "0.1.5-20261020.7",
+   "entries": [
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 5,
+     "content": "0.1.5"
+    },
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 4,
+     "content": "0.1.4"
+    }
+   ],
+   "expected": []
+  },
+  {
+   "lastVersion": "0.1.5+build.3",
+   "entries": [
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 5,
+     "content": "0.1.5"
+    },
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 4,
+     "content": "0.1.4"
+    }
+   ],
+   "expected": []
+  },
+  {
+   "lastVersion": "0.1.4-beta.1",
+   "entries": [
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 5,
+     "content": "0.1.5"
+    },
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 4,
+     "content": "0.1.4"
+    }
+   ],
+   "expected": [
+    "0.1.5"
+   ]
+  },
+  {
+   "lastVersion": "0.1.5",
+   "entries": [
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 5,
+     "content": "0.1.5"
+    },
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 4,
+     "content": "0.1.4"
+    }
+   ],
+   "expected": []
+  },
+  {
+   "lastVersion": "0.1.3",
+   "entries": [
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 5,
+     "content": "0.1.5"
+    },
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 4,
+     "content": "0.1.4"
+    }
+   ],
+   "expected": [
+    "0.1.5",
+    "0.1.4"
+   ]
+  },
+  {
+   "lastVersion": "latest",
+   "entries": [
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 5,
+     "content": "0.1.5"
+    },
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 4,
+     "content": "0.1.4"
+    }
+   ],
+   "expected": null
+  },
+  {
+   "lastVersion": "0.1",
+   "entries": [
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 5,
+     "content": "0.1.5"
+    },
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 4,
+     "content": "0.1.4"
+    }
+   ],
+   "expected": null
+  },
+  {
+   "lastVersion": "",
+   "entries": [
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 5,
+     "content": "0.1.5"
+    },
+    {
+     "major": 0,
+     "minor": 1,
+     "patch": 4,
+     "content": "0.1.4"
+    }
+   ],
+   "expected": null
   }
  ]
 }
