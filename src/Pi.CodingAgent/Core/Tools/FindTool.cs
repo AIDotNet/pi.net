@@ -41,6 +41,12 @@ public sealed record FindToolOptions
 {
     /// <summary>Custom operations for find. Default: local filesystem plus fd.</summary>
     public IFindToolOperations? Operations { get; init; }
+
+    // 测试接缝（默认 null 走生产逻辑）：让 #11974 的「abort 落在 .git 查找期间」可被精确复现。
+    // 放在实例选项里而非 static，避免 xUnit 并行 collection 之间的共享可变状态互相干扰。
+    internal Func<CancellationToken, Task<string?>>? EnsureFdForTests { get; init; }
+    internal Func<string, Task<bool>>? PathExistsForTests { get; init; }
+    internal Action? SpawnHookForTests { get; init; }
 }
 
 /// <summary>The find tool. Port of <c>core/tools/find.ts</c>.</summary>
@@ -50,11 +56,6 @@ public static class FindTool
     public const string Snippet = "Find files by glob pattern (respects .gitignore)";
 
     private const int DefaultLimit = 1000;
-
-    // 测试接缝（默认 null 走生产逻辑）：让 #11974 的「abort 落在 .git 查找期间」可被精确复现。
-    internal static Func<CancellationToken, Task<string?>>? EnsureFdForTests;
-    internal static Func<string, Task<bool>>? PathExistsForTests;
-    internal static Action? SpawnHookForTests;
 
     private static readonly ToolSchema FindSchema = new(new Dictionary<string, object?>
     {
@@ -131,6 +132,9 @@ public static class FindTool
     public static ToolDefinition CreateFindToolDefinition(string cwd, FindToolOptions? options = null)
     {
         var customOps = options?.Operations;
+        var ensureFdForTests = options?.EnsureFdForTests;
+        var pathExistsForTests = options?.PathExistsForTests;
+        var spawnHookForTests = options?.SpawnHookForTests;
         return new ToolDefinition
         {
             Name = "find",
@@ -181,7 +185,7 @@ public static class FindTool
                 }
 
                 // Default implementation uses fd.
-                var fdPath = EnsureFdForTests is { } ensureFd
+                var fdPath = ensureFdForTests is { } ensureFd
                     ? await ensureFd(signal).ConfigureAwait(false)
                     : await ToolsManager.EnsureToolAsync("fd", cancellationToken: signal).ConfigureAwait(false);
                 signal.ThrowIfCancellationRequested();
@@ -199,7 +203,7 @@ public static class FindTool
                 for (var current = searchPath; ;)
                 {
                     var gitPath = Path.Combine(current, ".git");
-                    var gitExists = PathExistsForTests is { } pathExists
+                    var gitExists = pathExistsForTests is { } pathExists
                         ? await pathExists(gitPath).ConfigureAwait(false)
                         : await ToolPathUtils.PathExistsAsync(gitPath).ConfigureAwait(false);
                     if (gitExists)
@@ -255,7 +259,7 @@ public static class FindTool
 
                 var lines = new List<string>();
                 var stderr = new StringBuilder();
-                SpawnHookForTests?.Invoke();
+                spawnHookForTests?.Invoke();
                 var child = ChildProcess.SpawnProcess(fdPath, fdArgs, new SpawnOptions
                 {
                     Cwd = cwd,
