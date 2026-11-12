@@ -11,6 +11,13 @@ public sealed record JsonlStorageOptions
 {
     /// <summary>追加主标记前冲刷每个受影响的侧车。缺省 false。</summary>
     public bool Fsync { get; init; }
+
+    /// <summary>
+    /// 只读打开（v1.5.1 #11939）：给「另一个进程可能正在写」的目录的观察者用。恢复只在内存里跳过撕裂
+    /// 的末行与未确认侧车尾，不截断、不回收、不建目录；存储持有打开时已提交的状态，<c>commit()</c> 抛
+    /// <see cref="JsonlStorageReadOnlyError"/>。缺省 false。
+    /// </summary>
+    public bool ReadOnly { get; init; }
 }
 
 /// <summary>日志内容损坏（格式、顺序、缺失确认记录）。对应 TS <c>JsonlCorruptionError</c>。</summary>
@@ -18,6 +25,15 @@ public sealed class JsonlCorruptionError : Exception
 {
     public JsonlCorruptionError(string message, Exception? cause = null)
         : base(message, cause)
+    {
+    }
+}
+
+/// <summary>只读打开的存储上调用 <c>commit()</c>；没有任何写入发生。对应 TS <c>JsonlStorageReadOnlyError</c>。</summary>
+public sealed class JsonlStorageReadOnlyError : Exception
+{
+    public JsonlStorageReadOnlyError()
+        : base("JSONL storage is open read-only")
     {
     }
 }
@@ -42,6 +58,8 @@ public sealed class JsonlStorage : IStorage
     private const string MainFile = "main.jsonl";
     private const string ReclaimSuffix = ".reclaim";
     private const string SidecarSuffix = ".jsonl";
+    /// <summary>只读打开遇到写入竞态后的恢复重试次数；每次重试意味着期间又落地了一个提交（TS READ_ONLY_OPEN_ATTEMPTS）。</summary>
+    private const int ReadOnlyOpenAttempts = 5;
 
     private static readonly Pi.Chord.Context.Context DefaultContext = Pi.Chord.Context.Context.Background;
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
@@ -50,12 +68,15 @@ public sealed class JsonlStorage : IStorage
     private readonly string directory;
     private readonly string mainPath;
     private readonly bool fsync;
+    private readonly bool readOnly;
     private readonly MemoryStorage memory = new();
     private readonly HashSet<long> currentOnlyDocuments = [];
     private readonly HashSet<long> liveTaskSidecars = [];
     private readonly SemaphoreSlim commitGate = new(1, 1);
     private bool closed;
     private JsonlStoragePoisonedError? poisonError;
+    /// <summary>恢复时读到的 <c>main.jsonl</c> 字节数（<see cref="MainChangedAsync"/> 判定写入竞态）。</summary>
+    private long mainSize;
 
     private JsonlStorage(IFileSystem fs, string directory, string mainPath, JsonlStorageOptions options)
     {
@@ -63,25 +84,51 @@ public sealed class JsonlStorage : IStorage
         this.directory = directory;
         this.mainPath = mainPath;
         fsync = options.Fsync;
+        readOnly = options.ReadOnly;
     }
 
-    /// <summary>打开或创建 JSONL 存储目录，并重放已有日志。</summary>
+    /// <summary>
+    /// 打开或创建 JSONL 存储目录，并重放已有日志。只读打开不建目录；若恢复失败期间
+    /// <c>main.jsonl</c> 大小变化（与写者的提交竞态），换一个全新的存储实例重试，最多
+    /// <see cref="ReadOnlyOpenAttempts"/> 次。
+    /// </summary>
     public static async Task<JsonlStorage> OpenAsync(
         string directory,
         IFileSystem fs,
         JsonlStorageOptions? options = null)
     {
+        options ??= new JsonlStorageOptions();
         var absolute = await fs.AbsolutePathAsync(directory, DefaultContext).ConfigureAwait(false);
         if (!absolute.IsOk) throw ErrorFromFile("path resolution", absolute.Error);
-        var created = await fs.CreateDirAsync(
-            absolute.Value, new CreateDirOptions { Recursive = true }, DefaultContext).ConfigureAwait(false);
-        if (!created.IsOk) throw ErrorFromFile("directory creation", created.Error);
+        if (!options.ReadOnly)
+        {
+            var created = await fs.CreateDirAsync(
+                absolute.Value, new CreateDirOptions { Recursive = true }, DefaultContext).ConfigureAwait(false);
+            if (!created.IsOk) throw ErrorFromFile("directory creation", created.Error);
+        }
+
         var mainPath = await fs.JoinPathAsync([absolute.Value, MainFile], DefaultContext).ConfigureAwait(false);
         if (!mainPath.IsOk) throw ErrorFromFile("path join", mainPath.Error);
 
-        var storage = new JsonlStorage(fs, absolute.Value, mainPath.Value, options ?? new JsonlStorageOptions());
-        await storage.RecoverAsync().ConfigureAwait(false);
-        return storage;
+        for (var attempt = 1; ; attempt++)
+        {
+            var storage = new JsonlStorage(fs, absolute.Value, mainPath.Value, options);
+            try
+            {
+                await storage.RecoverAsync().ConfigureAwait(false);
+                return storage;
+            }
+            catch (Exception error)
+            {
+                if (!storage.readOnly
+                    || attempt == ReadOnlyOpenAttempts
+                    || error is not JsonlCorruptionError
+                    || !await storage.MainChangedAsync().ConfigureAwait(false))
+                {
+                    throw;
+                }
+            }
+        }
     }
 
     // ─── 提交 ────────────────────────────────────────────────────────────────
@@ -94,6 +141,7 @@ public sealed class JsonlStorage : IStorage
         try
         {
             AssertUsable();
+            if (readOnly) throw new JsonlStorageReadOnlyError();
             var prepared = memory.PrepareCommit(writes);
             var encoded = EncodeCommit(prepared.Seq, prepared.Writes);
             var reclamations = PlanReclamations(prepared.Writes, encoded);
@@ -399,6 +447,7 @@ public sealed class JsonlStorage : IStorage
     private async Task RecoverAsync()
     {
         var main = await ReadLinesAsync(mainPath, MainFile, JsonlStorageJson.ParseCommit).ConfigureAwait(false);
+        mainSize = main.Size;
 
         long previousSeq = 0;
         foreach (var marker in main.Lines)
@@ -412,7 +461,8 @@ public sealed class JsonlStorage : IStorage
         if (!listed.IsOk) throw ErrorFromFile("directory listing", listed.Error);
         foreach (var info in listed.Value)
         {
-            if (info.Kind == FileKind.File && IsReclaimFileName(info.Name))
+            // 只读打开只在内存里跳过遗留的 .reclaim 文件，不删除（TS recover 的 readOnly 分支）。
+            if (!readOnly && info.Kind == FileKind.File && IsReclaimFileName(info.Name))
                 await fs.RemoveAsync(info.Path, new RemoveOptions { Force = true }, DefaultContext).ConfigureAwait(false);
         }
 
@@ -609,7 +659,8 @@ public sealed class JsonlStorage : IStorage
                     unconfirmedAt = line.Start;
                 }
             }
-            if (unconfirmedAt is { } size)
+            // 只读打开仅在内存里跳过未确认尾，不回写截断（TS recover 的 readOnly 分支）。
+            if (!readOnly && unconfirmedAt is { } size)
             {
                 var truncated = await fs.TruncateFileAsync(parsed.Path, size, DefaultContext).ConfigureAwait(false);
                 if (!truncated.IsOk) throw ErrorFromFile($"tail truncation of {file}", truncated.Error);
@@ -638,7 +689,8 @@ public sealed class JsonlStorage : IStorage
                 && (retained.Count < confirmedLines.Count || retained.Count == 0))
                 reclamations[file] = string.Concat(retained.Select(line => JsonlStorageJson.SerializeSidecar(line.Value)));
         }
-        await ReclaimSidecarsAsync(reclamations).ConfigureAwait(false);
+        // 只读打开不回收（reclaim 是写维护）；其余照常把内存镜像设为已确认状态。
+        if (!readOnly) await ReclaimSidecarsAsync(reclamations).ConfigureAwait(false);
 
         foreach (var id in currentOnly) currentOnlyDocuments.Add(id);
         foreach (var (id, live) in finalTaskIsLive)
@@ -695,17 +747,23 @@ public sealed class JsonlStorage : IStorage
         var read = await fs.ReadBinaryFileAsync(path, DefaultContext).ConfigureAwait(false);
         if (!read.IsOk)
         {
-            if (read.Error.Code == FileErrorCode.NotFound) return new ParsedFile<T>(path, []);
+            // 缺文件的读取字节数为 0（TS ParsedFile.size）。
+            if (read.Error.Code == FileErrorCode.NotFound) return new ParsedFile<T>(path, [], 0);
             throw ErrorFromFile($"read of {name}", read.Error);
         }
 
         var bytes = read.Value;
+        var size = bytes.Length;
         var completeSize = bytes.Length;
         if (completeSize > 0 && bytes[completeSize - 1] != 0x0a)
         {
             completeSize = Array.LastIndexOf(bytes, (byte)0x0a, completeSize - 1) + 1;
-            var truncated = await fs.TruncateFileAsync(path, completeSize, DefaultContext).ConfigureAwait(false);
-            if (!truncated.IsOk) throw ErrorFromFile($"torn-line truncation of {name}", truncated.Error);
+            // 只读打开只在内存里跳过撕裂末行，不回写截断（TS readLines 的 readOnly 分支）。
+            if (!readOnly)
+            {
+                var truncated = await fs.TruncateFileAsync(path, completeSize, DefaultContext).ConfigureAwait(false);
+                if (!truncated.IsOk) throw ErrorFromFile($"torn-line truncation of {name}", truncated.Error);
+            }
         }
 
         var lines = new List<ParsedLine<T>>();
@@ -727,7 +785,18 @@ public sealed class JsonlStorage : IStorage
             start = end + 1;
             lineNumber++;
         }
-        return new ParsedFile<T>(path, lines);
+        return new ParsedFile<T>(path, lines, size);
+    }
+
+    /// <summary>
+    /// 恢复读到的 <c>main.jsonl</c> 大小是否已变化。写者只在追加允许的标记之后才回收侧车，
+    /// 因此 main 大小不变时读到的侧车与其标记匹配；恢复失败且 main 变化，可能读到了新提交已回收的侧车，
+    /// 需重试（TS <c>mainChanged</c>）。
+    /// </summary>
+    private async Task<bool> MainChangedAsync()
+    {
+        var info = await fs.FileInfoAsync(mainPath, DefaultContext).ConfigureAwait(false);
+        return info.IsOk && info.Value.Size != mainSize;
     }
 
     private async Task<string> ResolveFileAsync(string file)
@@ -806,5 +875,6 @@ public sealed class JsonlStorage : IStorage
 
     private sealed record ParsedLine<T>(T Value, long Start);
 
-    private sealed record ParsedFile<T>(string Path, IReadOnlyList<ParsedLine<T>> Lines);
+    /// <summary><paramref name="Size"/> 为读到的字节数（含撕裂末行），缺文件为 0；对应 TS <c>ParsedFile.size</c>。</summary>
+    private sealed record ParsedFile<T>(string Path, IReadOnlyList<ParsedLine<T>> Lines, long Size);
 }

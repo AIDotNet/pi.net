@@ -541,6 +541,9 @@ public sealed record AgentState
     /// <summary>一次运行允许的工具轮数上限；达到即像失败一样结束该运行。对应 TS <c>maxTurns</c>。</summary>
     public long? MaxTurns { get; init; }
 
+    /// <summary>本会话覆盖 harness 的压缩设置（v1.5.1 #11771 / TS <c>AgentState.compaction</c>）。</summary>
+    public CompactionSettings? Compaction { get; init; }
+
     /// <summary>扩展选择：数组或 {add, remove} 对象。</summary>
     public sealed record ExtensionSelection
     {
@@ -595,6 +598,11 @@ public sealed record AgentChange
 
     public bool ClearMaxTurns { get; init; }
 
+    /// <summary>整体替换本会话压缩设置；token 字段必须 ≥ 0（v1.5.1 #11771）。</summary>
+    public CompactionSettings? Compaction { get; init; }
+
+    public bool ClearCompaction { get; init; }
+
     /// <summary>扩展对象或 {add, remove} 的变更载荷。</summary>
     public sealed record ExtensionChange
     {
@@ -635,6 +643,9 @@ public sealed record Agent
 
     /// <summary>一次运行允许的工具轮数上限；null 表示不限。</summary>
     public long? MaxTurns { get; init; }
+
+    /// <summary>本会话覆盖 harness 的压缩设置（v1.5.1 #11771 / TS <c>Agent.compaction</c>）。</summary>
+    public CompactionSettings? Compaction { get; init; }
 }
 
 /// <summary>对话创建初始化回调：运行于创建提交内。对应 TS <c>ConversationInit</c>。</summary>
@@ -715,25 +726,70 @@ public sealed record CompactionPolicy
     public IReadOnlyDictionary<string, CompactionPolicyOverride>? ModelOverrides { get; init; }
 
     /// <summary>
-    /// 该模型适用的策略：<see cref="ModelOverrides"/> 里它的条目逐字段覆盖全局值。调用方在
-    /// 「阈值判定、溢出恢复、压缩取范围」三处都要用它，而不是直接用全局策略。
-    /// TS <c>compactionPolicy(settings, model)</c>。
+    /// 该模型、该会话适用的策略，逐字段分层解析（v1.5.1 #11771 / TS
+    /// <c>compactionPolicy(settings, model, conversation)</c>）：会话的 model override，
+    /// 然后 harness 的 model override，然后会话自身字段，然后 harness 全局策略；
+    /// 模型专属值胜过一般值，会话胜过同层的 harness。例外：会话自身的
+    /// <c>enabled: false</c> 也胜过 harness 的 model override——关闭某会话的压缩不依赖模型。
+    /// 调用方在「阈值判定、溢出恢复、压缩取范围」三处都要用它，而不是直接用全局策略。
+    /// 未传 <paramref name="conversation"/> 时保持旧行为（仅 harness 的 model override）。
     /// </summary>
-    public CompactionPolicy ForModel(ModelRef? model)
+    public CompactionPolicy ForModel(ModelRef? model, CompactionSettings? conversation = null)
     {
-        if (model is null
-            || ModelOverrides is null
-            || !ModelOverrides.TryGetValue($"{model.Provider}/{model.ModelId}", out var entry))
+        var key = model is null ? null : $"{model.Provider}/{model.ModelId}";
+        CompactionPolicyOverride? harnessOverride =
+            key is not null && ModelOverrides is not null
+            && ModelOverrides.TryGetValue(key, out var entry) ? entry : null;
+        CompactionPolicyOverride? conversationModel =
+            key is not null && conversation?.ModelOverrides is not null
+            && conversation.ModelOverrides.TryGetValue(key, out var convEntry) ? convEntry : null;
+
+        if (conversation is null)
         {
-            return this;
+            if (harnessOverride is null)
+            {
+                return this;
+            }
+
+            return new CompactionPolicy
+            {
+                Enabled = harnessOverride.Enabled ?? Enabled,
+                ReserveTokens = harnessOverride.ReserveTokens ?? ReserveTokens,
+                KeepRecentTokens = harnessOverride.KeepRecentTokens ?? KeepRecentTokens,
+                BackgroundTokens = harnessOverride.BackgroundTokens ?? BackgroundTokens,
+            };
+        }
+
+        // layers：会话 model override → harness model override → 会话自身字段。
+        var layers = new[] { conversationModel, harnessOverride, (CompactionPolicyOverride?)conversation };
+
+        bool FieldEnabled(bool harness)
+        {
+            foreach (var layer in layers)
+            {
+                if (layer?.Enabled is { } value) return value;
+            }
+
+            return harness;
+        }
+
+        long FieldLong(Func<CompactionPolicyOverride, long?> pick, long harness)
+        {
+            foreach (var layer in layers)
+            {
+                if (layer is not null && pick(layer) is { } value) return value;
+            }
+
+            return harness;
         }
 
         return new CompactionPolicy
         {
-            Enabled = entry.Enabled ?? Enabled,
-            ReserveTokens = entry.ReserveTokens ?? ReserveTokens,
-            KeepRecentTokens = entry.KeepRecentTokens ?? KeepRecentTokens,
-            BackgroundTokens = entry.BackgroundTokens ?? BackgroundTokens,
+            Enabled = conversationModel?.Enabled
+                      ?? (conversation.Enabled == false ? false : FieldEnabled(Enabled)),
+            ReserveTokens = FieldLong(layer => layer.ReserveTokens, ReserveTokens),
+            KeepRecentTokens = FieldLong(layer => layer.KeepRecentTokens, KeepRecentTokens),
+            BackgroundTokens = FieldLong(layer => layer.BackgroundTokens, BackgroundTokens),
         };
     }
 }
@@ -742,7 +798,7 @@ public sealed record CompactionPolicy
 /// <see cref="CompactionPolicy.ModelOverrides"/> 的一个条目：只写要覆盖的字段。
 /// 对应 TS <c>Partial&lt;CompactionPolicy&gt;</c>。
 /// </summary>
-public sealed record CompactionPolicyOverride
+public record CompactionPolicyOverride
 {
     public bool? Enabled { get; init; }
 
@@ -751,6 +807,17 @@ public sealed record CompactionPolicyOverride
     public long? KeepRecentTokens { get; init; }
 
     public long? BackgroundTokens { get; init; }
+}
+
+/// <summary>
+/// 一个会话的压缩设置，覆盖 harness 的设置（v1.5.1 #11771 / TS <c>CompactionSettings</c>）。
+/// 自身即一层 <see cref="CompactionPolicyOverride"/>（一般字段），另带按精确
+/// <c>"provider/modelId"</c> 键控的 <see cref="ModelOverrides"/>。
+/// 由 <c>configure({ compaction })</c> 存入 <c>pi.agent</c>，任务子会话与 fork 继承。
+/// </summary>
+public sealed record CompactionSettings : CompactionPolicyOverride
+{
+    public IReadOnlyDictionary<string, CompactionPolicyOverride>? ModelOverrides { get; init; }
 }
 
 /// <summary>运行进度提交频率。对应 TS <c>ProgressPolicy</c>。</summary>

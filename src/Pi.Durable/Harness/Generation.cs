@@ -357,7 +357,8 @@ public static partial class Generation
         var declarations = agent.Tools.Select(Prompt.DeclarationOf).ToList();
         var entries = Prompt.PlanSystemEntries(view, desired, declarations, runtime.Now());
         var threshold = checkpoint.Compacted is null
-            ? ThresholdCompaction(view, entries, resolved.ContextWindow, settings.Compaction.ForModel(modelReference))
+            ? ThresholdCompaction(view, entries, resolved.ContextWindow,
+                settings.Compaction.ForModel(modelReference, agent.Compaction))
             : null;
         if (threshold == "blocking")
         {
@@ -1200,10 +1201,14 @@ public static partial class Generation
         }
 
         // 重试与压缩策略决定下一次尝试，因此现在读取而非在准备时固定。
+        // v1.5.1 #11771：仅在溢出且未压缩过时解析该会话的压缩策略，从当前 agent 取逐会话 compaction。
         var settings = runtime.Settings;
         var overflow = message.StopReason == StopReason.Error && Overflow.IsContextOverflow(message);
-        var modelPolicy = settings.Compaction.ForModel(request.Model);
-        if (overflow && request.Compacted is null && modelPolicy.Enabled)
+        var modelPolicy = overflow && request.Compacted is null
+            ? settings.Compaction.ForModel(
+                request.Model, (await runtime.AgentAsync(context).ConfigureAwait(false)).Compaction)
+            : null;
+        if (modelPolicy is { Enabled: true })
         {
             var view = await runtime.ContextAsync(conversationId, context, request.Cutoff).ConfigureAwait(false);
             if (Compaction.SelectCut(view, modelPolicy.KeepRecentTokens) is not null)

@@ -206,6 +206,61 @@ public static class AgentDocs
 
         if (change.Cwd is not null) doc.Set(Key("cwd"), change.Cwd);
         else if (change.ClearCwd) doc.Delete(Key("cwd"));
+
+        if (change.Compaction is { } compaction)
+        {
+            doc.Set(Key("compaction"), CompactionSettingsToJson(compaction));
+        }
+        else if (change.ClearCompaction)
+        {
+            doc.Delete(Key("compaction"));
+        }
+    }
+
+    /// <summary>
+    /// 存储一份会话压缩设置：只保留显式写下的字段（对齐 TS <c>compactionSettings</c> 去 undefined），
+    /// 并校验每个 token 计数为 ≥ 0 的整数（TS <c>compactionFields</c> 抛 RangeError）。
+    /// </summary>
+    private static Dictionary<string, object?> CompactionSettingsToJson(CompactionSettings settings)
+    {
+        var json = CompactionFieldsToJson(settings);
+        if (settings.ModelOverrides is { } overrides)
+        {
+            var map = new Dictionary<string, object?>();
+            foreach (var (key, value) in overrides)
+            {
+                map[key] = CompactionFieldsToJson(value);
+            }
+
+            json["modelOverrides"] = map;
+        }
+
+        return json;
+    }
+
+    private static Dictionary<string, object?> CompactionFieldsToJson(CompactionPolicyOverride policy)
+    {
+        var fields = new Dictionary<string, object?>();
+        if (policy.Enabled is { } enabled) fields["enabled"] = enabled;
+        if (policy.ReserveTokens is { } reserve) fields["reserveTokens"] = CheckTokens("reserveTokens", reserve);
+        if (policy.KeepRecentTokens is { } keep) fields["keepRecentTokens"] = CheckTokens("keepRecentTokens", keep);
+        if (policy.BackgroundTokens is { } background)
+        {
+            fields["backgroundTokens"] = CheckTokens("backgroundTokens", background);
+        }
+
+        return fields;
+    }
+
+    private static long CheckTokens(string name, long value)
+    {
+        if (value < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value), $"compaction.{name} must be an integer 0 or more, got {value}");
+        }
+
+        return value;
     }
 
     private static Path Key(string name) => Path.Root.Append(Seg.Key(name));
@@ -332,6 +387,7 @@ public static class AgentDocs
             Instructions = instructions,
             Cwd = state?.Cwd,
             MaxTurns = state?.MaxTurns,
+            Compaction = state?.Compaction,
         };
     }
 
@@ -398,8 +454,54 @@ public static class AgentDocs
             MaxTurns = json.TryGetValue("maxTurns", out var maxTurns) && maxTurns is not null
                 ? Convert.ToInt64(maxTurns)
                 : null,
+            Compaction = json.TryGetValue("compaction", out var compaction)
+                         && compaction is IReadOnlyDictionary<string, object?> compactionJson
+                ? CompactionSettingsFromJson(compactionJson)
+                : null,
         };
     }
+
+    /// <summary>从 <c>pi.agent.compaction</c> 的 JSON 还原 <see cref="CompactionSettings"/>。</summary>
+    private static CompactionSettings CompactionSettingsFromJson(IReadOnlyDictionary<string, object?> json)
+    {
+        var fields = CompactionFieldsFromJson(json);
+        IReadOnlyDictionary<string, CompactionPolicyOverride>? overrides = null;
+        if (json.TryGetValue("modelOverrides", out var value)
+            && value is IReadOnlyDictionary<string, object?> map)
+        {
+            var parsed = new Dictionary<string, CompactionPolicyOverride>();
+            foreach (var (key, entry) in map)
+            {
+                if (entry is IReadOnlyDictionary<string, object?> entryJson)
+                {
+                    parsed[key] = CompactionFieldsFromJson(entryJson);
+                }
+            }
+
+            overrides = parsed;
+        }
+
+        return new CompactionSettings
+        {
+            Enabled = fields.Enabled,
+            ReserveTokens = fields.ReserveTokens,
+            KeepRecentTokens = fields.KeepRecentTokens,
+            BackgroundTokens = fields.BackgroundTokens,
+            ModelOverrides = overrides,
+        };
+    }
+
+    private static CompactionPolicyOverride CompactionFieldsFromJson(IReadOnlyDictionary<string, object?> json)
+        => new()
+        {
+            Enabled = json.TryGetValue("enabled", out var enabled) && enabled is bool flag ? flag : null,
+            ReserveTokens = Token(json, "reserveTokens"),
+            KeepRecentTokens = Token(json, "keepRecentTokens"),
+            BackgroundTokens = Token(json, "backgroundTokens"),
+        };
+
+    private static long? Token(IReadOnlyDictionary<string, object?> json, string key)
+        => json.TryGetValue(key, out var value) && value is not null ? Convert.ToInt64(value) : null;
 
     private static IReadOnlyList<string>? Strings(IReadOnlyDictionary<string, object?> json, string key)
         => json.TryGetValue(key, out var value) && value is IReadOnlyList<object?> items
