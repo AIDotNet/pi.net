@@ -19,11 +19,11 @@
   Node/Bun runtime parity、TypeBox 构造 API 不适用、Node 适配器不逐字移植等）定义——
   即端口形态收窄项属 ➖ 不适用。但 hook 复核明确：**v1.5.1/v1.5.2 的 published 功能变更
   不得登记为「有记录的不做项」**，那等于没完成该 release 的迁移。因此本轮严格区分：
-  published 功能变更一律真实移植（§3，共 78 项）；仅「端口无对应宿主/消费方」的形态项
+  published 功能变更一律真实移植（§3，共 79 项）；仅「端口无对应宿主/消费方」的形态项
   （§4）为 ➖ 不适用，逐条附代码级/`git show` 实证。1.5.0 阶段第 816 行「剩余均为有记录的
   不做项」是历史收尾，不作为 1.5.2 的判据，也不用于把 1.5.2 published 功能登记为不做项。
-  §3.52–3.78 为复核反馈后补做的收尾批次（此前 §4.4 误记的一批 published 项已逐项落地）。
-- **本轮落地（§3 共 78 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
+  §3.52–3.79 为复核反馈后补做的收尾批次（此前 §4.4 误记的一批 published 项已逐项落地）。
+- **本轮落地（§3 共 79 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
   `requiresToolsWithToolHistory`/`requiresNonNullAssistantContent`/`promptCacheKeyMode`、
   strict 工具会话记忆、丢弃流重试、输出上限 15% 余量、连接错误根因、
   `disableContinuation`、目录定点修正）；**Anthropic 消息线程整体**（§3.25，create/continue
@@ -48,7 +48,7 @@
   `Pi.Durable` 的 `ITx.GetSubmissionAsync`、提示模板引号解析、glob `./` 剥离、
   TUI 的 Alacritty / HTML 注释 / 粘贴标记、telemetry 控制字符转义、codemode NaN/Infinity、
   schema 数字有限性、截断不劈代理对。逐项落点与用例见 `upstream-1.5.2-delta.md` §3。
-- **收尾批次（§3.52–3.78，复核 hook 反馈后逐项真实移植）**：#11807/#9276 rg glob 锚定 path
+- **收尾批次（§3.52–3.79，复核 hook 反馈后逐项真实移植）**：#11807/#9276 rg glob 锚定 path
   + 上下文行事件（§3.52）、#9155 prompt 预检 / 树导航（§3.53）、#8544 edit 保留未改动行
   行尾（§3.54）、#11756 `registerMarkdownTransformer(messageTypes)` + #11851
   `ctx.ui.custom(blocked)`（§3.55）、#9654 read 流式选行（§3.56）、#11599/#11752
@@ -71,7 +71,7 @@
   配套机械枚举 `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py`）。
   这是 hook 要求的 current authoritative v1.5.2-specific per-commit/per-bullet coverage table
   with evidence，非手写分类、可脚本重跑核对。
-- **production-diff differential 复核批次（§3.71–3.78，再用上游非测试改动的新增实义标识符
+- **production-diff differential 复核批次（§3.71–3.79，再用上游非测试改动的新增实义标识符
   对端口 `src/tests` 全部 `.cs` 做逐 commit 多命中核对）**：#11787/#11655 auth.json symlink
   锁（§3.71，3 用例）；本轮又发现并真实移植 2 个遗漏——#9274 行内 diff 先分离共享前导缩进
   （§3.72，旧实现会丢 removed 行缩进并误高亮插入缩进，反向验证 2 用例失败）、#10165 滚动
@@ -79,7 +79,10 @@
   反向验证 1 用例失败）。处置表证据同步升级：由上游 production diff 的标识符多命中派生端口
   真实源码路径（倒排索引、单次 `git log -p`、3.6s 可复现），新增「证据覆盖自检」章节
   （143 行中 139 行带机械可复核端口源码证据、4 行改动极小者人工逐条实证、0 个证据路径缺失、
-  0 个「待核对」残留），取代旧版 subject 关键词瞎猜的伪证据。
+  0 个「待核对」残留），取代旧版 subject 关键词瞎猜的伪证据。随后又由同一 differential 线索
+  补上 **#11972/#9262 Windows find 路径模式与 fd 版本解耦**（§3.79，`FindPathPattern.cs` 纯叶子
+  + `FindTool.cs` 接线 + 14 纯叶子用例 + 2 个真实 fd 10.5.0 端到端用例（旧方案在该 fd 上实测
+  返回 `No files found`，端到端反向验证 2 用例失败）；§4.4 中引用旧 `[/\\]` workaround 的行已同步修正）。
 - **➖ 不适用（非 published 功能变更，逐项代码级实证，见台账 §4）**：Chord v2 换根
   （依赖契约实证未变，权威「chord 有意收窄」）、env daemon `process` 操作（SSH 远程环境，
   无 Node PTY 消费方）、上游「从 coding-agent 移入 mcp/ai」的 helper（包位置重定位，端口早已

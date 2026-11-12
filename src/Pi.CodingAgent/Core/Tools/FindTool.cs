@@ -194,7 +194,16 @@ public static class FindTool
                     throw new InvalidOperationException("fd is not available and could not be downloaded");
                 }
 
-                var fdArgs = new List<string> { "--glob", "--color=never", "--hidden" };
+                // 上游 1.5.2 #11972/#9262：Windows 路径模式不再交给 fd 的 --full-path
+                // （fd 10.5.1 前后对 --full-path glob 的行为相反，pi 会下载最新版），改为让 fd
+                // 列出全部条目、由端口用 Minimatch 逐行过滤，行为与 fd 版本无关。
+                // 决策与匹配器是纯叶子 FindPathPattern，可跨平台单测。
+                var pathDecision = FindPathPattern.For(pattern, NodePath.IsWindows);
+                var windowsMatcher = pathDecision.UseWindowsMatcher
+                    ? FindPathPattern.CreateWindowsMatcher(pathDecision)
+                    : null;
+
+                var fdArgs = new List<string> { "--color=never", "--hidden" };
 
                 // fd normally ignores .gitignore outside git repos, so keep --no-require-git
                 // there. Inside repos, use fd's default git-aware behavior so parent
@@ -226,32 +235,33 @@ public static class FindTool
                     fdArgs.Add("--no-require-git");
                 }
 
-                fdArgs.Add("--max-results");
-                // #7121：多要一条以区分「恰好 limit」与「超过 limit」；fd 也把 0 当无限，故前面已钳到 ≥1。
-                fdArgs.Add((effectiveLimit + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
-
-                // fd --glob matches against the basename unless --full-path is set; in --full-path
-                // mode it matches against the absolute candidate path, so a path-containing
-                // pattern like 'src/**/*.spec.ts' needs a leading '**/' to match anything.
-                var effectivePattern = pattern;
-                if (pattern.Contains('/'))
+                if (windowsMatcher is not null)
                 {
-                    fdArgs.Add("--full-path");
-                    if (!pattern.StartsWith('/') && !pattern.StartsWith("**/", StringComparison.Ordinal) && pattern != "**")
-                    {
-                        effectivePattern = $"**/{pattern}";
-                    }
-
-                    // fd matches full paths using native separators on Windows.
-                    if (NodePath.IsWindows)
-                    {
-                        effectivePattern = effectivePattern.Replace("/", @"[/\\]", StringComparison.Ordinal);
-                    }
+                    // 上游 #11972：Windows 路径模式让 fd 列出全部条目（空 pattern），不加 --glob /
+                    // --full-path / --max-results；由端口在读取结果时用 Minimatch 过滤，且到 limit
+                    // 时早停 fd（因为没有了 --max-results，fd 会一直列下去）。
+                    fdArgs.Add("--");
+                    fdArgs.Add("");
+                    fdArgs.Add(searchPath);
                 }
+                else
+                {
+                    fdArgs.Add("--glob");
+                    fdArgs.Add("--max-results");
+                    // #7121：多要一条以区分「恰好 limit」与「超过 limit」；fd 也把 0 当无限，故前面已钳到 ≥1。
+                    fdArgs.Add((effectiveLimit + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
 
-                fdArgs.Add("--");
-                fdArgs.Add(effectivePattern);
-                fdArgs.Add(searchPath);
+                    // 非 Windows：路径模式（含 /）仍需 --full-path + 前导 **/ 才能匹配绝对路径；
+                    // EffectivePattern 已由 FindPathPattern 规范化（Windows \ → /、补 **/）。
+                    if (pathDecision.IsPathPattern)
+                    {
+                        fdArgs.Add("--full-path");
+                    }
+
+                    fdArgs.Add("--");
+                    fdArgs.Add(pathDecision.EffectivePattern);
+                    fdArgs.Add(searchPath);
+                }
 
                 // v1.5.1 #11974：abort 可能落在上面的 .git 父目录查找期间（调用已被拒绝，但那时
                 // 还没有可停止的子进程）。spawn 之前再确认一次，避免启动一个随后无人回收的 fd。
@@ -259,6 +269,7 @@ public static class FindTool
 
                 var lines = new List<string>();
                 var stderr = new StringBuilder();
+                var stdoutPending = new StringBuilder();
                 spawnHookForTests?.Invoke();
                 var child = ChildProcess.SpawnProcess(fdPath, fdArgs, new SpawnOptions
                 {
@@ -270,9 +281,45 @@ public static class FindTool
                 child.StdoutData += data =>
                 {
                     var text = Encoding.UTF8.GetString(data);
-                    foreach (var line in text.Split('\n'))
+                    if (windowsMatcher is null)
                     {
-                        lines.Add(line);
+                        foreach (var line in text.Split('\n'))
+                        {
+                            lines.Add(line);
+                        }
+                        return;
+                    }
+
+                    // 上游 #11972：Windows 路径模式下 fd 列出全部条目，端口逐行用 Minimatch
+                    // 过滤；按 \n 成行（跨 chunk 缓冲），到 limit 时早停 fd（无 --max-results）。
+                    stdoutPending.Append(text);
+                    var buffered = stdoutPending.ToString();
+                    var lastNewline = buffered.LastIndexOf('\n');
+                    if (lastNewline < 0)
+                    {
+                        return;
+                    }
+
+                    var complete = buffered[..lastNewline];
+                    stdoutPending.Clear();
+                    stdoutPending.Append(buffered[(lastNewline + 1)..]);
+                    foreach (var raw in complete.Split('\n'))
+                    {
+                        var line = raw.TrimEnd('\r');
+                        if (line.Length == 0 || lines.Count > effectiveLimit)
+                        {
+                            continue;
+                        }
+
+                        if (FindPathPattern.Matches(windowsMatcher, line))
+                        {
+                            lines.Add(line);
+                        }
+                    }
+
+                    if (lines.Count > effectiveLimit)
+                    {
+                        child.Kill();
                     }
                 };
                 child.StderrData += data => stderr.Append(Encoding.UTF8.GetString(data));
@@ -287,6 +334,17 @@ public static class FindTool
 
                 var exitCode = await child.WaitAsync().ConfigureAwait(false);
                 signal.ThrowIfCancellationRequested();
+
+                // flush fd 输出末尾不带换行的一行（Windows 路径模式按 \n 成行时留下的尾巴）。
+                if (windowsMatcher is not null)
+                {
+                    var tail = stdoutPending.ToString().TrimEnd('\r');
+                    if (tail.Length > 0 && lines.Count <= effectiveLimit
+                        && FindPathPattern.Matches(windowsMatcher, tail))
+                    {
+                        lines.Add(tail);
+                    }
+                }
 
                 var rawLines = string.Join("\n", lines);
                 if (exitCode != 0)

@@ -127,6 +127,10 @@ performance internals — no published feature is recorded as a deliberate non-i
   schema root `$id`s are applied only once (#11726); conversation options expose thinking budgets
   and websocket connect timeout (#10410); `/reload` clears every extension overlay (#11853);
   the startup-benchmark path disposes the session runtime (#11736).
+- Windows `find` path globs no longer depend on the installed `fd` version: on Windows the
+  tool lists all entries and filters them with a port-side minimatch instead of relying on
+  `fd --full-path`; verified end-to-end against real fd 10.5.0 on Windows, where the previous
+  approach returned no results (#11972 / #9262).
 
 ## [1.5.0] - 2026-11-05
 

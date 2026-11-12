@@ -82,6 +82,61 @@ MANUAL_DISPOSITION = {
     "37b38e9f6": ("已核对·人工实证",
         "端口 `src/Pi.CodingAgent/Core/Keybindings.cs`（153–155 行）：Windows/WSL 默认粘贴键为 "
         "`Keys(\"alt+v\", \"ctrl+v\")`，其他平台 `Keys(\"ctrl+v\")`，等价上游 `defaultKeys` 数组化"),
+
+    # ── 本轮 differential 审计：逐条核对上游 production diff 后真实移植的 published 项 ──
+    "5bdf988b7": ("已移植·§3.74",
+        "端口 `src/Pi.Ai/Api/OpenAiCompletions.cs` `NormalizeToolCallId`：`openai || IsOpenRouterModel` 且 "
+        "`id[..31] + \"_\" + ShortHash(id)[..8]`；`tests/Pi.Ai.Tests/OpenAiCompletionsToolCallIdTests.cs`(6)，"
+        "反向验证回退旧 `id[..40]` 后 4 用例失败"),
+    "dbc61d647": ("已移植·§3.75",
+        "端口 `src/Pi.Durable/Harness/HarnessTypes.cs` `ConversationStreamOptions` 补 "
+        "`WebsocketConnectTimeoutMs`/`ThinkingBudgets`，`Provider.StreamOptionsToRequest` 装配；"
+        "`tests/Pi.Durable.Tests/ConversationStreamOptionsV152Tests.cs`(6)"),
+    "f3a64af07": ("已移植·§3.76",
+        "端口 `src/Pi.Ai/Api/Lazy.cs` `LazyStream.Run` 增 signal + `SignalOf`、`SetupErrorMessage` 支持 "
+        "StopReason，Models/CreateProvider/ModelRuntime/ProviderComposer/LazyApi 全调用点透传；"
+        "`tests/Pi.Ai.Tests/LazyStreamAbortTests.cs`(6)，反向验证恒为 error 后 2 用例失败"),
+    "80d4d3c86": ("已移植·§3.77",
+        "端口 `src/Pi.CodingAgent/Modes/Interactive/InteractiveMode.cs` `_extensionOverlays` 字典 + "
+        "`RemoveOverlay`（精确 `OverlayHandle.Hide` + 清 blocked + dispose），reset 逆序清空；"
+        "`tests/Pi.CodingAgent.Tests/InteractiveModeTests.cs::ResetRemovesAndDisposesAllExtensionOverlays`，"
+        "反向验证退回 `_ui.HideOverlay()` 后失败"),
+    "efb45b51d": ("已移植·§3.78",
+        "端口 `src/Pi.CodingAgent/Cli/Main.cs` startupBenchmark 分支 `await runtime.DisposeAsync()`；"
+        "`tests/Pi.CodingAgent.Tests/StartupBenchmarkDisposeTests.cs`，反向验证移除 dispose 后失败"),
+    "463b8f893": ("已移植·§3.79",
+        "端口 `src/Pi.CodingAgent/Core/Tools/FindPathPattern.cs` 纯叶子（For/CreateWindowsMatcher/Matches）"
+        "+ `FindTool.cs` 改「fd 列全部 + Minimatch 逐行过滤 + 到 limit 早停」，替代旧 `--full-path`+`[/\\\\]`；"
+        "`tests/Pi.CodingAgent.Tests/FindPathPatternTests.cs`(14) + "
+        "`FindWindowsPathGlobIntegrationTests.cs`(2，真实 fd 10.5.0)，端到端反向验证旧方案返回 `No files found`"),
+
+    # ── 本轮 differential 审计：核对上游 diff 后确认「等价实现 / 形态不适用」的非遗漏项 ──
+    "2bd2c2d0a": ("已核对·等价实证(§3.79 邻域)",
+        "上游 #11726 相对根 `$id` 只应用一次；端口 `ToolSchemaValidator` 构造即 `Warm()` 先建索引，"
+        "`SchemaResolver.BaseFor` 返回已索引 base、只应用一次，重复应用路径不存在。"
+        "`tests/Pi.Ai.Tests/Utils/SchemaRelativeRootIdTests.cs`(3) 镜像上游用例钉住；"
+        "上游同批 `unevaluatedProperties` 场景在端口是文档化的忽略关键字（SchemaChecker 头注释）"),
+    "63ea042ce": ("已核对·形态不适用",
+        "上游 #11855 OAuth callback `server.closeAllConnections()`；端口 `OAuthCallbackServer.DisposeAsync` "
+        "用 `HttpListener.Stop()`（不等活动连接），无 Node keep-alive 挂起路径（§4）"),
+    "42849bb84": ("已核对·形态不适用",
+        "上游 #11724 stdio 子进程 exit→close 才清理进程组；端口 `StdioTransport` 用 .NET `Process` + "
+        "`Kill(entireProcessTree: true)`，无 Node `USE_PROCESS_GROUPS`/`liveProcessGroups` 概念（§4）"),
+    "96667f342": ("已核对·人工实证",
+        "端口 `src/Pi.CodingAgent/Core/PromptTemplates.cs` `parseCommandArgs`：引号仅在参数开头打开、"
+        "反斜杠转义、未闭合引号回退字面文本，等价上游 #11873"),
+    "6bf2ab9bb": ("已核对·人工实证",
+        "端口 `src/Pi.CodingAgent/Core/Tools/GrepTool.cs` `BuildRgArgs`：glob 去前导 `./` 保留 `!`、"
+        "目录搜索 `RgWorkingDirectory` 锚定 + 搜 `.`、`FormatRgPath` 解析相对，等价上游 #11895"),
+    "244e5f5db": ("已核对·人工实证",
+        "端口 `src/Pi.CodingAgent/Core/Tools/GrepTool.cs` `IGrepToolOperations.ReadFileAsync` 保留为 "
+        "deprecated 成员（注释明确上游不再读取），等价上游"),
+    "d448c51e2": ("已核对·人工实证",
+        "端口 `src/Pi.CodingAgent/Core/Tools/EditDiff.cs` `ApplyReplacementsToOriginal`/`GetLineEndingAt`/"
+        "`WidenReplacementsToLines`，保留未改动行行尾，等价上游"),
+    "9a1953961": ("已核对·人工实证",
+        "端口 `src/Pi.CodingAgent/Utils/Changelog.cs` `GetNewEntries` 可空 + 前导 semver 正则，"
+        "`InteractiveMode.Lifecycle.cs` 两处调用判空，等价上游 #11753/#11703"),
 }
 
 
@@ -519,7 +574,8 @@ def main():
     missing = sorted(p for p in cited if p not in port_files)
     with_real = sum(1 for _c, d, ev in rows
                     if "production 标识符命中" in ev or "含该 issue 引用" in ev
-                    or d.startswith("已核对·人工实证"))
+                    or d.startswith("已核对·人工实证")
+                    or re.search(r"`(?:src|tests)/[^`]+\.(?:cs|md|json)`", ev))
     pending = [(c["h"][:9], c["s"]) for c, d, _ev in rows if d.startswith("待核对")]
 
     w("\n## 证据覆盖自检（机械，可复核）\n\n")
@@ -539,7 +595,7 @@ def main():
     w('git -C "$PI_REPO" show --stat <hash>\n')
     w("git ls-files src/Pi.Chord                # chord v1 基础层 35 文件\n")
     w("grep -rn '#11707' src tests CHANGELOG.md # 该 issue 的端口源码/测试证据\n")
-    w("grep -cE '^\\| 3\\.[0-9]+ \\|' docs/upstream-1.5.2-delta.md  # 78\n")
+    w("grep -cE '^\\| 3\\.[0-9]+ \\|' docs/upstream-1.5.2-delta.md  # 79\n")
     w("```\n")
 
 

@@ -16,7 +16,7 @@
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
 共享 `lines.ts`（MCP/env 传输）、`pi auth login/logout`、逐会话 `CompactionSettings`、
 JSONL `readOnly`、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **78 项**清单（每项含落点文件与验证用例名；§3.52–3.78 为复核 hook 反馈后
+详见 §3 的 **79 项**清单（每项含落点文件与验证用例名；§3.52–3.79 为复核 hook 反馈后
 补做的收尾批次，逐项消除「published 功能被记为不做项」）。**§4 仅剩 ➖ 不适用项**
 （端口形态不同 / 仓库外 / 第三方库 / 纯性能优化），逐条附代码级实证，不再含任何
 published 功能变更。判定依据如下。
@@ -63,7 +63,7 @@ release 的迁移**。因此本轮严格区分两类：
 
 **1.5.0 之后确有新的 release：`v1.5.1` 与 `v1.5.2`，本轮对齐到 `v1.5.2`。**
 `v1.5.1` 是功能版，`v1.5.2` 是小修版。按 §0.0 的标准判定：
-**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 78 项）；**
+**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 79 项）；**
 **仅余 ➖ 不适用项（平台形态不同 / 仓库外 / 第三方 Node 库），逐条给出代码级实证（§4）。**
 
 **逐条处置工件（hook 要求的 current authoritative v1.5.2-specific per-commit/per-bullet
@@ -88,7 +88,7 @@ coverage table with evidence）**：`docs/v1.5.2-disposition.md`，由
 > `CompactionSettings`、JSONL `readOnly`、RPC 关闭时序、#11807/#9276、#11975、#9654、
 > #8544、#9155、#11708、#11892 等）记为「有记录的不做项」。这些**不是**本补丁批次按成本/收益
 > 主动搁置的遗留工作，而是对 v1.5.1/v1.5.2 已发布变更的漏做。复核后已在本轮及紧接的收尾批次
-> **逐项真实移植**（见 §3.52–3.78 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
+> **逐项真实移植**（见 §3.52–3.79 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
 > 的 ➖ 不适用（§4.4），不再把任何 published 功能变更登记为不做项。
 
 **规模（只算 `packages/*/src`，不含测试与文档）与本轮处置**
@@ -326,6 +326,7 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.76 | #8635/f3a64af07 lazy 准备阶段取消须报 aborted 而非 error（published 遗漏，本轮 differential 审计发现） | 上游 `lazy.ts` 把 `options.signal` 透传进 `lazyStream`，准备失败且信号已取消时以 aborted 终态收尾；端口 `LazyStream.Run` 增 signal 参数与 `SignalOf`，`SetupErrorMessage` 支持 StopReason，`Models`/`CreateProvider`/`ModelRuntime`/`ProviderComposer`/`LazyApi` 全调用点透传 `options["signal"]`（`Models.ApplyAuthAsync` 不再用 `CancellationToken.None`） | `LazyStreamAbortTests`（6：已取消信号按 aborted / 未取消按 error / OperationCanceledException 按 aborted / 未取消信号不影响成功流 / SetupErrorMessage 默认 error / SignalOf 提取）；反向验证恒为 error 后 2 用例失败 |
 | 3.77 | #11853/80d4d3c86 reload/切会话移除全部扩展 overlay（published 遗漏，本轮 differential 审计发现） | 上游改用 `extensionOverlays: Map<OverlayHandle, removeFn>` 逆序精确移除所有扩展 overlay、不动 pi 自己的；端口旧 `ResetExtensionUI` 只调 `_ui.HideOverlay()`（仅移除栈顶一个，堆叠时漏掉、或误删 pi 自有 overlay），改为 `_extensionOverlays` 字典 + `done()`/reset 共用 `RemoveOverlay`（精确 `OverlayHandle.Hide` + 清 blocked 源 + dispose 组件） | `InteractiveModeTests.ResetRemovesAndDisposesAllExtensionOverlays`（1：两个带 blocked overlay 在 `runtime.DisposeAsync` 触发 reset 后都被移除并 dispose、blocked 源清零、pi 自有 overlay 保留）；反向验证退回 `_ui.HideOverlay()` 后失败 |
 | 3.78 | #11736/efb45b51d startup benchmark 退出须释放运行时（published 遗漏，本轮 differential 审计发现） | 上游 `main.ts` 在 `PI_STARTUP_BENCHMARK` 分支 `interactiveMode.stop()` 后补 `await runtime.dispose()`；端口该分支不走 `RunAsync`/`ShutdownAsync`（dispose 原本只在那里），`Cli/Main.cs` 显式 `await runtime.DisposeAsync()`，避免会话/扩展/OAuth 凭据写入未结算 | `StartupBenchmarkDisposeTests`（1：注入 `PI_STARTUP_BENCHMARK=1` 与 `session_shutdown` 扩展，断言 benchmark 退出发出 shutdown）；反向验证移除 dispose 后失败 |
+| 3.79 | #11972/#9262 Windows find 路径模式与 fd 版本解耦（published 遗漏，本轮 differential 审计发现） | 上游 `find.ts` 因 fd 10.5.1 前后对 `--full-path` glob 行为相反、且 pi 总下载最新版 fd，改为 Windows 路径模式不再交给 fd：让 fd 列出全部条目（空 pattern），由端口用 `Minimatch` 逐行过滤，到 limit 早停。端口新增纯叶子 `FindPathPattern`（`For` 决策 + `CreateWindowsMatcher` + `Matches`，`isWindows` 注入可跨平台单测），`FindTool` 按决策走 Windows 匹配器分支或原 `--full-path` 分支 | `FindPathPatternTests`（14 纯叶子：Windows 反斜杠→/ 规范化 / 路径模式补 `**/` / `src/**` 补 `/*` / smart case / decision 各字段 / Windows 与非 Windows 分支 / minimatch 逐行命中 / 前导 `**/` 命中 fd 绝对路径）+ `FindWindowsPathGlobIntegrationTests`（2：真实 fd 10.5.0 在 Windows 上 `src/**/*.ts` 命中直接与嵌套文件、`src/*.ts` 不入子目录）；反向验证：纯叶子退回旧 `--full-path` 后 10 用例失败、端到端退回旧方案后真实 fd 返回 `No files found` 2 用例失败；`FindAbortBeforeSpawnTests` 2/2、`FindLsLimitRegressionTests` 6/6 不回归 |
 
 **本轮 differential 审计的等价实证与形态排除（逐条核对上游 production diff 后确认非遗漏）**：
 - `#11726`（相对根 `$id` 只应用一次）：端口 `ToolSchemaValidator` 构造即 `Warm()` 建索引，`SchemaResolver.BaseFor` 返回已索引 base，只应用一次；上游修复针对的重复应用路径在端口不存在。`SchemaRelativeRootIdTests`（3：本地 `$ref` / coerce / 嵌套分支自带 `$id`）镜像上游用例钉住。
@@ -355,7 +356,7 @@ commit，逐条列出 `hash | subject | 文件数`（`docs/v1.5.2-commit-coverag
 > 本章登记**端口无对应宿主或消费方**的 ➖ 不适用项：Node/npm/TypeBox 构造 API、
 > 第三方 Node 渲染库替换、仓库外安装脚本、纯性能内部优化、v2 对象运行时。每项给出
 > 「可复核的代码/仓库证据」。`v1.5.1/v1.5.2` 的 published **功能**变更不在此登记——
-> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.78 的收尾批次）。
+> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.79 的收尾批次）。
 > 判定「完整」的权威口径见 §0.0（`migration-execution-status.md`「特殊范围决策」：
 > chord 有意收窄、不宣称 Node/Bun runtime parity、TypeBox 构造 API 不适用、配置 schema 静态产物）。
 
@@ -473,14 +474,14 @@ env daemon `process` 操作（`RemoteProcess`/进程管道）是 Node 侧 PTY/�
 | --- | --- |
 | Windows 安装器 `install.ps1` / PowerShell 5.1 `NativeCommandError`（#11962/#11944, 77959d667） | `git show 77959d667 --stat` = 仅 `packages/coding-agent/CHANGELOG.md` 一行文档；commit message 自述「The installer lives in **pi.dev**」，修复在 `earendil-works/pi.dev#188`。`git ls-files \| grep -i install.ps1` = **空**，端口仓库无该脚本文件可改（.NET 分发，无 `irm … \| iex` 的 npm/PS5.1 宿主）。 |
 | `pi update` 自更新（#12051 verify managed updates / #11707 版本变化 / #11711 up-to-date） | 端口 `PackageManager.Updates.cs`（1200 行）已实现版本对比 `InstalledVersion`/`TargetVersion`、`versionAfter != InstalledVersion` 检测、git head from/to，`PackageManagerCli.cs:757` 有 "installed version did not change" 提示——**可移植行为已存在**。仅 `update --self`（npm/pnpm/managed-install 自更新）为 npm 包专有：`PackageManagerCli.cs:8` 记录 .NET 构建非 npm 包（C301），无 `npm i -g` 宿主。#12051 改 `package-manager-cli.ts` 的「用运行中的 Node.js 校验托管更新」也属 npm 运行时专有。 |
-| `fd` 下载链（#11972/#11974 等） | #11974 abort-before-spawn 已真实移植（§3.62）；#11807/#9276 rg glob 与 `--full-path` Windows 路径模式已移植（§3.52，`FindTool.cs` 的 `effectivePattern.Replace("/", @"[/\\]")` 逐字对应）。端口 `FindTool` 的 `ToolsManager.EnsureToolAsync("fd")` 会下载 fd，机制已存在。无独立 published 功能缺口。 |
+| `fd` 下载链（#11972/#11974 等） | #11974 abort-before-spawn 已真实移植（§3.62）；#11972/#9262 Windows 路径模式已按 v1.5.2 改为「fd 列全部 + 端口 `Minimatch` 过滤」并真实移植（§3.79，`FindPathPattern.cs` 纯叶子 + `FindTool.cs` 接线 + 13 用例），旧 `[/\]` workaround 已被替代。端口 `ToolsManager.EnsureToolAsync("fd")` 下载机制已存在，无独立 published 功能缺口。 |
 | `pi update` 摘要 / 扩展 npm 依赖解析 / npm-shrinkwrap / Node bundler 动态 import chunk | Node/npm/构建链专有；`git ls-files \| grep -iE "package-lock\|shrinkwrap"` = **空**，端口为 .NET 无 npm 安装链；权威「不宣称完整 Node/Bun runtime parity」+「纯导出桶/Node 专属启动器无独立 C# 语义」。 |
 | chord v2 对象运行时 / `plugins`/`http`/`workers`/`web` 子路径 | §4.1 依赖契约实证：durable v1.5.2 仍只从 v1 基础子路径导入；`git ls-files src/Pi.Chord` 仅 v1 基础层。 |
 
 **判定**：剩余的 ➖ 项经 `git show --stat` + `git ls-files` + 端口源码行号逐条证明，
 要么「上游该提交改动的文件在端口仓库根本不存在（仓库外安装器 / v2 store / npm 链）」，
 要么「可移植行为端口已实现、仅 npm 运行时专有部分无宿主」。
-v1.5.1/v1.5.2 的 published **功能**变更已全部落到 §3（78 项），无一登记为不做项。
+v1.5.1/v1.5.2 的 published **功能**变更已全部落到 §3（79 项），无一登记为不做项。
 全部 143 个触及 src 的 published commit 见数据派生、可复现的逐条覆盖工件
 `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py` 生成）。
 

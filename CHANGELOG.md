@@ -291,7 +291,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 在端口 `.cs` 的多命中派生证据（倒排索引 + 单次 `git log -p` 取全部补丁，3.6s 生成），并新增
 「证据覆盖自检」章节（引用路径 `git ls-files` 核对、无端口文件证据的 commit 逐条列出供人工核对）。
 4 个改动极小、C# 命名与 TS 不同的 commit（#11947 / #11945 / #11790 / #11780）人工逐条核对真实
-落点并登记实证；其余 139 行均带机械可复核的端口源码证据，0 个证据路径缺失。§3 扩到 **78** 项。
+落点并登记实证；其余 139 行均带机械可复核的端口源码证据，0 个证据路径缺失。§3 扩到 **79** 项。
 
 **本轮 differential 复核同时落地的其余 published 项**（上游 production diff 逐条核对后的真实移植，
 代码与测试均在位；处置表中按上游标识符多命中给出端口源码证据）：
@@ -314,6 +314,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - **#11736 / `efb45b51d` benchmark 路径释放会话运行时**：`Cli/Main.cs` benchmark 分支不走
   `RunAsync/ShutdownAsync`，退出前显式 `DisposeAsync` 结算会话/扩展/凭据写入。
   `StartupBenchmarkDisposeTests`（新文件）。
+- **#11972/#9262 / `463b8f893` Windows find 路径模式与 fd 版本解耦**：上游因 fd 10.5.1 前后
+  对 `--full-path` glob 行为相反（且 pi 总下载最新版 fd），改为 Windows 路径模式不再交给 fd，
+  让 fd 列全部条目、由端口用 `Minimatch` 逐行过滤并到 limit 早停。端口新增纯叶子
+  `FindPathPattern`（`For` 决策 / `CreateWindowsMatcher` / `Matches`，`isWindows` 注入可跨平台
+  单测），`FindTool` 按决策走 Windows 匹配器分支或原 `--full-path` 分支。
+  `FindPathPatternTests`（14 纯叶子）+ `FindWindowsPathGlobIntegrationTests`（2：真实 fd 10.5.0
+  在 Windows 上 `src/**/*.ts` 命中直接与嵌套文件、`src/*.ts` 不入子目录）；端到端反向验证退回旧
+  `--full-path` 方案后真实 fd 返回 `No files found matching pattern`，`FindLsLimitRegressionTests`
+  6/6 与 `FindAbortBeforeSpawnTests` 2/2 不回归。此前 §4.4 把该 published 项当作「无独立缺口」并引用已被
+  替代的 `[/\\]` workaround，现已改为 §3.79 并同步修正该行。
 
 ## [1.5.0] - 2026-11-05
 
