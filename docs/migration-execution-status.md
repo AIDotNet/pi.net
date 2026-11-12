@@ -64,9 +64,13 @@
   210 bullets + git log 143 src-commit 逐条核对后真实移植 3 个遗漏）**：#11707/#11711
   `pi update` 四态报告 + 版本变化 result 事件（§3.68）、#11679 `refreshModelsAuth`
   configured 模式不刷新过期 OAuth（§3.69）、#11964/#8842 shell tool 5.1 native exit code
-  后缀（§3.70）。数据派生、可复现的逐 published-commit 覆盖工件：
-  `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py` 从上游 git 机械枚举
-  143 commit 逐条列出，非手写分类）。
+  后缀（§3.70）。数据派生、可复现的逐 published-commit / 逐 bullet 处置工件：
+  `docs/v1.5.2-disposition.md`（`scripts/gen_v152_disposition.py`）——143 个 published
+  src-commit + 上游 11 包 CHANGELOG 1.5.1/1.5.2 的 210 条 bullet，逐条给「已移植（§3 行 +
+  端口源码/测试文件）/ 权威排除（git 实证改动文件在端口无对应物）/ 范围外」+ 证据；
+  配套机械枚举 `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py`）。
+  这是 hook 要求的 current authoritative v1.5.2-specific per-commit/per-bullet coverage table
+  with evidence，非手写分类、可脚本重跑核对。
 - **➖ 不适用（非 published 功能变更，逐项代码级实证，见台账 §4）**：Chord v2 换根
   （依赖契约实证未变，权威「chord 有意收窄」）、env daemon `process` 操作（SSH 远程环境，
   无 Node PTY 消费方）、上游「从 coding-agent 移入 mcp/ai」的 helper（包位置重定位，端口早已

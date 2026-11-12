@@ -66,6 +66,17 @@ release 的迁移**。因此本轮严格区分两类：
 **v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 70 项）；**
 **仅余 ➖ 不适用项（平台形态不同 / 仓库外 / 第三方 Node 库），逐条给出代码级实证（§4）。**
 
+**逐条处置工件（hook 要求的 current authoritative v1.5.2-specific per-commit/per-bullet
+coverage table with evidence）**：`docs/v1.5.2-disposition.md`，由
+`scripts/gen_v152_disposition.py` 从上游 git + 端口 §3 表 + 端口文件系统数据派生生成、可脚本复现：
+- **逐 published-commit**：`git log v1.5.0..v1.5.2 -- ':(glob)packages/*/src/**'` 的 **143** 个
+  commit 逐行列出，每行给「已移植（§3 行 + 端口源码/测试文件）/ 权威排除（`git show --stat`
+  + `git ls-files` 证明改动文件在端口无对应物）/ 范围外（p2 实验、版本元信息）」+ 证据。
+- **逐 published-bullet**：上游 11 包 CHANGELOG 1.5.1/1.5.2 段的 **210** 条 bullet 逐行列出，
+  同样给处置 + §3 行/端口源码命中/排除实证。
+- 配套的机械枚举工件 `docs/v1.5.2-commit-coverage.md`（`scripts/gen_v152_coverage.py`）逐条
+  列出 143 commit 的 hash|subject|改动文件数 + 每包端口 src/测试文件数。
+
 > 说明：此前 §4.4 曾把一批 published 单点修复与新增 API（消息线程、`pi auth login/logout`、
 > `registerMarkdownTransformer(messageTypes)`、`ctx.ui.custom(blocked)`、逐会话
 > `CompactionSettings`、JSONL `readOnly`、RPC 关闭时序、#11807/#9276、#11975、#9654、
