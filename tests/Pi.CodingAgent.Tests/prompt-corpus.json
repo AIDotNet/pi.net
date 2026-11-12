@@ -860,7 +860,7 @@
         "fallbackCwd": "/now/here"
       },
       "error": "Stored session working directory does not exist: /gone/dir\nSession file: /s/session.jsonl\nCurrent working directory: /now/here",
-      "prompt": "cwd from session file does not exist\n/gone/dir\n\ncontinue in current cwd\n/now/here",
+      "prompt": "Session cwd does not exist: /gone/dir",
       "exceptionName": "MissingSessionCwdError"
     },
     {
@@ -869,7 +869,7 @@
         "fallbackCwd": "/now/here"
       },
       "error": "Stored session working directory does not exist: /gone/dir\nCurrent working directory: /now/here",
-      "prompt": "cwd from session file does not exist\n/gone/dir\n\ncontinue in current cwd\n/now/here",
+      "prompt": "Session cwd does not exist: /gone/dir",
       "exceptionName": "MissingSessionCwdError"
     },
     {
@@ -879,7 +879,7 @@
         "fallbackCwd": "/now/here"
       },
       "error": "Stored session working directory does not exist: /gone/dir\nCurrent working directory: /now/here",
-      "prompt": "cwd from session file does not exist\n/gone/dir\n\ncontinue in current cwd\n/now/here",
+      "prompt": "Session cwd does not exist: /gone/dir",
       "exceptionName": "MissingSessionCwdError"
     }
   ],

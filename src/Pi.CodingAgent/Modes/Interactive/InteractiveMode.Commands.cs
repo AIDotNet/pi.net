@@ -452,21 +452,25 @@ public partial class InteractiveMode
         }
         catch (MissingSessionCwdException error)
         {
-            var selectedCwd = await PromptForMissingSessionCwdAsync(error).ConfigureAwait(true);
-            if (selectedCwd is null)
+            var choice = await PromptForMissingSessionCwdAsync(error).ConfigureAwait(true);
+            switch (choice)
             {
-                ShowStatus("Import cancelled");
-                return;
+                case SessionCwd.MissingSessionCwdChoice.Continue:
+                {
+                    var result = await _runtimeHost.ImportFromJsonlAsync(inputPath, error.Issue.FallbackCwd).ConfigureAwait(true);
+                    ShowStatus(result.Cancelled ? "Import cancelled" : $"Session imported from: {inputPath}");
+                    return;
+                }
+                case SessionCwd.MissingSessionCwdChoice.Fork:
+                {
+                    var cancelled = await SwitchToForkedSessionAsync(inputPath, error.Issue.FallbackCwd).ConfigureAwait(true);
+                    ShowStatus(cancelled ? "Import cancelled" : $"Session imported from: {inputPath}");
+                    return;
+                }
+                default:
+                    ShowStatus("Import cancelled");
+                    return;
             }
-
-            var result = await _runtimeHost.ImportFromJsonlAsync(inputPath, selectedCwd).ConfigureAwait(true);
-            if (result.Cancelled)
-            {
-                ShowStatus("Import cancelled");
-                return;
-            }
-
-            ShowStatus($"Session imported from: {inputPath}");
         }
         catch (SessionImportFileNotFoundError error)
         {

@@ -1490,26 +1490,30 @@ public partial class InteractiveMode
         }
         catch (MissingSessionCwdException error)
         {
-            var selectedCwd = await PromptForMissingSessionCwdAsync(error).ConfigureAwait(true);
-            if (selectedCwd is null)
+            var choice = await PromptForMissingSessionCwdAsync(error).ConfigureAwait(true);
+            switch (choice)
             {
-                ShowStatus("Resume cancelled");
-                return true;
-            }
+                case SessionCwd.MissingSessionCwdChoice.Continue:
+                {
+                    var result = await _runtimeHost.SwitchSessionAsync(sessionPath, new SwitchSessionRuntimeOptions
+                    {
+                        CwdOverride = error.Issue.FallbackCwd,
+                        WithSession = options?.WithSession,
+                        ProjectTrustContextFactory = CreateProjectTrustContext,
+                    }).ConfigureAwait(true);
+                    if (!result.Cancelled)
+                    {
+                        ShowStatus($"Resumed session in {error.Issue.FallbackCwd}");
+                    }
 
-            var result = await _runtimeHost.SwitchSessionAsync(sessionPath, new SwitchSessionRuntimeOptions
-            {
-                CwdOverride = selectedCwd,
-                WithSession = options?.WithSession,
-                ProjectTrustContextFactory = CreateProjectTrustContext,
-            }).ConfigureAwait(true);
-            if (result.Cancelled)
-            {
-                return true;
+                    return result.Cancelled;
+                }
+                case SessionCwd.MissingSessionCwdChoice.Fork:
+                    return await SwitchToForkedSessionAsync(sessionPath, error.Issue.FallbackCwd).ConfigureAwait(true);
+                default:
+                    ShowStatus("Resume cancelled");
+                    return true;
             }
-
-            ShowStatus("Resumed session in current cwd");
-            return false;
         }
         catch (Exception error)
         {
@@ -1518,13 +1522,52 @@ public partial class InteractiveMode
         }
     }
 
-    /// <summary>TS <c>promptForMissingSessionCwd</c> (L2746-2752).</summary>
-    private async Task<string?> PromptForMissingSessionCwdAsync(MissingSessionCwdException error)
+    /// <summary>
+    /// 上游 1.5.1 #11975 <c>promptForMissingSessionCwd</c>：continue / fork / cancel 三选一选择器，
+    /// 按被选标签回查 choice（cancel / 取消返回 null）。
+    /// </summary>
+    private async Task<SessionCwd.MissingSessionCwdChoice?> PromptForMissingSessionCwdAsync(MissingSessionCwdException error)
     {
-        var confirmed = await ShowExtensionConfirmAsync(
-            "Session cwd not found",
-            SessionCwd.FormatMissingSessionCwdPrompt(error.Issue)).ConfigureAwait(true);
-        return confirmed ? error.Issue.FallbackCwd : null;
+        var options = SessionCwd.GetMissingSessionCwdOptions(error.Issue);
+        var label = await ShowExtensionSelectorAsync(
+            SessionCwd.FormatMissingSessionCwdPrompt(error.Issue),
+            options.Select(o => o.Label).ToList()).ConfigureAwait(true);
+        return options.FirstOrDefault(o => o.Label == label)?.Value;
+    }
+
+    /// <summary>
+    /// 上游 1.5.1 #11975 <c>switchToForkedSession</c>：把记录 cwd 已丢失的会话 fork 成新会话 ID 并切换；
+    /// 扩展否决切换时删除刚创建的 fork 副本，取消后不留残留。
+    /// </summary>
+    /// <returns>是否被取消（true 表示 cancelled）。</returns>
+    private async Task<bool> SwitchToForkedSessionAsync(string sourcePath, string cwd, SwitchSessionOptions? options = null)
+    {
+        var fork = SessionManager.ForkFrom(sourcePath, cwd, SessionManagerForTests.GetSessionDir());
+        var forkPath = fork.GetSessionFile()!;
+        var result = await _runtimeHost.SwitchSessionAsync(forkPath, new SwitchSessionRuntimeOptions
+        {
+            WithSession = options?.WithSession,
+            ProjectTrustContextFactory = CreateProjectTrustContext,
+        }).ConfigureAwait(true);
+        if (result.Cancelled)
+        {
+            try
+            {
+                if (File.Exists(forkPath))
+                {
+                    File.Delete(forkPath);
+                }
+            }
+            catch (IOException)
+            {
+                // best-effort：取消后不留副本，删除失败不改变取消结论。
+            }
+
+            return true;
+        }
+
+        ShowStatus($"Forked into new session {fork.GetSessionId()} in {cwd}");
+        return false;
     }
 
     /// <summary>TS <c>createProjectTrustContext</c> (L2609-2622): TUI-mode trust context over the extension dialogs.</summary>

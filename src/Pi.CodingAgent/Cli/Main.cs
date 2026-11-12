@@ -298,18 +298,23 @@ public static class Main
         {
             if (appMode == AppModes.Interactive)
             {
-                var selectedCwd = await PromptForMissingSessionCwdAsync(missingSessionCwdIssue, startupSettingsManager)
+                var choice = await PromptForMissingSessionCwdAsync(missingSessionCwdIssue, startupSettingsManager)
                     .ConfigureAwait(false);
-                if (selectedCwd is null)
+                switch (choice)
                 {
-                    Exit(0);
-                    return 0;
+                    case SessionCwd.MissingSessionCwdChoice.Continue:
+                        sessionManager = SessionManager.Open(
+                            missingSessionCwdIssue.SessionFile!, sessionDir, cwd);
+                        break;
+                    case SessionCwd.MissingSessionCwdChoice.Fork:
+                        // 像从另一个项目 `--session <id>` 一样 fork：新会话 ID，原会话保留，选择持久生效（#11060 / #11975）。
+                        sessionManager = ForkSessionOrExit(
+                            missingSessionCwdIssue.SessionFile!, cwd, error, Exit, sessionDir);
+                        break;
+                    default: // Cancel
+                        Exit(0);
+                        return 0;
                 }
-
-                sessionManager = SessionManager.Open(
-                    missingSessionCwdIssue.SessionFile!,
-                    sessionDir,
-                    selectedCwd);
             }
             else
             {
@@ -1349,17 +1354,18 @@ public static class Main
     internal static IReadOnlyList<string>? ResolveCliPaths(string cwd, IReadOnlyList<string>? paths) =>
         paths?.Select(value => Paths.IsLocalPath(value) ? Paths.ResolvePath(value, cwd) : value).ToList();
 
-    /// <summary>Port of <c>promptForMissingSessionCwd</c>.</summary>
-    internal static Task<string?> PromptForMissingSessionCwdAsync(
+    /// <summary>
+    /// 上游 1.5.1 #11975：缺失 cwd 时给出 continue / fork / cancel 三选一（原来只有 continue/cancel 的 confirm，
+    /// 文案里塞路径）。返回值就是被选中的 choice，null 表示取消。
+    /// </summary>
+    internal static Task<SessionCwd.MissingSessionCwdChoice?> PromptForMissingSessionCwdAsync(
         SessionCwdIssue issue,
         SettingsManager settingsManager) =>
         StartupUi.ShowStartupSelectorAsync(
             settingsManager,
             SessionCwd.FormatMissingSessionCwdPrompt(issue),
-            [
-                new StartupSelectorOption<string?>("Continue", issue.FallbackCwd),
-                new StartupSelectorOption<string?>("Cancel", null),
-            ]);
+            SessionCwd.GetMissingSessionCwdOptions(issue)
+                .Select(o => new StartupSelectorOption<SessionCwd.MissingSessionCwdChoice?>(o.Label, o.Value)).ToList());
 
     private static bool ModelsAreEqual(ModelSpec left, ModelSpec right) =>
         left.Provider == right.Provider && left.Id == right.Id;

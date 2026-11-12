@@ -75,9 +75,33 @@ public static class SessionCwd
                + $"\nCurrent working directory: {issue.FallbackCwd}";
     }
 
-    /// <summary>The one-line prompt shown when offering to continue in the current directory.</summary>
+    /// <summary>上游 1.5.1 #11975 的一行提示（原多行 confirm 文案被 3 选 1 选择器取代）。</summary>
     public static string FormatMissingSessionCwdPrompt(SessionCwdIssue issue) =>
-        $"cwd from session file does not exist\n{issue.SessionCwd}\n\ncontinue in current cwd\n{issue.FallbackCwd}";
+        $"Session cwd does not exist: {issue.SessionCwd}";
+
+    /// <summary>上游 1.5.1 #11975：会话记录的工作目录丢失时，运行于当前目录一次的两种打开方式。</summary>
+    public enum MissingSessionCwdChoice
+    {
+        /// <summary>在当前目录继续（不记住选择，下次仍询问）。</summary>
+        Continue,
+
+        /// <summary>以新会话 ID fork 到当前目录（原会话保留）。</summary>
+        Fork,
+    }
+
+    /// <summary>一条缺失 cwd 的选择器选项；<see cref="Value"/> 为 null 表示取消。</summary>
+    public sealed record MissingSessionCwdOption(string Label, MissingSessionCwdChoice? Value);
+
+    /// <summary>
+    /// 上游 1.5.1 #11975 <c>getMissingSessionCwdOptions</c>：continue / fork / cancel 三项，
+    /// 标签里点名当前 cwd。逐字对照上游文案。
+    /// </summary>
+    public static IReadOnlyList<MissingSessionCwdOption> GetMissingSessionCwdOptions(SessionCwdIssue issue) =>
+    [
+        new MissingSessionCwdOption($"Continue in {issue.FallbackCwd} (asks again next time)", MissingSessionCwdChoice.Continue),
+        new MissingSessionCwdOption($"Fork into {issue.FallbackCwd} (new session ID, original kept)", MissingSessionCwdChoice.Fork),
+        new MissingSessionCwdOption("Cancel", null),
+    ];
 
     /// <summary>Throws <see cref="MissingSessionCwdException"/> when the recorded directory is gone.</summary>
     public static void AssertSessionCwdExists(ISessionCwdSource sessionManager, string fallbackCwd)
