@@ -15,7 +15,7 @@
 **本轮的实际工作是「把已发布变更真正移植到代码并用定向用例钉住」，而非给排除项改名。**
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
 共享 `lines.ts`（MCP/env 传输）、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **43 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
+详见 §3 的 **44 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
 
 「完整的迁移」在本项目**不是**「把上游每个 TS 文件逐字搬过来」，而是由**先前既存、跨版本生效**
 的权威工件定义的。该工件是 `docs/migration-execution-status.md`，其权威地位与范围收窄章节
@@ -68,7 +68,7 @@
 | env | 7 | 213 | 32 | `src/Pi.Env` | 📋 有记录的不做项（§4.3，权威：SSH 远程环境形态差异） |
 | schema | 9 | 381 | 94 | `src/Pi.Ai/Utils/Schema` | 🔧 数字有限性 + `equal` 等价能力核对（§3.8）；其余 📋（§4.5，权威：TypeBox 构造 API 不适用） |
 | telemetry | 3 | 69 | 11 | `src/Pi.Telemetry` | 🔧 控制字符转义（§3.9）+ 📋 微秒时钟（§4.5） |
-| tui | 6 | 64 | 18 | `src/Pi.Tui` | 🔧 Alacritty / HTML 注释（§3.10/3.11）+ 全屏 Kitty 图像顺序（§3.38）+ 📋 有记录的不做项（§4.4） |
+| tui | 6 | 64 | 18 | `src/Pi.Tui` | 🔧 Alacritty / HTML 注释（§3.10/3.11）+ 全屏 Kitty 图像顺序（§3.38）+ 光标标记不外泄（§3.44）+ 📋 有记录的不做项（§4.4） |
 | codemode | 3 | 17 | 3 | `src/Pi.Codemode` | 🔧 3 项（NaN/Infinity、`resolveSchemaRef` 公开、畸形 `$ref`→unknown）（§3.12/3.22） |
 | agent | 1 | 2 | 0 | `src/Pi.Agent` | 🔧 `disableContinuation` 转发已落地（§3.21） |
 | evals | — | — | — | `src/Pi.Evals` | ➖ 无 src 变更 |
@@ -150,7 +150,8 @@
 | #11613 bash 超时后补报 shell 退出码/退出耗时 | ✅ 🔧 `ShellTimeoutException` + `BuildTimeoutMessage` + `ChildProcess.ExitedAtMs`（§3.41） |
 | #11451 `/tree` 导航后恢复旧思考档位 | ✅ 🔧 `RecordSelection` 拆出 `RecordThinkingLevel` + `ShouldRecordThinkingLevel`（§3.42） |
 | #11803 tool_search 文本 + codemode output 摘要跟随本地 `$ref` 到 `$defs` | ✅ 🔧 `ToolSearch.SchemaText`+`ResolveLocalRef` / `CodemodeToolApi.FollowRef`+`DescribeFields`+`DescribeUnionFields`（§3.43） |
-| #9654 read 流式、#8544 edit 混合换行、#11738 图片缩放、#9441 光标标记、#11875 `ctrl+o`、#9126/#9222/#9155 会话并发 | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
+| #9441 内部光标标记不外泄到终端输出 | ✅ 🔧 `Tui.ApplyLineResets` / `ExtractCursorPosition` / `TextLayout.SliceWithWidth`（§3.44） |
+| #9654 read 流式、#8544 edit 混合换行、#11738 图片缩放、#11875 `ctrl+o`、#9126/#9222/#9155 会话并发 | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
 | Node/npm 专有：`pi update` 摘要、扩展 npm 依赖解析、Windows 安装器、PowerShell 5.1、fd 下载 | ➖ 不适用 |
 | 示例扩展（subagent / plan-mode）修复 | ➖ 不适用（权威：上游 docs/examples 保留为 TS 参考） |
 
@@ -187,7 +188,8 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | telemetry | `telemetryNow()` 微秒时钟 | 📋 有记录的不做项（§4.5，改 `long`→`double` 破坏 public API 且为恒等变换） |
 | tui | #11767 Alacritty / #11710 HTML 注释 | ✅ 🔧 `TerminalImage.cs` / `Markdown.cs`（§3.10/3.11） |
 | tui | #11835 Orca Kitty 全屏图像按覆盖行之后绘制（去 WezTerm 门控） | ✅ 🔧 `TuiAltScreen.cs`（§3.38） |
-| tui | #11923 粘贴标记 / #9441 光标标记 | 📋 有记录的不做项（§4.4；#11923 短标记重编号已于 §3.29 落地） |
+| tui | #9441 内部光标标记不外泄 | ✅ 🔧 `Tui.cs` / `TextLayout.cs`（§3.44） |
+| tui | #11923 粘贴标记（长标记） | 📋 有记录的不做项（§4.4；短标记重编号已于 §3.29 落地） |
 | codemode | #11901 NaN/Infinity 打印 / `resolveSchemaRef` 公开 / 畸形 `$ref`→unknown | ✅ 🔧 `PreludeSource.cs` / `Declarations.cs`（§3.12/3.22） |
 | agent | `streamProxy()` 转发 `disableContinuation` | ✅ 🔧 `ProxyTypes.cs` / `Proxy.cs`（§3.21） |
 | evals | 无 src 变更 | ➖ |
@@ -239,6 +241,7 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.41 | #11613 bash 超时后只报「Command timed out」，丢弃 shell 的真实退出码 | `ShellTimeoutException`（保持 `timeout:N` 形式、携带 `ShellExitInfo`）+ `BashTool.BuildTimeoutMessage` + `ChildProcessHandle.ExitedAtMs`（超时回调快照 shell 是否已先退出） | `BashTimeoutExitCodeTests`（3 用例：普通超时 / 报退出码与 1.1s / 秒数不变文化格式）+ `CoreToolsTests` 48/48、`ExperimentalServicesTests` 25、`ExperimentalServerProviderTests` 12 |
 | 3.42 | #11451 `/tree` 导航后 resume 恢复到旧分支的思考档位 | `AgentSessionPrompt.RecordSelection` 拆出 `RecordThinkingLevel`（按当前模型钳制后比对、不同则补记实时档位）+ `ShouldRecordThinkingLevel` 纯判定 | `AgentSessionCompactionTests.ShouldRecordThinkingLevel_OnlyWhenClampedRecordedDiffersFromLive`（1 用例，含「钳制后相等不写」对齐上游第二用例）+ 该套件 33/33 |
 | 3.43 | #11803 tool_search 文本 / codemode output 摘要找不到本地 `$ref`（`$defs`）后面的属性名 | tool_search：`ToolSearch.SchemaText` 跟随本地 `$ref`（`ResolveLocalRef` 字典版 JSON Pointer，~0/~1、%XX，畸形→null）+ `seen` 防递归；codemode：`CodemodeToolApi.FollowRef`（seen 防环）+ `DescribeFields`/`DescribeUnionFields` 传 root 解析 `$ref`/const | `ToolSearchSchemaRefTests`（4 用例逐字对照上游：本地 / 转义段 / 递归共享只读一次 / 远程缺失畸形未引用不展开）+ `CodemodeSchemaRefTests`（2 用例：对象字段 / union 分支，逐字对照上游 harness 期望）+ `ToolSearchCorpusTests` 66/66、`ToolSearchRankingTests` 7/7、`CodemodeCorpusTests` 29/29 |
+| 3.44 | #9441 内部光标标记（APC）泄漏到终端输出（多标记 / 水平裁剪 / 其他行） | `Tui.ApplyLineResets` normalize 前剥离全部 marker；`ExtractCursorPosition` 首个 marker 定列、整行剥离全部 marker；`TextLayout.SliceWithWidth` 非 APC 才作为 pendingAnsi 带过边界 | `TextEngineTests`（2 用例：marker 不进后续切片 / SGR 仍带过）+ `FakeCursorTests`（2 用例：多标记 / 其他行不外泄）+ 全量 `Pi.Tui.Tests` 23973/23973 |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -340,7 +343,7 @@ Node daemon 的 PTY/进程组消费方。
 review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「暂不移植（成本/收益）」；
 1.5.0 delta §5 对「未发布提交按需单独评估」的先例。
 
-**本轮已移植的单点修复**（§3.26–3.43，含 §3.22 的 #11803 前置）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
+**本轮已移植的单点修复**（§3.26–3.44，含 §3.22 的 #11803 前置）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
 `#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`、
 以及第三轮真正补上的 `PipeTransport`（新 API，§3.30）、`#11761`（MCP stdio 大消息 O(n²)，§3.31）、
 `#11335`（Streamable HTTP 应答体/错误体上限，§3.32）、`#11703`（预发布版本 changelog，§3.33）、
@@ -348,13 +351,14 @@ review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「
 `#7121` find/ls `limit` 边界（§3.36）、`#11806`（单模型 scope 可切换，§3.37）、
 `#11835`（全屏 Kitty 图像去 WezTerm 门控，§3.38）、`#11651`（`pi config` 加载自定义键位，§3.39）、
 `#11765`（Windows/WSL Ctrl+V 粘贴键，§3.40）、`#11613`（bash 超时补报 shell 退出码，§3.41）、
-`#11451`（`/tree` 导航后思考档位恢复，§3.42）、`#11803`（tool_search 文本 + codemode output 摘要跟随本地 `$ref`，§3.43）。
+`#11451`（`/tree` 导航后思考档位恢复，§3.42）、`#11803`（tool_search 文本 + codemode output 摘要跟随本地 `$ref`，§3.43）、
+`#9441`（内部光标标记不外泄，§3.44）。
 
 **仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半（rg cwd 切到
 `searchPath`）/ `#9276`（上下文行改由 ripgrep 提供，两者与端口 `GrepOperations.ReadFileAsync`
 绝对路径取值链纠缠，且本机无 `rg` 可做运行时回归验证）、`#11975`、
 `pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、`cacheWarming:idle`、
-`ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、`#9441`、
+`ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#11738`、
 `#11875`、`#9126`/`#9222`/`#9155`、
 `#11692`、`#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
 `readOnly`/group commit、RPC 关闭时序、Windows 安装器/PowerShell 5.1/fd 下载。

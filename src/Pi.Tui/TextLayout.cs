@@ -670,7 +670,9 @@ public static class TextLayout
                 {
                     result.Append(code.Code);
                 }
-                else if (currentCol < startCol)
+                // 上游 1.5.1 #9441：APC 序列（光标标记 \x1b_...）是一次性位置指令，不是持续
+                // 样式状态，范围之前的代码只有非 APC 才需要带到边界。
+                else if (currentCol < startCol && !code.Code.StartsWith("\x1b_", StringComparison.Ordinal))
                 {
                     pendingAnsi.Append(code.Code);
                 }

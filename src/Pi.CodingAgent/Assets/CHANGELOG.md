@@ -63,6 +63,8 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
 - Resuming after `/tree` navigation no longer restores a stale thinking level (#11451).
 - Tool search and codemode summaries now follow local `$ref`s into `$defs`, so fields
   behind MCP schema references are found and described (#11803).
+- Internal cursor markers no longer leak into terminal output, including with multiple
+  markers or horizontally clipped content (#9441).
 
 ## [1.5.0] - 2026-11-05
 

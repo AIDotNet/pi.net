@@ -69,6 +69,36 @@ public class FakeCursorTests
         Assert.Contains("> \x1b[7ma\x1b[27mbc", terminal.Output);
     }
 
+    // 上游 1.5.1 #9441：内部光标标记是渲染元数据，多个标记 / 其他行上的标记都不得进入终端输出，
+    // 但首个标记仍决定硬件光标列。对齐上游 tui-render.test.ts 的两条回归用例。
+    [Fact]
+    public void DoesNotWriteDuplicateCursorMarkersToTheTerminal()
+    {
+        var terminal = new StringTerminal(40, 5);
+        var tui = new TuiMainScreen(terminal, showHardwareCursor: true);
+        tui.AddChild(new RawComponent($"\x1b[31m界🙂\x1b[0m{Tui.CursorMarker} world{Tui.CursorMarker}"));
+        tui.RenderNow();
+
+        Assert.DoesNotContain(Tui.CursorMarker, terminal.Output);
+        Assert.Contains("\x1b[31m界🙂\x1b[0m world", terminal.Output);
+    }
+
+    [Fact]
+    public void DoesNotWriteCursorMarkersFromOtherLines()
+    {
+        var terminal = new StringTerminal(40, 5);
+        var tui = new TuiMainScreen(terminal, showHardwareCursor: true);
+        tui.AddChild(new RawComponent(
+            $"offscreen{Tui.CursorMarker}",
+            $"a{Tui.CursorMarker}",
+            $"visible-b{Tui.CursorMarker}"));
+        tui.RenderNow();
+
+        Assert.DoesNotContain(Tui.CursorMarker, terminal.Output);
+        Assert.Contains("offscreen", terminal.Output);
+        Assert.Contains("visible-b", terminal.Output);
+    }
+
     [Fact]
     public void OmitsTheFocusedFakeCursorWhenTruncationDroppedItsEndMarker()
     {

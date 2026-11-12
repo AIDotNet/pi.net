@@ -102,6 +102,29 @@ public class TextEngineTests
         Assert.Equal(3, width);
     }
 
+    // 上游 1.5.1 #9441：APC 光标标记是一次性位置指令，不是持续样式状态，
+    // sliceWithWidth 不应把它作为 pendingAnsi 带到后续切片，但 SGR 样式仍需保留。
+    [Fact]
+    public void SliceWithWidth_DoesNotCarryCursorMarkersIntoLaterSlices()
+    {
+        var line = $"ab{Tui.CursorMarker}cdefghij";
+        var (first, firstWidth) = TextLayout.SliceWithWidth(line, 4, 2, true);
+        Assert.Equal("ef", first);
+        Assert.Equal(2, firstWidth);
+        var (second, secondWidth) = TextLayout.SliceWithWidth(line, 6, 4, true);
+        Assert.Equal("ghij", second);
+        Assert.Equal(4, secondWidth);
+    }
+
+    [Fact]
+    public void SliceWithWidth_StillCarriesPersistentStylingIntoLaterSlices()
+    {
+        var line = "\x1b[31mabcdefghij\x1b[0m";
+        var (text, width) = TextLayout.SliceWithWidth(line, 4, 2, true);
+        Assert.Equal("\x1b[31mef", text);
+        Assert.Equal(2, width);
+    }
+
     [Fact]
     public void WrapTextWithAnsi_WrapsOnWordBoundaries()
     {

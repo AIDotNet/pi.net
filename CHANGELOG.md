@@ -126,6 +126,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   `ToolSearch.SchemaText`+`ResolveLocalRef`、`CodemodeToolApi.FollowRef`+`DescribeFields`+
   `DescribeUnionFields`。6 项定向用例（逐字对照上游）+ `ToolSearchCorpusTests` 66/66、
   `ToolSearchRankingTests` 7/7、`CodemodeCorpusTests` 29/29。
+- **内部光标标记不外泄到终端**（#9441）：`Tui.ApplyLineResets` 在 normalize 前剥离全部
+  光标标记、`ExtractCursorPosition` 整行剥离、`TextLayout.SliceWithWidth` 仅把非 APC 序列
+  作为 pendingAnsi 带过切片边界（多标记 / 水平裁剪 / 其他行残留的 APC 不再被终端渲染出来）。
+  4 项定向用例 + 全量 `Pi.Tui.Tests` 23973/23973。
 
 ## [1.5.0] - 2026-11-05
 

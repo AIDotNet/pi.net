@@ -1275,7 +1275,10 @@ public abstract partial class TuiBase : Container, ITui
     {
         for (var i = 0; i < lines.Length; i++)
         {
-            lines[i] = Ansi.NormalizeTerminalOutput(lines[i]) + Tui.SegmentReset;
+            // 上游 1.5.1 #9441：内部光标标记是渲染元数据，绝不能进入终端输出。
+            // 多个标记 / 水平裁剪时可能残留，故在 normalize 前全部剥离。
+            lines[i] = Ansi.NormalizeTerminalOutput(
+                lines[i].Replace(Tui.CursorMarker, "", StringComparison.Ordinal)) + Tui.SegmentReset;
         }
         return lines;
     }
@@ -1326,7 +1329,8 @@ public abstract partial class TuiBase : Container, ITui
             {
                 var beforeMarker = line.Substring(0, markerIndex);
                 var col = UnicodeWidth.VisibleWidth(beforeMarker);
-                lines[row] = line.Substring(0, markerIndex) + line.Substring(markerIndex + Tui.CursorMarker.Length);
+                // #9441：首个标记决定硬件光标位置，其余标记是过时的内部哨兵，全部剥离。
+                lines[row] = line.Replace(Tui.CursorMarker, "", StringComparison.Ordinal);
                 return (row, col);
             }
         }
