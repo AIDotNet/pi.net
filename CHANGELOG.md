@@ -221,7 +221,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   `types.ts` 接口（纯 SQL 合并优化），chord store.ts 属端口无对应物的 v2 层
   （`git ls-files src/Pi.Chord` 实证）。
 - **验证覆盖补齐**：hook 指出 gate 不含 `Pi.Tui.Tests` / `Pi.Env.Tests`、且最后一次
-  代码改动后缺完整 Debug 门禁，本轮补跑（见收口记录）。
+  代码改动后缺完整 Debug 门禁。本轮实测：Debug/Release 全量 build 0 警告 0 错误；
+  `gate-tests.sh Debug` 11/11 全绿（Pi.CodingAgent 5362/5365、Pi.Durable 607/607）、
+  `gate-tests.sh Release` 11/11 全绿；门禁外 `Pi.Tui.Tests` 全量 23975/23975
+  （首次 1 例 `LoaderTests.Stop_HaltsTheAnimation` 负载 flake，隔离 14/14、全量重跑全绿）、
+  `Pi.Env.Tests` 50/54（4 项需 sshd 跳过）。
 
 ## [1.5.0] - 2026-11-05
 
