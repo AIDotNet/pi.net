@@ -164,6 +164,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - 上述六项合计 `V152BatchRegressionTests`（5 用例）+ `AgentSessionQueuedImagesTests`（3 用例）
   + 静态叶子/出队/交互模式用例，全量门禁 11/11 绿。
 
+### Fixed（第五轮：复核反馈后把 §4.4 曾误记为「不做项」的 published 功能变更逐项真实移植）
+
+此前台账 §4.4 把下列 **v1.5.1/v1.5.2 已发布的功能变更**登记为「有记录的不做项」，
+属对这些 release 变更的漏做。本轮逐项真实移植 + 定向用例钉住，§4 仅余「➖ 不适用」
+（端口形态不同 / 仓库外 / 第三方库 / 纯性能优化）项并附代码级实证：
+
+- **`pi auth login/logout`**（9b9cb30ae）：新增 `Cli/AuthLogin.cs`（parseLoginRequest /
+  findMatchingProviders / selectAuthType / webUrl / displayUrl / planRadiusMcpServer 纯叶子 +
+  LoginInteraction 的 browser/no-browser 方法选择与事件提示 + runAuthLogin/Logout 编排 +
+  catalog refresh / Radius MCP 配置 / 取消与同步失败文案）与 `Cli/AuthTerminal.cs`（进程终端 +
+  `ModelRuntime` 包装）；`Main.cs` 早于 parseAuthCommand 分流、`AuthCommand`/`Args` help 对齐
+  v1.5.2。`AuthLoginTests` 30 用例逐字对照上游 auth-login.test.ts（反向验证破坏 OAuth 默认后
+  6 用例失败）。
+- **逐会话 `CompactionSettings`**（#11771，922c3ff2b）：`HarnessTypes` 新增
+  `CompactionSettings`，`CompactionPolicy.ForModel(model, conversation)` 逐字段分层解析
+  （会话 model override > harness model override > 会话自身 > harness 全局，`enabled:false`
+  压过 harness model override）；`AgentState`/`AgentChange`/`Agent` 加字段；`AgentDocs`
+  configure 校验 / 序列化往返 / ResolveAgent 透传；`Compaction`/`Generation` 三处读者接线。
+  `CompactionSettingsTests` 11 用例。
+- **JSONL `readOnly` 只读打开**（#11939，f5f4a71af）：`JsonlStorageOptions.ReadOnly` +
+  `JsonlStorageReadOnlyError`；不建目录、恢复失败且 `main.jsonl` 大小变化时重试、
+  `CommitAsync` 拒绝、只读不截断撕裂末行 / 不回收 / 不删 `.reclaim`。
+  `JsonlStorageReadOnlyTests` 6 用例逐字对照上游。
+- **#11807/#9276** rg `--glob` 锚定 path + `--context N` 上下文行事件（`GrepRgEvents.cs`，
+  16 用例）、**#9155** prompt 预检 / 树导航（1 用例）、**#8544** edit 保留未改动行行尾
+  （12 用例）、**#11756** `registerMarkdownTransformer(messageTypes)` + **#11851**
+  `ctx.ui.custom(blocked)`（6 用例）、**#9654** read 流式选行（9 用例）、**#11599/#11752**
+  RPC/print 关闭时序（6 用例）、**#11975** 会话 cwd 丢失 continue/fork/cancel（4 用例）。
+- **#11974** find abort 落在 `.git` 父目录查找期间不启动 fd（spawn 前 abort 检查，
+  `FindAbortBeforeSpawnTests` 2 用例，反向验证有效）；**#11892** 调度 pass 期间并发发布
+  waiter/holder 不丢（`SchedulerNotificationRaceTests` 真实 `TaskScheduler` 行为回归 1 用例，
+  端口 `_dirty` 前置清零 + 每遍全量重算架构本就免疫）。
+- **仅余 ➖ 不适用（代码级实证，非 published 功能漏做）**：Mermaid 升级（第三方 Node 库
+  替换，端口 `Mermaid.cs` 的 `render()` 是注入 seam）、`SqliteStorage.commit(batches)` 与
+  chord store group commit（纯性能优化 / v2 store，端口无对应优化面）、#11725 Codex SSE
+  abort 监听（JS `addEventListener` 泄漏，端口 `Task.Delay(ms, signal)` 无此形态）、
+  Windows 安装器 `install.ps1` / PowerShell 5.1（修复在 pi.dev 仓库，端口无该脚本）、
+  TypeBox 构造 API / 微秒时钟 / Node 动态 import。逐条证据见台账 §4.4。
+
 ## [1.5.0] - 2026-11-05
 
 对齐上游 `v1.5.0`（308 个提交）。三个大头：**durable 的窗口化视图与提交语义**、**遥测与传播**

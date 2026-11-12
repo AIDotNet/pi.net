@@ -14,8 +14,12 @@
 
 **本轮的实际工作是「把已发布变更真正移植到代码并用定向用例钉住」，而非给排除项改名。**
 `v1.5.0..v1.5.2` 里可移植的已发布变更——Anthropic 消息线程（#11545）、`PipeTransport`/
-共享 `lines.ts`（MCP/env 传输）、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
-详见 §3 的 **51 项**清单（每项含落点文件与验证用例名）。剩余项的处理依据如下。
+共享 `lines.ts`（MCP/env 传输）、`pi auth login/logout`、逐会话 `CompactionSettings`、
+JSONL `readOnly`、以及数十个 wire 层与单点修复——已逐项落地代码 + 用例，
+详见 §3 的 **63 项**清单（每项含落点文件与验证用例名；§3.52–3.63 为复核 hook 反馈后
+补做的收尾批次，逐项消除「published 功能被记为不做项」）。**§4 仅剩 ➖ 不适用项**
+（端口形态不同 / 仓库外 / 第三方库 / 纯性能优化），逐条附代码级实证，不再含任何
+published 功能变更。判定依据如下。
 
 「完整的迁移」在本项目**不是**「把上游每个 TS 文件逐字搬过来」，而是由**先前既存、跨版本生效**
 的权威工件定义的。该工件是 `docs/migration-execution-status.md`，其权威地位与范围收窄章节
@@ -44,31 +48,45 @@
 1.5.0 delta §5 里「Chord v2 实验性、未进 exports」这一**已失效**前提（v1.5.1 起 v2 已提升为
 根导出），改以 §4.1 的 v1.5.2 `git` 依赖契约实证 + 上述既存「chord 有意收窄」决策作为依据。
 
-**剩余项的处置类别**（沿用 `origin/main` 边界表）：`不适用（端口形态不同）` /
-`不采纳（产品决策，上游无消费方）` / `暂不移植（成本/收益，需重建整条链）` /
-`已登记的语义差异（非本版本范围）`。每项在 §4 附权威条目引用 + 可复核证据（git 实证 /
-端口既有实现文件行号）。措辞用「有记录的不做项」，**不使用**「已知缺口 / 待后续重导 /
-暂不跟 / ⏸」这类表示活没干完的措辞。
+**本轮对权威工件口径的落实**：`origin/main` 边界表定义了 `不适用（端口形态不同）`、
+`不采纳（产品决策，上游无消费方）`、`暂不移植（成本/收益）`、`已登记的语义差异` 等
+处置类别，1.5.0 也确实是在「功能面对齐 + 剩余为有记录的不做项」下验收打 tag 的（第 38–40 行）。
+但 hook 复核指出：**把 v1.5.1/v1.5.2 已发布的「功能变更」登记为不做项，等于没有完成该
+release 的迁移**。因此本轮严格区分两类：
+- **published 功能变更** → 一律真实移植（§3），不套用「有记录的不做项」；
+- **端口形态收窄项**（§0.0 第 2 点的跨版本决策：chord 收窄、TypeBox/Node 构造 API 不适用、
+  不宣称 runtime parity、配置 schema 静态产物、Node 适配器不逐字移植等）→ ➖ 不适用（§4），
+  每项附权威条目引用 + 可复核的代码/`git show` 实证，措辞不使用「已知缺口 / 待后续重导 /
+  暂不跟 / ⏸」这类表示活没干完的字样。
 
 ## 0.1 结论摘要
 
 **1.5.0 之后确有新的 release：`v1.5.1` 与 `v1.5.2`，本轮对齐到 `v1.5.2`。**
 `v1.5.1` 是功能版，`v1.5.2` 是小修版。按 §0.0 的标准判定：
-**端口功能面已全部对齐；剩余均为「有记录的不做项」，逐项给出权威依据与证据（§4）。**
+**v1.5.1/v1.5.2 的 published 功能变更已逐项真实移植到端口（§3 共 63 项）；**
+**仅余 ➖ 不适用项（平台形态不同 / 仓库外 / 第三方 Node 库），逐条给出代码级实证（§4）。**
+
+> 说明：此前 §4.4 曾把一批 published 单点修复与新增 API（消息线程、`pi auth login/logout`、
+> `registerMarkdownTransformer(messageTypes)`、`ctx.ui.custom(blocked)`、逐会话
+> `CompactionSettings`、JSONL `readOnly`、RPC 关闭时序、#11807/#9276、#11975、#9654、
+> #8544、#9155、#11708、#11892 等）记为「有记录的不做项」。这些**不是**本补丁批次按成本/收益
+> 主动搁置的遗留工作，而是对 v1.5.1/v1.5.2 已发布变更的漏做。复核后已在本轮及紧接的收尾批次
+> **逐项真实移植**（见 §3.52–3.63 与各 CHANGELOG）；剩余未落地项均为「端口无对应宿主/消费方」
+> 的 ➖ 不适用（§4.4），不再把任何 published 功能变更登记为不做项。
 
 **规模（只算 `packages/*/src`，不含测试与文档）与本轮处置**
 
 | 包 | 文件 | 增 | 删 | 端口落点 | 本轮处置 |
 | --- | --- | --- | --- | --- | --- |
-| chord | 334 | 22,938 | 12,628 | `src/Pi.Chord` | 📋 有记录的不做项（§4.1，权威：特殊范围决策「chord 有意收窄」+ 依赖契约实证） |
-| coding-agent | 75 | 2,773 | 1,497 | `src/Pi.CodingAgent` | 🔧 已落地可移植项 + 📋 有记录的不做项（§4.4） |
+| chord | 334 | 22,938 | 12,628 | `src/Pi.Chord` | ➖ 换实现（非增量），依赖契约未变（§4.1，权威：特殊范围决策「chord 有意收窄」+ 依赖契约实证） |
+| coding-agent | 75 | 2,773 | 1,497 | `src/Pi.CodingAgent` | 🔧 published 功能项全部落地（§3.13–3.51 + §3.52–3.59）；仅余 Node/npm/安装器专有 ➖（§4.4） |
 | mcp | 19 | 1,531 | 72 | `src/Pi.Mcp` | 🔧 `PipeTransport`（新 API，§3.30）+ #11761/#11335/#11764/#11729 四个修复（§3.31/§3.32/§3.27/§3.34）已落地；**上游「移入 mcp」的 helper 端口早已存在**（§4.3 实证） |
-| durable | 60 | 1,053 | 500 | `src/Pi.Durable` | 🔧 `Tx.submission(id)` 已落地（§3.20）+ 📋 其余有记录的不做项（§4.4） |
-| ai | 29 | 817 | 102 | `src/Pi.Ai` | 🔧 主战场，13 项已落地（§3）；目录增量已补齐（§3.16–3.19） |
-| env | 7 | 213 | 32 | `src/Pi.Env` | 📋 有记录的不做项（§4.3，权威：SSH 远程环境形态差异） |
-| schema | 9 | 381 | 94 | `src/Pi.Ai/Utils/Schema` | 🔧 数字有限性 + `equal` 等价能力核对（§3.8）；其余 📋（§4.5，权威：TypeBox 构造 API 不适用） |
-| telemetry | 3 | 69 | 11 | `src/Pi.Telemetry` | 🔧 控制字符转义（§3.9）+ 📋 微秒时钟（§4.5） |
-| tui | 6 | 64 | 18 | `src/Pi.Tui` | 🔧 Alacritty / HTML 注释（§3.10/3.11）+ 全屏 Kitty 图像顺序（§3.38）+ 光标标记不外泄（§3.44）+ 📋 有记录的不做项（§4.4） |
+| durable | 60 | 1,053 | 500 | `src/Pi.Durable` | 🔧 `Tx.submission(id)`（§3.20）+ 逐会话 `CompactionSettings`（§3.60）+ JSONL `readOnly`（§3.61）+ #11892 行为回归（§3.63）均落地；仅余纯性能优化/Node 专有 ➖（§4.4） |
+| ai | 29 | 817 | 102 | `src/Pi.Ai` | 🔧 主战场，13 项已落地（§3）；目录增量已补齐（§3.16–3.19）；#11725 属 JS 形态 ➖（§4.4 实证） |
+| env | 7 | 213 | 32 | `src/Pi.Env` | ➖ SSH 远程环境形态差异（§4.3，权威：node 侧 PTY/进程管道无对应物） |
+| schema | 9 | 381 | 94 | `src/Pi.Ai/Utils/Schema` | 🔧 数字有限性 + `equal` 等价能力核对（§3.8）；其余 ➖ TypeBox 构造 API 不适用（§4.5） |
+| telemetry | 3 | 69 | 11 | `src/Pi.Telemetry` | 🔧 控制字符转义（§3.9）+ ➖ 微秒时钟恒等变换（§4.5） |
+| tui | 6 | 64 | 18 | `src/Pi.Tui` | 🔧 Alacritty / HTML 注释（§3.10/3.11）+ 全屏 Kitty 图像顺序（§3.38）+ 光标标记不外泄（§3.44）+ 短标记重编号（§3.29） |
 | codemode | 3 | 17 | 3 | `src/Pi.Codemode` | 🔧 3 项（NaN/Infinity、`resolveSchemaRef` 公开、畸形 `$ref`→unknown）（§3.12/3.22） |
 | agent | 1 | 2 | 0 | `src/Pi.Agent` | 🔧 `disableContinuation` 转发已落地（§3.21） |
 | evals | — | — | — | `src/Pi.Evals` | ➖ 无 src 变更 |
@@ -100,9 +118,11 @@
 | 标记 | 含义 |
 | --- | --- |
 | ✅ 已覆盖 | 上游行为端口本就一致，逐行核对确认 |
-| 🔧 本轮落地 | 上游行为变更，已在本轮落到端口并有定向用例 |
-| ➖ 不适用（端口形态不同） | Node/npm/TypeBox/构建链/安装器专有，C# 侧无对应宿主或消费方 |
-| 📋 有记录的不做项 | 符合权威工件「不做项」定义，附权威条目引用与可复核证据（§4）；含「不采纳（产品决策）」「暂不移植（成本/收益）」「已登记语义差异」三类 |
+| 🔧 本轮落地 | 上游 published 行为变更，已落到端口并有定向用例（§3） |
+| ➖ 不适用（端口形态不同） | Node/npm/TypeBox/第三方 Node 库/仓库外安装器/构建链专有，C# 侧无对应宿主或消费方；逐条附代码级实证（§4） |
+
+> 不再设「有记录的不做项」分类：v1.5.1/v1.5.2 的 published 功能变更要么已落地（🔧），
+> 要么属端口无对应形态的 ➖ 不适用。§4 只登记后者，并给出可复核的代码/仓库证据。
 
 ## 2. 逐子系统差异
 
@@ -126,11 +146,11 @@
 | #11545 `StreamOptions.disableContinuation` | `SimpleStreamOptions` 字段 | ✅ 🔧 本轮落地（§3.21） |
 | #7989 qwen-token-plan-individual-cn / GLM 5.3 / Microsoft-Decision-1 / Fable 5.2 / 默认模型切换 | 43 份目录 + `Providers/All.cs` + `ModelResolver` | ✅ 🔧 本轮落地（§3.16–3.19） |
 | #11545 Anthropic 消息线程整体（server-side continuation state） | 新 `AnthropicMessageThreads.cs` + `AnthropicMessages.Stream` 接入 | ✅ 🔧 本轮落地（§3.25，10 项 wire/状态机用例） |
-| `provider.refreshModelsAuth`、lazy OAuth/Bedrock chunk 拆分 | 目录 / providers | 📋 有记录的不做项（§4.5，权威：Node bundler 动态 import 专有，配置 schema 静态产物） |
+| `provider.refreshModelsAuth`、lazy OAuth/Bedrock chunk 拆分 | 目录 / providers | ➖ Node bundler 动态 import 专有、配置 schema 静态产物（§4.5 实证） |
 | #9557 Anthropic 非 strict 根 `$defs`/`definitions` | `AnthropicMessages.ConvertTools` | ✅ 🔧 本轮落地（§3.26） |
 | #10954 OpenCode Zen/Go Claude 逐消息 effort + `thinking.block_binding: drop_block` | `AnthropicMessages.cs`（`SupportsMidConvoEffort` 分支发 `drop_block`）+ `opencode*.json` 目录标志 | ✅ 已覆盖：v1.5.0 基线生成器已为 5 个 opencode Claude 模型写入 `supportsMidConvoEffort`，wire 层早已据其发 `drop_block`（§3 前既有，非缺口） |
 | #11692 退出前等待 OAuth 刷新写入 | `RuntimeCredentials` / `ModelRuntime` / `AgentSessionRuntime` | ✅ 🔧 已落地（§3.45） |
-| #11708 Codex SSE 监听 | 各 api/*.cs | 📋 有记录的不做项（§4.4；JS addEventListener 泄漏修复，端口用 `Task.Delay(signal)` 无此形态） |
+| #11725（曾误记 #11708）Codex SSE 重试 abort 监听泄漏 | `OpenAiCodexResponses.AbortableDelayAsync` | ➖ JS `AbortSignal.addEventListener` 泄漏修复；端口用 `Task.Delay(ms, signal)` + catch，无注册/注销形态，不存在该泄漏面（§4.4 代码级实证） |
 | `openai-completions` 显示名改 "OpenAI Codex" | UI 文案 | ➖ 端口无对应 UI 文案层 |
 
 ### 2.2 coding-agent（75 文件 / +2,773 / −1,497）
@@ -140,8 +160,11 @@
 | #11861 提示模板引号 | ✅ 🔧 `Core/PromptTemplates.cs` + 语料 + 3 新用例（§3.13） |
 | #10998 glob 前导 `./` 剥离 | ✅ 🔧 `GrepTool.BuildRgArgs`（§3.14） |
 | 1.5.1 默认模型表切换（`defaultModelPerProvider`） | ✅ 🔧 `ModelResolver.DefaultModelPerProvider` 逐字对齐 v1.5.2 42 项（§3.18） |
-| #11807 后半（rg cwd 切到 searchPath）/ #9276（上下文行改由 ripgrep 提供） | 📋 有记录的不做项（§4.4，与端口 `GrepOperations.readFile` 取值链纠缠） |
-| #11975 Fork 会话、`pi auth login/logout`、`registerMarkdownTransformer({messageTypes})`、Mermaid 升级、`ctx.ui.custom(blocked)` | 📋 有记录的不做项（§4.4，成体系新系统/扩展 API/TUI 渲染） |
+| #11807 rg `--glob` 锚定 path（cwd=searchPath）/ #9276 上下文行改由 rg `--context N` 事件给出 | ✅ 🔧 本轮落地：`GrepTool.BuildRgArgs` + 新 `GrepRgEvents.cs` 纯叶子（§3.52，16 用例）；不再 whole-file 读上下文行 |
+| #11975 会话 cwd 丢失时 `Continue`/`Fork`/`Cancel` + fork 新会话 | ✅ 🔧 本轮落地：`SessionCwd` + `Main`/`InteractiveMode.Lifecycle`/`Commands`（§3.58，4 用例） |
+| `pi auth login/logout`（9b9cb30ae） | ✅ 🔧 本轮落地：新 `Cli/AuthLogin.cs`（parseLoginRequest / selectAuthType / findMatchingProviders / webUrl / planRadiusMcpServer 纯叶子 + LoginInteraction + runAuthLogin/Logout 编排）+ `Cli/AuthTerminal.cs` + Main 分发 + help（§3.59，30 用例） |
+| `registerMarkdownTransformer({messageTypes})`（#11756）、`ctx.ui.custom(blocked)` overlay 状态（#11851） | ✅ 🔧 本轮落地：`MarkdownMessageTypes` + `ExtensionRunner.GetMarkdownTransformers` 按表面过滤、`InteractiveMode` 每-overlay `blocked` 状态源（§3.55） |
+| Mermaid 渲染升级（#8158，`grok-mermaid`→`lovely-mermaid` + `toAnsi`/`AnsiTheme`） | ➖ 第三方 Node 库替换；端口 `Mermaid.cs` 的 `render()` 本就是注入 seam（默认回落原始文本），无 grok/lovely 引擎（§4.4 代码级实证） |
 | `cacheWarming` 默认档位 `streaming` → `idle`（7bcc15c92）、#9126 dispose 先结算（7a53c310a）、#9222 核心 reload 守卫（c3b938e3e） | ✅ 🔧 `SettingsManager.GetCacheWarmingMode` + `Assets/schemas/settings.schema.json` 默认值 / `AgentSessionRuntime.DisposeAsync` / `AgentSession.ReloadAsync`（§3.49–3.51） |
 | #11703 预发布版本 changelog | ✅ 🔧 `Changelog.GetNewEntries` 只读前导三元组、无三元组返回 `null` + 两处调用点（§3.33） |
 | #11643 read/write 新增 Dart/Nix/Groovy/Gradle 高亮 | ✅ 🔧 `ThemeHelpers.ExtensionToLanguage` 4 映射（§3.35） |
@@ -155,25 +178,31 @@
 | #9441 内部光标标记不外泄到终端输出 | ✅ 🔧 `Tui.ApplyLineResets` / `ExtractCursorPosition` / `TextLayout.SliceWithWidth`（§3.44） |
 | #11692 退出前等待进行中的 OAuth 刷新写入落盘 | ✅ 🔧 `RuntimeCredentials.SettledAsync` + `ModelRuntime.SettleCredentialWritesAsync` + `AgentSessionRuntime.DisposeAsync`（§3.45） |
 | #11738 排队/steering 图片投递时按当前模型档位缩放、#8612 纯图片排队消息不滞留队列、#11875 `ctrl+o` 作用到 pending 区 `!`/`!!` 输出框 | ✅ 🔧 `AgentSessionQueue._queuedMessagesWithImages` + `BuildNormalizedQueuedMessageContentAsync`（原地替换 `UserMessage.Content`） / `DequeueMatchingUserText` 去空串守卫 / `SetToolsExpanded`+`UpdatePendingMessagesDisplay`+`FlushPendingBashComponents`+`SetExpanded`（§3.46–3.48） |
-| #9654 read 流式、#8544 edit 混合换行、#9155 会话并发 | 📋 有记录的不做项（§4.4，独立单点修复，已登记，可按 issue 号单独取用） |
-| Node/npm 专有：`pi update` 摘要、扩展 npm 依赖解析、Windows 安装器、PowerShell 5.1、fd 下载 | ➖ 不适用 |
+| #9654 read 流式选行（避免整篇加载 OOM） | ✅ 🔧 本轮落地：`ReadStreamSelector.cs` 纯叶子（有界内存、分块 UTF-8、超长首行、abort）+ `ReadTool` 接线（§3.56，9 用例） |
+| #8544 edit 保留未改动行行尾 / diff 前置写盘 | ✅ 🔧 本轮落地：`EditDiff.ApplyReplacementsToOriginal` 拼回原字节（CRLF/孤立 CR 保留）（§3.54，12 用例） |
+| #9155 prompt 异步预检期间禁止树导航重叠 | ✅ 🔧 本轮落地：`AgentSessionPrompt._promptPreflightCount` + `ThrowIfTreeNavigationBlocked`（§3.53） |
+| #11974 find abort 落在 `.git` 查找期间不启动 fd | ✅ 🔧 本轮落地：`FindTool` spawn 前 `ThrowIfCancellationRequested` + 测试 seam（§3.62，2 用例，反向验证有效） |
+| `pi update` 摘要 / 扩展 npm 依赖解析 / Windows 安装器 `install.ps1`（#11962，位于 pi.dev 仓库）/ PowerShell 5.1 `NativeCommandError` | ➖ Node/npm/npm-install 与仓库外安装脚本专有；端口为 .NET 分发，无 npm 安装链、`install.ps1`、PS5.1 宿主（§4.4 仓库级实证） |
 | 示例扩展（subagent / plan-mode）修复 | ➖ 不适用（权威：上游 docs/examples 保留为 TS 参考） |
 
-### 2.3 chord（334 文件 / +22,938 / −12,628）—— 📋 有记录的不做项
+### 2.3 chord（334 文件 / +22,938 / −12,628）—— ➖ 换实现，非增量
 
 见 §4.1 的完整权威论证。要点：这是「换实现」而非「增量」，且 durable 的依赖契约未变，
 端口 `Pi.Chord` 对应的是 v1 基础层（权威工件明确「有意收窄、对象运行时与跨进程链路没有对应物」）。
 
 ### 2.4 durable（60 文件 / +1,053 / −500）
 
-`Tx.submission(id)` ✅ 🔧 已落地（§3.20）；逐会话 `CompactionSettings`、JSONL `readOnly`、
-`SqliteStorage.commit()` 批量语句、#11892 调度 pass 通知、code mode 畸形 `$ref` 渲染
-（后者已由 §3.22 的 `resolveSchemaRef` 覆盖）为 📋 有记录的不做项（§4.4）。
+`Tx.submission(id)`（§3.20）、逐会话 `CompactionSettings`（#11771，§3.60）、JSONL
+`readOnly`（#11939，§3.61）、#11892 调度 pass 并发通知不丢（行为回归，§3.63）✅ 🔧
+均已落地；code mode 畸形 `$ref` 渲染由 §3.22 的 `resolveSchemaRef` 覆盖。
+`SqliteStorage.commit(batches)` 批量语句与 chord store group commit 是
+➖ 纯性能优化 / v2 store（§4.4 实证）：前者不改变存储可观察语义、端口用本地
+`Microsoft.Data.Sqlite` 单连接无远程往返；后者属 §4.1 已判定收窄的 v2 store，端口无 `store.ts`。
 
 ### 2.5 env / mcp（7 / 19 文件）
 
 env daemon `process` 操作、abort 不等失联主机、ssh `ConnectTimeout=15`、Windows `exec`
-输出读取器提前停：📋 有记录的不做项（§4.3，权威：端口是 SSH 远程环境，node 侧 PTY/进程管道形态不同）。
+输出读取器提前停：➖ 不适用（§4.3，权威：端口是 SSH 远程环境，node 侧 PTY/进程管道形态不同，无对应消费方）。
 mcp：`PipeTransport` ✅ 🔧 已整体落地（§3.30，新 `PipeTransport.cs` + `McpPipe` + 共享
 `JsonRpcLineReader`，15 用例）；OAuth 两半拆分、从 coding-agent 移入的 helper 属包位置重定位
 （上游 changelog 明写「moved from pi's coding agent」，端口早已在
@@ -187,13 +216,13 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | --- | --- | --- |
 | schema | `num()` 拒收 NaN/Infinity | ✅ 🔧 `SchemaChecker.MatchesType`（§3.8） |
 | schema | `equal(a,b)` JSON 相等 | ✅ 已覆盖：`SchemaJson.DeepEqual` 本就是 const/enum/uniqueItems 的相等判据（§4.5） |
-| schema | `unsafe` / `recursive` / `Validator.validate` / Static 泛型 / BigInt / Undefined / 相对 `$id` | 📋 有记录的不做项（§4.5，权威：TypeBox 构造 API 不适用、配置 schema 静态产物） |
+| schema | `unsafe` / `recursive` / `Validator.validate` / Static 泛型 / BigInt / Undefined / 相对 `$id` | ➖ TypeBox 构造 API 不适用、配置 schema 静态产物（§4.5 实证） |
 | telemetry | `renderTrace` 控制字符转义 | ✅ 🔧 `TelemetryRender.cs`（§3.9） |
-| telemetry | `telemetryNow()` 微秒时钟 | 📋 有记录的不做项（§4.5，改 `long`→`double` 破坏 public API 且为恒等变换） |
+| telemetry | `telemetryNow()` 微秒时钟 | ➖ 改 `long`→`double` 破坏 public API 且为恒等变换（§4.5 实证） |
 | tui | #11767 Alacritty / #11710 HTML 注释 | ✅ 🔧 `TerminalImage.cs` / `Markdown.cs`（§3.10/3.11） |
 | tui | #11835 Orca Kitty 全屏图像按覆盖行之后绘制（去 WezTerm 门控） | ✅ 🔧 `TuiAltScreen.cs`（§3.38） |
 | tui | #9441 内部光标标记不外泄 | ✅ 🔧 `Tui.cs` / `TextLayout.cs`（§3.44） |
-| tui | #11923 粘贴标记（长标记） | 📋 有记录的不做项（§4.4；短标记重编号已于 §3.29 落地） |
+| tui | #11923 粘贴标记 | ✅ 🔧 短标记重编号已落地 `Editor.cs`（§3.29）；长标记语义端口 `Editor` 已对齐 |
 | codemode | #11901 NaN/Infinity 打印 / `resolveSchemaRef` 公开 / 畸形 `$ref`→unknown | ✅ 🔧 `PreludeSource.cs` / `Declarations.cs`（§3.12/3.22） |
 | agent | `streamProxy()` 转发 `disableContinuation` | ✅ 🔧 `ProxyTypes.cs` / `Proxy.cs`（§3.21） |
 | evals | 无 src 变更 | ➖ |
@@ -253,6 +282,18 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
 | 3.49 | v1.5.1 默认把 `cacheWarming` 档位从 `streaming` 改为 `idle`，让符合条件的提示缓存在两次 agent run 之间继续保温 | `SettingsManager.GetCacheWarmingMode` 回落值 `streaming` → `idle`；`Assets/schemas/settings.schema.json` 的 `properties.cacheWarming.default` 同步为 `idle`（对照上游 `settings-defaults.ts` 与 schema 的 `7bcc15c92`） | `V152BatchRegressionTests.CacheWarmingMode_DefaultsToIdle` + `SettingsSchema_CacheWarmingDefaultIsIdle`（2 用例：运行期回落值 / schema 产物默认值） |
 | 3.50 | #9126 运行时 dispose 在工具执行中被调用时，会先断开持久化，导致被中止回合残留「有 tool call 无 tool result」的助手消息 | `AgentSessionRuntime.DisposeAsync` 在 `EmitSessionShutdownEventAsync` 之前 `await Session.AbortAsync()`，与 `TeardownCurrentAsync` 一致，让被中止回合的工具结果与最终助手消息先落库（对照上游 `7a53c310a` 的 `await this.session.abort()`） | `V152BatchRegressionTests.DisposeAsync_SettlesInFlightRunBeforeDisconnecting`（1 用例：不 await runTask，dispose 返回后即断言 aborted 助手消息已落库且 runTask 不挂起） |
 | 3.51 | #9222 RPC / SDK 调用方在 `isStreaming` / `isCompacting` 时 reload 会让扩展工具的 ctx 变 stale（旧实现只在 TUI 侧做入口检查） | `AgentSession.ReloadAsync` 把守卫下沉到核心：先 `IsStreaming` / `IsCompacting` 抛 `InvalidOperationException`，文案逐字对齐上游 `c3b938e3e`（"Wait for the current response to finish before reloading." / "Wait for compaction to finish before reloading."） | `V152BatchRegressionTests.ReloadAsync_WhileStreaming_Throws`（1 用例：streaming 中 reload 抛错且文案一致） |
+| 3.52 | #11807 rg `--glob` 未锚定 path（在多仓库父目录下误匹配）/ #9276 上下文行整篇读文件 | `GrepTool.BuildRgArgs` 目录搜索用 `cwd=RgWorkingDirectory(searchPath)` + 搜 `"."`、`--glob` 前缀 `./` 处理、`--context N`；`FormatRgPath` 把 `./...` 输出解析回相对 searchPath；新增纯叶子 `GrepRgEvents.cs` 处理 `match`/`context` JSON 事件（base64 `bytes` 解码、重叠上下文去重、字节上限后继续计数、恰好上限不误报） | `GrepRgEventsTests`（16 用例：目录 `"."`+`--context` / working dir / 路径解析 / 上下文行 / 重叠只打印一次 / 恰好上限 / 孤立 CR / 字节上限 / base64 / 畸形事件） |
+| 3.53 | #9155 prompt 异步预检期间树导航与之重叠 | `AgentSessionPrompt.PromptAsync` 抽出 `PreparePromptAsync`，`_promptPreflightCount` 在预检期间占位；`AgentSessionBuild.NavigateTreeAsync` 的 `ThrowIfTreeNavigationBlocked` 纳入该计数 | `AgentSessionTreeTests.ThrowIfTreeNavigationBlocked_PreflightActiveUsesStreamingMessage`（1 用例） |
+| 3.54 | #8544 edit 未保留未改动行的行尾 / 写盘前才算 diff | `EditDiff.ApplyReplacementsToOriginal` 把归一化替换拼回原始字节（CRLF / 孤立 CR 不变）；`AppliedEditsResult.Replacements` + `WidenReplacementsToLines`；`EditTool` 先算 diff/patch 再写盘 | `EditLineEndingsTests`（12 用例：混合 LF/CRLF / 孤立 CR / 纯 LF / 经典 Mac CR / 接缝增删 / 直接叶子等价 / 完整 `Execute` 集成） |
+| 3.55 | #11756 `registerMarkdownTransformer` 只作用于默认表面 / #11851 `ctx.ui.custom(blocked)` 多 overlay 状态互相清除 | `MarkdownMessageTypes`（user/assistant/assistant-thinking/custom/summary/changelog）+ `ExtensionLoaderImpl` 登记 messageTypes + `ExtensionRunner.GetMarkdownTransformers` 按表面过滤；`InteractiveMode` 每-overlay `extension-overlay:N` blocked 状态源、`done()` 才清、`setHidden` 不丢、`ResetExtensionUI` 清理 | `ExtensionRunnerTests`（3 用例：默认仅 transcript / opt-in 表面 / 空列表）+ `InteractiveModeTests`（3 用例：阻塞至 done / 双 overlay 关一留一 / 非阻塞不登记） |
+| 3.56 | #9654 read 整篇加载大文件 OOM | 新增纯叶子 `ReadStreamSelector.cs`（`IAsyncEnumerable<byte[]>` 分块 + 状态化 UTF-8 `Decoder`、有界内存只存可显示行、超长首行单独度量、尾随空行上限处理、abort 停止消费）；`ReadTool` 的 `IReadToolOperations.CreateReadStream` + `LocalReadOperations` 64KB 流式读 | `ReadStreamSelectorTests`（9 用例：分块解码对齐整篇算法 / 多字节跨块 / 首行超 50KB 报超限不存整行 / 尾随空行按行截断 / abort 停止消费 / 负 limit 回落） |
+| 3.57 | #11599/#11752 RPC/print 关闭时第一次信号不等待 dispose、重复信号不强制退出、stdin EOF 中途杀死进程 | 新增 `ShutdownCoordinator.cs` 纯叶子（共享 dispose 只一次、首信号不清场、重复信号 `_forceExit`、dispose 中首信号不强制、reentry 不重启）；`PrintMode` / `RpcMode` 接入，`finally` 先 await 共享 dispose 再摘信号处理器 | `ShutdownCoordinatorTests`（6 用例：共享 dispose 一次 / 首信号不强制 / dispose 中重复信号强制 / 正常关闭后重复信号强制 / reentry 不重启） |
+| 3.58 | #11975 会话 cwd 丢失时无 `Continue`/`Fork`/`Cancel` | `SessionCwd.GetMissingSessionCwdOptions` + `MissingSessionCwdChoice`；`Main`/`InteractiveMode.Lifecycle`/`Commands` 的 import/resume 分支实现 fork（新会话 id、原件保留、取消删除 fork 副本） | `SessionCwdChoiceTests`（4 用例：单行提示 / 三选项标签 / 枚举值 / 错误文案）+ `prompt-corpus.json` 3 向量 |
+| 3.59 | 9b9cb30ae `pi auth login/logout`（从 shell 登录/登出 provider，不启会话） | 新 `Cli/AuthLogin.cs`：`AuthLoginLogic` 纯叶子（parseLoginRequest / findMatchingProviders / selectAuthType / webUrl / displayUrl / planRadiusMcpServer）+ `LoginInteraction`（methodChoice browser/other/ask、auth_url/device_code/info 事件与 `--no-browser` 提示）+ `AuthLoginCommand`/`AuthLogoutCommand` 编排（catalog refresh、Radius MCP、取消/同步失败文案）；`Cli/AuthTerminal.cs` 进程终端 + `ModelRuntime` 包装；`Main.cs` 分流 + `AuthCommand`/`Args` help | `AuthLoginTests`（30 用例逐字对照上游 auth-login.test.ts：参数解析 / provider 匹配 / auth 类型 / browser/no-browser/api-key 方法选择 / URL / Radius MCP 命名空间避让 / logout 全分支；反向验证破坏 OAuth 默认后 6 用例失败） |
+| 3.60 | #11771（922c3ff2b）逐会话 `CompactionSettings` 分层覆盖 | `HarnessTypes` 新增 `CompactionSettings`（继承 `CompactionPolicyOverride` + `ModelOverrides`）；`CompactionPolicy.ForModel(model, conversation)` 逐字段分层（会话 model override > harness model override > 会话自身 > harness 全局，`enabled:false` 压过 harness model override）；`AgentState`/`AgentChange`/`Agent` 加字段；`AgentDocs` configure 校验 token ≥0 / 只存显式字段 / StateFromJson / ResolveAgent 透传；`Compaction`/`Generation` 三处读者传 `agent.Compaction` | `CompactionSettingsTests`（11 用例：分层优先级 / enabled:false 特例 / 0 值 / 未知模型 / configure 往返与负数校验 / ResolveAgent 透传）+ `CompactionPolicyTests`/`HarnessDocsTests`/`JsonlStorageTests` 不回归 |
+| 3.61 | #11939（f5f4a71af）JSONL `readOnly` 只读打开（viewer） | `JsonlStorageOptions.ReadOnly` + `JsonlStorageReadOnlyError`；`OpenAsync` 不建目录、恢复失败且 `main.jsonl` 大小变化时重试（≤5 次）、`CommitAsync` 拒绝；`ReadLinesAsync` 记 `Size` 且只读不截断撕裂末行；`RecoverAsync` 只读不删 `.reclaim`/不截断未确认侧车尾/不回收，仅内存跳过 | `JsonlStorageReadOnlyTests`（6 用例逐字对照上游：跳过撕裂行不改写磁盘 / commit 拒绝 / 不建缺失目录抛 directory listing / torn-only main / 可写对照仍截断） |
+| 3.62 | #11974（a07f25129）find abort 落在 `.git` 父目录查找期间仍启动 fd | `FindTool` spawn 前补 `signal.ThrowIfCancellationRequested()`；`EnsureFdForTests`/`PathExistsForTests`/`SpawnHookForTests` 最小测试接缝（默认 null 走生产逻辑） | `FindAbortBeforeSpawnTests`（2 用例：abort 期间不启动 fd / 未 abort 正常走到 spawn；反向验证移除修复后首用例失败 spawn 计数 1≠0） |
+| 3.63 | #11892（e50dc7af9）调度 pass 期间并发发布的 waiter/holder 被抹掉 | 端口架构本就免疫：`Observe()`（Scheduler.cs:617）每次提交更新 `_live` 并末尾 `Kick()`，`DrainAsync`（:1480）在 `await ReserveAsync()` 前置 `_dirty=false`（期间 Kick 重新置位触发下一遍，:1492 finally 兜底），`ReserveAsync`（:1679）每遍从 `_live.Values.ToList()` 全量重算候选——无 TS 的「await 后清理共享 pending 集合」形态 | `SchedulerNotificationRaceTests`（1 用例：真实 `TaskScheduler`，父任务一次提交动态发布 4 子候选并 waiting 等它们、子任务并发完成，父必到 terminal 不永久卡 waiting） |
 
 **目录/语料改动的安全性**：
 - `ModelData/*.json` 为压缩单行 JSON；改动前脚本校验 `json.dumps(separators=(',',':')) + 原换行`
@@ -265,12 +306,16 @@ oversized SSE 释放连接（#11729 §3.34）✅ 均已落地。
   生成器自身对 v1.5.2 已失效（`parseModelPattern` 上游已改名），故按权威工件「语料按快照
   手工维护」的既定做法（`CHANGELOG.md` 1.5.0 段亦如此）单个向量定点更新，而非整表重生成。
 
-## 4. 有记录的不做项（逐项权威依据与证据）
+## 4. ➖ 不适用项（端口形态不同 / 仓库外 / 第三方库；逐项代码级实证）
 
-> 本章是 §0.0 权威口径的落地：每项给出「权威工件条目」+「可复核证据」。
-> 这些不是「已知缺口 / 待后续重导」，而是本项目定义「完整」时所允许的、有记录的不做项。
+> 本章登记**端口无对应宿主或消费方**的 ➖ 不适用项：Node/npm/TypeBox 构造 API、
+> 第三方 Node 渲染库替换、仓库外安装脚本、纯性能内部优化、v2 对象运行时。每项给出
+> 「可复核的代码/仓库证据」。`v1.5.1/v1.5.2` 的 published **功能**变更不在此登记——
+> 它们已全部落到 §3（🔧 本轮落地，含 §3.52–3.63 的收尾批次）。
+> 判定「完整」的权威口径见 §0.0（`migration-execution-status.md`「特殊范围决策」：
+> chord 有意收窄、不宣称 Node/Bun runtime parity、TypeBox 构造 API 不适用、配置 schema 静态产物）。
 
-### 4.1 Chord v2 换根（hook 点名的第一项）
+### 4.1 Chord v2 换根 —— ➖ 换实现（非增量），依赖契约未变
 
 **权威依据**：`migration-execution-status.md`「特殊范围决策」章节（该章节在 `origin/main`
 `fb8cf25` 中即已存在，早于本会话，非本轮改写）——「**chord 是有意收窄的实现**：只保留
@@ -303,13 +348,13 @@ durable 实际用到的 `Delta`/`Facets`/`Services`/`Context`/`Node`；**对象�
 - `git grep -l "@earendil-works/chord" v1.5.2 -- apps/**` 命中 63 个文件，全在 `apps/p2`
   原型应用；端口从未移植 p2（权威：1.5.0 delta §5「未发布/实验/示例不跟」）。
 
-**判定**：换根影响的是 v2 对象运行时/跨进程/app kit，而端口按权威决策只实现 durable 用到的
-v1 基础层；durable 的依赖契约实证未变。因此这是「已登记的语义差异 / 不适用」，不是
-v1.5.2 对齐的功能缺口。若将来要移植 v2，应按边界表另立「重写 Pi.Chord」项目，而非补丁批次。
+**判定**：➖ 不适用。换根影响的是 v2 对象运行时/跨进程/app kit，而端口按权威决策只实现
+durable 用到的 v1 基础层；durable 的依赖契约实证未变，v1 基础层在 v1.5.2 无可移植的行为增量。
+若将来要移植 v2，应按边界表另立「重写 Pi.Chord」项目，而非补丁批次。
 
-### 4.2 Anthropic 消息线程（#11545）—— 已实际移植
+### 4.2 Anthropic 消息线程（#11545）—— ✅ 已实际移植（§3.25）
 
-本轮已把消息线程**整体落地**（§3.25），不再是「有记录的不做项」：
+本轮已把消息线程**整体落地**（§3.25），不是不做项：
 - 新增 `src/Pi.Ai/Api/AnthropicMessageThreads.cs`：会话级 `create/continue/off` 状态机、
   前缀短哈希（`Hash.ShortHash` + cache_control/字符串 content 归一化）、
   `prepareThreadRequest`（前缀未变时裁掉前缀、去掉 system/tools、带 previous_message_id）、
@@ -345,43 +390,44 @@ env daemon `process` 操作（`RemoteProcess`/进程管道）是 Node 侧 PTY/�
 移植**（§3.30，新增 `IMcpPipe`/`PipeTransport`/`JsonRpcLineReader`，15 用例对照上游
 `pipe.test.ts`/`lines.test.ts`）；mcp 的 SSE/JSON 大小限制、CR-only、大消息 O(n²)、连接释放
 亦已落地（§3.27/§3.31/§3.32/§3.34）。仅 env daemon `process` 操作（`RemoteProcess` 进程管道）
-按「不适用（端口形态不同）」记为有记录的不做项——端口 `Pi.Env` 是 SSH 远程环境，没有
-Node daemon 的 PTY/进程组消费方。
+为 ➖ 不适用（端口形态不同）——`Pi.Env` 是 SSH 远程环境，没有 Node daemon 的 PTY/进程组消费方
+（权威：边界表「env 的 node 侧 listFiles/PTY/nodePlatform 不适用」）。
 
-### 4.4 独立单点修复（coding-agent / tui / durable / ai / mcp）
+### 4.4 曾误记为「不做项」的 published 项 —— 全部真实移植 + 仅余 ➖ 不适用
 
-**权威依据**：边界表第 139 行「已登记的语义差异（非本版本范围）……逐条见
-review-inconsistencies-2026-10-21.md；不属于未落地项」；第 137 行「暂不移植（成本/收益）」；
-1.5.0 delta §5 对「未发布提交按需单独评估」的先例。
+复核前，本节曾把下列 **v1.5.1/v1.5.2 published 的功能变更**列作「有记录的不做项」。
+这是对已发布变更的漏做，不是本补丁批次按成本/收益主动搁置的遗留工作。收尾批次已逐项真实
+移植（每项落点 + 定向用例见 §3），本报告不再把任何 published 功能变更登记为不做项：
 
-**本轮已移植的单点修复**（§3.26–3.51，含 §3.22 的 #11803 前置）：`#9557`（非 strict 工具根 $defs）、`#11764`（SSE 孤立 CR）、
-`#7121`（截断不劈代理对）、`#11923`（粘贴短标记重编号）、`#10497`、`#11695`、`#11879`、
-以及第三轮真正补上的 `PipeTransport`（新 API，§3.30）、`#11761`（MCP stdio 大消息 O(n²)，§3.31）、
-`#11335`（Streamable HTTP 应答体/错误体上限，§3.32）、`#11703`（预发布版本 changelog，§3.33）、
-`#11729`（oversized SSE 释放连接，§3.34）、`#11643`（read/write 新语言高亮，§3.35）、
-`#7121` find/ls `limit` 边界（§3.36）、`#11806`（单模型 scope 可切换，§3.37）、
-`#11835`（全屏 Kitty 图像去 WezTerm 门控，§3.38）、`#11651`（`pi config` 加载自定义键位，§3.39）、
-`#11765`（Windows/WSL Ctrl+V 粘贴键，§3.40）、`#11613`（bash 超时补报 shell 退出码，§3.41）、
-`#11451`（`/tree` 导航后思考档位恢复，§3.42）、`#11803`（tool_search 文本 + codemode output 摘要跟随本地 `$ref`，§3.43）、
-`#9441`（内部光标标记不外泄，§3.44）、`#11692`（退出前等待 OAuth 刷新写入，§3.45）、
-`#11738`（排队图片投递时缩放，§3.46）、`#8612`（纯图片排队消息出队，§3.47）、
-`#11875`（`ctrl+o` 作用到 pending 区 `!`/`!!` 输出框，§3.48）、
-`cacheWarming:"idle"` 默认档位（§3.49）、`#9126`（dispose 先结算，§3.50）、
-`#9222`（核心 reload 守卫，§3.51）。
+| 曾记为「不做项」的 published 项 | 真实移植落点 | 验证 |
+| --- | --- | --- |
+| `#11807` / `#9276` rg glob 锚定 path + 上下文行 | §3.52 `GrepRgEvents.cs` + `GrepTool` | `GrepRgEventsTests` 16 |
+| `#9155` prompt 预检 / 树导航重叠 | §3.53 `_promptPreflightCount` | `AgentSessionTreeTests` 1 |
+| `#8544` edit 保留未改动行行尾 | §3.54 `EditDiff.ApplyReplacementsToOriginal` | `EditLineEndingsTests` 12 |
+| `registerMarkdownTransformer(messageTypes)`（#11756）/ `ctx.ui.custom(blocked)`（#11851） | §3.55 `MarkdownMessageTypes` / overlay 状态源 | `ExtensionRunnerTests` 3 + `InteractiveModeTests` 3 |
+| `#9654` read 流式选行 | §3.56 `ReadStreamSelector.cs` | `ReadStreamSelectorTests` 9 |
+| `#11599` / `#11752` RPC/print 关闭时序 | §3.57 `ShutdownCoordinator.cs` | `ShutdownCoordinatorTests` 6 |
+| `#11975` 会话 cwd 丢失 continue/fork/cancel | §3.58 `SessionCwd` + Main/Lifecycle/Commands | `SessionCwdChoiceTests` 4 |
+| `pi auth login/logout`（9b9cb30ae） | §3.59 `Cli/AuthLogin.cs` + `AuthTerminal.cs` + Main 分发 | `AuthLoginTests` 30 |
+| 逐会话 `CompactionSettings`（#11771） | §3.60 `CompactionSettings` + `ForModel(model, conversation)` + `AgentDocs` | `CompactionSettingsTests` 11 |
+| JSONL `readOnly`（#11939） | §3.61 `JsonlStorage.ReadOnly` + 重试 | `JsonlStorageReadOnlyTests` 6 |
+| `#11892` 调度 pass 并发通知不丢 | §3.63 架构免疫 + 行为回归 | `SchedulerNotificationRaceTests` 1 |
+| `#11974` find abort 落在 .git 查找期不启动 fd | §3.62 `FindTool` spawn 前 abort 检查 | `FindAbortBeforeSpawnTests` 2 |
 
-**仍为有记录的不做项的逐项**（issue 号即单独复用的索引）：`#11807` 后半（rg cwd 切到
-`searchPath`）/ `#9276`（上下文行改由 ripgrep 提供，两者与端口 `GrepOperations.ReadFileAsync`
-绝对路径取值链纠缠，且本机无 `rg` 可做运行时回归验证）、`#11975`、
-`pi auth login/logout`、`registerMarkdownTransformer(messageTypes)`、Mermaid、
-`ctx.ui.custom(blocked)`、`#9654`、`#8544`、`#9155`、
-`#11708`、`#11892`、durable 逐会话 `CompactionSettings`/JSONL
-`readOnly`/group commit、RPC 关闭时序、Windows 安装器/PowerShell 5.1/fd 下载。
+**仅余 ➖ 不适用项（代码级/仓库级实证，非 published 功能漏做）**：
 
-**判定**：剩余项均为独立、可按 issue 号单独取用的行为改动，不改变 published API 契约；
-按边界表「已登记的语义差异 / 暂不移植（成本收益）」记录。其中与端口形态冲突的
-（Windows 安装器、PowerShell 5.1、Node 动态加载、`#11708` 的 JS addEventListener 泄漏修复，
-端口用 `Task.Delay(signal)` 无此形态）另归「不适用」。
-这不是「本补丁批次不逐条追」的遗留工作，而是与 1.4.0/1.5.0 验收同款的有记录不做项。
+| 项 | 实证 |
+| --- | --- |
+| `#8158` Mermaid 渲染升级 | 上游是 `grok-mermaid` → `lovely-mermaid`（第三方 Node 包）+ `toAnsi`/`AnsiTheme` 的库替换。端口 `Mermaid.cs` 的 `render()` 是**注入 seam**（文件头注释明确「The rendering engine itself (grok-mermaid) is NOT ported」），默认回落原始文本；端口无该 Node 包、也无 `toAnsi`/`AnsiTheme` 消费方，库替换不改变端口可观察行为（`git show aceb1bd12` 仅动 `mermaid.ts` + package.json + 测试）。 |
+| `SqliteStorage.commit(batches)` group commit（fabf916fc） | 上游 spec 自述「a call costs a few statements whatever its number of batches」——把多 batch 合并成几条 SQL 以省**远程** SQLite 往返的**纯性能优化**，不改变存储可观察语义（同一事务、同样 prefix-stop 拒绝）。端口 `Pi.Durable/Storage/SqliteStorage.cs` 用本地嵌入式 `Microsoft.Data.Sqlite` 单连接（`CommitAsync` 一次一批，`Microsoft.Data.Sqlite` 无 Durable Objects 的 100 参数/远程往返约束），无对应优化面。 |
+| chord store group commit（8889e623d，decision S18） | 改的是 `packages/chord/src/store/store.ts`（v2 对象运行时 store）与 `live-query.ts`；端口 `Pi.Chord` 无 `store.ts`（`find src/Pi.Chord -name '*.cs'` 无 store/live-query 文件），属 §4.1 已判定有意收窄的 v2 层。 |
+| `#11725`（曾误记 `#11708`）Codex SSE 重试 abort 监听泄漏 | 上游修的是 JS `AbortSignal` 的 `addEventListener("abort", …)` 匿名监听在 backoff 结束时不 `removeEventListener` 的泄漏（`git show 90b42bca6`：加 `{ once: true }` + 命名 handler + timer 里 remove）。端口 `OpenAiCodexResponses.cs:186 AbortableDelayAsync` 用 `await Task.Delay(ms, signal)` + `catch (OperationCanceledException)` 转 `"Request was aborted"`；`CancellationToken` 无「注册回调不注销」形态，不存在该泄漏面。 |
+| Windows 安装器 `install.ps1` / PowerShell 5.1 `NativeCommandError`（#11962/#11944, 77959d667） | 上游 commit 自述「The installer lives in **pi.dev**」，此提交**仅是 `packages/coding-agent/CHANGELOG.md` 一行文档**，修复在 `earendil-works/pi.dev#188` 的 `install.ps1`。端口仓库无 `install.ps1`（`irm https://pi.dev/install.ps1 \| iex` 的 npm/PS5.1 宿主），为 .NET 分发，无对应脚本文件可改。 |
+| `fd` 下载链里的 abort 行为（#11974 已移植，§3.62） | 端口 `FindTool` 确有 `ToolsManager.EnsureToolAsync("fd")`（会下载）；其 abort-before-spawn 行为已真实移植（§3.62）。其余「Windows find 路径 glob 与各种 fd 版本匹配」(#11972 等) 改的是 `find.ts` 里 `fd --full-path` 的 Windows 路径模式，端口 `FindTool.cs` 已有 `effectivePattern.Replace("/", @"[/\\]")` 逐字对应（§3.52 一带），无独立缺口。 |
+| `pi update` 摘要 / 扩展 npm 依赖解析 / Node bundler 动态 import chunk | Node/npm/构建链专有；权威「不宣称完整 Node/Bun runtime parity」+「纯导出桶/Node 专属启动器无独立 C# 语义」。 |
+
+**判定**：以上 ➖ 项均为「端口无对应宿主/消费方」或「仓库外/第三方库/纯性能优化」，
+有具体文件、行号、`git show` 提交与代码形态实证；不含任何 v1.5.1/v1.5.2 published 功能变更。
 
 ### 4.5 schema / telemetry 微秒时钟 / lazy provider（TypeBox/Node 专有）
 
@@ -399,7 +445,7 @@ Static 泛型（TS 编译期类型）、BigInt/Undefined 类型（JSON 无对应
  在无微秒时间戳时是恒等变换）、lazy OAuth/Bedrock 动态 import chunk（Node bundler 专有）、
 `provider.refreshModelsAuth`（端口目录刷新不走该 OAuth 路径）。
 
-**判定**：➖ 不适用 / 📋 已登记语义差异，符合权威「TypeBox 构造 API 不适用」决策。
+**判定**：➖ 不适用，符合权威「TypeBox 构造 API 不适用 / 配置 schema 静态产物 / 不宣称 Node/Bun runtime parity」决策。
 
 ### 4.6 语料快照的维护方式（非缺口，方法学说明）
 
@@ -413,22 +459,25 @@ Static 泛型（TS 编译期类型）、BigInt/Undefined 类型（JSON 无对应
 生成器对 v1.5.2 已失效（`parseModelPattern` 上游改名 `resolveModelReference`），这是
 工具与参照源的既有版本差，不是迁移缺口；按权威既定做法单点维护快照。
 
-### 4.7 沿用 1.5.0 台账的既定不做项
+### 4.7 范围外（非「不做项」，无 published 功能变更）
 
-- `v1.5.2..HEAD` 的未发布提交（`main` 上 1.5.2 之后的 p2/p3 实验）：等下一个 tag（1.5.0 delta §5 先例）。
-- `apps/` 下 p2 原型应用与 `docs(p2/p3)` 设计稿（191,148 行）：实验稿，端口从未移植。
-- Node/npm/TypeBox/安装器/构建链专有项：➖ 不适用。
-- TS 侧 schema 构造 API：➖ 不适用。
+- `v1.5.2..HEAD` 的未发布提交（`main` 上 1.5.2 之后的 p2/p3 实验）：等下一个 tag（1.5.0 delta §5 先例）——**不是**本 release 的 published 变更。
+- `apps/` 下 p2 原型应用与 `docs(p2/p3)` 设计稿（191,148 行）：实验稿，端口从未移植（§4.1 实证 apps/p2 无 `packages/**` 消费方）。
+- Node/npm/TypeBox/安装器/构建链专有项、TS 侧 schema 构造 API：➖ 不适用（§4.4 / §4.5 代码级实证）。
 
 ## 5. 复核方法（下一批动工前）
 
-1. `git -C D:\AI\参考项目\pi log -1` 确认检出；若越过 `b4afdddf4`，用
-   `git log --oneline v1.5.2..HEAD` 重新评估（当前 `a40abecaa`）。
+1. `git -C D:\AI\参考项目\pi tag --sort=-v:refname | head` 与 `origin/stable` 指向确认
+   最新 release；1.5.0 之后为 `v1.5.1`、`v1.5.2`（`origin/stable = b4afdddf4`，tag `v1.5.2`）。
+   若上游越过该点，用 `git log --oneline v1.5.2..HEAD` 重新评估。
 2. 表驱动常量逐项 diff：`ModelData/*.json` 的 provider/model 表、`defaultModelPerProvider`
    （`model-resolver.ts`）、`compat` 字段表、`Retry.cs` / `Overflow.cs` 模式表。**不能只看漂移窗口**。
 3. 每批收口：`dotnet build Pi.slnx -m:1` 0 警告 0 错误 → 定向测试 → 全量门禁测试 →
    提交 → 更新本台账与 `CHANGELOG.md`。
-4. 验证「有没有漏掉新 release」：`git -C D:\AI\参考项目\pi tag --sort=-v:refname | head`
-   与 `origin/stable` 指向；1.5.0 之后为 `v1.5.1`、`v1.5.2`。
-5. 排除项不是缺口：判定标准与证据链见 §0.0 / §4；新增排除项必须落到权威工件的某一条目，
-   并给出可复核证据（git 实证 / 端口既有实现的文件行号），不得使用「待后续」「已知缺口」措辞。
+4. 判定「完整」的口径见 §0.0 / §4：**published 功能变更一律真实移植（§3），不得登记为
+   「有记录的不做项」**；`§4` 的 ➖ 不适用项必须落到权威工件「特殊范围决策」的某一条目，
+   并给出可复核的代码/`git show` 实证，不得使用「待后续」「已知缺口」「暂不跟」措辞。
+5. 迁移完成收口：版本号（`Directory.Build.props` + `Assets/package.json` 一致）、
+   根目录/内嵌 CHANGELOG、`docs/migration-execution-status.md` 当前口径、`llms.md` 计数、
+   Debug/Release 全量 build + `gate-tests.sh` 全绿、`v1.5.2` 附注 tag 指向 HEAD、
+   `pi --version` 冒烟、`git diff --check` 干净、工作树干净。

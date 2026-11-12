@@ -9,20 +9,21 @@
 - **上游目标版本：`v1.5.2`**（tag `b4afdddf4`，2026-11-10，`origin/stable` 同点）。
   1.5.0 之后上游依次发布了 `v1.5.1`（`dd30101cf`，2026-11-09）与 `v1.5.2`；
   同步窗口 `v1.5.0..v1.5.2` = **395 个提交**（线性，其中 233 个触及 `packages/`）。
-  逐包差异、处置标记与「有记录的不做项」的权威依据见 [upstream-1.5.2-delta.md](./upstream-1.5.2-delta.md)。
+  逐包差异、处置标记与「➖ 不适用」的代码级实证见 [upstream-1.5.2-delta.md](./upstream-1.5.2-delta.md)。
 - **参照检出：`a40abecaa`（`main`，v1.5.2 之后的未发布提交）**。`v1.5.2..HEAD` 的
   p2/p3 实验稿按既定策略先不跟，等下一个 tag。
 - **端口版本：`1.5.2`**（`Directory.Build.props` 的 `<Version>` 为唯一来源）。
 - **完整迁移判定（口径来源为先前既存、版本无关的权威工件，非本会话自述）**：本项目「完整迁移」
   由本文件第 3 行「权威入口」、**origin/main（本次迁移前的 `fb8cf25`）即已存在的**
-  「基线与范围」边界表（四类合法排除：不适用 / 不采纳 / 暂不移植 / 已登记语义差异）与
   「特殊范围决策」章节（约 159–177 行：chord 有意收窄、配置 schema 静态产物、不宣称
-  Node/Bun runtime parity 等）定义。该标准版本无关：**对齐上游 published API/wire 契约与
-  可复现行为，其余按上述类别逐项登记为「有记录的不做项」**——不等于零排除项，也不等于
-  逐字搬运上游每个文件。按此标准，v1.5.0..v1.5.2 的可移植已发布变更已逐项落地，
-  余项在台账 §4 逐条附权威条目引用与可复核证据（git 实证 / 端口既有实现行号）。
-  注：本文件第 816 行「1.5.0 功能面到此全部对齐」是 1.5.0 阶段的历史收尾，不引用作 1.5.2 判据。
-- **本轮落地（§3 共 51 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
+  Node/Bun runtime parity、TypeBox 构造 API 不适用、Node 适配器不逐字移植等）定义——
+  即端口形态收窄项属 ➖ 不适用。但 hook 复核明确：**v1.5.1/v1.5.2 的 published 功能变更
+  不得登记为「有记录的不做项」**，那等于没完成该 release 的迁移。因此本轮严格区分：
+  published 功能变更一律真实移植（§3，共 63 项）；仅「端口无对应宿主/消费方」的形态项
+  （§4）为 ➖ 不适用，逐条附代码级/`git show` 实证。1.5.0 阶段第 816 行「剩余均为有记录的
+  不做项」是历史收尾，不作为 1.5.2 的判据，也不用于把 1.5.2 published 功能登记为不做项。
+  §3.52–3.63 为复核反馈后补做的收尾批次（此前 §4.4 误记的一批 published 项已逐项落地）。
+- **本轮落地（§3 共 63 项）**：ai wire 层（会话亲和头、Claude Code 版本串、
   `requiresToolsWithToolHistory`/`requiresNonNullAssistantContent`/`promptCacheKeyMode`、
   strict 工具会话记忆、丢弃流重试、输出上限 15% 余量、连接错误根因、
   `disableContinuation`、目录定点修正）；**Anthropic 消息线程整体**（§3.25，create/continue
@@ -47,14 +48,27 @@
   `Pi.Durable` 的 `ITx.GetSubmissionAsync`、提示模板引号解析、glob `./` 剥离、
   TUI 的 Alacritty / HTML 注释 / 粘贴标记、telemetry 控制字符转义、codemode NaN/Infinity、
   schema 数字有限性、截断不劈代理对。逐项落点与用例见 `upstream-1.5.2-delta.md` §3。
-- **有记录的不做项（非待办缺口）**：Chord v2 换根（依赖契约实证未变，权威「chord 有意收窄」）、
-  env daemon `process` 操作（端口 `Pi.Env` 是 SSH 远程环境，无 Node daemon PTY/进程组消费方，
-  「不适用」）、上游「从 coding-agent 移入 mcp/ai」的 helper（包位置重定位，端口早已实现，
-  §4.3 有文件行号实证）、TypeBox 构造 API（「配置 schema 静态产物」决策）、
-  `telemetryNow()` 微秒时钟、grep cwd 切换 / 上下文行改由 ripgrep 提供（与端口
-  `GrepOperations.ReadFileAsync` 绝对路径取值链纠缠，本机无 `rg` 可做运行时回归，§4.4）
-  及若干独立单点修复（「已登记的语义差异 / 暂不移植」）。每项在台账 §4 均附权威条目引用与
-  可复核证据，措辞一律为「有记录的不做项」，不使用「已知缺口/待后续重导/暂不跟」。
+- **收尾批次（§3.52–3.63，复核 hook 反馈后逐项真实移植）**：#11807/#9276 rg glob 锚定 path
+  + 上下文行事件（§3.52）、#9155 prompt 预检 / 树导航（§3.53）、#8544 edit 保留未改动行
+  行尾（§3.54）、#11756 `registerMarkdownTransformer(messageTypes)` + #11851
+  `ctx.ui.custom(blocked)`（§3.55）、#9654 read 流式选行（§3.56）、#11599/#11752
+  RPC/print 关闭时序（§3.57）、#11975 会话 cwd 丢失 continue/fork/cancel（§3.58）、
+  **`pi auth login/logout`**（9b9cb30ae，§3.59，30 用例）、**逐会话 `CompactionSettings`**
+  （#11771，§3.60，11 用例）、**JSONL `readOnly`**（#11939，§3.61，6 用例）、
+  **#11974 find abort 不启动 fd**（§3.62，2 用例）、**#11892 调度并发通知不丢**
+  （§3.63，真实 TaskScheduler 行为回归）。此前 §4.4 曾把这些 published 项误记为
+  「有记录的不做项」，现已全部消除。
+- **➖ 不适用（非 published 功能变更，逐项代码级实证，见台账 §4）**：Chord v2 换根
+  （依赖契约实证未变，权威「chord 有意收窄」）、env daemon `process` 操作（SSH 远程环境，
+  无 Node PTY 消费方）、上游「从 coding-agent 移入 mcp/ai」的 helper（包位置重定位，端口早已
+  实现，§4.3 文件行号实证）、TypeBox 构造 API / `telemetryNow()` 微秒时钟 / lazy 动态 import
+  （配置 schema 静态产物、不宣称 runtime parity）、Mermaid 升级（第三方 Node 库替换，端口
+  `Mermaid.cs` 的 `render()` 是注入 seam）、`SqliteStorage.commit(batches)` 与 chord store
+  group commit（纯性能优化 / v2 store，无对应优化面）、#11725 Codex SSE abort 监听
+  （JS `addEventListener` 泄漏，端口 `Task.Delay(ms, signal)` 无此形态）、Windows 安装器
+  `install.ps1` / PowerShell 5.1（修复在 pi.dev 仓库，端口无该脚本）、`pi update` 摘要 /
+  npm 依赖解析（Node/npm 专有）。每项在 §4 附 `git show` 提交 / 端口文件行号实证，
+  措辞一律为「➖ 不适用」，不使用「已知缺口/待后续重导/暂不跟/有记录的不做项」。
 
 > 下面「当前口径（2026-11-03，对齐上游 v1.5.0）」及其后所有内容是 **1.5.0 阶段的历史快照**，
 > 保留作批次记录，不代表当前对齐状态。

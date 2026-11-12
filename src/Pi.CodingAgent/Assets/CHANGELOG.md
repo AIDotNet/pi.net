@@ -3,10 +3,11 @@
 ## [1.5.2] - 2026-11-12
 
 Aligned with upstream Pi `v1.5.1` / `v1.5.2`. See `CHANGELOG.md` at the repository root and
-`docs/upstream-1.5.2-delta.md` for the full delta ledger. Per the repository's authoritative scope
-document (`docs/migration-execution-status.md`), the port's functional surface is fully aligned;
-remaining upstream changes are documented deliberate non-items with cited evidence (mostly package
-relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-specific code).
+`docs/upstream-1.5.2-delta.md` for the full delta ledger. Every published functional change of
+v1.5.1/v1.5.2 has been ported with regression tests (§3, 63 items). Only items with no .NET
+counterpart remain out of scope (➖ not-applicable, code-level evidence in §4): third-party Node
+rendering libraries, repo-external installers, Node/Bun/TypeBox construction APIs, and pure
+performance internals — no published feature is recorded as a deliberate non-item.
 
 ### New Features
 
@@ -81,6 +82,20 @@ relocations whose equivalents already exist in the port, or Node/Bun/TypeBox-spe
   its tool result and final assistant message are persisted before shutdown (#9126).
 - Reloading while streaming or compacting is now rejected at the core session layer,
   matching the TUI entry checks and preventing stale extension contexts (#9222).
+- `pi auth login <provider>` / `pi auth logout <provider>` log in and out from the shell
+  without starting a session: browser / `--no-browser` / `--api-key` method selection, provider
+  matching, terminal prompts, model catalog refresh, and Radius MCP server pointing (9b9cb30ae).
+- Per-conversation `CompactionSettings` override the harness policy field-by-field, with a
+  conversation `enabled: false` also beating harness model overrides (#11771).
+- JSONL storage can be opened `readOnly` for viewers of a directory another process writes:
+  recovery skips torn lines in memory, reclaims nothing, and `commit()` is rejected (#11939).
+- `find` no longer starts `fd` when an abort lands during the parent `.git` lookup (#11974).
+- Ripgrep globs are anchored to the search path and context lines come from `--context N`
+  events (#11807 / #9276); `edit` preserves untouched CRLF/CR line endings (#8544); `read`
+  streams line selection with bounded memory (#9654); prompt preflight no longer overlaps tree
+  navigation (#9155); Markdown transformers can opt into more surfaces (#11756) and overlay
+  `blocked` status survives until `done()` (#11851); RPC/print shutdown awaits dispose (#11599 /
+  #11752); missing session cwd offers continue/fork/cancel (#11975).
 
 ## [1.5.0] - 2026-11-05
 

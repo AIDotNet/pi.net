@@ -151,7 +151,7 @@ public sealed class CliAuthCommandTests
     {
         var error = Assert.Throws<AuthCommandError>(() => AuthCommands.ParseAuthCommand(["auth", "unknown"]));
         Assert.Equal(
-            "Unknown auth command \"unknown\". Use \"pi auth print-api-key\", \"pi auth print-bearer-token\", or \"pi auth check\".",
+            "Unknown auth command \"unknown\". Use \"pi auth login\", \"pi auth logout\", \"pi auth print-api-key\", \"pi auth print-bearer-token\", or \"pi auth check\".",
             error.Message);
     }
 
@@ -160,7 +160,7 @@ public sealed class CliAuthCommandTests
     {
         var error = Assert.Throws<AuthCommandError>(() => AuthCommands.ParseAuthCommand(["auth"]));
         Assert.Equal(
-            "Unknown auth command \"\". Use \"pi auth print-api-key\", \"pi auth print-bearer-token\", or \"pi auth check\".",
+            "Unknown auth command \"\". Use \"pi auth login\", \"pi auth logout\", \"pi auth print-api-key\", \"pi auth print-bearer-token\", or \"pi auth check\".",
             error.Message);
     }
 
