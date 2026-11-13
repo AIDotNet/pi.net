@@ -138,7 +138,9 @@ using var subscription = session.Subscribe(evt =>
   `mcp__<server>__<tool>` 注册。
 - **技能**：`skills/<name>/SKILL.md`（带 frontmatter），用户级与项目级都认；模型通过
   `skill` 工具按需加载。
-- **扩展**：继承扩展基类、编译成 .NET 程序集后放进扩展目录；C# 扩展 API 见
+- **扩展**：上游 TypeScript 插件放进扩展目录即可加载（进程内 Jint + Babel，无需编译），
+  也可以编译成 .NET 程序集；两条通道怎么选、边界在哪，见 [插件接入](../plugin-integration.md)，
+  C# 扩展 API 见
   [`src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md`](../../src/Pi.CodingAgent/Assets/docs/dotnet-extensions.md)。
 
 ## 和 CLI 的关系

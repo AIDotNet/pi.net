@@ -95,6 +95,8 @@ dotnet run --project samples/Pi.Samples.McpClient
 - **[cli.md](cli.md)** —— `pi` 命令行：子命令、全部选项、端口实际读取的环境变量。
 - **[sdk.md](sdk.md)** —— 嵌入 SDK：`CreateAgentSessionOptions` 全字段、`AgentSession` 公开面、不落盘会话。
 - **[configuration.md](configuration.md)** —— 全局与项目配置：目录一览、settings.json 字段分组、models.json / mcp.json、信任机制。
+- **[plugin-integration.md](../plugin-integration.md)** —— 上游 pi 插件怎么接：源码插件与程序集插件两条通道、加载链路、能力边界与坑。
+- **[embedding-plugins.md](../embedding-plugins.md)** —— 应用里集成：SDK 内嵌与 RPC 子进程两种形态、`IExtensionUIContext`、项目信任、插件打包与隔离。
 - **[sessions.md](sessions.md)** —— 会话存档：文件与目录布局、CLI 入口对照、恢复行为、压缩策略。
 - **[codemode.md](codemode.md)** —— codemode：开关与呈现、脚本可用面、`@options`、失败语义、嵌入用法。
 
