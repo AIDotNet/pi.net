@@ -17,8 +17,12 @@ internal static class TestPaths
         Environment.GetEnvironmentVariable("PI_ENV_DAEMON")
         ?? Path.Join(RepositoryRoot, "tools", "pi-env-daemon-target", "debug", Exe("pi-env"));
 
+    // 假守护进程是独立进程，须与当前测试运行时同 TFM：只构建 net11.0 的机器上
+    // 不会有 net10.0 产物，硬编码会让 Env 用例直接找不到可执行文件。
+    private static readonly string CurrentTfm = $"net{Environment.Version.Major}.{Environment.Version.Minor}";
+
     public static string FakeDaemon =>
-        Path.Join(RepositoryRoot, "tests", "Pi.Env.FakeDaemon", "bin", "Debug", "net10.0", Exe("Pi.Env.FakeDaemon"));
+        Path.Join(RepositoryRoot, "tests", "Pi.Env.FakeDaemon", "bin", "Debug", CurrentTfm, Exe("Pi.Env.FakeDaemon"));
 
     public static bool DaemonAvailable => File.Exists(Daemon);
 

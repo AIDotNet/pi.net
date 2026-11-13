@@ -1,9 +1,33 @@
 # Changelog
 
-All notable changes to `pi.net` — the .NET 10 port of [pi](https://github.com/earendil-works/pi) — are documented here.
+All notable changes to `pi.net` — the .NET 10/11 port of [pi](https://github.com/earendil-works/pi) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
 ## [Unreleased]
+
+### Added
+
+- **.NET 11 兼容（`net11.0`）**：`Directory.Build.props` 的 `TargetFrameworks` 扩为
+  `net9.0;net10.0;net11.0`。13 个库、4 个可执行宿主、测试与示例工程零代码改动即在
+  三个 TFM 上构建通过（Debug/Release 各 0 警告 0 错误），`dotnet pack` 产出的 13 个
+  nupkg 均含 `lib/net11.0`。`ci.yml` / `nuget-publish.yml` 的 `setup-dotnet` 同步加入
+  `11.0.x`（编译 `net11.0` 需 11.x SDK）。
+- **`Pi.Env.Tests` 假守护进程路径按当前运行时推断**：`TestSupport.cs` 不再硬编码
+  `bin/Debug/net10.0`，改为 `net{Environment.Version.Major}.{Environment.Version.Minor}`，
+  避免只构建/只安装 `net11.0` 的机器上找不到可执行文件。
+
+### 验证（本机 .NET 11 SDK `11.0.100-rc.3.26522.148` + 系统 10.0.401）
+
+- `dotnet build Pi.slnx -c Debug` / `-c Release`：三 TFM、0 警告 0 错误。
+- `GATE_FRAMEWORK=net11.0 bash scripts/gate-tests.sh Release`：**11/11 全绿**
+  （CodingAgent 5400/5405、Ai 1060/1061、Durable 613/613；Durable 一次负载 flake 重跑通过）。
+- 门禁外 `net11.0`：`Pi.Tui.Tests` 23975/23975、`Pi.Env.Tests` 50 通过 / 4 平台跳过。
+- `GATE_FRAMEWORK=net10.0 bash scripts/gate-tests.sh Release`（系统 SDK）：10/11 门禁内
+  通过，`Pi.Durable.Tests` 负载 flake（612/613）单独复跑 613/613 全绿；无回归。
+- `dotnet pack Pi.slnx -c Release --no-build`：13 个 nupkg，`Pi.Ai` 含
+  `lib/net9.0` + `lib/net10.0` + `lib/net11.0`。
+
+> 本机 .NET 11 为 RC3 预览 SDK/运行时；GA `11.0.100` 发布后建议用 GA 再复核一次构建与门禁。
 
 ## [1.5.2] - 2026-11-12
 

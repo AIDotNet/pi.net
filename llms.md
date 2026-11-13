@@ -1,6 +1,6 @@
 # Pi.NET
 
-> Pi.NET 是 [Pi](https://github.com/earendil-works/pi)（TypeScript agent harness，约 17 万行）的 .NET 10 移植：
+> Pi.NET 是 [Pi](https://github.com/earendil-works/pi)（TypeScript agent harness，约 17 万行）的 .NET 10/11 移植：
 > 17 个源项目、13 个发布到 nuget.org 的库、4 个不打包的可执行宿主、14 个测试项目、约 3 万项测试。
 > 上游 TypeScript 仓库是**行为基准**；本仓库用惯用 C# 重写，不做逐行翻译。
 >
@@ -38,9 +38,9 @@
 | 发布 `pi` 到目录 | `dotnet publish src/Pi.Cli -c Release -o ./pi-bin` |
 | 重新生成 models.json 字段文档 | `node scripts/gen-models-configuration.mjs`（`--check` 供 CI 判断是否过期） |
 
-需要 .NET 10 SDK。库与可执行程序都是多目标 `net9.0;net10.0`，消费方按自己的运行时选；net8.0 及以下不支持。
+需要 .NET 11 SDK（编译 `net11.0`）。库与可执行程序都是多目标 `net9.0;net10.0;net11.0`，消费方按自己的运行时选；net8.0 及以下不支持。
 
-多目标是零成本的：net9.0 已经有 net10.0 用到的全部 API（`JsonStringEnumMemberName`、`System.Threading.Lock`、`Convert.ToHexStringLower`、`JsonSerializerOptions.NewLine`），所以代码里没有任何 `#if` 分支。真正的运行时差异只有两处，都已按「两个 TFM 行为一致」修掉：事件记录上的 `Type` 属性必须逐个标 `[JsonIgnore]`（否则一行 JSON 出现两个 `type` 键，net9.0 的 `JsonObject` 会直接抛错），以及 `Pi.Evals.ExtensionCompiler` 生成扩展工程时必须用当前运行的 TFM 而不是硬编码。
+多目标是零成本的：net9.0 已经有 net10.0 用到的全部 API（`JsonStringEnumMemberName`、`System.Threading.Lock`、`Convert.ToHexStringLower`、`JsonSerializerOptions.NewLine`），所以代码里没有任何 `#if` 分支。真正的运行时差异只有两处，都已按「三个 TFM 行为一致」修掉：事件记录上的 `Type` 属性必须逐个标 `[JsonIgnore]`（否则一行 JSON 出现两个 `type` 键，net9.0 的 `JsonObject` 会直接抛错），以及 `Pi.Evals.ExtensionCompiler` 生成扩展工程时必须用当前运行的 TFM 而不是硬编码。
 
 `samples/` 下五个工程**在 solution 里**，这是故意的：改公共 API 时它们一起编译失败，逼迫文档里的示例不烂掉。
 
