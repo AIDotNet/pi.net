@@ -112,6 +112,18 @@ source-generated metadata 覆盖了所有 POCO 路径、用完整元数据 + 整
 `PublishAot=true` 的条件组，默认构建完全不受影响；每一类都被
 `scripts/verify-aot.py` 的真实二进制端到端对拍覆盖，而不是靠静态断言。
 
+逐类说明（含非 JSON 类别）：
+
+| 诊断 | 出现形式 | 为什么不构成功能损失 |
+| --- | --- | --- |
+| `IL2026` / `IL3050` | `JsonSerializer.*` 反射重载、`JsonValue.Create<T>` / `JsonArray.Add<T>` 非基元类型 | POCO 走 source-gen；反射解析器在完整元数据 + 整体 root 下对基元 / `JsonNode` / 未登记类型仍可用。已用与最终 AOT 配置一致的独立原生探针验证：`JsonArray.Add<JsonObject>`、`JsonArray.Add<JsonArray>`、`JsonValue.Create<POCO>`、`Serialize<object>(POCO)` 全部成功（`FAILS=0`）。 |
+| `IL2075` / `IL2072` / `IL2090` | `GetType().GetProperty/GetField/GetMethod`、`Activator.CreateInstance(Type)` | 完整类型元数据 + 整体 root 保留了全部成员与构造器；独立 AOT 探针中 `GetProperty` 与 `MakeGenericType` / `Activator.CreateInstance` 均通过。 |
+| `IL3000` | `PluginBundles.ResolvePluginExternal` 的 `Assembly.Location` | 该返回值在 `JintFacetModuleHost` 里只用于 `resolver?.Invoke(specifier) is null` 的**非空哨兵判断**，Native AOT 返回空串仍非 null，JS 模块照常经 `__pi_pluginApi` 注册，行为不变。 |
+| `IL2111` | `Delegate.CreateDelegate` 经反射访问 | 同上：整体 root + 完整元数据保留委托目标。 |
+
+另有一处**平台固有**限制（未抑制、也非退化）：外部 .NET 插件程序集在
+Native AOT 下无法被 JIT 加载，见下节。
+
 ## 下游 AOT 消费方
 
 `AotJson.Configure` 的分支只看 `RuntimeFeature.IsDynamicCodeSupported`，因此**任何**
