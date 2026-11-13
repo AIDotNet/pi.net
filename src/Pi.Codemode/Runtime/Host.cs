@@ -32,10 +32,10 @@ public sealed partial class CodemodeSandbox
     };
 
     /// <summary>对应 TS 的 <c>JSON.stringify</c>：默认编码器转义非 ASCII，与 JS 不一致。</summary>
-    private static readonly JsonSerializerOptions JsonStringifyOptions = new()
+    private static readonly JsonSerializerOptions JsonStringifyOptions = AotJson.Configure(new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     private readonly object gate = new();
     private readonly Dictionary<string, CodemodeTool> toolsByName = new(StringComparer.Ordinal);

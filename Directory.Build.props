@@ -3,6 +3,34 @@
     Shared build conventions for the Pi .NET port.
     Mirrors the TS monorepo layout: src/<Pi.Package> maps to packages/<pkg>.
   -->
+
+  <!--
+    Native AOT source-generated JSON contexts live in each package and emit
+    metadata for DTO types declared in sibling packages. Some of those DTOs use
+    internal JsonConverter implementations, so the context's compilation must be
+    able to see the siblings' internals. This is a compile-time friend grant
+    only: it adds no public API and changes no runtime behaviour.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Pi.Agent" />
+    <InternalsVisibleTo Include="Pi.Ai" />
+    <InternalsVisibleTo Include="Pi.Chord" />
+    <InternalsVisibleTo Include="Pi.Cli" />
+    <InternalsVisibleTo Include="Pi.Client" />
+    <InternalsVisibleTo Include="Pi.Codemode" />
+    <InternalsVisibleTo Include="Pi.CodingAgent" />
+    <InternalsVisibleTo Include="Pi.Durable" />
+    <InternalsVisibleTo Include="Pi.DurableHost" />
+    <InternalsVisibleTo Include="Pi.Env" />
+    <InternalsVisibleTo Include="Pi.Evals" />
+    <InternalsVisibleTo Include="Pi.Mcp" />
+    <InternalsVisibleTo Include="Pi.Protocol" />
+    <InternalsVisibleTo Include="Pi.Server" />
+    <InternalsVisibleTo Include="Pi.Telemetry" />
+    <InternalsVisibleTo Include="Pi.Tui" />
+    <InternalsVisibleTo Include="Pi.Vacation" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFrameworks>net9.0;net10.0;net11.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
@@ -12,6 +40,39 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!--
+    Native AOT publishing (opt-in: `scripts/publish-aot.sh`, or
+    `dotnet publish src/Pi.Cli -c Release -f net10.0 -r <rid> -p:PublishAot=true`).
+
+    The default multi-target build (net9.0;net10.0;net11.0) is untouched: this
+    group is only evaluated when PublishAot is explicitly requested.
+
+      * TargetFrameworks -> net10.0: Native AOT emits one native image for one
+        TFM + RID. net11.0 also needs an 11.x SDK that may not be installed.
+      * JsonSerializerIsReflectionEnabledByDefault=true: keep the ~250
+        JsonSerializer reflection overloads working for primitive / JsonNode
+        values and as a fallback. The POCO paths that Native AOT cannot handle
+        are routed through the source-generated contexts in each package's
+        Aot/AotJson.cs (installed only when RuntimeFeature.IsDynamicCodeSupported
+        is false, so JIT behaviour is unchanged).
+      * IlcGenerateCompleteTypeMetadata=true + full assembly rooting: preserve
+        reflection metadata and code for every Pi assembly so no capability is
+        trimmed away — this is the "lossless" part of the AOT support.
+      * The IL2xxx/IL3xxx advisories are expected here: they describe the
+        trimming / runtime-code-generation hazards that the source-generated
+        metadata and complete-metadata mode explicitly cover. Every suppressed
+        category is exercised by scripts/verify-aot.py against the real native
+        binary; see docs/native-aot.md.
+  -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <NoWarn>$(NoWarn);IL2026;IL2072;IL2075;IL2090;IL2111;IL3000;IL3050</NoWarn>
   </PropertyGroup>
 
   <!--

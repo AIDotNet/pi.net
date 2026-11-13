@@ -531,13 +531,13 @@ public static partial class BugReport
     /// <remarks>对测试可见（InternalsVisibleTo）：测试按产物同样的选项断言信封形状。</remarks>
     internal static class ReportJson
     {
-        public static readonly JsonSerializerOptions Options = new()
+        public static readonly JsonSerializerOptions Options = AotJson.Configure(new()
         {
             WriteIndented = true,
             // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
             NewLine = "\n",
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        };
+        });
     }
 
     /// <summary>
@@ -549,11 +549,11 @@ public static partial class BugReport
     /// </remarks>
     private static class SettingsJson
     {
-        public static readonly JsonSerializerOptions Options = new()
+        public static readonly JsonSerializerOptions Options = AotJson.Configure(new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        };
+        });
     }
 }

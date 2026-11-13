@@ -608,10 +608,10 @@ public static class ServiceUpdateWireJson
         return json;
     }
 
-    private static readonly JsonSerializerOptions PayloadOptions = new()
+    private static readonly JsonSerializerOptions PayloadOptions = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
+    });
 }
 
 /// <summary>

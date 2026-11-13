@@ -35,10 +35,10 @@ public static class OpenAiDecisions
     private static readonly int[] NoRetryStatuses = [504];
 
     /// <summary>与 TS <c>JSON.stringify</c> 一致：紧凑、不转义非 ASCII。</summary>
-    private static readonly JsonSerializerOptions StateJsonOptions = new()
+    private static readonly JsonSerializerOptions StateJsonOptions = AotJson.Configure(new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     /// <summary>分类入口。对应 TS <c>classify</c>。</summary>
     public static async Task<ClassifierResult> ClassifyAsync(

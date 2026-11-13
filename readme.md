@@ -83,6 +83,23 @@ dotnet build Pi.slnx --no-restore
 dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```
 
+### Native AOT (optional)
+
+`pi` can also be published as a single, dependency-free native executable — no .NET
+runtime, no JIT. This is additive: the libraries and their public API are unchanged,
+and JIT behavior is byte-for-byte identical.
+
+```bash
+bash scripts/publish-aot.sh                       # -> artifacts/aot/win-x64/pi.exe
+bash scripts/verify-aot.sh artifacts/aot/win-x64 # compare AOT vs JIT on offline commands
+```
+
+The AOT build keeps all Pi assemblies rooted with complete reflection metadata and
+routes POCO JSON through source-generated `JsonSerializerContext`s, so no capability
+is trimmed. See [docs/native-aot.md](docs/native-aot.md) for the mechanism, the
+verification matrix and the one inherent platform limitation (external .NET plugin
+DLLs cannot be JIT-loaded under Native AOT).
+
 Test projects use xUnit v3 with Microsoft.Testing.Platform. Run a test project directly:
 
 ```bash

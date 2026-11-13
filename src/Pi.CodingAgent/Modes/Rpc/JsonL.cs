@@ -111,13 +111,13 @@ public static class JsonL
         var resolver = new DefaultJsonTypeInfoResolver();
         resolver.Modifiers.Add(static typeInfo => AgentMessageJson.AddCodingAgentRoles(typeInfo));
         resolver.Modifiers.Add(static typeInfo => AddAssistantMessageEventDiscriminators(typeInfo));
-        return new JsonSerializerOptions
+        return AotJson.Configure(new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             Encoder = JsonStringifyEncoder.Instance,
             TypeInfoResolver = resolver,
-        };
+        });
     }
 
     /// <summary>

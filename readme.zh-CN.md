@@ -83,6 +83,21 @@ dotnet build Pi.slnx --no-restore
 dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```
 
+### Native AOT（可选）
+
+`pi` 也可以发布成单个、无需 .NET 运行时、无 JIT 的原生可执行文件。这是附加能力：
+库与公开接口不变，JIT 行为逐字节一致。
+
+```bash
+bash scripts/publish-aot.sh                       # -> artifacts/aot/win-x64/pi.exe
+bash scripts/verify-aot.sh artifacts/aot/win-x64 # 离线命令逐条对比 AOT 与 JIT
+```
+
+AOT 构建把全部 Pi 程序集整体 root 并保留完整反射元数据，POCO JSON 走
+source-generated `JsonSerializerContext`，因此不裁剪任何能力。机制、验证矩阵与
+唯一的平台固有限制（Native AOT 无法 JIT 加载外部 .NET 插件 DLL）见
+[docs/native-aot.md](docs/native-aot.md)。
+
 测试项目使用 xUnit v3 和 Microsoft.Testing.Platform。可直接运行一个测试项目：
 
 ```bash

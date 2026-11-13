@@ -36,6 +36,9 @@
 | 打包 | `dotnet pack Pi.slnx -c Release -o artifacts` → 13 个 `.nupkg` + 13 个 `.snupkg` |
 | 跑 CLI | `dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help` |
 | 发布 `pi` 到目录 | `dotnet publish src/Pi.Cli -c Release -o ./pi-bin` |
+| Native AOT 发布（无损、附加能力） | `bash scripts/publish-aot.sh` → `artifacts/aot/<rid>/pi.exe` |
+| AOT 与 JIT 行为对拍 | `bash scripts/verify-aot.sh artifacts/aot/win-x64`（19 条离线命令逐条比对） |
+| 重新生成 AOT JSON 上下文 | `python3 scripts/gen-aot-contexts.py`（清单变化后重跑） |
 | 重新生成 models.json 字段文档 | `node scripts/gen-models-configuration.mjs`（`--check` 供 CI 判断是否过期） |
 
 需要 .NET 11 SDK（编译 `net11.0`）。库与可执行程序都是多目标 `net9.0;net10.0;net11.0`，消费方按自己的运行时选；net8.0 及以下不支持。
@@ -92,6 +95,7 @@ dotnet run --project samples/Pi.Samples.CodingSession
 - [docs/usage/sessions.md](docs/usage/sessions.md)：会话存档的文件与目录布局、恢复行为、压缩策略。
 - [docs/usage/codemode.md](docs/usage/codemode.md)：codemode 开关、脚本可用面、`@options`、失败语义。
 - [docs/usage/models-configuration.md](docs/usage/models-configuration.md)：`models.json` 逐字段的类型、默认值与说明。**由脚本生成**，改 schema 后必须重跑生成器。
+- [docs/native-aot.md](docs/native-aot.md)：Native AOT 无损支持的机制（source-gen JSON + 完整元数据 + 整体 root）、发布/对拍命令、抑制的 IL 警告及理由、平台固有限制。
 
 ## 迁移与验收台账
 

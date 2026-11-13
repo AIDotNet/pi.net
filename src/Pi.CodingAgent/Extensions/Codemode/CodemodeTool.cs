@@ -30,10 +30,10 @@ public static partial class CodemodeToolApi
     /// <summary>Custom entry type holding one script's <c>store()</c> writes.</summary>
     public const string CodemodeStoreEntryType = "codemode-store";
 
-    private static readonly JsonSerializerOptions JsonStringifyOptions = new()
+    private static readonly JsonSerializerOptions JsonStringifyOptions = AotJson.Configure(new()
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     /// <summary>One script's <c>store()</c> writes. TS <c>CodemodeStoreEntryData</c>.</summary>
     public sealed record CodemodeStoreEntryData

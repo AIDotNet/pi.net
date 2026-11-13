@@ -147,7 +147,7 @@ public sealed record Settings
 /// <summary>JSON conventions for the settings/auth/models files. Port of <c>JSON.stringify(x, null, 2)</c>.</summary>
 internal static class SettingsJson
 {
-    public static readonly JsonSerializerOptions Options = new()
+    public static readonly JsonSerializerOptions Options = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
@@ -157,7 +157,7 @@ internal static class SettingsJson
         WriteIndented = true,
         // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
         NewLine = "\n",
-    };
+    });
 
     /// <summary>Serialize with a two-space indent, matching <c>JSON.stringify(value, null, 2)</c>.</summary>
     public static string Stringify(object? value) => JsonSerializer.Serialize(value, Options);

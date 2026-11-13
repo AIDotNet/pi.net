@@ -17,11 +17,11 @@ public static class JsonTrees
 {
     // camelCase 命名策略对齐 TS wire 形状（"text"/"role"/"stopReason"…）；大小写不敏感使
     // PascalCase（STJ 默认形状）与 camelCase 树均可反序列化。显式 [JsonPropertyName] 不受影响。
-    internal static readonly JsonSerializerOptions WireOptions = new()
+    internal static readonly JsonSerializerOptions WireOptions = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
-    };
+    });
 
     private static readonly JsonSerializerOptions Options = WireOptions;
 

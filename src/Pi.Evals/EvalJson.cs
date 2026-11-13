@@ -10,10 +10,10 @@ public static class EvalJson
 
     private static JsonSerializerOptions CreateOptions()
     {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        var options = AotJson.Configure(new JsonSerializerOptions(JsonSerializerDefaults.Web)
         {
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+        });
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower, allowIntegerValues: false));
         return options;
     }

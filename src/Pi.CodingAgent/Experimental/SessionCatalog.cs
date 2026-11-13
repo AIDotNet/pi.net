@@ -205,7 +205,7 @@ public static class SessionCatalog
             ["createdAt"] = JsonValue.Create(createdAt),
             ["cwd"] = JsonValue.Create(cwd),
         };
-        var options = new JsonSerializerOptions
+        var options = AotJson.Configure(new JsonSerializerOptions
         {
             WriteIndented = true,
             // .NET 9+ defaults the writer's line break to Environment.NewLine; TS always writes "\n".
@@ -213,7 +213,7 @@ public static class SessionCatalog
             IndentCharacter = '\t',
             IndentSize = 1,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+        });
         return $"{json.ToJsonString(options)}\n";
     }
 

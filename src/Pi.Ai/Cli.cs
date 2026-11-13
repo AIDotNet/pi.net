@@ -222,10 +222,10 @@ public static class Cli
 /// <summary>CLI 的 auth.json JSON 选项（wire 形状与 TS 一致：camelCase + 类型判别）。</summary>
 internal static class AuthJson
 {
-    public static JsonSerializerOptions Options { get; } = new()
+    public static JsonSerializerOptions Options { get; } = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 }

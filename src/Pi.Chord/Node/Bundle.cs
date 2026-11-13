@@ -350,7 +350,7 @@ public static class FacetBundler
 /// <summary>facet bundle 清单的 JSON 选项（wire 形状与 TS 一致）。</summary>
 internal static class FacetBundleJson
 {
-    public static JsonSerializerOptions Options { get; } = new()
+    public static JsonSerializerOptions Options { get; } = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
@@ -358,5 +358,5 @@ internal static class FacetBundleJson
         // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
         NewLine = "\n",
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 }

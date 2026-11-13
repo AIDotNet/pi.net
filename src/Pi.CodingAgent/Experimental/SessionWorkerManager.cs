@@ -1702,15 +1702,15 @@ internal static class WorkerJson
     /// The options travel as one JSON argument, so their keys must match the TS wire shape
     /// exactly: camelCase, with provider/model omitted when unset (JSON.stringify drops undefined).
     /// </summary>
-    public static readonly JsonSerializerOptions Options = new()
+    public static readonly JsonSerializerOptions Options = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 
     /// <summary>Service call arguments are already wire-encoded values.</summary>
-    public static readonly JsonSerializerOptions Values = new()
+    public static readonly JsonSerializerOptions Values = AotJson.Configure(new()
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 }

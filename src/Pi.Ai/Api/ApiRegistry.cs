@@ -192,9 +192,9 @@ public static class ApiRegistry
 /// <summary>ApiRegistry 的 JSON 反序列化选项。</summary>
 internal static class ApiRegistryJson
 {
-    public static System.Text.Json.JsonSerializerOptions Options { get; } = new()
+    public static System.Text.Json.JsonSerializerOptions Options { get; } = AotJson.Configure(new()
     {
         PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
-    };
+    });
 }

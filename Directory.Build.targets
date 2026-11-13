@@ -12,6 +12,27 @@
   </PropertyGroup>
 
   <!--
+    Native AOT: root every Pi assembly from the executable being published.
+    Combined with IlcGenerateCompleteTypeMetadata (Directory.Build.props) this
+    keeps all code and reflection metadata, so the AOT binary retains every
+    capability of the JIT build rather than trimming reflection-only paths.
+  -->
+  <ItemGroup Condition="'$(PublishAot)' == 'true' and ('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe')">
+    <TrimmerRootAssembly Include="Pi.Agent" />
+    <TrimmerRootAssembly Include="Pi.Ai" />
+    <TrimmerRootAssembly Include="Pi.Chord" />
+    <TrimmerRootAssembly Include="Pi.Client" />
+    <TrimmerRootAssembly Include="Pi.Codemode" />
+    <TrimmerRootAssembly Include="Pi.CodingAgent" />
+    <TrimmerRootAssembly Include="Pi.Durable" />
+    <TrimmerRootAssembly Include="Pi.Mcp" />
+    <TrimmerRootAssembly Include="Pi.Protocol" />
+    <TrimmerRootAssembly Include="Pi.Server" />
+    <TrimmerRootAssembly Include="Pi.Telemetry" />
+    <TrimmerRootAssembly Include="Pi.Tui" />
+  </ItemGroup>
+
+  <!--
     版本一致性守卫。
 
     `Config.Version` 的取值顺序是：程序集版本打底；如果 `Assets/package.json` 就躺在程序集旁边，

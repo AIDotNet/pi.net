@@ -90,10 +90,10 @@ public sealed class InMemoryModelsStore : IModelsStore
 /// <summary>ModelsStore 的 JSON 选项（wire 形状与 TS 一致）。</summary>
 internal static class ModelsStoreJson
 {
-    public static System.Text.Json.JsonSerializerOptions Options { get; } = new()
+    public static System.Text.Json.JsonSerializerOptions Options { get; } = AotJson.Configure(new()
     {
         PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 }

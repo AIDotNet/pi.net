@@ -623,7 +623,7 @@ public static class StoredCredential
 /// <summary>JSON options for auth.json, matching <c>JSON.stringify(value, null, 2)</c>.</summary>
 internal static class AuthJson
 {
-    public static readonly JsonSerializerOptions Options = new()
+    public static readonly JsonSerializerOptions Options = AotJson.Configure(new()
     {
         WriteIndented = true,
         // .NET 9+ defaults the writer's line break to Environment.NewLine; JSON.stringify always
@@ -631,5 +631,5 @@ internal static class AuthJson
         NewLine = "\n",
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 }

@@ -579,7 +579,7 @@ public static class EvalHarness
 
         var auth = JsonSerializer.Deserialize<Dictionary<string, Credential>>(
             json,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            AotJson.Configure(new JsonSerializerOptions { PropertyNameCaseInsensitive = true }));
         return auth?.GetValueOrDefault(provider);
     }
 

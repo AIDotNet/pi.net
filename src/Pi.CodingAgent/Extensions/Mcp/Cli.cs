@@ -150,13 +150,13 @@ public static class McpCli
         ["-l"] = "--local",
     };
 
-    private static readonly JsonSerializerOptions ReportJsonOptions = new()
+    private static readonly JsonSerializerOptions ReportJsonOptions = AotJson.Configure(new()
     {
         WriteIndented = true,
         // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
         NewLine = "\n",
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
+    });
 
     /// <summary>Run <c>pi mcp &lt;args&gt;</c> and return the exit code. TS <c>runMcpCommand</c>.</summary>
     public static async Task<int> RunMcpCommandAsync(string[] args, McpCommandOptions options)

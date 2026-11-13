@@ -485,11 +485,11 @@ public static partial class SessionEntries
         resolver.Modifiers.Add(static typeInfo => AgentMessageJson.AddCodingAgentRoles(typeInfo));
         resolver.Modifiers.Add(static typeInfo => AddLegacyHookRole(typeInfo));
         resolver.Modifiers.Add(static typeInfo => AllowStringToolResultContent(typeInfo));
-        return new JsonSerializerOptions
+        return AotJson.Configure(new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             TypeInfoResolver = resolver,
-        };
+        });
     }
 
     /// <summary>

@@ -55,10 +55,10 @@ public static partial class CodemodeDeclarations
     /// <summary>会结束 <c>//</c> 注释的字符。对应 TS <c>LINE_TERMINATORS</c>。</summary>
     private static readonly Regex LineTerminators = new("[\r\n\u2028\u2029]", RegexOptions.Compiled);
 
-    private static readonly JsonSerializerOptions JsonStringifyOptions = new()
+    private static readonly JsonSerializerOptions JsonStringifyOptions = AotJson.Configure(new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     [GeneratedRegex("^[A-Za-z_$][A-Za-z0-9_$]*$")]
     private static partial Regex IdentifierPattern();

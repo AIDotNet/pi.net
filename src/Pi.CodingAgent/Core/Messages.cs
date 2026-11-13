@@ -140,11 +140,11 @@ public static class AgentMessageJson
     {
         var resolver = new DefaultJsonTypeInfoResolver();
         resolver.Modifiers.Add(static typeInfo => AddCodingAgentRoles(typeInfo));
-        return new JsonSerializerOptions
+        return AotJson.Configure(new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             TypeInfoResolver = resolver,
-        };
+        });
     }
 
     /// <summary>

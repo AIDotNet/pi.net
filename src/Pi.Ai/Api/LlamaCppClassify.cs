@@ -67,12 +67,12 @@ public static class LlamaCppClassify
     private static string RenderState(JsonObject state)
         => $"State:\n{System.Text.Json.JsonSerializer.Serialize(state, StateJsonOptions)}";
 
-    private static readonly System.Text.Json.JsonSerializerOptions StateJsonOptions = new()
+    private static readonly System.Text.Json.JsonSerializerOptions StateJsonOptions = AotJson.Configure(new()
     {
         WriteIndented = true,
         IndentSize = 1,
         NewLine = "\n",
-    };
+    });
 
     /// <summary>问题的答案标签与代表键。选项数不支持时抛错。对应 TS <c>questionLabels</c>。</summary>
     public static (IReadOnlyList<string> Labels, IReadOnlyList<string> Keys) QuestionLabels(

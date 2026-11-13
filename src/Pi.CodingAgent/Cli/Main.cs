@@ -909,10 +909,10 @@ public static class Main
                     node["credentials"] = credentialValue;
                 }
 
-                serialized = node.ToJsonString(new JsonSerializerOptions
+                serialized = node.ToJsonString(AotJson.Configure(new JsonSerializerOptions
                 {
                     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                });
+                }));
             }
             else
             {

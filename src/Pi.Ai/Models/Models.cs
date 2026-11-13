@@ -145,7 +145,13 @@ public sealed partial class Models
     /// <summary>清空全部 provider。</summary>
     public void ClearProviders()
     {
-        foreach (var id in _providers.Keys.Concat(_refreshControllers.Keys).Distinct(StringComparer.Ordinal).ToList())
+        // Snapshot both key collections *before* concatenating: Concat is lazy, so a
+        // trailing ToList() would still enumerate the live dictionaries while a
+        // background catalog refresh mutates them. Native AOT's faster startup makes
+        // that overlap observable ("Collection was modified").
+        var ids = _providers.Keys.ToList();
+        ids.AddRange(_refreshControllers.Keys.ToList());
+        foreach (var id in ids.Distinct(StringComparer.Ordinal))
         {
             SupersedeProviderRefresh(id);
         }
@@ -170,7 +176,11 @@ public sealed partial class Models
                 : SafeModels(entry);
         }
         var models = new List<ModelSpec>();
-        foreach (var entry in _providers.Values)
+        // Snapshot before iterating: a background catalog refresh may call SetProvider
+        // concurrently (RebuildProviders). Native AOT's faster startup makes that
+        // overlap observable; enumerating the live ValueCollection would throw
+        // "Collection was modified". The provider set is otherwise unchanged.
+        foreach (var entry in _providers.Values.ToList())
         {
             models.AddRange(SafeModels(entry));
         }
@@ -200,7 +210,7 @@ public sealed partial class Models
                 : SafeAllModels(entry).Where(model => model.Type == type).ToList();
         }
         var models = new List<ModelSpec>();
-        foreach (var entry in _providers.Values)
+        foreach (var entry in _providers.Values.ToList())
         {
             models.AddRange(SafeAllModels(entry).Where(model => model.Type == type));
         }
@@ -340,7 +350,7 @@ public sealed partial class Models
             return !_providers.TryGetValue(provider, out var entry) ? [] : SafeAllModels(entry);
         }
         var models = new List<ModelSpec>();
-        foreach (var entry in _providers.Values) models.AddRange(SafeAllModels(entry));
+        foreach (var entry in _providers.Values.ToList()) models.AddRange(SafeAllModels(entry));
         return models;
     }
 

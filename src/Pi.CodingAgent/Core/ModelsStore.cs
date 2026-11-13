@@ -17,13 +17,13 @@ namespace Pi.CodingAgent.Core;
 public static class ModelsStoreJson
 {
     /// <summary>Two-space indented JSON with JS-compatible escaping (<c>JSON.stringify(value, null, 2)</c>).</summary>
-    public static readonly JsonSerializerOptions Options = new()
+    public static readonly JsonSerializerOptions Options = AotJson.Configure(new()
     {
         WriteIndented = true,
         // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
         NewLine = "\n",
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     /// <summary>Serialize one entry the way TS persists it (<c>{ models, lastModified?, checkedAt?, etag? }</c>).</summary>
     public static JsonObject ToJsonObject(ModelsStoreEntry entry)

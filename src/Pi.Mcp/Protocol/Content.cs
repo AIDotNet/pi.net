@@ -27,7 +27,7 @@ public sealed record LlmImageContent(string Data, string MimeType) : LlmContent;
 public static class McpContent
 {
     // JSON.stringify always writes "\n"; .NET 9+ defaults the writer to Environment.NewLine.
-    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, NewLine = "\n" };
+    private static readonly JsonSerializerOptions Indented = AotJson.Configure(new() { WriteIndented = true, NewLine = "\n" });
 
     /// <summary>
     /// Convert a tool result to text and image content for a model. A result without content

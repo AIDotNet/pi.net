@@ -13,4 +13,12 @@
   <ItemGroup>
     <ProjectReference Include="..\Pi.CodingAgent\Pi.CodingAgent.csproj" />
   </ItemGroup>
+
+  <!--
+    Native AOT publishing is opt-in: `bash scripts/publish-aot.sh` (i.e.
+    `dotnet publish ... -p:PublishAot=true -r <rid>`). All AOT-specific MSBuild
+    settings live in Directory.Build.props / Directory.Build.targets, gated on
+    PublishAot=true, so the default build/pack paths are unchanged. See
+    docs/native-aot.md; verify with `bash scripts/verify-aot.sh`.
+  -->
 </Project>

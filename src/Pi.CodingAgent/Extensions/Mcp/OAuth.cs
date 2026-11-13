@@ -182,7 +182,7 @@ public static class McpOAuth
         SharedHttpClient.SendAsync(request, cancellationToken);
 
     // JSON.stringify always writes "\n"; .NET 9+ defaults the writer to Environment.NewLine.
-    private static readonly JsonSerializerOptions StatesJsonOptions = new() { WriteIndented = true, NewLine = "\n" };
+    private static readonly JsonSerializerOptions StatesJsonOptions = AotJson.Configure(new() { WriteIndented = true, NewLine = "\n" });
 
     // ─── Pure helpers (TS module-level functions) ─────────────────────────────
 

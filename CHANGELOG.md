@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+### Native AOT 支持（无损，附加能力）
+
+`pi` CLI（及其余可执行宿主）现在可以发布为 **Native AOT** 原生可执行文件：单个
+PE 映像、无需 .NET 运行时、无 JIT。**不删功能、不改公开接口、不改 JIT 行为** ——
+默认多目标（net9.0 / net10.0 / net11.0）构建与打包路径完全不受影响。
+
+- `scripts/publish-aot.sh`：`-p:PublishAot=true` 一键发布到
+  `artifacts/aot/<rid>`；AOT 专属 MSBuild 设置集中在 `Directory.Build.props` 的
+  `PublishAot=true` 条件组和 `Directory.Build.targets` 的程序集 root。
+- 11 个包新增 `Aot/AotJson.cs`：source-generated `JsonSerializerContext` 覆盖各包
+  `JsonSerializer` 调用触达的具体根类型；`AotJson.Configure` 仅在
+  `!RuntimeFeature.IsDynamicCodeSupported`（Native AOT）时把解析器换成
+  `Combine(上下文, 原有解析器)`，并保留原有 `Modifiers`（会话线路的自定义
+  `ChatMessage` role），`DefaultJsonTypeInfoResolver` 留在链尾兜底。57 处
+  `new JsonSerializerOptions` 创建点统一包一层 `Configure`。
+- 为什么需要：Native AOT 下反射式 JSON 会在运行时拼出
+  `JsonPropertyInfo<bool?>` / `SmallObjectWithParameterizedConstructorConverter<…>`
+  等 AOT 编译器没见过的泛型实例，运行即 `NotSupportedException`；实测
+  「开启反射序列化 / 完整元数据 / 整体 root」都不足以解决，必须上 source-gen。
+- 「无损」保证：`IlcGenerateCompleteTypeMetadata=true` + 12 个 Pi 程序集整体
+  `TrimmerRootAssembly`，不裁剪任何代码/反射元数据；JIT 分支原样返回 options，
+  序列化行为逐字节不变。`InternalsVisibleTo` 仅编译期友元授权，不改公开 API。
+- 顺带修掉 2 处 AOT 更快启动才暴露的既存竞态（`Models.GetModels` /
+  `ModelRuntime.ProviderIds` 等遍历字典时后台刷新并发修改），改为先快照。
+- 已知平台固有限制（非本次退化）：Native AOT 没有 JIT，无法在运行时加载外部
+  .NET 插件 DLL（`AssemblyLoadContext.LoadFromAssemblyPath`）；内置扩展与 JS
+  （Jint）扩展不受影响，默认 JIT 构建仍完整支持外部插件。
+- 文档：[docs/native-aot.md](docs/native-aot.md)；对拍脚本：
+  `scripts/verify-aot.py` / `scripts/verify-aot.sh`（19 条离线命令逐条比较
+  JIT 与 AOT 的退出码 / stdout / stderr，并断言产物为原生映像）。
+
+#### 验证（本机 .NET 10.0.401 / Windows 11）
+
+- `dotnet publish ... -p:PublishAot=true`：0 警告 0 错误，`pi.exe` 与
+  `pi-durable.exe` 均为 PE32+ x64 原生映像，输出无托管 `Pi.*.dll` /
+  `runtimeconfig.json` / `coreclr.dll` 依赖。
+- 4 个可执行工程带 `PublishAot=true` 构建：全部 0 警告 0 错误。
+- `scripts/verify-aot.py`：**19/19 命令 JIT 与 AOT 完全一致**，AOT 侧无未处理异常。
+- `dotnet build Pi.slnx -c Debug` / `-c Release`（net10.0）：0 警告 0 错误。
+- `bash scripts/gate-tests.sh Release` / `Debug`：**各 11/11 测试工程全绿**
+  （两轮各有一次已知负载敏感 flake，门禁重跑机制均通过）。
+- 公开/受保护声明逐行对比 HEAD：57 个改动的 `.cs` 文件 **0 处签名差异**，
+  新增类型全部为 `internal`。
+
 ## [1.5.2] - 2026-11-12
 
 对齐上游 `v1.5.0 → v1.5.2`（`v1.5.1` 2026-11-09、`v1.5.2` 2026-11-10，共 395 个提交，

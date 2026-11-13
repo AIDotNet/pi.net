@@ -58,11 +58,11 @@ public sealed record ExportHtmlOptions
 /// </summary>
 public static partial class ExportHtml
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions JsonOptions = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 
     /// <summary>对应 TS <c>generateHtml</c>。</summary>
     public static string GenerateHtml(

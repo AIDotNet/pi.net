@@ -240,10 +240,10 @@ public static class EvalReport
 {
     public const string PiSessionSnapshotArtifact = "piSessionJsonl";
 
-    private static readonly JsonSerializerOptions IdentityJsonOptions = new()
+    private static readonly JsonSerializerOptions IdentityJsonOptions = AotJson.Configure(new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     private static readonly DocumentationVariant[] Variants =
         [DocumentationVariant.WithoutDocs, DocumentationVariant.WithDocs];

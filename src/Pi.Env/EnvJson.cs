@@ -16,11 +16,11 @@ namespace Pi.Env;
 /// </summary>
 internal static class EnvJson
 {
-    private static readonly JsonSerializerOptions Options = new()
+    private static readonly JsonSerializerOptions Options = AotJson.Configure(new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         WriteIndented = false,
-    };
+    });
 
     /// <summary>UTF-8 字节，等价 <c>Buffer.from(JSON.stringify(json, wellFormed), "utf8")</c>。</summary>
     public static byte[] Encode(JsonObject json) =>

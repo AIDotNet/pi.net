@@ -313,10 +313,10 @@ public static class TelemetryAdapterConformance
             throw new TelemetryConformanceException($"Expected {expectedJson}, got {actualJson}.");
     }
 
-    private static readonly System.Text.Json.JsonSerializerOptions SerializerOptions = new()
+    private static readonly System.Text.Json.JsonSerializerOptions SerializerOptions = AotJson.Configure(new()
     {
         WriteIndented = false,
-    };
+    });
 
     private static void Same(object? expected, object? actual)
     {

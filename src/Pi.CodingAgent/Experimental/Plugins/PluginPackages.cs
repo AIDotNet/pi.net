@@ -303,14 +303,14 @@ public static class PluginPackages
         // TS writes JSON.stringify(…, null, 2) + "\n" with mode 0600: two-space indent, LF line
         // endings (JSON.stringify never writes CRLF), and an owner-only file. `writeFile` applies the
         // mode only when it creates the file, so an existing profile keeps its permissions.
-        var options = new JsonSerializerOptions
+        var options = AotJson.Configure(new JsonSerializerOptions
         {
             WriteIndented = true,
             IndentCharacter = ' ',
             IndentSize = 2,
             NewLine = "\n",
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+        });
         var json = profile.ToJsonString(options);
         var exists = File.Exists(path);
         await File.WriteAllTextAsync(path, $"{json}\n").ConfigureAwait(false);

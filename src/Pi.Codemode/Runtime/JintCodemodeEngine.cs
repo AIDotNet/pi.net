@@ -32,10 +32,10 @@ public sealed class JintCodemodeEngine : ICodemodeJsEngine
     private const string PreludeFile = "codemode-prelude.js";
     private const string ScriptFile = "codemode.js";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions JsonOptions = AotJson.Configure(new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     private JintCodemodeEngine()
     {

@@ -312,7 +312,7 @@ public static class McpConfig
         var indent = DetectIndent(text) ?? "  ";
         var directory = Path.GetDirectoryName(Path.GetFullPath(path))!;
         Directory.CreateDirectory(directory);
-        var options = new JsonSerializerOptions
+        var options = AotJson.Configure(new JsonSerializerOptions
         {
             WriteIndented = true,
             // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
@@ -320,7 +320,7 @@ public static class McpConfig
             IndentCharacter = indent[0],
             IndentSize = indent.Length,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+        });
         File.WriteAllText(path, $"{JsonSerializer.Serialize(parsed, options)}\n");
     }
 

@@ -10,11 +10,11 @@ namespace Pi.CodingAgent.Core;
 /// </summary>
 public static class CompatShims
 {
-    private static readonly JsonSerializerOptions PlainTextOptions = new()
+    private static readonly JsonSerializerOptions PlainTextOptions = AotJson.Configure(new()
     {
         WriteIndented = false,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     /// <summary>任意值的紧凑 JSON 文本（JSON.stringify 等价；undefined/缺失 → "null"）。</summary>
     public static string SerializeToPlainText(object? value) => value switch

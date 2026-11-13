@@ -27,12 +27,12 @@ namespace Pi.CodingAgent.Core.Extensions.Js;
 
 internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions JsonOptions = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 
     /// <summary>JSON.stringify as a callable: Jint values only reach C# as JS text this way.</summary>
     private readonly JsValue stringify = engine.Evaluate("(value) => JSON.stringify(value === undefined ? null : value)");

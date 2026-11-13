@@ -152,13 +152,13 @@ public static partial class CrashLog
     private const int MaxCrashRecords = 5;
     private const long MaxAgeMs = 7L * 24 * 60 * 60 * 1000;
 
-    private static readonly JsonSerializerOptions WriteOptions = new()
+    private static readonly JsonSerializerOptions WriteOptions = AotJson.Configure(new()
     {
         WriteIndented = true,
         // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
         NewLine = "\n",
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     /// <summary>The default log path: <c>&lt;agentDir&gt;/crashes.json</c>.</summary>
     public static string DefaultPath(string? agentDir = null) =>

@@ -158,10 +158,10 @@ public static partial class Compaction
     /// <summary>序列化摘要来源保留的最长工具结果文本。</summary>
     private const int ToolResultMaxChars = 2000;
 
-    private static readonly JsonSerializerOptions ToolArgumentsJsonOptions = new()
+    private static readonly JsonSerializerOptions ToolArgumentsJsonOptions = AotJson.Configure(new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     private const string SummaryPrefix =
         "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";

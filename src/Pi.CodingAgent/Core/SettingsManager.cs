@@ -559,12 +559,12 @@ public sealed class SettingsManager
 
     // ---- serialization boundary -------------------------------------------
 
-    private static readonly JsonSerializerOptions DtoOptions = new()
+    private static readonly JsonSerializerOptions DtoOptions = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 
     internal static JsonObject ToJsonObject(Settings settings)
         => JsonSerializer.SerializeToNode(settings, DtoOptions) as JsonObject ?? new JsonObject();

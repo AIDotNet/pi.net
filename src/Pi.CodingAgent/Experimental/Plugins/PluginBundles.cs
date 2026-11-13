@@ -121,12 +121,12 @@ public static class PluginBundles
     /// <summary>The artifact wire shape (camelCase, nulls dropped — TS <c>JSON.stringify</c> semantics).</summary>
     private static class ArtifactJson
     {
-        public static JsonSerializerOptions Options { get; } = new()
+        public static JsonSerializerOptions Options { get; } = AotJson.Configure(new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        };
+        });
     }
 
     /// <summary>

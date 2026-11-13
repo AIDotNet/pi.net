@@ -38,13 +38,13 @@ public sealed class ToolExecutionComponent : Container
 {
     private const int FallbackPreviewLines = 10;
 
-    private static readonly JsonSerializerOptions IndentedJson = new()
+    private static readonly JsonSerializerOptions IndentedJson = AotJson.Configure(new()
     {
         WriteIndented = true,
         // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
         NewLine = "\n",
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     private readonly Box _contentBox;
     private readonly TuiText _contentText;

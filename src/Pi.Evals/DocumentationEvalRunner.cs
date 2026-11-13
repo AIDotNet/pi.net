@@ -8,10 +8,10 @@ namespace Pi.Evals;
 
 internal static class DocumentationEvalRunner
 {
-    private static readonly JsonSerializerOptions IdentityJsonOptions = new()
+    private static readonly JsonSerializerOptions IdentityJsonOptions = AotJson.Configure(new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 
     public static async Task<int> RunAsync(
         EvalCliOptions options,

@@ -1318,7 +1318,7 @@ public partial class InteractiveMode
         debugParts.Add("=== Agent messages (JSONL) ===");
         debugParts.AddRange(Session.Messages.Select(message => JsonSerializer.Serialize(
             message,
-            new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping })));
+            AotJson.Configure(new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))));
         debugParts.Add("");
         var debugData = string.Join("\n", debugParts);
 

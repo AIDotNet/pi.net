@@ -16,10 +16,10 @@ namespace Pi.CodingAgent.Experimental.Plugins;
 
 internal sealed class JintFacetEnvironmentBridge(JintPluginRuntime runtime, IFacetEnvironment environment)
 {
-    internal static JsonSerializerOptions JsonOptions { get; } = new(JsonSerializerDefaults.Web)
+    internal static JsonSerializerOptions JsonOptions { get; } = AotJson.Configure(new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
+    });
 
     public void ReportError(Exception error) => environment.ReportError(error);
 

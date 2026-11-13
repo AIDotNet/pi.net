@@ -213,14 +213,14 @@ public static class TrustManager
     /// <summary>JSON options matching <c>JSON.stringify(data, null, 2)</c>.</summary>
     internal static class TrustJson
     {
-        public static readonly JsonSerializerOptions Options = new()
+        public static readonly JsonSerializerOptions Options = AotJson.Configure(new()
         {
             WriteIndented = true,
             // JSON.stringify always writes "\n"; .NET 9+ defaults to Environment.NewLine.
             NewLine = "\n",
             // JSON.stringify leaves non-ASCII and <>&' alone; the default encoder escapes them.
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+        });
     }
 }
 

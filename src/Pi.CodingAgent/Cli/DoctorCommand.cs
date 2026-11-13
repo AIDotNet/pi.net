@@ -30,12 +30,12 @@ internal sealed record DoctorReport(int SchemaVersion, string Version, IReadOnly
 /// <summary>Local diagnostics that remain available before session and extension initialization.</summary>
 internal static class DoctorCommand
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions JsonOptions = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         WriteIndented = true,
-    };
+    });
 
     public static async Task<int> RunAsync(
         IReadOnlyList<string> args, DoctorOptions options, TextWriter output, TextWriter error)

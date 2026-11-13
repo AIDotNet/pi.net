@@ -343,11 +343,14 @@ public sealed class ModelRuntime : IModelResolverRuntime
     private HashSet<string> ProviderIds()
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var providerId in _builtins.Keys) ids.Add(providerId);
-        foreach (var providerId in _nativeExtensionProviders.Keys) ids.Add(providerId);
+        // Snapshot the key collections: a background catalog refresh can register
+        // providers concurrently. Enumerating the live dictionaries would throw
+        // "Collection was modified" (observable under Native AOT's faster startup).
+        foreach (var providerId in _builtins.Keys.ToList()) ids.Add(providerId);
+        foreach (var providerId in _nativeExtensionProviders.Keys.ToList()) ids.Add(providerId);
         foreach (var providerId in _config.GetProviderIds()) ids.Add(providerId);
-        foreach (var providerId in _extensionProviders.Keys) ids.Add(providerId);
-        foreach (var providerId in _virtualModels.Keys) ids.Add(providerId);
+        foreach (var providerId in _extensionProviders.Keys.ToList()) ids.Add(providerId);
+        foreach (var providerId in _virtualModels.Keys.ToList()) ids.Add(providerId);
         return ids;
     }
 
@@ -623,12 +626,12 @@ public sealed class ModelRuntime : IModelResolverRuntime
     {
         var ids = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var providerId in _extensionProviders.Keys)
+        foreach (var providerId in _extensionProviders.Keys.ToList())
         {
             if (seen.Add(providerId)) ids.Add(providerId);
         }
 
-        foreach (var providerId in _nativeExtensionProviders.Keys)
+        foreach (var providerId in _nativeExtensionProviders.Keys.ToList())
         {
             if (seen.Add(providerId)) ids.Add(providerId);
         }

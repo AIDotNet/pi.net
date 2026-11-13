@@ -174,8 +174,8 @@ public static class InternalProcess
     }
 
     /// <summary>Compact output with <c>JSON.stringify</c>'s non-escaping of non-ASCII.</summary>
-    private static readonly System.Text.Json.JsonSerializerOptions CompactJson = new()
+    private static readonly System.Text.Json.JsonSerializerOptions CompactJson = AotJson.Configure(new()
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 }

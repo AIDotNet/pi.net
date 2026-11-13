@@ -1302,12 +1302,12 @@ public static class CodemodeExecute
     /// </summary>
     internal static class ModelCallJson
     {
-        private static readonly JsonSerializerOptions Options = new()
+        private static readonly JsonSerializerOptions Options = AotJson.Configure(new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
+        });
 
         public static JsonObject SerializeClassifier(ClassifierResult result) =>
             (JsonObject)JsonSerializer.SerializeToNode(result, Options)!;

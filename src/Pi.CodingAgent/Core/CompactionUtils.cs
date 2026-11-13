@@ -194,7 +194,7 @@ public static class CompactionUtils
     /// </summary>
     private static string DescribeArguments(object? arguments)
     {
-        var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = false };
+        var options = AotJson.Configure(new System.Text.Json.JsonSerializerOptions { WriteIndented = false });
         return arguments switch
         {
             System.Text.Json.Nodes.JsonObject obj => string.Join(", ", obj.Select(pair =>

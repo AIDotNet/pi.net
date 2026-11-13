@@ -609,5 +609,5 @@ public static class PiMessages
 internal static class PiMessagesJson
 {
     /// <summary>TranscriptContext 序列化（判别 role 多态由标注驱动）。</summary>
-    public static readonly JsonSerializerOptions Options = new();
+    public static readonly JsonSerializerOptions Options = AotJson.Configure(new());
 }

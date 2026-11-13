@@ -25,11 +25,11 @@ public static class Proxy
     private static readonly HttpClient SharedHttpClient = new();
 
     // 请求体序列化约定与 ai 包一致（camelCase；null 字段省略，对齐 TS JSON.stringify 对 undefined 的省略）。
-    private static readonly JsonSerializerOptions RequestJsonOptions = new()
+    private static readonly JsonSerializerOptions RequestJsonOptions = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 
     /// <summary>
     /// 发起 proxy 流式请求。对应 TS <c>streamProxy</c>。返回的事件流可立即迭代；

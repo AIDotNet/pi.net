@@ -816,10 +816,10 @@ public static class Ssh
     }
 
     /// <summary>错误消息里的字符串字面量；与 <c>JSON.stringify</c> 的可见形态一致（差异 E-C4）。</summary>
-    private static string Quote(string value) => JsonSerializer.Serialize(value, new JsonSerializerOptions
+    private static string Quote(string value) => JsonSerializer.Serialize(value, AotJson.Configure(new JsonSerializerOptions
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    });
+    }));
 
     /// <summary>SSH 连接学到的远端系统，以及它上次校验过的守护进程。</summary>
     private sealed class SshState

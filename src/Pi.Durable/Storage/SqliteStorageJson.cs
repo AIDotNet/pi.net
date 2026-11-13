@@ -74,11 +74,11 @@ internal static class SqliteStorageJson
 
     private static JsonSerializerOptions CreateOptions()
     {
-        var options = new JsonSerializerOptions
+        var options = AotJson.Configure(new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = true,
-        };
+        });
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         options.Converters.Add(new DurableIdJsonConverterFactory());
         options.Converters.Add(new DocumentScopeJsonConverter());

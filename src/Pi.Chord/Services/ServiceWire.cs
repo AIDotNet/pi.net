@@ -325,10 +325,10 @@ public static class ServiceWire
         return value.GetValue<double>();
     }
 
-    private static readonly JsonSerializerOptions WireJsonOptions = new()
+    private static readonly JsonSerializerOptions WireJsonOptions = AotJson.Configure(new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
+    });
 
     // ─── 内部校验 ────────────────────────────────────────────────────────
 

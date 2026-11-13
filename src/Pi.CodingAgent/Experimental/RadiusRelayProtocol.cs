@@ -279,10 +279,10 @@ public static class RadiusRelayFrames
     }
 
     /// <summary>TS <c>pong</c> and friends are serialized with compact JSON.</summary>
-    public static readonly JsonSerializerOptions CompactJson = new()
+    public static readonly JsonSerializerOptions CompactJson = AotJson.Configure(new()
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
+    });
 }
 
 /// <summary>
