@@ -5,15 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
-### Native AOT 支持（无损，附加能力）
+### Native AOT 支持（非破坏性、附加能力）
 
 `pi` CLI（及其余可执行宿主）现在可以发布为 **Native AOT** 原生可执行文件：单个
-PE 映像、无需 .NET 运行时、无 JIT。**不删功能、不改公开接口、不改 JIT 行为** ——
-默认多目标（net9.0 / net10.0 / net11.0）构建与打包路径完全不受影响。
+PE 映像、无需 .NET 运行时、无 JIT。**不删功能、不改公开接口、不改 JIT 序列化
+输出** —— 默认多目标（net9.0 / net10.0 / net11.0）构建与打包路径完全不受影响。
 
 - `scripts/publish-aot.sh`：`-p:PublishAot=true` 一键发布到
-  `artifacts/aot/<rid>`；AOT 专属 MSBuild 设置集中在 `Directory.Build.props` 的
-  `PublishAot=true` 条件组和 `Directory.Build.targets` 的程序集 root。
+  `artifacts/aot/<rid>`；可选第三个参数指定 4 个可执行宿主之一
+  （`Pi.Cli` / `Pi.DurableHost` / `Pi.Evals` / `Pi.Vacation`），按 csproj 的
+  `AssemblyName` 自动定位产物。AOT 专属 MSBuild 设置集中在
+  `Directory.Build.props` 的 `PublishAot=true` 条件组和
+  `Directory.Build.targets` 的程序集 root。
 - 11 个包新增 `Aot/AotJson.cs`：source-generated `JsonSerializerContext` 覆盖各包
   `JsonSerializer` 调用触达的具体根类型；`AotJson.Configure` 仅在
   `!RuntimeFeature.IsDynamicCodeSupported`（Native AOT）时把解析器换成
@@ -24,30 +27,62 @@ PE 映像、无需 .NET 运行时、无 JIT。**不删功能、不改公开接�
   `JsonPropertyInfo<bool?>` / `SmallObjectWithParameterizedConstructorConverter<…>`
   等 AOT 编译器没见过的泛型实例，运行即 `NotSupportedException`；实测
   「开启反射序列化 / 完整元数据 / 整体 root」都不足以解决，必须上 source-gen。
-- 「无损」保证：`IlcGenerateCompleteTypeMetadata=true` + 12 个 Pi 程序集整体
+- 不裁剪保证：`IlcGenerateCompleteTypeMetadata=true` + 12 个 Pi 程序集整体
   `TrimmerRootAssembly`，不裁剪任何代码/反射元数据；JIT 分支原样返回 options，
-  序列化行为逐字节不变。`InternalsVisibleTo` 仅编译期友元授权，不改公开 API。
-- 顺带修掉 2 处 AOT 更快启动才暴露的既存竞态（`Models.GetModels` /
-  `ModelRuntime.ProviderIds` 等遍历字典时后台刷新并发修改），改为先快照。
+  序列化输出逐字节不变。`InternalsVisibleTo` 仅编译期友元授权，不改公开 API。
+- source-gen 根类型清单补齐（29 条只读 CLI 对拍曾漏掉 RPC / 会话事件路径）：
+  `cycle_model` 的 `ModelCycleResult`、`get_available_thinking_levels` 的
+  `IReadOnlyList<ThinkingLevel>`、agent 会话的 `AgentSessionEvent` 23 变体与
+  `FileEntry` 联合、运行时 modifier 挂载的 12 个 `AssistantMessageEvent`
+  流式事件，以及 `cycle_thinking_level` 的匿名负载（改为具名 `internal`
+  `ThinkingLevelPayload`）。`gen-aot-contexts.py` 现在从源码
+  `[JsonDerivedType]` / `new JsonDerivedType` 自动提取这些变体，防止新增事件时漏登记。
+- 判别联合按基类声明类型序列化：`JsonL.SerializeLine` / `SerializeToNode` 与
+  `JsExtensionHost.SerializeEvent` 对 `AgentSessionEvent` 改用
+  `typeof(AgentSessionEvent)`，避免 source-gen 生成变体元数据时丢掉 `type`
+  判别串（JIT 反射解析器原本会向上继承基类多态设置，两边输出一致）。
+- 修掉 AOT 更快启动才暴露的既存竞态：`Models.GetModels` /
+  `ModelRuntime.ProviderIds` 遍历字典时后台刷新并发修改（先快照）；
+  进一步在 `Models`（`Models.cs` + `ModelsAuth.cs`）加 `_stateGate`，把 provider
+  表与刷新代次 / 控制器 / 发布链字典的全部读写收口到同一把锁，身份视图共用该锁。
+  实测 `pi.exe --list-models gpt` 修复前 2/10 崩溃（JIT 0/10），修复后连跑
+  20 次 0 失败；单线程顺序与序列化输出不变。
 - 已知平台固有限制（非本次退化）：Native AOT 没有 JIT，无法在运行时加载外部
   .NET 插件 DLL（`AssemblyLoadContext.LoadFromAssemblyPath`）；内置扩展与 JS
   （Jint）扩展不受影响，默认 JIT 构建仍完整支持外部插件。
 - 文档：[docs/native-aot.md](docs/native-aot.md)；对拍脚本：
-  `scripts/verify-aot.py` / `scripts/verify-aot.sh`（19 条离线命令逐条比较
-  JIT 与 AOT 的退出码 / stdout / stderr，并断言产物为原生映像）。
+  `scripts/verify-aot.py` / `scripts/verify-aot.sh`（29 条 CLI + 23 条 RPC
+  共 52 项，逐条比较 JIT 与 AOT 的退出码 / stdout / stderr，并断言产物为
+  原生映像；随机 id / 时间戳 / 堆栈格式做规范化，JIT 侧启动 flake 重试一次；
+  脚本自动解析 `python3` / `python` / `py -3`，Windows Git Bash 亦可跑）。
+- CI：`.github/workflows/ci.yml` 新增 `native-aot` job（`workflow_dispatch` 勾选
+  `run_aot`），重跑发布 + 对拍；默认 push / PR 不触发，不影响常规流水线。
 
-#### 验证（本机 .NET 10.0.401 / Windows 11）
+#### 验证（本机 .NET 11.0.100 SDK / Windows 11，AOT 目标 net10.0 / win-x64）
 
-- `dotnet publish ... -p:PublishAot=true`：0 警告 0 错误，`pi.exe` 与
-  `pi-durable.exe` 均为 PE32+ x64 原生映像，输出无托管 `Pi.*.dll` /
-  `runtimeconfig.json` / `coreclr.dll` 依赖。
-- 4 个可执行工程带 `PublishAot=true` 构建：全部 0 警告 0 错误。
-- `scripts/verify-aot.py`：**19/19 命令 JIT 与 AOT 完全一致**，AOT 侧无未处理异常。
-- `dotnet build Pi.slnx -c Debug` / `-c Release`（net10.0）：0 警告 0 错误。
-- `bash scripts/gate-tests.sh Release` / `Debug`：**各 11/11 测试工程全绿**
-  （两轮各有一次已知负载敏感 flake，门禁重跑机制均通过）。
-- 公开/受保护声明逐行对比 HEAD：57 个改动的 `.cs` 文件 **0 处签名差异**，
+- 4 个可执行宿主分别 `bash scripts/publish-aot.sh ... <host>`：全部 0 警告
+  0 错误，产出 `pi.exe`（68,378,624 B）、`pi-durable.exe`（68,370,432 B）、
+  `Pi.Evals.exe`（70,131,712 B）、`pi-vacation.exe`（68,370,432 B）原生 PE32+
+  x64 映像；输出无托管 `Pi.*.dll` / `runtimeconfig.json` / `coreclr.dll` 依赖。
+- `scripts/verify-aot.sh`：**52/52 项（29 CLI + 23 RPC）JIT 与 AOT 完全一致**，
+  AOT 侧无未处理异常 / `missing native code`；原生映像检查通过。
+- `--mode json -p` 的 agent 会话事件路径在 AOT 下无 `missing native code`，
+  事件行 `type` 判别串与 JIT 一致。
+- provider 表竞态修复后 `pi.exe --list-models gpt` 连跑 20 次 0 失败。
+- `dotnet build Pi.slnx -c Release`（net9.0 / net10.0 / net11.0，36 个工程）：
+  0 警告 0 错误。
+- `bash scripts/gate-tests.sh Release`：**11/11 测试工程全绿**（7,519 条通过、
+  8 条按设计跳过）。高负载连续发布时 `Pi.Durable.Tests` 计时用例偶发超时，
+  低负载单独复跑 613/613 通过（门禁已记录的负载敏感 flake，与本次改造无关）。
+- `dotnet pack Pi.slnx -c Release --no-build`：13 个 `.nupkg`，4 个可执行工程
+  均未产出包，消费方打包路径无回归。
+- 相对 `main` 的 60 个改动 `.cs` 文件逐行比对成员声明：**0 处签名差异**，
   新增类型全部为 `internal`。
+
+（演进：19 条 → 29 条只读 CLI 对拍 → 本轮补 RPC / 事件路径时定位并修掉 5 类
+source-gen 类型缺口，最终 52 项全绿。更早的 .NET 10.0.401 与 Debug 门禁记录见
+git 历史。未端到端验证的路径见 [docs/native-aot.md](docs/native-aot.md)：真实
+联网模型调用、交互式 TUI、外部扩展完整交互、`win-x64` 之外的 RID。）
 
 ## [1.5.2] - 2026-11-12
 

@@ -36,9 +36,10 @@
 | 打包 | `dotnet pack Pi.slnx -c Release -o artifacts` → 13 个 `.nupkg` + 13 个 `.snupkg` |
 | 跑 CLI | `dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help` |
 | 发布 `pi` 到目录 | `dotnet publish src/Pi.Cli -c Release -o ./pi-bin` |
-| Native AOT 发布（无损、附加能力） | `bash scripts/publish-aot.sh` → `artifacts/aot/<rid>/pi.exe` |
-| AOT 与 JIT 行为对拍 | `bash scripts/verify-aot.sh artifacts/aot/win-x64`（19 条离线命令逐条比对） |
-| 重新生成 AOT JSON 上下文 | `python3 scripts/gen-aot-contexts.py`（清单变化后重跑） |
+| Native AOT 发布（无损、附加能力） | `bash scripts/publish-aot.sh [rid] [out] [host]` → `artifacts/aot/<rid>/pi.exe`；host 可选 4 个可执行宿主之一 |
+| AOT 与 JIT 行为对拍 | `bash scripts/verify-aot.sh artifacts/aot/win-x64`（52 项：29 CLI + 23 RPC，含 agent 事件判别串；自动解析 `python3`/`python`/`py -3`） |
+| CI 上的 AOT 验证 | `.github/workflows/ci.yml` → `native-aot` job，`workflow_dispatch` 勾选 `run_aot` |
+| 重新生成 AOT JSON 上下文 | `python3 scripts/gen-aot-contexts.py`（清单变化后重跑；Windows 可用 `py -3`） |
 | 重新生成 models.json 字段文档 | `node scripts/gen-models-configuration.mjs`（`--check` 供 CI 判断是否过期） |
 
 需要 .NET 11 SDK（编译 `net11.0`）。库与可执行程序都是多目标 `net9.0;net10.0;net11.0`，消费方按自己的运行时选；net8.0 及以下不支持。

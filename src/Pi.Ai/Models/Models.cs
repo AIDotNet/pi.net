@@ -115,7 +115,25 @@ public interface IProvider
 /// </summary>
 public sealed partial class Models
 {
+    // _providers and the refresh bookkeeping dictionaries (ModelsAuth.cs) are shared
+    // with identity views (WithIdentity) and are written by background catalog
+    // refreshes while the CLI enumerates the model catalog. Native AOT's faster
+    // startup makes that overlap observable: a plain Dictionary throws
+    // "Collection was modified" / "corrupted its state" when a write lands during
+    // enumeration. All access goes through this gate; the lock is never held while
+    // calling provider code or awaiting, so ordering and behaviour are unchanged.
+    private readonly object _stateGate = new();
     private readonly Dictionary<string, IProvider> _providers = [];
+
+    private IReadOnlyList<IProvider> ProviderSnapshot()
+    {
+        lock (_stateGate) return _providers.Values.ToList();
+    }
+
+    private IProvider? FindProvider(string id)
+    {
+        lock (_stateGate) return _providers.GetValueOrDefault(id);
+    }
 
     /// <summary>
     /// 请求的默认客户端身份；请求级身份逐字段覆盖它。对应 TS <c>Models.identity</c>。
@@ -131,37 +149,42 @@ public sealed partial class Models
     /// <summary>注册（或替换）provider。</summary>
     public void SetProvider(IProvider provider)
     {
-        SupersedeProviderRefresh(provider.Id);
-        _providers[provider.Id] = provider;
+        lock (_stateGate)
+        {
+            SupersedeProviderRefresh(provider.Id);
+            _providers[provider.Id] = provider;
+        }
     }
 
     /// <summary>移除 provider。</summary>
     public bool DeleteProvider(string id)
     {
-        SupersedeProviderRefresh(id);
-        return _providers.Remove(id);
+        lock (_stateGate)
+        {
+            SupersedeProviderRefresh(id);
+            return _providers.Remove(id);
+        }
     }
 
     /// <summary>清空全部 provider。</summary>
     public void ClearProviders()
     {
-        // Snapshot both key collections *before* concatenating: Concat is lazy, so a
-        // trailing ToList() would still enumerate the live dictionaries while a
-        // background catalog refresh mutates them. Native AOT's faster startup makes
-        // that overlap observable ("Collection was modified").
-        var ids = _providers.Keys.ToList();
-        ids.AddRange(_refreshControllers.Keys.ToList());
-        foreach (var id in ids.Distinct(StringComparer.Ordinal))
+        lock (_stateGate)
         {
-            SupersedeProviderRefresh(id);
-        }
+            var ids = _providers.Keys.ToList();
+            ids.AddRange(_refreshControllers.Keys.ToList());
+            foreach (var id in ids.Distinct(StringComparer.Ordinal))
+            {
+                SupersedeProviderRefresh(id);
+            }
 
-        _providers.Clear();
+            _providers.Clear();
+        }
     }
 
-    public IReadOnlyList<IProvider> GetProviders() => _providers.Values.ToList();
+    public IReadOnlyList<IProvider> GetProviders() => ProviderSnapshot();
 
-    public IProvider? GetProvider(string id) => _providers.GetValueOrDefault(id);
+    public IProvider? GetProvider(string id) => FindProvider(id);
 
     /// <summary>
     /// 全部 chat 模型（best-effort：抛错的 provider 产出零模型）。
@@ -171,16 +194,11 @@ public sealed partial class Models
     {
         if (provider is not null)
         {
-            return !_providers.TryGetValue(provider, out var entry)
-                ? []
-                : SafeModels(entry);
+            var entry = FindProvider(provider);
+            return entry is null ? [] : SafeModels(entry);
         }
         var models = new List<ModelSpec>();
-        // Snapshot before iterating: a background catalog refresh may call SetProvider
-        // concurrently (RebuildProviders). Native AOT's faster startup makes that
-        // overlap observable; enumerating the live ValueCollection would throw
-        // "Collection was modified". The provider set is otherwise unchanged.
-        foreach (var entry in _providers.Values.ToList())
+        foreach (var entry in ProviderSnapshot())
         {
             models.AddRange(SafeModels(entry));
         }
@@ -189,11 +207,12 @@ public sealed partial class Models
 
     /// <summary>按 provider + id 取 chat 模型。对应 TS <c>getModel()</c>。</summary>
     public ModelSpec? GetModel(string provider, string id)
-        => SafeModels(_providers.GetValueOrDefault(provider)!)
-            .FirstOrDefault(model => model.Id == id)
-            ?? (_providers.TryGetValue(provider, out var entry)
-                ? SafeModels(entry).FirstOrDefault(model => model.Id == id)
-                : null);
+    {
+        var entry = FindProvider(provider);
+        return entry is null
+            ? null
+            : SafeModels(entry).FirstOrDefault(model => model.Id == id);
+    }
 
     /// <summary>按类别取模型（可选 provider 过滤）。对应 TS <c>getModelsOfType()</c>。</summary>
     /// <remarks>
@@ -205,12 +224,11 @@ public sealed partial class Models
     {
         if (provider is not null)
         {
-            return !_providers.TryGetValue(provider, out var entry)
-                ? []
-                : SafeAllModels(entry).Where(model => model.Type == type).ToList();
+            var entry = FindProvider(provider);
+            return entry is null ? [] : SafeAllModels(entry).Where(model => model.Type == type).ToList();
         }
         var models = new List<ModelSpec>();
-        foreach (var entry in _providers.Values.ToList())
+        foreach (var entry in ProviderSnapshot())
         {
             models.AddRange(SafeAllModels(entry).Where(model => model.Type == type));
         }
@@ -271,9 +289,8 @@ public sealed partial class Models
 
     /// <summary>要求 provider 已注册。对应 TS <c>requireProvider</c>。</summary>
     private IProvider RequireProvider(ModelSpec model)
-        => _providers.TryGetValue(model.Provider, out var provider)
-            ? provider
-            : throw new ModelsError(ModelsErrorCode.Provider, $"Unknown provider: {model.Provider}");
+        => FindProvider(model.Provider)
+            ?? throw new ModelsError(ModelsErrorCode.Provider, $"Unknown provider: {model.Provider}");
 
     /// <summary>选项字典里承载请求级客户端身份的键。对应 TS <c>StreamOptions.identity</c>。</summary>
     public const string IdentityOptionKey = "identity";
@@ -347,10 +364,11 @@ public sealed partial class Models
     {
         if (provider is not null)
         {
-            return !_providers.TryGetValue(provider, out var entry) ? [] : SafeAllModels(entry);
+            var entry = FindProvider(provider);
+            return entry is null ? [] : SafeAllModels(entry);
         }
         var models = new List<ModelSpec>();
-        foreach (var entry in _providers.Values.ToList()) models.AddRange(SafeAllModels(entry));
+        foreach (var entry in ProviderSnapshot()) models.AddRange(SafeAllModels(entry));
         return models;
     }
 

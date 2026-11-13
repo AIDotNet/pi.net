@@ -19,8 +19,36 @@ rewrites the `Aot/AotJson.cs` files. If you add a new options-creation site,
 wrap it manually in the same way.
 """
 import os
+import re
 
 ROOT = 'src'
+
+
+def derived_types(rel_path, qualifier, pattern=r'\[JsonDerivedType\(typeof\(([\w.]+)\)'):
+    """Collect polymorphism variants from a source file.
+
+    Discriminated unions (agent session events, session file entries) are
+    serialised with an explicit runtime Type (SerializeToNode(value, value.GetType(), ...)),
+    so every variant needs its own source-generated JsonTypeInfo under Native
+    AOT. Variants attached at runtime by a DefaultJsonTypeInfoResolver.Modifier
+    (the 12 AssistantMessageEvent streaming events) are invisible to the source
+    generator and must be registered explicitly too. Deriving both lists from
+    source keeps the context in sync when a new variant is added.
+    """
+    with open(os.path.join(ROOT, rel_path), encoding='utf-8') as f:
+        names = re.findall(pattern, f.read())
+    return [qualifier + n for n in dict.fromkeys(names)]
+
+
+_CODING_AGENT_UNIONS = (
+    derived_types('Pi.CodingAgent/Core/AgentSessionEvents.cs', 'Pi.CodingAgent.Core.')
+    + ['Pi.CodingAgent.Core.AgentSessionEvent']
+    + derived_types('Pi.CodingAgent/Core/SessionEntries.cs', 'Pi.CodingAgent.Core.')
+    + ['Pi.CodingAgent.Core.FileEntry']
+    + derived_types('Pi.CodingAgent/Modes/Rpc/JsonL.cs', 'Pi.Ai.Types.',
+                    pattern=r'new JsonDerivedType\(typeof\(([\w.]+)\)')
+    + ['Pi.Ai.Types.AssistantMessageEvent']
+)
 
 # Per-project root types. Keys are project directory names; values are fully
 # qualified type expressions usable inside typeof(...).
@@ -48,7 +76,16 @@ TYPES = {
         'Pi.CodingAgent.Core.Extensions.SwitchSessionOptions',
         'Pi.CodingAgent.Extensions.Mcp.McpServerReport',
         'Pi.CodingAgent.Modes.Rpc.RpcCommand',
+        'Pi.CodingAgent.Modes.Rpc.ThinkingLevelPayload',
         'Pi.CodingAgent.Experimental.Services.SessionWorkerOptions',
+        # cycle_model / get_available_thinking_levels RPC payloads reach
+        # JsonL.SerializeToNode(object); without static metadata the reflection
+        # resolver builds generic converters Native AOT never compiled.
+        # Two distinct ModelCycleResult types share a simple name, so give each
+        # an explicit TypeInfoPropertyName (SYSLIB1031 otherwise).
+        ('Pi.CodingAgent.Core.AgentSession.ModelCycleResult', 'AgentSessionModelCycleResult'),
+        ('Pi.CodingAgent.Core.ModelCycleResult', 'CoreModelCycleResult'),
+        *_CODING_AGENT_UNIONS,
         'Pi.Ai.Types.AssistantImages',
         'Pi.Ai.Types.AssistantMessage',
         'Pi.Ai.Types.ChatMessage',
@@ -78,6 +115,8 @@ TYPES = {
         'System.Collections.Generic.IReadOnlyList<Pi.CodingAgent.Cli.DoctorCheck>',
         'System.Collections.Generic.IReadOnlyList<Pi.Ai.Types.ChatMessage>',
         'System.Collections.Generic.IReadOnlyList<Pi.Ai.Types.ContentBlock>',
+        'System.Collections.Generic.IReadOnlyList<Pi.Ai.Types.ThinkingLevel>',
+        'System.Collections.Generic.List<Pi.Ai.Types.ThinkingLevel>',
         'System.Collections.Generic.IReadOnlyList<object>',
         'System.Collections.Generic.IReadOnlyList<string>',
         'System.Collections.Generic.Dictionary<string, Pi.Ai.Auth.Credential>',
@@ -221,7 +260,11 @@ for proj, types in TYPES.items():
     os.makedirs(d, exist_ok=True)
     lines = [HEADER.format(ns=NS[proj])]
     for t in types:
-        lines.append(f'[JsonSerializable(typeof({t}))]\n')
+        if isinstance(t, tuple):
+            type_expr, prop = t
+            lines.append(f'[JsonSerializable(typeof({type_expr}), TypeInfoPropertyName = "{prop}")]\n')
+        else:
+            lines.append(f'[JsonSerializable(typeof({t}))]\n')
     ctx = proj.replace('.', '')
     lines.append(f'internal partial class {ctx}JsonContext : JsonSerializerContext\n{{\n}}\n\n')
     lines.append('''internal static class AotJson

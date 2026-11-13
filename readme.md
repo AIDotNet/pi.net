@@ -91,8 +91,13 @@ and JIT behavior is byte-for-byte identical.
 
 ```bash
 bash scripts/publish-aot.sh                       # -> artifacts/aot/win-x64/pi.exe
-bash scripts/verify-aot.sh artifacts/aot/win-x64 # compare AOT vs JIT on offline commands
+bash scripts/publish-aot.sh win-x64 artifacts/aot/win-x64-vacation Pi.Vacation  # any of the 4 executable hosts
+bash scripts/verify-aot.sh artifacts/aot/win-x64 # compare AOT vs JIT on 52 checks (29 CLI + 23 RPC)
 ```
+
+`verify-aot.sh` resolves `python3` / `python` / `py -3`, so it also works in a
+Windows Git Bash that only has the `py` launcher. CI offers the same publish +
+parity check as an opt-in `native-aot` job (workflow_dispatch → `run_aot`).
 
 The AOT build keeps all Pi assemblies rooted with complete reflection metadata and
 routes POCO JSON through source-generated `JsonSerializerContext`s, so no capability

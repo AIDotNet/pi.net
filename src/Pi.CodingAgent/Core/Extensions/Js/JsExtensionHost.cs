@@ -640,7 +640,12 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
         JsonObject node;
         try
         {
-            node = JsonSerializer.SerializeToNode(@event, @event.GetType(), JsonOptions) as JsonObject
+            // AgentSessionEvent is a [JsonPolymorphic] union: serialising by the
+            // concrete derived type loses the `type` discriminator under
+            // source-generated (Native AOT) metadata. Use the base type so both
+            // JIT and AOT emit the same wire shape.
+            var eventType = @event is AgentSessionEvent ? typeof(AgentSessionEvent) : @event.GetType();
+            node = JsonSerializer.SerializeToNode(@event, eventType, JsonOptions) as JsonObject
                 ?? new JsonObject();
         }
         catch (Exception)

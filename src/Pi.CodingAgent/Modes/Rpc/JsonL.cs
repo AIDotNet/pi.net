@@ -38,10 +38,23 @@ public static class JsonL
     public static JsonSerializerOptions Options { get; } = CreateOptions();
 
     /// <summary>对应 TS <c>serializeJsonLine</c>：一条严格 JSONL 记录（含结尾 LF）。</summary>
-    public static string SerializeLine(object value) => JsonSerializer.Serialize(value, Options) + "\n";
+    /// <remarks>
+    /// <see cref="AgentSessionEvent"/> 是 <c>[JsonPolymorphic]</c> 判别联合：判别串
+    /// <c>type</c> 由基类 TypeInfo 写入。若按运行时派生类型序列化，source-generated
+    /// 元数据会把它当作普通 POCO、丢掉 <c>type</c>；JIT 的反射解析器恰好会向上继承
+    /// 基类的多态设置，于是 AOT 与 JIT 输出不一致。统一改用基类声明类型，两边都带
+    /// <c>type</c>，且 source-gen 能静态生成全部变体的本机代码。
+    /// </remarks>
+    public static string SerializeLine(object value)
+        => value is AgentSessionEvent
+            ? JsonSerializer.Serialize(value, typeof(AgentSessionEvent), Options) + "\n"
+            : JsonSerializer.Serialize(value, Options) + "\n";
 
     /// <summary>把任意负载写成 JSON 节点（响应 data / 事件投影用）。</summary>
-    public static JsonNode? SerializeToNode(object value) => JsonSerializer.SerializeToNode(value, Options);
+    public static JsonNode? SerializeToNode(object value)
+        => value is AgentSessionEvent
+            ? JsonSerializer.SerializeToNode(value, typeof(AgentSessionEvent), Options)
+            : JsonSerializer.SerializeToNode(value, Options);
 
     /// <summary>
     /// 把一行 JSON 解析成 <see cref="RpcCommand"/>。

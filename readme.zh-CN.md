@@ -90,8 +90,13 @@ dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 
 ```bash
 bash scripts/publish-aot.sh                       # -> artifacts/aot/win-x64/pi.exe
-bash scripts/verify-aot.sh artifacts/aot/win-x64 # 离线命令逐条对比 AOT 与 JIT
+bash scripts/publish-aot.sh win-x64 artifacts/aot/win-x64-vacation Pi.Vacation  # 4 个可执行宿主任选
+bash scripts/verify-aot.sh artifacts/aot/win-x64 # 52 项（29 CLI + 23 RPC）逐条对比 AOT 与 JIT
 ```
+
+`verify-aot.sh` 会自动解析 `python3` / `python` / `py -3`，只有 `py` 启动器的
+Windows Git Bash 也能跑；CI 里 `native-aot` job（`workflow_dispatch` 勾选
+`run_aot`）提供同样的发布 + 对拍。
 
 AOT 构建把全部 Pi 程序集整体 root 并保留完整反射元数据，POCO JSON 走
 source-generated `JsonSerializerContext`，因此不裁剪任何能力。机制、验证矩阵与

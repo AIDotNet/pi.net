@@ -149,6 +149,13 @@ public sealed record RpcCycleThinkingLevelCommand : RpcCommand;
 /// <summary>TS <c>{ type: "get_available_thinking_levels" }</c>。</summary>
 public sealed record RpcGetAvailableThinkingLevelsCommand : RpcCommand;
 
+/// <summary>
+/// <c>cycle_thinking_level</c> 的响应负载。用具名类型替代匿名类型：匿名类型的
+/// <c>SmallObjectWithParameterizedConstructorConverter</c> 泛型实例在 Native AOT
+/// 下没有本机代码，具名类型可登记进 source-generated 上下文静态展开。
+/// </summary>
+internal sealed record ThinkingLevelPayload(ThinkingLevel? Level);
+
 // ---------------------------------------------------------------------------
 // Queue modes
 // ---------------------------------------------------------------------------

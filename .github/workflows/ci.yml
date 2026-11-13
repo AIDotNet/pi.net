@@ -29,6 +29,11 @@ on:
         required: false
         type: boolean
         default: false
+      run_aot:
+        description: '发布 Native AOT 原生二进制并与 JIT 版对拍（验证无损）'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -148,3 +153,41 @@ jobs:
           path: test-*.log
           retention-days: 7
           if-no-files-found: ignore
+
+  # Opt-in (workflow_dispatch -> run_aot): publish the real native image and
+  # compare it against the JIT build. Keeps AOT regressions observable without
+  # slowing down every push / PR. See docs/native-aot.md.
+  native-aot:
+    name: Native AOT publish + lossless verify
+    if: inputs.run_aot == true
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          # PublishAot=true pins TargetFrameworks to net10.0, so a 10.0.x SDK
+          # suffices (ILCompiler is restored from NuGet at publish time).
+          dotnet-version: 10.0.x
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Build JIT baseline
+        run: dotnet build src/Pi.Cli/Pi.Cli.csproj -c Release -p:TargetFrameworks=net10.0
+
+      - name: Publish Native AOT
+        run: bash scripts/publish-aot.sh win-x64 artifacts/aot/win-x64
+
+      - name: Verify native image + JIT/AOT parity
+        run: bash scripts/verify-aot.sh artifacts/aot/win-x64

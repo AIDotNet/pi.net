@@ -77,6 +77,7 @@ public sealed partial class Models
     public Models(Models source, Utils.ClientIdentity? identity)
     {
         _providers = source._providers;
+        _stateGate = source._stateGate;
         _credentials = source._credentials;
         _modelsStore = source._modelsStore;
         _authContext = source._authContext;
@@ -97,17 +98,28 @@ public sealed partial class Models
     /// <summary>使 provider 的进行中刷新失效，并中止其刷新控制器。</summary>
     private int SupersedeProviderRefresh(string providerId)
     {
-        var generation = _refreshGenerations.GetValueOrDefault(providerId) + 1;
-        _refreshGenerations[providerId] = generation;
-        if (_refreshControllers.Remove(providerId, out var previous)) previous.Cancel();
-        return generation;
+        lock (_stateGate)
+        {
+            var generation = _refreshGenerations.GetValueOrDefault(providerId) + 1;
+            _refreshGenerations[providerId] = generation;
+            if (_refreshControllers.Remove(providerId, out var previous)) previous.Cancel();
+            return generation;
+        }
+    }
+
+    private int CurrentRefreshGeneration(string providerId)
+    {
+        lock (_stateGate) return _refreshGenerations.GetValueOrDefault(providerId);
     }
 
     private (int Generation, CancellationTokenSource Controller) BeginProviderRefresh(string providerId)
     {
         var generation = SupersedeProviderRefresh(providerId);
         var controller = new CancellationTokenSource();
-        _refreshControllers[providerId] = controller;
+        lock (_stateGate)
+        {
+            _refreshControllers[providerId] = controller;
+        }
         return (generation, controller);
     }
 
@@ -118,18 +130,26 @@ public sealed partial class Models
     private async Task<bool> PublishProviderModelsAsync(
         string providerId, int generation, CancellationToken signal, ModelsPublication publication)
     {
-        var previous = _publicationChains.GetValueOrDefault(providerId) ?? Task.CompletedTask;
-        var queued = PublishAsync(previous);
-        var tail = queued.ContinueWith(
-            static task => _ = task.Exception,
-            CancellationToken.None,
-            TaskContinuationOptions.None,
-            TaskScheduler.Default);
-        _publicationChains[providerId] = tail;
+        Task<bool> queued;
+        Task tail;
+        lock (_stateGate)
+        {
+            var previous = _publicationChains.GetValueOrDefault(providerId) ?? Task.CompletedTask;
+            queued = PublishAsync(previous);
+            tail = queued.ContinueWith(
+                static task => _ = task.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
+            _publicationChains[providerId] = tail;
+        }
         _ = tail.ContinueWith(
             _ =>
             {
-                if (_publicationChains.GetValueOrDefault(providerId) == tail) _publicationChains.Remove(providerId);
+                lock (_stateGate)
+                {
+                    if (_publicationChains.GetValueOrDefault(providerId) == tail) _publicationChains.Remove(providerId);
+                }
             },
             CancellationToken.None,
             TaskContinuationOptions.None,
@@ -148,7 +168,7 @@ public sealed partial class Models
                 // 前一个发布链的失败不影响本代次。
             }
 
-            if (signal.IsCancellationRequested || _refreshGenerations.GetValueOrDefault(providerId) != generation)
+            if (signal.IsCancellationRequested || CurrentRefreshGeneration(providerId) != generation)
             {
                 return false;
             }
@@ -162,7 +182,7 @@ public sealed partial class Models
                 await _modelsStore.WriteAsync(providerId, CloneEntry(entry), null, signal).ConfigureAwait(false);
             }
 
-            if (signal.IsCancellationRequested || _refreshGenerations.GetValueOrDefault(providerId) != generation)
+            if (signal.IsCancellationRequested || CurrentRefreshGeneration(providerId) != generation)
             {
                 return false;
             }
@@ -225,7 +245,7 @@ public sealed partial class Models
         if (callerSignal.IsCancellationRequested) return new ModelsRefreshResult(true, errors);
 
         var selected = options.Providers is null ? null : new HashSet<string>(options.Providers, StringComparer.Ordinal);
-        var refreshable = _providers.Values
+        var refreshable = ProviderSnapshot()
             .Where(provider => provider.RefreshModels is not null
                 && (selected is null || selected.Contains(provider.Id)))
             .ToList();
@@ -293,9 +313,12 @@ public sealed partial class Models
             }
             finally
             {
-                if (_refreshControllers.GetValueOrDefault(provider.Id) == controller)
+                lock (_stateGate)
                 {
-                    _refreshControllers.Remove(provider.Id);
+                    if (_refreshControllers.GetValueOrDefault(provider.Id) == controller)
+                    {
+                        _refreshControllers.Remove(provider.Id);
+                    }
                 }
 
                 controller.Dispose();
@@ -384,7 +407,7 @@ public sealed partial class Models
         async Task<AuthCheck?> CheckAsync()
         {
             signal.ThrowIfCancellationRequested();
-            var provider = _providers.GetValueOrDefault(providerId);
+            var provider = FindProvider(providerId);
             if (provider is null) return null;
             return await CheckProviderAuthAsync(
                 provider, await ReadCredentialAsync(providerId, signal).ConfigureAwait(false), signal)
@@ -397,8 +420,8 @@ public sealed partial class Models
     {
         signal.ThrowIfCancellationRequested();
         var providers = providerId is not null
-            ? (_providers.GetValueOrDefault(providerId) is { } single ? new List<IProvider> { single } : [])
-            : _providers.Values.ToList();
+            ? (FindProvider(providerId) is { } single ? new List<IProvider> { single } : [])
+            : ProviderSnapshot().ToList();
 
         var checks = new List<(IProvider, Credential?, AuthCheck?)>();
         foreach (var provider in providers)
@@ -486,7 +509,7 @@ public sealed partial class Models
         string providerId, ModelsAuthOverrides? overrides = null, CancellationToken signal = default)
     {
         var effectiveSignal = overrides?.Signal.CanBeCanceled == true ? overrides.Signal : signal;
-        var provider = _providers.GetValueOrDefault(providerId);
+        var provider = FindProvider(providerId);
         if (provider is null) return null;
         return await AuthResolve.ResolveProviderAuthAsync(
             providerId,
@@ -529,7 +552,7 @@ public sealed partial class Models
     {
         var signal = providerInteraction.Signal;
         signal.ThrowIfCancellationRequested();
-        var provider = _providers.GetValueOrDefault(providerId)
+        var provider = FindProvider(providerId)
             ?? throw new ModelsError(ModelsErrorCode.Provider, $"Unknown provider: {providerId}");
         var oauthMethod = provider.Auth?.OAuth;
         var apiKeyMethod = provider.Auth?.ApiKey;
@@ -673,13 +696,11 @@ public sealed partial class Models
     internal async Task<(ModelSpec RequestModel, IReadOnlyDictionary<string, object?>? RequestOptions)> ApplyAuthAsync(
         ModelSpec model, IReadOnlyDictionary<string, object?>? options, CancellationToken signal)
     {
-        if (!_providers.ContainsKey(model.Provider))
-        {
-            throw new ModelsError(ModelsErrorCode.Provider, $"Unknown provider: {model.Provider}");
-        }
+        var provider = FindProvider(model.Provider)
+            ?? throw new ModelsError(ModelsErrorCode.Provider, $"Unknown provider: {model.Provider}");
 
         // 无认证语义的 provider（C# 默认接口成员，差异 C43）不需要解析。
-        if (_providers[model.Provider].Auth is null) return (model, options);
+        if (provider.Auth is null) return (model, options);
 
         var resolution = await GetAuthAsync(model, new ModelsAuthOverrides
         {

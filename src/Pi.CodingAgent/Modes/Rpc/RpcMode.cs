@@ -607,7 +607,7 @@ internal sealed class RpcModeSession
                 var level = session.CycleThinkingLevel();
                 return Task.FromResult<JsonObject?>(level is null
                     ? RpcResponses.SuccessNull(id, "cycle_thinking_level")
-                    : RpcResponses.Success(id, "cycle_thinking_level", new { level }));
+                    : RpcResponses.Success(id, "cycle_thinking_level", new ThinkingLevelPayload(level)));
             }
 
             case RpcGetAvailableThinkingLevelsCommand:
