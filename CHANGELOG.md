@@ -5,18 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
-### Added
+## [1.5.2] - 2026-11-12
 
-- **.NET 11 兼容（`net11.0`）**：`Directory.Build.props` 的 `TargetFrameworks` 扩为
-  `net9.0;net10.0;net11.0`。13 个库、4 个可执行宿主、测试与示例工程零代码改动即在
-  三个 TFM 上构建通过（Debug/Release 各 0 警告 0 错误），`dotnet pack` 产出的 13 个
-  nupkg 均含 `lib/net11.0`。`ci.yml` / `nuget-publish.yml` 的 `setup-dotnet` 同步加入
-  `11.0.x`（编译 `net11.0` 需 11.x SDK）。
+对齐上游 `v1.5.0 → v1.5.2`（`v1.5.1` 2026-11-09、`v1.5.2` 2026-11-10，共 395 个提交，
+`v1.5.0` 是 `v1.5.2` 的祖先）。逐包差异与逐项落点见 `docs/upstream-1.5.2-delta.md`。
+本轮把 changelog 中**可复现、可安全移植**的已发布变更逐项落到端口并配套用例；
+范围收窄项（Chord v2 换根等）的判定依据与证据在台账 §4 逐条给出。
+
+### .NET 11 兼容（随本版发布）
+
+- **多目标 `net9.0;net10.0;net11.0`**：`Directory.Build.props` 的 `TargetFrameworks`
+  扩为三个 TFM。13 个库、4 个可执行宿主、测试与示例工程零代码改动即在三个 TFM 上
+  构建通过（Debug/Release 各 0 警告 0 错误），13 个 nupkg + 13 个 snupkg 均含
+  `lib/net11.0`。`ci.yml` / `nuget-publish.yml` 的 `setup-dotnet` 同步加入 `11.0.x`
+  （编译 `net11.0` 需 11.x SDK）。
 - **`Pi.Env.Tests` 假守护进程路径按当前运行时推断**：`TestSupport.cs` 不再硬编码
   `bin/Debug/net10.0`，改为 `net{Environment.Version.Major}.{Environment.Version.Minor}`，
   避免只构建/只安装 `net11.0` 的机器上找不到可执行文件。
 
-### 验证（本机 .NET 11 SDK `11.0.100-rc.3.26522.148` + 系统 10.0.401）
+#### 验证（本机 .NET 11 SDK `11.0.100-rc.3.26522.148` + 系统 10.0.401）
 
 - `dotnet build Pi.slnx -c Debug` / `-c Release`：三 TFM、0 警告 0 错误。
 - `GATE_FRAMEWORK=net11.0 bash scripts/gate-tests.sh Release`：**11/11 全绿**
@@ -24,17 +31,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - 门禁外 `net11.0`：`Pi.Tui.Tests` 23975/23975、`Pi.Env.Tests` 50 通过 / 4 平台跳过。
 - `GATE_FRAMEWORK=net10.0 bash scripts/gate-tests.sh Release`（系统 SDK）：10/11 门禁内
   通过，`Pi.Durable.Tests` 负载 flake（612/613）单独复跑 613/613 全绿；无回归。
-- `dotnet pack Pi.slnx -c Release --no-build`：13 个 nupkg，`Pi.Ai` 含
+- `dotnet pack Pi.slnx -c Release --no-build`：13 个 nupkg + 13 个 snupkg，`Pi.Ai` 含
   `lib/net9.0` + `lib/net10.0` + `lib/net11.0`。
 
 > 本机 .NET 11 为 RC3 预览 SDK/运行时；GA `11.0.100` 发布后建议用 GA 再复核一次构建与门禁。
-
-## [1.5.2] - 2026-11-12
-
-对齐上游 `v1.5.0 → v1.5.2`（`v1.5.1` 2026-11-09、`v1.5.2` 2026-11-10，共 395 个提交，
-`v1.5.0` 是 `v1.5.2` 的祖先）。逐包差异与逐项落点见 `docs/upstream-1.5.2-delta.md`。
-本轮把 changelog 中**可复现、可安全移植**的已发布变更逐项落到端口并配套用例；
-范围收窄项（Chord v2 换根等）的判定依据与证据在台账 §4 逐条给出。
 
 ### Added
 
