@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+## [1.5.2.1] - 2026-11-14
+
 ### Native AOT 支持（非破坏性、附加能力）
 
 `pi` CLI（及其余可执行宿主）现在可以发布为 **Native AOT** 原生可执行文件：单个

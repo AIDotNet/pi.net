@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.5.2.1] - 2026-11-14
+
+Maintenance release for Native AOT support. See `CHANGELOG.md` at the repository
+root and `docs/native-aot.md` for the full write-up.
+
+### New Features
+
+- Native AOT publishing for the four executable hosts (`publish-aot.sh`), backed by
+  source-generated `JsonSerializerContext` metadata in 11 packages. JIT / normal
+  multi-target builds are unchanged; the source-gen resolver is only installed when
+  `RuntimeFeature.IsDynamicCodeSupported` is false.
+- `InternalsVisibleTo` compile-time friend grants and full assembly rooting keep the
+  native image lossless — no capability is trimmed away.
+
+### Fixed
+
+- A pre-existing race in `Models.GetModels` / `ModelRuntime.ProviderIds` (concurrent
+  dictionary refresh) that surfaced under AOT's faster startup: provider table reads
+  and refresh state are now serialised behind a single gate.
+- RPC / agent-session event paths now serialise discriminated unions via the declared
+  base type, so the `type` discriminator survives under source-generated metadata.
+
+### Notes
+
+- External .NET plugin DLLs cannot be loaded at runtime under Native AOT (no JIT);
+  built-in and JS (Jint) extensions are unaffected, and default JIT builds keep full
+  plugin support.
+
 ## [1.5.2] - 2026-11-12
 
 Aligned with upstream Pi `v1.5.1` / `v1.5.2`. See `CHANGELOG.md` at the repository root and
