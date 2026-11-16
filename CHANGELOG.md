@@ -32,6 +32,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 测试侧：`HarnessSleepTests` 的唤醒断言改为「任一次 2000 到点且非 Active」，
 不再要求它是最后一帧（reconcile 期间会短暂再报 `Active=true`）。
 
+### Durable 输出与重启用例的两个时序问题
+
+- `ToolOutput.Progress.Flush` 的失败路径改为**先上报 `onError` 再拒绝等待者**：TS 里
+  reject 只排一个微任务，上报一定先被观察到；C# 的 `TrySetException` 会让等待者在
+  线程池上立刻恢复，原顺序会丢掉上报（`RejectsTheWaitersOfAFailedCommitAndReportsItsError`
+  偶发 `errors` 为空）。
+- `HarnessRestartTests` 的「解锁后通知宿主」改为接受「收到 Active 唤醒」或「任务已直接
+  结算」：端口的唤醒计算与 drain 是两条并发 `Task.Run`，解锁的任务可能在唤醒计算之前
+  就跑完，此时不再发送 `Active=true`（实测 `wakes=[False/] nowWake=False/`）。
+
 ## [1.5.2.1] - 2026-11-14
 
 ### Native AOT 支持（非破坏性、附加能力）

@@ -483,8 +483,17 @@ public static partial class ToolOutput
                     catch (Exception error)
                     {
                         lock (_gate) _nextAt = started + (long)_minIntervalMs;
-                        foreach (var waiter in waiters) waiter.TrySetException(error);
-                        _onError(error);
+                        // 先上报再拒绝等待者：TS 里 reject 只是排一个微任务，onError 一定
+                        // 先于等待者观察到失败；C# 的 TrySetException 会让等待者在别的线程
+                        // 上立刻恢复，顺序反了就会丢掉上报（等待者已在断言里看不到错误）。
+                        try
+                        {
+                            _onError(error);
+                        }
+                        finally
+                        {
+                            foreach (var waiter in waiters) waiter.TrySetException(error);
+                        }
                     }
                     finally
                     {

@@ -376,7 +376,14 @@ public class HarnessRestartTests
             // 图随注册表变化；宿主听到现在有可运行的工作。
             await HarnessTestSupport.WaitForAsync(
                 () => TaskGraphReader.Node(graph.Value, Key(id))?.Blocked is null);
-            await HarnessTestSupport.WaitForAsync(() => opened.Wakes.Any(wake => wake.Active));
+            // 宿主应当被通知「现在有工作」。但端口的唤醒计算与 drain 是两条并发排队的
+            // Task.Run（TS 是同一个事件循环里的先 microtask 后任务）：解锁后的任务可能在
+            // 唤醒计算之前就跑完，此时再送一个 Active=true 已无意义，端口会跳过它。
+            // 因此这里接受两种结果：收到 Active=true 的唤醒，或任务已经直接结算。
+            await HarnessTestSupport.WaitForAsync(() =>
+                opened.Wakes.Any(wake => wake.Active)
+                || TaskGraphReader.Node(graph.Value, Key(id)) is null
+                || harness.Wake() is { Active: false });
             var settled = await harness.WaitForTaskAsync(id, Ctx);
             Assert.Equal(TaskOutcomeStatus.Completed, settled.State.Outcome!.Status);
             await graph.Stop();
