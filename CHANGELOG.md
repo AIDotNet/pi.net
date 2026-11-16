@@ -19,6 +19,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 验证：`dotnet build Pi.slnx -c Release` 四个 TFM 共 36 个工程 0 警告 0 错误；`dotnet pack` 仍产出 13 个包且各含 `lib/net8.0`；另用一个独立的 net8.0 消费方工程还原 / 编译 / 运行打包产物，确认 `System.Text.Json 9.0.10` 与 public 兼容类型在下游可解析。全量门禁（11 个不依赖宿主环境的测试工程）在 net8.0 为 **7,518 通过 / 8 跳过 / 0 失败**；`Pi.Tui.Tests` 23,975 全通过；`Pi.Env.Tests` 的 1 项失败与 net10.0 基线完全相同（依赖本地 sshd/守护进程，与 TFM 无关）。net9.0 / net10.0 / net11.0 门禁同样全绿、无回归（仅出现仓库已登记的负载 / 计时敏感 flake，单跑均通过）。
 
+### Durable 调度：补齐三次「丢失的唤醒」
+
+`TaskScheduler` 的唤醒通知（宿主 `onWake`）在三个状态切换点缺失，负载下会永久停在
+`Active=true` 的那一版，宿主永远等不到睡眠定时器（net8 实测 `HarnessSleepTests` 偶发超时）：
+
+- `End(invocation)`：run 调用提交 `Sleeping` 后返回，调用结束本身会改变「现在能否跑」，
+  现在补一次 `Kick()`；
+- 唤醒计算之后状态又变了（`_wakeScheduled` 吞掉期间的 Kick）：计算完再比一次，变了就重排；
+- `ReconcileAsync` 结尾：`_reconcileScheduled` 被清掉后同样改变答案，补一次 `ScheduleWake()`。
+
+测试侧：`HarnessSleepTests` 的唤醒断言改为「任一次 2000 到点且非 Active」，
+不再要求它是最后一帧（reconcile 期间会短暂再报 `Active=true`）。
+
 ## [1.5.2.1] - 2026-11-14
 
 ### Native AOT 支持（非破坏性、附加能力）

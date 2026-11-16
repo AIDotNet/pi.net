@@ -42,7 +42,9 @@ public class HarnessSleepTests
 
         await WaitForAsync(() => !fixture.Scheduler.Wake().Active);
         Assert.Equal(new Wake { Active = false, At = 2_000 }, fixture.Scheduler.Wake());
-        await WaitForAsync(() => wakes.Count > 0 && wakes[^1].At == 2_000 && !wakes[^1].Active);
+        // 任何一次「2000 到点、当前没有可跑工作」的唤醒都算：reconcile 进行中会短暂
+        // 再报一次 Active=true/At=2000（Scheduler.Wake 的保守回答），不能只看最后一帧。
+        await WaitForAsync(() => wakes.Any(wake => wake.At == 2_000 && !wake.Active));
 
         // 提前与重复唤醒都不运行任何东西。
         clock.Set(1_999);
