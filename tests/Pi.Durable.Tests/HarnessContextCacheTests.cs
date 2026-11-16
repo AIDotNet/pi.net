@@ -22,7 +22,7 @@ public sealed class HarnessContextCacheTests
         HarnessImpl Harness,
         IConversation Root,
         CountingStorage Storage,
-        List<object> Reports);
+        HarnessTestSupport.ReportLog<object> Reports);
 
     [Fact]
     public async Task RuntimeContext_CachesAcrossTasksAndScansOnlyAppendedEntries()
@@ -234,7 +234,7 @@ public sealed class HarnessContextCacheTests
     {
         var registry = Registry.CreateRegistry();
         registry.Install(new HarnessTestSupport.TaskExtension("context-cache", [AnyDurableTask.From(probe)]));
-        var reports = new List<object>();
+        var reports = new HarnessTestSupport.ReportLog<object>();
         var harness = await DurableHarness.OpenAsync(storage, new HarnessOptions
         {
             Models = new Models(),

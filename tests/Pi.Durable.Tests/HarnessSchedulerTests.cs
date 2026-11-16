@@ -26,7 +26,7 @@ public class SchedulerTests
         IRegistry Registry,
         TaskScheduler Scheduler,
         ConversationId Conv,
-        List<Exception> Reports,
+        HarnessTestSupport.ReportLog<Exception> Reports,
         List<(TaskRecord Record, SchedulerOutcome Outcome)> Settled) : IDisposable
     {
         public void Dispose()
@@ -47,7 +47,7 @@ public class SchedulerTests
         var storage = new MemoryStorage();
         var session = new DurableSession(storage);
         var registry = Registry.CreateRegistry();
-        var reports = new List<Exception>();
+        var reports = new HarnessTestSupport.ReportLog<Exception>();
         var settled = new List<(TaskRecord, SchedulerOutcome)>();
         var conv = await session.CommitAsync(
             async tx => (await tx.CreateConversationAsync(new ConversationOwnership.Ownerless())

@@ -25,7 +25,7 @@ public class HarnessSleepTests
     public async Task SleepsWithoutAnInvocationAndResumesAtItsCheckpointOnceDue()
     {
         var clock = new Clock(1_000);
-        var wakes = new List<Wake>();
+        var wakes = new HarnessTestSupport.ReportLog<Wake>();
         var runs = new Runs();
         var nap = NapTask(1_000, runs);
         using var fixture = await CreateAsync(new MemoryStorage(), () => clock.Now, onWake: wakes.Add, tasks: [AnyDurableTask.From(nap)]);
@@ -394,7 +394,7 @@ public class HarnessSleepTests
     public async Task ReportsAThrowingOnWakeAndOffersTheSameWakeAgainAtTheNextPass()
     {
         var clock = new Clock(1_000);
-        var wakes = new List<Wake>();
+        var wakes = new HarnessTestSupport.ReportLog<Wake>();
         var failure = new InvalidOperationException("alarm failed");
         var failing = true;
         var runs = new Runs();
@@ -527,7 +527,7 @@ public class HarnessSleepTests
         IRegistry registry,
         TaskScheduler scheduler,
         ConversationId conversationId,
-        List<Exception> reports) : IDisposable
+        HarnessTestSupport.ReportLog<Exception> reports) : IDisposable
     {
         public DurableSession Session => session;
 
@@ -537,7 +537,7 @@ public class HarnessSleepTests
 
         public ConversationId ConversationId => conversationId;
 
-        public List<Exception> Reports => reports;
+        public HarnessTestSupport.ReportLog<Exception> Reports => reports;
 
         public async Task CloseAsync()
         {
@@ -566,7 +566,7 @@ public class HarnessSleepTests
     {
         var session = new DurableSession(storage);
         var registry = Registry.CreateRegistry();
-        var reports = new List<Exception>();
+        var reports = new HarnessTestSupport.ReportLog<Exception>();
         if (tasks is { Length: > 0 }) registry.Install(new FakeTaskExtension("ext", tasks));
         var conversationId = await session.CommitAsync(
             async tx => (await tx.CreateConversationAsync(new ConversationOwnership.Ownerless())

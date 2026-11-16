@@ -58,7 +58,7 @@ public class HarnessRestartTests
         var detail = Assert.IsAssignableFrom<JsonDict>(settled.State.Outcome!.Error!.Detail);
         Assert.Equal("restart_limit", detail["reason"]);
         await HarnessTestSupport.WaitForAsync(() => opened.Reports
-            .Exists(report => report.Message.Contains("was cut off 3 times without progress")));
+            .Any(report => report.Message.Contains("was cut off 3 times without progress")));
 
         // 没有了停放：阻塞原因里不再有 restart_limit。
         var inspection = await harness.InspectAsync(Ctx);
@@ -431,8 +431,8 @@ public class HarnessRestartTests
         HarnessImpl Harness,
         IRegistry Registry,
         MemoryStorage Storage,
-        List<Exception> Reports,
-        List<Wake> Wakes);
+        HarnessTestSupport.ReportLog<Exception> Reports,
+        HarnessTestSupport.ReportLog<Wake> Wakes);
 
     /// <summary>可修改的活设置（<c>HarnessOptions.settingsSource</c>）。</summary>
     private sealed class MutableSettings(int? restartLimit)
@@ -509,8 +509,8 @@ public class HarnessRestartTests
                 "tasks", [.. tasks.Select(task => AnyDurableTask.From(task))]));
         }
 
-        var reports = new List<Exception>();
-        var wakes = new List<Wake>();
+        var reports = new HarnessTestSupport.ReportLog<Exception>();
+        var wakes = new HarnessTestSupport.ReportLog<Wake>();
         var live = settings ?? new MutableSettings(null);
         var harness = await DurableHarness.OpenAsync(storage, new HarnessOptions
         {
@@ -519,7 +519,7 @@ public class HarnessRestartTests
             SettingsSource = () => live.Current,
             OnWake = wake =>
             {
-                lock (wakes) wakes.Add(wake);
+                wakes.Add(wake);
             },
             OnReport = (report, _) => reports.Add(report),
             Now = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),

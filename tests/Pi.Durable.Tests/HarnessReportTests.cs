@@ -313,7 +313,7 @@ public class HarnessReportTests
     private sealed record Reported(string Message, ReportInfo Info);
 
     /// <summary>一次打开：Harness 及其注册表与上报记录。</summary>
-    private sealed record Opened(HarnessImpl Harness, IRegistry Registry, List<Reported> Reports);
+    private sealed record Opened(HarnessImpl Harness, IRegistry Registry, HarnessTestSupport.ReportLog<Reported> Reports);
 
     private sealed class Closer(HarnessImpl harness) : IAsyncDisposable
     {
@@ -341,7 +341,7 @@ public class HarnessReportTests
             registry.Install(new HarnessTestSupport.TaskExtension(name, tasks));
         }
 
-        var reports = new List<Reported>();
+        var reports = new HarnessTestSupport.ReportLog<Reported>();
         object gate = new();
         var harness = await DurableHarness.OpenAsync(storage, new HarnessOptions
         {

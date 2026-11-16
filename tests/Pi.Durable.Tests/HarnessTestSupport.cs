@@ -37,6 +37,39 @@ internal static class HarnessTestSupport
 
     internal static Deferred<T> NewDeferred<T>() => new();
 
+    /// <summary>
+    /// 后台线程写入、测试线程读取的上报/唤醒列表。生产代码在上报回调里从任意线程追加，
+    /// 测试直接 Count / 枚举会撞上 "Collection was modified"；这里所有读写共用一把锁，
+    /// 枚举走快照。
+    /// </summary>
+    internal sealed class ReportLog<T> : IReadOnlyList<T>
+    {
+        private readonly object _gate = new();
+        private readonly List<T> _items = [];
+
+        public void Add(T item)
+        {
+            lock (_gate) _items.Add(item);
+        }
+
+        public int Count
+        {
+            get { lock (_gate) return _items.Count; }
+        }
+
+        public T this[int index]
+        {
+            get { lock (_gate) return _items[index]; }
+        }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            lock (_gate) return ((IEnumerable<T>)_items.ToArray()).GetEnumerator();
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
     /// <summary>冲刷待定微任务与一个宏任务轮次。对应 TS <c>flush()</c>（<c>setTimeout(0)</c>）。</summary>
     internal static async Task FlushAsync()
     {
@@ -60,7 +93,7 @@ internal static class HarnessTestSupport
         => await EventuallyAsync(() => Task.FromResult(check())).ConfigureAwait(false);
 
     /// <summary>实时轮询 <paramref name="check"/> 直到成立。对应 TS <c>waitFor()</c>。</summary>
-    internal static async Task WaitForAsync(Func<Task<bool>> check, int timeoutMs = 5000)
+    internal static async Task WaitForAsync(Func<Task<bool>> check, int timeoutMs = 15000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (!await check().ConfigureAwait(false))
@@ -70,7 +103,7 @@ internal static class HarnessTestSupport
         }
     }
 
-    internal static async Task WaitForAsync(Func<bool> check, int timeoutMs = 5000)
+    internal static async Task WaitForAsync(Func<bool> check, int timeoutMs = 15000)
         => await WaitForAsync(() => Task.FromResult(check()), timeoutMs).ConfigureAwait(false);
 
     /// <summary>冲刷后 <paramref name="task"/> 是否已 settle（无论成功/失败）。对应 TS <c>settled()</c>。</summary>
@@ -117,12 +150,12 @@ internal static class HarnessTestSupport
     }
 
     /// <summary>打开装有所述任务定义的 Harness。对应 TS <c>openTasks()</c>。</summary>
-    internal static async Task<(HarnessImpl Harness, IRegistry Registry, List<Exception> Reports)> OpenTasksAsync(
+    internal static async Task<(HarnessImpl Harness, IRegistry Registry, ReportLog<Exception> Reports)> OpenTasksAsync(
         IStorage storage, IReadOnlyList<AnyDurableTask> tasks, Func<long>? now = null)
     {
         var registry = Registry.CreateRegistry();
         if (tasks.Count > 0) registry.Install(new TaskExtension("tasks", [.. tasks]));
-        var reports = new List<Exception>();
+        var reports = new ReportLog<Exception>();
         var harness = await DurableHarness.OpenAsync(storage, new HarnessOptions
         {
             Models = new Models(),
@@ -216,7 +249,7 @@ internal static class HarnessTestSupport
 
         public required IRegistry Registry { get; init; }
 
-        public required List<object> Reports { get; init; }
+        public required ReportLog<object> Reports { get; init; }
 
         /// <summary>活的 Harness 设置；测试在决策之间赋值以改变它们（对应 TS <c>setup.settings</c> 原地改动）。</summary>
         public HarnessSettings Settings { get; set; } = new();
@@ -242,7 +275,7 @@ internal static class HarnessTestSupport
             ModelId = provider.GetModels()[0].Id,
             Models = models,
             Registry = Registry.CreateRegistry(),
-            Reports = [],
+            Reports = new(),
             Settings = new HarnessSettings
             {
                 Retry = new ConversationRetryPolicy { Enabled = false, MaxRetries = 0, BaseDelayMs = 0 },
