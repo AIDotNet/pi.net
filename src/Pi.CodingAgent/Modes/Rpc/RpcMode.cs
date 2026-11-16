@@ -589,10 +589,8 @@ internal sealed class RpcModeSession
                 return CycleModelAsync(id);
 
             case RpcGetAvailableModelsCommand:
-                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_available_models", new
-                {
-                    models = session.ModelRuntime.GetAvailableSnapshot(),
-                }));
+                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_available_models",
+                    new RpcModelsPayload(session.ModelRuntime.GetAvailableSnapshot())));
 
             // ---------------------------------------------------------------
             // Thinking
@@ -611,10 +609,8 @@ internal sealed class RpcModeSession
             }
 
             case RpcGetAvailableThinkingLevelsCommand:
-                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_available_thinking_levels", new
-                {
-                    levels = session.GetAvailableThinkingLevels(),
-                }));
+                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_available_thinking_levels",
+                    new RpcLevelsData { Levels = session.GetAvailableThinkingLevels() }));
 
             // ---------------------------------------------------------------
             // Queue modes
@@ -682,10 +678,8 @@ internal sealed class RpcModeSession
                 return CloneAsync(id);
 
             case RpcGetForkMessagesCommand:
-                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_fork_messages", new
-                {
-                    messages = session.GetUserMessagesForForking(),
-                }));
+                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_fork_messages",
+                    new RpcForkMessagesData { Messages = session.GetUserMessagesForForking() }));
 
             case RpcGetEntriesCommand getEntries:
                 return Task.FromResult<JsonObject?>(GetEntries(id, getEntries));
@@ -693,18 +687,13 @@ internal sealed class RpcModeSession
             case RpcGetTreeCommand:
             {
                 var sessionManager = session.SessionManager;
-                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_tree", new
-                {
-                    tree = sessionManager.GetTree(),
-                    leafId = sessionManager.GetLeafId(),
-                }));
+                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_tree",
+                    new RpcTreeData { Tree = sessionManager.GetTree(), LeafId = sessionManager.GetLeafId() }));
             }
 
             case RpcGetLastAssistantTextCommand:
-                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_last_assistant_text", new
-                {
-                    text = session.GetLastAssistantText(),
-                }));
+                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_last_assistant_text",
+                    new RpcTextData { Text = session.GetLastAssistantText() }));
 
             case RpcSetSessionNameCommand setName:
                 return Task.FromResult<JsonObject?>(SetSessionName(id, setName));
@@ -714,10 +703,8 @@ internal sealed class RpcModeSession
             // ---------------------------------------------------------------
 
             case RpcGetMessagesCommand:
-                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_messages", new
-                {
-                    messages = session.Messages,
-                }));
+                return Task.FromResult<JsonObject?>(RpcResponses.Success(id, "get_messages",
+                    new RpcMessagesData { Messages = session.Messages }));
 
             // ---------------------------------------------------------------
             // Commands

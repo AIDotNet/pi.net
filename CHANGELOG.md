@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - 三处 .NET 9 API 在调用点就地等价替换，四个 TFM 行为不变：`Convert.ToHexStringLower(x)` → `Convert.ToHexString(x).ToLowerInvariant()`（20 处）、`messages.Index()` → `Select((msg,index)=>(index,msg))`、`Task.WhenEach` 在 `Pi.Agent/ToolExecution.cs` 用 `#if NET8_0` 切到等价的 `WhenAny` 完成序循环。
 - `PersistedAssemblyBuilder`（.NET 9，net8.0 无法把动态程序集存盘）相关的一条 ALC 歧义用例只在 net9+ 编译；被测的 loader 代码与 TFM 无关。
 - CI / 发版工作流安装 `8.0.x` SDK，并在 net10.0 门禁之外增加一遍 `GATE_FRAMEWORK=net8.0` 门禁。
+- **Native AOT 覆盖 net8.0**：`scripts/publish-aot.sh` 增加第 4 个参数选 TFM（默认 `net10.0`，可选 `net8.0`），`Directory.Build.props` 用 `AotFramework` 收口 `TargetFrameworks`。net8.0 映像由 ILCompiler 8.0.x + `System.Text.Json` 9.0.10 产出；RPC 的 6 个匿名响应负载改为具名 record 并登记 source-gen（STJ 9 在 net8 AOT 下对匿名类型走反射会抛 `There is no metadata token available`），`ModelRuntime` 的并发刷新用 `_refreshGate` 串行化（AOT 更快启动暴露的既存竞态）。4 个宿主均可发布，net8.0 / net10.0 的 52 项 AOT 对拍均全绿，CI `native-aot` job 增加 net8.0 矩阵腿。
 
 验证：`dotnet build Pi.slnx -c Release` 四个 TFM 共 36 个工程 0 警告 0 错误；`dotnet pack` 仍产出 13 个包且各含 `lib/net8.0`；另用一个独立的 net8.0 消费方工程还原 / 编译 / 运行打包产物，确认 `System.Text.Json 9.0.10` 与 public 兼容类型在下游可解析。全量门禁（11 个不依赖宿主环境的测试工程）在 net8.0 为 **7,518 通过 / 8 跳过 / 0 失败**；`Pi.Tui.Tests` 23,975 全通过；`Pi.Env.Tests` 的 1 项失败与 net10.0 基线完全相同（依赖本地 sshd/守护进程，与 TFM 无关）。net9.0 / net10.0 / net11.0 门禁同样全绿、无回归（仅出现仓库已登记的负载 / 计时敏感 flake，单跑均通过）。
 

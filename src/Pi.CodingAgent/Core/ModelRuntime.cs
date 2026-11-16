@@ -233,6 +233,17 @@ public sealed class ModelRuntime : IModelResolverRuntime
     private string? _availabilityError;
     private readonly Dictionary<string, Task> _credentialOperations = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// 串行化刷新通道。TS 的运行时是单线程事件循环，刷新天然不会交错；C# 里
+    /// <see cref="FireAndForgetRefresh"/>（provider 注册 / Main 启动期）与
+    /// AgentSessionServices 的 awaited 刷新可能并发，而两条路径都会重建
+    /// _builtins / _config / _snapshot。Native AOT 启动更快、调度更紧，重叠概率
+    /// 显著上升：net8.0 AOT 实测偶发 "Collection was modified" 或字典内部状态
+    /// 损坏（get_session_stats / get_fork_messages）。一把信号量把并发刷新排成
+    /// 队列，与上游语义一致；JIT 构建的串行路径行为不变。
+    /// </summary>
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+
     private ModelRuntime(
         RuntimeCredentials credentials,
         ModelConfig config,
@@ -1124,6 +1135,19 @@ public sealed class ModelRuntime : IModelResolverRuntime
     // ================================================================= refresh
 
     public async Task<ModelsRefreshResult> RefreshAsync(ModelsRefreshOptions? options = null)
+    {
+        await _refreshGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await RefreshCoreAsync(options).ConfigureAwait(false);
+        }
+        finally
+        {
+            _refreshGate.Release();
+        }
+    }
+
+    private async Task<ModelsRefreshResult> RefreshCoreAsync(ModelsRefreshOptions? options)
     {
         options ??= new ModelsRefreshOptions();
         _config = await ModelConfig.LoadAsync(_modelsPath).ConfigureAwait(false);

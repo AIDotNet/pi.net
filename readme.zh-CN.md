@@ -91,6 +91,7 @@ dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help
 ```bash
 bash scripts/publish-aot.sh                       # -> artifacts/aot/win-x64/pi.exe
 bash scripts/publish-aot.sh win-x64 artifacts/aot/win-x64-vacation Pi.Vacation  # 4 个可执行宿主任选
+bash scripts/publish-aot.sh win-x64 artifacts/aot/net8-win-x64 Pi.Cli net8.0      # 目标 net8.0（默认 net10.0）
 bash scripts/verify-aot.sh artifacts/aot/win-x64 # 52 项（29 CLI + 23 RPC）逐条对比 AOT 与 JIT
 ```
 

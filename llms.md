@@ -36,7 +36,7 @@
 | 打包 | `dotnet pack Pi.slnx -c Release -o artifacts` → 13 个 `.nupkg` + 13 个 `.snupkg` |
 | 跑 CLI | `dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help` |
 | 发布 `pi` 到目录 | `dotnet publish src/Pi.Cli -c Release -o ./pi-bin` |
-| Native AOT 发布（无损、附加能力） | `bash scripts/publish-aot.sh [rid] [out] [host]` → `artifacts/aot/<rid>/pi.exe`；host 可选 4 个可执行宿主之一 |
+| Native AOT 发布（无损、附加能力） | `bash scripts/publish-aot.sh [rid] [out] [host] [tfm]` → `artifacts/aot/<rid>/pi.exe`；host 可选 4 个可执行宿主之一，tfm 默认 `net10.0`（可选 `net8.0`） |
 | AOT 与 JIT 行为对拍 | `bash scripts/verify-aot.sh artifacts/aot/win-x64`（52 项：29 CLI + 23 RPC，含 agent 事件判别串；自动解析 `python3`/`python`/`py -3`） |
 | CI 上的 AOT 验证 | `.github/workflows/ci.yml` → `native-aot` job，`workflow_dispatch` 勾选 `run_aot` |
 | 重新生成 AOT JSON 上下文 | `python3 scripts/gen-aot-contexts.py`（清单变化后重跑；Windows 可用 `py -3`） |

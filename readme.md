@@ -92,6 +92,7 @@ and JIT behavior is byte-for-byte identical.
 ```bash
 bash scripts/publish-aot.sh                       # -> artifacts/aot/win-x64/pi.exe
 bash scripts/publish-aot.sh win-x64 artifacts/aot/win-x64-vacation Pi.Vacation  # any of the 4 executable hosts
+bash scripts/publish-aot.sh win-x64 artifacts/aot/net8-win-x64 Pi.Cli net8.0      # target net8.0 (default: net10.0)
 bash scripts/verify-aot.sh artifacts/aot/win-x64 # compare AOT vs JIT on 52 checks (29 CLI + 23 RPC)
 ```
 

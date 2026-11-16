@@ -163,8 +163,14 @@ jobs:
   # compare it against the JIT build. Keeps AOT regressions observable without
   # slowing down every push / PR. See docs/native-aot.md.
   native-aot:
-    name: Native AOT publish + lossless verify
+    name: Native AOT publish + lossless verify (${{ matrix.tfm }})
     if: inputs.run_aot == true
+    strategy:
+      fail-fast: false
+      matrix:
+        # net10.0 是默认 AOT 目标；net8.0 走 ILCompiler 8.0.x +
+        # System.Text.Json 9.0.10，对拍基线取同 TFM 的 JIT 构建。
+        tfm: [net10.0, net8.0]
     runs-on: windows-latest
     defaults:
       run:
@@ -179,9 +185,11 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
-          # PublishAot=true pins TargetFrameworks to net10.0, so a 10.0.x SDK
-          # suffices (ILCompiler is restored from NuGet at publish time).
-          dotnet-version: 10.0.x
+          # PublishAot=true 只保留一个 TFM，ILCompiler 由 NuGet 还原；net8.0 腿
+          # 额外需要 8.0.x targeting pack 才能编译 net8.0 资产。
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -189,10 +197,10 @@ jobs:
           python-version: '3.11'
 
       - name: Build JIT baseline
-        run: dotnet build src/Pi.Cli/Pi.Cli.csproj -c Release -p:TargetFrameworks=net10.0
+        run: dotnet build src/Pi.Cli/Pi.Cli.csproj -c Release -f ${{ matrix.tfm }} -p:TargetFrameworks=${{ matrix.tfm }}
 
       - name: Publish Native AOT
-        run: bash scripts/publish-aot.sh win-x64 artifacts/aot/win-x64
+        run: bash scripts/publish-aot.sh win-x64 artifacts/aot/${{ matrix.tfm }} Pi.Cli ${{ matrix.tfm }}
 
       - name: Verify native image + JIT/AOT parity
-        run: bash scripts/verify-aot.sh artifacts/aot/win-x64
+        run: bash scripts/verify-aot.sh artifacts/aot/${{ matrix.tfm }} src/Pi.Cli/bin/Release/${{ matrix.tfm }}/pi.dll

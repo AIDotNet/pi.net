@@ -77,6 +77,15 @@ TYPES = {
         'Pi.CodingAgent.Extensions.Mcp.McpServerReport',
         'Pi.CodingAgent.Modes.Rpc.RpcCommand',
         'Pi.CodingAgent.Modes.Rpc.ThinkingLevelPayload',
+        # get_* RPC 响应负载的具名形状（原先在 RpcMode 里是匿名类型）。
+        # net8.0 的 Native AOT 对匿名类型走反射序列化会抛
+        # "There is no metadata token available for the given member."
+        'Pi.CodingAgent.Modes.Rpc.RpcModelsPayload',
+        'Pi.CodingAgent.Modes.Rpc.RpcLevelsData',
+        'Pi.CodingAgent.Modes.Rpc.RpcForkMessagesData',
+        'Pi.CodingAgent.Modes.Rpc.RpcTreeData',
+        'Pi.CodingAgent.Modes.Rpc.RpcTextData',
+        'Pi.CodingAgent.Modes.Rpc.RpcMessagesData',
         'Pi.CodingAgent.Experimental.Services.SessionWorkerOptions',
         # cycle_model / get_available_thinking_levels RPC payloads reach
         # JsonL.SerializeToNode(object); without static metadata the reflection

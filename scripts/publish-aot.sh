@@ -2,7 +2,7 @@
 # Publish pi as a Native AOT (ahead-of-time compiled, no JIT / no .NET runtime
 # dependency) executable.
 #
-# Usage: bash scripts/publish-aot.sh [rid] [output-dir] [project]
+# Usage: bash scripts/publish-aot.sh [rid] [output-dir] [project] [tfm]
 #   rid        defaults to win-x64 (linux-x64, osx-arm64, ... also work when
 #             the matching ILCompiler + native toolchain are installed)
 #   output-dir defaults to artifacts/aot/<rid>
@@ -11,6 +11,9 @@
 #             src/Pi.Evals, src/Pi.Vacation. A short name (e.g. Pi.Vacation) is
 #             also accepted. Each is rooted with the same complete-metadata /
 #             TrimmerRootAssembly settings from Directory.Build.targets.
+#   tfm        defaults to net10.0; net8.0 is also supported (net8.0 restores
+#             ILCompiler 8.0.x + System.Text.Json 9.0.10, see docs/native-aot.md).
+#             Can also be set with AOT_FRAMEWORK=net8.0.
 #
 # All AOT-specific MSBuild settings live in Directory.Build.props (activated by
 # PublishAot=true) and Directory.Build.targets (assembly rooting). The default
@@ -30,6 +33,7 @@ cd "${root}"
 rid="${1:-win-x64}"
 out="${2:-artifacts/aot/${rid}}"
 project="${3:-src/Pi.Cli/Pi.Cli.csproj}"
+tfm="${4:-${AOT_FRAMEWORK:-net10.0}}"
 if [[ "${project}" != *.csproj && -d "${project}" ]]; then
   project="${project}/$(basename "${project}").csproj"
 elif [[ "${project}" != *.csproj && "${project}" != */* ]]; then
@@ -47,9 +51,10 @@ if [[ -z "${exe_name}" ]]; then
   exe_name="$(basename "${project}" .csproj)"
 fi
 
-echo "== Native AOT publish: project=${project} rid=${rid} out=${out}"
+echo "== Native AOT publish: project=${project} rid=${rid} tfm=${tfm} out=${out}"
 dotnet publish "${project}" \
-  -c Release -f net10.0 -r "${rid}" \
+  -c Release -f "${tfm}" -r "${rid}" \
+  -p:AotFramework="${tfm}" \
   -p:PublishAot=true \
   -o "${out}"
 

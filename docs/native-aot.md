@@ -4,7 +4,7 @@
 安装 .NET 运行时、无 JIT、启动更快。这是一项**附加的部署能力**：默认的多目标
 （net8.0 / net9.0 / net10.0 / net11.0）JIT 构建、全部公开接口、全部能力都保持不变。
 
-> **AOT 目标框架的范围**：Native AOT 发布固定以 `net10.0` 出映像（`PublishAot=true` 会把 `TargetFrameworks` pin 到 `net10.0`，`scripts/publish-aot.sh` 也硬编码 `-f net10.0`：一个 TFM + RID 只产出一个原生映像）。`net8.0` / `net9.0` / `net11.0` 仅作为 **JIT 多目标**资产，不是 AOT 发布目标。实测 `net8.0` 虽能强行编译出可运行的原生 exe，但其 AOT JSON 元数据路径（ILCompiler 8.0.34 + `System.Text.Json` 9.0.10 + source-gen）在 RPC 对拍中会报 `There is no metadata token available for the given member.`，因此 **net8.0 不提供 AOT 支持**；net10.0 的 AOT 对拍 52/52 全绿。
+> **AOT 目标框架的范围**：一次发布只产出一个 TFM + RID 的原生映像，默认 `net10.0`；`scripts/publish-aot.sh` 的第 4 个参数（或 `-p:AotFramework=<tfm>`）可选 `net8.0`。两个目标都走同一套 source-gen JSON + 完整元数据 + 整体 root 的方案：`net8.0` 由 ILCompiler 8.0.x（NuGet 还原）+ `System.Text.Json` 9.0.10 出映像，AOT 对拍同样 **52/52 全绿**；`net9.0` / `net11.0` 仅作为 **JIT 多目标**资产，不是 AOT 发布目标。
 
 - 不删除、不替换任何功能；
 - 不改任何公开类型 / 成员签名（新增的都是 `internal` 基础设施类型）；
@@ -26,15 +26,27 @@ bash scripts/publish-aot.sh win-x64 artifacts/aot/win-x64-evals   Pi.Evals
 bash scripts/publish-aot.sh win-x64 artifacts/aot/win-x64-vacation Pi.Vacation
 ```
 
+第四个参数选目标 TFM（默认 `net10.0`，也支持 `net8.0`）：
+
+```bash
+bash scripts/publish-aot.sh win-x64 artifacts/aot/net8-win-x64 Pi.Cli net8.0
+AOT_FRAMEWORK=net8.0 bash scripts/publish-aot.sh win-x64 artifacts/aot/net8-win-x64
+```
+
 等价于（所有 AOT 专属 MSBuild 设置都在 `Directory.Build.props` /
 `Directory.Build.targets` 里由 `PublishAot=true` 条件激活）：
 
 ```bash
 dotnet publish src/Pi.Cli/Pi.Cli.csproj -c Release -f net10.0 -r win-x64 \
   -p:PublishAot=true -o artifacts/aot/win-x64
+
+# net8.0：多带一个 AotFramework，让 PublishAot 组把 TargetFrameworks 也收到 net8.0
+dotnet publish src/Pi.Cli/Pi.Cli.csproj -c Release -f net8.0 -r win-x64 \
+  -p:AotFramework=net8.0 -p:PublishAot=true -o artifacts/aot/net8-win-x64
 ```
 
-前置条件：.NET 10 SDK、对应 RID 的 ILCompiler（NuGet 自动还原）、本机原生工具链
+前置条件：.NET 10/11 SDK（编译 `net10.0`），或额外安装 .NET 8 targeting pack
+（编译 `net8.0`）；对应 TFM 的 ILCompiler（NuGet 自动还原）与本机原生工具链
 （Windows 需 MSVC `link.exe` + Windows SDK）。
 
 `verify-aot.sh` 会自动挑选可用的 Python 3（`python3` / `python` / `py -3`）——
@@ -46,6 +58,10 @@ Windows Git Bash 常常只有 `py` 启动器、没有 `python3`；也可以直�
 ```bash
 dotnet build src/Pi.Cli -c Release -p:TargetFrameworks=net10.0
 bash scripts/verify-aot.sh artifacts/aot/win-x64
+
+# net8.0：对拍基线选同 TFM 的 JIT 构建
+dotnet build src/Pi.Cli -c Release -f net8.0 -p:TargetFrameworks=net8.0
+bash scripts/verify-aot.sh artifacts/aot/net8-win-x64 src/Pi.Cli/bin/Release/net8.0/pi.dll
 ```
 
 CI 里 `.github/workflows/ci.yml` 的 `native-aot` job（`workflow_dispatch` 勾选
@@ -113,7 +129,7 @@ CI 里 `.github/workflows/ci.yml` 的 `native-aot` job（`workflow_dispatch` 勾
 2. **所有 `new JsonSerializerOptions` 创建点**（57 处）改为
    `AotJson.Configure(new ... { ... })`，表达式体不变。
 3. `Directory.Build.props` 的 AOT 条件组：
-   - `TargetFrameworks=net10.0`（AOT 只出一个 TFM + RID 的原生映像）；
+   - `TargetFrameworks=$(AotFramework)`（默认 `net10.0`，可传 `net8.0`；AOT 只出一个 TFM + RID 的原生映像）；
    - `JsonSerializerIsReflectionEnabledByDefault=true`（保留反射重载）；
    - `IlcGenerateCompleteTypeMetadata=true`；
    - `NoWarn` 关闭 IL2xxx / IL3xxx 建议（见下）。
@@ -150,6 +166,26 @@ CI 里 `.github/workflows/ci.yml` 的 `native-aot` job（`workflow_dispatch` 勾
 `JsonL` 的两个 `DefaultJsonTypeInfoResolver.Modifiers` 在运行时给
 `ChatMessage` / `AssistantMessageEvent` 追加派生类型，source-gen 生成器看不到，
 所以这些变体也必须显式登记（现已由 `gen-aot-contexts.py` 从源码自动提取）。
+
+### net8.0 AOT 的两条额外约束
+
+`net8.0` 原生映像由 ILCompiler 8.0.x + `System.Text.Json`（STJ）9.0.10 出，
+与 net10.0 共用同一套 AotJson 机制，但有两处必须显式处理：
+
+1. **匿名类型不可用**：STJ 9 的反射解析器在 net8 Native AOT 下处理编译器生成的
+   匿名类型时会调用 `MemberInfo.GetMetadataToken()`，抛
+   `InvalidOperationException: There is no metadata token available for the given member.`
+   （net10.0 的 STJ 10 不走这条路径，所以匿名负载在 net10 能过）。RPC 的 6 个
+   响应负载因此全部改成具名 record 并登记 source-gen：`RpcModelsPayload` /
+   `RpcLevelsData` / `RpcForkMessagesData` / `RpcTreeData` / `RpcTextData` /
+   `RpcMessagesData`。**新增以 `object` 为声明类型序列化的负载时，必须用具名
+   类型并同步 `scripts/gen-aot-contexts.py` 的 TYPES 清单**。
+2. **刷新互斥**：net8 启动更快，把 `ModelRuntime` 的两条刷新通道
+   （`FireAndForgetRefresh` 与会话创建时 awaited 的 `RefreshAsync`）挤到重叠，
+   `_builtins` / `_config` 的读写互相撞车（实测 `get_session_stats` /
+   `get_fork_messages` 偶发 `Collection was modified` 或字典内部状态损坏）。
+   现在 `ModelRuntime.RefreshAsync` 用 `_refreshGate` 把并发刷新串成队列，
+   与 TS 单线程事件循环的语义一致；JIT 构建的串行路径行为不变。
 
 ### 为什么 JIT 输出不变
 
@@ -236,6 +272,20 @@ Native AOT 应用引用 `Pi.*` NuGet 包时，source-gen 上下文都会自动�
   外部扩展的完整交互、`win-x64` 之外的 RID（需对应 ILCompiler 与原生工具链）。
 
 ## 验证记录
+
+### 2026-11-16（本机 .NET 11.0.100 SDK / Windows 11；AOT 目标 net8.0 + net10.0 / win-x64）
+
+- `bash scripts/publish-aot.sh win-x64 artifacts/aot/net8-win-x64 Pi.Cli net8.0`：
+  0 警告 0 错误，`pi.exe` 81,603,072 B（net10.0 默认目标 68,508,160 B，回归通过）。
+- net8.0 下 4 个宿主全部发布成功：`pi-durable.exe` 81,593,856 B、
+  `Pi.Evals.exe` 83,678,720 B、`pi-vacation.exe` 81,593,856 B。
+- net8.0 对拍：`py -3 scripts/verify-aot.py --aot artifacts/aot/net8-win-x64/pi.exe
+  --jit src/Pi.Cli/bin/Release/net8.0/pi.dll` → **29 CLI + 23 RPC = 52/52**；
+  net10.0 同套对拍 52/52（无回归）。
+- net8.0 的 `Pi.CodingAgent.Tests`：5,399 通过 / 5 跳过 / 0 失败（首轮 1 条负载
+  敏感 flake，重跑通过）；net10.0 同工程同样全绿。
+- `dotnet build Pi.slnx -c Release`（4 个 TFM、36 个工程）：0 警告 0 错误。
+- CI 的 `native-aot` job 增加 `net8.0` 矩阵腿（同一套发布 + 同 TFM 对拍）。
 
 ### 2026-11-13（本机 .NET 11.0.100 SDK / Windows 11；AOT 目标 net10.0 / win-x64）
 

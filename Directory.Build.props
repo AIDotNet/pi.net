@@ -120,7 +120,13 @@
         binary; see docs/native-aot.md.
   -->
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">
-    <TargetFrameworks>net10.0</TargetFrameworks>
+    <!--
+      AOT 只产出一个 TFM + RID 的原生映像，默认 net10.0（脚本硬编码的历史行为）。
+      scripts/publish-aot.sh 的第 4 个参数会传 -p:AotFramework=<tfm> 以选择目标
+      （net8.0 亦受支持）；直接 dotnet publish 时也可显式传 -p:AotFramework=net8.0。
+    -->
+    <AotFramework Condition="'$(AotFramework)' == ''">net10.0</AotFramework>
+    <TargetFrameworks>$(AotFramework)</TargetFrameworks>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
     <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>

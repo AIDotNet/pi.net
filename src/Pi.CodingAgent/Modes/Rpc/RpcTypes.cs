@@ -156,6 +156,17 @@ public sealed record RpcGetAvailableThinkingLevelsCommand : RpcCommand;
 /// </summary>
 internal sealed record ThinkingLevelPayload(ThinkingLevel? Level);
 
+/// <summary>
+/// <c>get_available_models</c> 的响应负载：模型目录快照（<see cref="ModelSpec"/>）。
+/// </summary>
+/// <remarks>
+/// 具名类型替代匿名类型。匿名类型无法登记进 source-generated 上下文，net8.0 的
+/// Native AOT 下对它走反射序列化会抛
+/// <c>InvalidOperationException: There is no metadata token available for the given member.</c>；
+/// 具名类型可静态展开，四个 TFM 的线路形状不变（<c>models</c> 键）。
+/// </remarks>
+internal sealed record RpcModelsPayload(IReadOnlyList<ModelSpec> Models);
+
 // ---------------------------------------------------------------------------
 // Queue modes
 // ---------------------------------------------------------------------------
