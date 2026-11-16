@@ -1650,7 +1650,7 @@ public sealed partial class DefaultPackageManager : IPackageManager
     {
         var root = ResolveManagedPath(GetExtensionTempFolder(_agentDir), prefix);
         var input = $"{prefix}-{suffix ?? ""}{(reference is not null ? $"@{reference}" : "")}";
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(input)))[..8];
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input))).ToLowerInvariant()[..8];
         return ResolveManagedPath(root, hash, suffix ?? "");
     }
 

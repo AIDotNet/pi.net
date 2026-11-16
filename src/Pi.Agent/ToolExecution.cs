@@ -210,7 +210,12 @@ public static partial class ToolExecution
         }
 
         var completed = new Dictionary<int, AgentToolCallOutcome>();
+#if NET8_0
+        // Task.WhenEach 是 .NET 9 新增 API；net8.0 用下面的 WhenAny 循环保持完成序语义。
+        await foreach (var finished in WhenEachNet8(tasks).ConfigureAwait(false))
+#else
         await foreach (var finished in Task.WhenEach(tasks).ConfigureAwait(false))
+#endif
         {
             var (index, outcome) = finished.Result;
             completed[index] = outcome;
@@ -414,4 +419,17 @@ public static partial class ToolExecution
         {
             DurationMs = outcome.DurationMs,
         };
+#if NET8_0
+    /// <summary>net8.0 stand-in for <c>Task.WhenEach</c> (.NET 9): yield tasks in completion order.</summary>
+    private static async IAsyncEnumerable<Task<T>> WhenEachNet8<T>(IEnumerable<Task<T>> tasks)
+    {
+        var remaining = new List<Task<T>>(tasks);
+        while (remaining.Count > 0)
+        {
+            var finished = await Task.WhenAny(remaining).ConfigureAwait(false);
+            remaining.Remove(finished);
+            yield return finished;
+        }
+    }
+#endif
 }

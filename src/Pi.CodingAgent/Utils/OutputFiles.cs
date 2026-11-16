@@ -57,5 +57,5 @@ public static class OutputFiles
     }
 
     private static string RandomHex(int byteCount) =>
-        Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(byteCount));
+        Convert.ToHexString(RandomNumberGenerator.GetBytes(byteCount)).ToLowerInvariant();
 }

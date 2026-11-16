@@ -328,7 +328,7 @@ public static class FacetBundler
 
     /// <summary>entry 名前 12 位 SHA-256 十六进制。对应 TS <c>shortHash</c>。</summary>
     public static string ShortHash(string value)
-        => Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)))[..12];
+        => Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..12];
 
     /// <summary>清单 JSON（缩进 2 空格 + 结尾换行）。对应 TS <c>JSON.stringify(manifest, null, 2) + "\n"</c>。</summary>
     public static string SerializeManifest(FacetBundleManifest manifest)

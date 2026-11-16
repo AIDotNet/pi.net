@@ -2,7 +2,9 @@
 
 `pi.net` 支持把 `pi` CLI 发布为 **Native AOT** 原生可执行文件：单个 PE 映像、无需
 安装 .NET 运行时、无 JIT、启动更快。这是一项**附加的部署能力**：默认的多目标
-（net9.0 / net10.0 / net11.0）JIT 构建、全部公开接口、全部能力都保持不变。
+（net8.0 / net9.0 / net10.0 / net11.0）JIT 构建、全部公开接口、全部能力都保持不变。
+
+> **AOT 目标框架的范围**：Native AOT 发布固定以 `net10.0` 出映像（`PublishAot=true` 会把 `TargetFrameworks` pin 到 `net10.0`，`scripts/publish-aot.sh` 也硬编码 `-f net10.0`：一个 TFM + RID 只产出一个原生映像）。`net8.0` / `net9.0` / `net11.0` 仅作为 **JIT 多目标**资产，不是 AOT 发布目标。实测 `net8.0` 虽能强行编译出可运行的原生 exe，但其 AOT JSON 元数据路径（ILCompiler 8.0.34 + `System.Text.Json` 9.0.10 + source-gen）在 RPC 对拍中会报 `There is no metadata token available for the given member.`，因此 **net8.0 不提供 AOT 支持**；net10.0 的 AOT 对拍 52/52 全绿。
 
 - 不删除、不替换任何功能；
 - 不改任何公开类型 / 成员签名（新增的都是 `internal` 基础设施类型）；

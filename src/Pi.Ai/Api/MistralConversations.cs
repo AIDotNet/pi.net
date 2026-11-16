@@ -559,7 +559,7 @@ public static class MistralConversations
     private static JsonArray ToChatMessages(IReadOnlyList<ChatMessage> messages, bool supportsImages)
     {
         var result = new JsonArray();
-        foreach (var (index, msg) in messages.Index())
+        foreach (var (index, msg) in messages.Select((msg, index) => (index, msg)))
         {
             switch (msg)
             {

@@ -128,7 +128,7 @@ curl -X DELETE "https://www.nuget.org/api/v2/package/Pi.Ai/1.0.5" \
 
 ## 包内容的几个约定
 
-- **多目标** `net9.0;net10.0`（1.4.5 起）：消费方项目 net9.0 及以上即可。
+- **多目标** `net8.0;net9.0;net10.0;net11.0`（net8.0 自本次兼容改造起新增）：消费方项目 net8.0 及以上即可。`net8.0` 资产组额外声明 `System.Text.Json` 9.0.10 依赖，用于在旧运行时上提供 .NET 9 的 JSON API 面并保持输出一致。
 - **`Pi.Mcp`** 依赖 `Microsoft.AspNetCore.App` 框架引用，消费方项目需要 ASP.NET Core（`Web` SDK 或 `FrameworkReference`）。
 - **`Pi.CodingAgent`** 带 3 个运行时资源目录（`Assets/theme`、`Assets/export-html`、`Assets/assets`），
   以 `contentFiles` + `PackageCopyToOutput` 发布，还原后会落到消费方输出目录，

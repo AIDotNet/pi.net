@@ -15,8 +15,9 @@
 set -uo pipefail
 
 configuration="${1:-Release}"
-# 默认只跑 net10.0：net9.0/net11.0 是兼容目标，要求本机装有对应运行时；
-# CI 想覆盖可设 GATE_FRAMEWORK=net9.0 / net11.0 再跑一遍。
+# 默认只跑 net10.0：net8.0/net9.0/net11.0 是兼容目标，要求本机装有对应运行时；
+# CI 想覆盖可设 GATE_FRAMEWORK=net8.0 / net9.0 / net11.0 再跑一遍
+# （ci.yml 与 nuget-publish.yml 已额外跑一遍 net8.0 门禁）。
 framework="${GATE_FRAMEWORK:-net10.0}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${root}"

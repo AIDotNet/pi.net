@@ -74,7 +74,7 @@ public static partial class ExperimentalSessions
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cwdInput);
         var cwd = ResolveRealDirectory(cwdInput);
-        var cwdHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(cwd)))[..24];
+        var cwdHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(cwd))).ToLowerInvariant()[..24];
         var root = Path.Combine(
             Path.GetFullPath(agentDirectory ?? Config.GetAgentDir()),
             "experimental",

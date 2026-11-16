@@ -1157,3 +1157,53 @@ NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.XUZEYU || vars.XUZEYU }}
 `ToolsCorpusTests` 定向 **18/18**；`Pi.CodingAgent.Tests` 5233 项中 5229 通过 / 3 跳过 / 1 失败，
 唯一失败是已登记 flake `ModelSelectorTests.InitialSearchThatMatchesNothingShowsTheNoResultsPath`
 （单跑 1/1 通过），与本次改动无关。
+
+
+---
+
+## 2026-11-15 .NET 8 兼容（多目标扩为 4 个 TFM）
+
+需求：项目原本支持 `net9.0;net10.0;net11.0`，增加 `net8.0` 兼容。此前（2026-10-27）评估时
+明确**不做 net8**——实测要改约 66 处 .NET 9 新 API（`Lock` / `Base64Url` /
+`Convert.ToHexStringLower` / `JsonSerializerOptions.NewLine`+`IndentSize` /
+`Enumerable.Index` / `Task.WhenEach`），改造面与长期维护成本不划算。本次改用集中式兼容层，
+不把 `#if` 散进业务源码，net9/10/11 的编译产物与行为保持原样。
+
+**改动清单**
+
+1. `Directory.Build.props`：`TargetFrameworks` → `net8.0;net9.0;net10.0;net11.0`；
+   `<Description>` 改 ".NET 8/9/10/11 port"；新增 `net8.0` 条件组引用
+   `System.Text.Json 9.0.10`（NuGet，运行时真正加载该程序集，提供
+   `JsonStringEnumMemberNameAttribute` 与 `JsonSerializerOptions.NewLine/
+   IndentCharacter/IndentSize`，缩进 JSON 与枚举线名与 net9+ 一致），编入
+   `build/Net8Polyfills.cs`；`net8.0` 下抑制 `CS0436`（见 4）。
+2. `build/Net8Polyfills.cs`（新，仅 net8.0、每个工程各编一份 internal 副本）：
+   `System.Threading.Lock`（`EnterScope`/`Scope`）、`System.Buffers.Text.Base64Url`
+   （`EncodeToChars`/`DecodeFromChars`）。
+3. `build/Net8OrderedDictionary.cs`（新，仅 net8.0、只编入 `Pi.CodingAgent`）：
+   public `OrderedDictionary<K,V>`，因它出现在公开属性
+   `BuildSystemPromptOptions.Sections` 上必须 public；只放进一个程序集避免友元
+   程序集间的 `CS0433` 二义性。
+4. `CS0436` 抑制：仓库给所有 Pi 工程互相开了 `InternalsVisibleTo`，于是源文件里
+   定义的 internal `Lock`/`Base64Url` 会与友元程序集里的同名类型冲突。该警告是
+   「源定义优先」的良性提示，编译器明确取源定义副本（各程序集各自私有），
+   仅对 `net8.0` 加 `NoWarn`，其余三个 TFM 的 `TreatWarningsAsErrors` 不受影响。
+5. 三处调用点就地等价替换（四个 TFM 行为一致）：`Convert.ToHexStringLower(x)`
+   → `Convert.ToHexString(x).ToLowerInvariant()`（20 处）、
+   `messages.Index()` → `Select((msg,index)=>(index,msg))`、
+   `Task.WhenEach` 在 `Pi.Agent/ToolExecution.cs` 用 `#if NET8_0` 切到等价的
+   `WhenAny` 完成序循环（net9+ 分支源码不变）。
+6. `PersistedAssemblyBuilder`（.NET 9，net8.0 无法把动态程序集存盘）相关的一条
+   ALC 歧义用例 `LoadAsync_MultipleEntries_ThrowsInsteadOfPickingOne` 及其 helper
+   用 `#if !NET8_0` 只在 net9+ 编译；被测 loader 代码与 TFM 无关。
+7. 文档 / CI：`readme.md`、`readme.zh-CN.md`、`llms.md`、`docs/native-aot.md`、
+   `docs/publishing.md`、`docs/porting-status.md`、`CHANGELOG.md` 同步 4 个 TFM；
+   `ci.yml` 与 `nuget-publish.yml` 的 `setup-dotnet` 增 `8.0.x`，并各增一遍
+   `GATE_FRAMEWORK=net8.0 bash scripts/gate-tests.sh Release` 门禁；
+   `scripts/gate-tests.sh` 注释同步。
+
+**验证**：`dotnet build Pi.slnx -c Release -m:1` 四个 TFM 共 36 个工程 0 警告 0 错误；
+`dotnet pack Pi.slnx -c Release --no-build` 仍 13 个包，各含 `lib/net8.0`；
+`net8.0` 资产组声明 `System.Text.Json 9.0.10` 依赖；另用独立 net8.0 消费方
+工程还原 / 编译 / 运行打包产物成功（下游能解析 public 兼容类型）。
+全量 net8.0 门禁（11 个工程）：**7,518 通过 / 8 跳过 / 0 失败**；`Pi.Tui.Tests` 23,975 全通过；`Pi.Env.Tests` 4→1 项失败的差额来自 `bin/Debug/<tfm>` 假守护进程产物（补齐 Debug 构建后与 net10.0 基线同为 1 项环境依赖失败）。net9.0 / net10.0 / net11.0 门禁亦全绿；net10.0 曾出现已登记的计时 flake `HarnessGenerationRecoveryTests.ResumesRetryBackoffAfterReopen`，隔离重跑 613/613 通过。另有一处真实的 net8 运行时差异：Windows 上 `Environment.SetEnvironmentVariable(name, "")` 在 .NET 9+ 保留空值、在 net8.0 删除变量，故 `PromptCorpusTests` 的 `telemetryFromEnv` 空值向量改为运行时探测 + 经 2-arg seam 重载断言（该语义本就由 `telemetryEnvFlag` / `telemetryEnabled` 语料覆盖）。

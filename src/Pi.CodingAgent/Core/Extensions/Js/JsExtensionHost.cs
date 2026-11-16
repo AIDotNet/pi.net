@@ -1183,8 +1183,8 @@ internal sealed class JsExtensionHost(string cwd, Engine engine) : IDisposable
     {
         "crypto.randomUUID" => JsonSerializer.Serialize(Guid.NewGuid().ToString()),
         "crypto.randomHex" => JsonSerializer.Serialize(
-            Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(
-                payload["size"]?.GetValue<int>() ?? 16))),
+            Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(
+                payload["size"]?.GetValue<int>() ?? 16)).ToLowerInvariant()),
         _ => throw new InvalidOperationException($"Unknown crypto method '{method}'."),
     };
 

@@ -6,7 +6,7 @@
 [![CI](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/AIDotNet/pi.net)](https://github.com/AIDotNet/pi.net/blob/main/LICENSE)
 
-Pi.NET is a .NET 10/11 port of [Pi](https://github.com/earendil-works/pi). Pi is a minimal, extensible Agent harness (TypeScript monorepo, ~171k lines); this project ports its core libraries one by one to `net9.0`, `net10.0` and `net11.0`, bringing the same capabilities to the .NET ecosystem.
+Pi.NET is a .NET 8/9/10/11 port of [Pi](https://github.com/earendil-works/pi). Pi is a minimal, extensible Agent harness (TypeScript monorepo, ~171k lines); this project ports its core libraries one by one to `net8.0`, `net9.0`, `net10.0` and `net11.0`, bringing the same capabilities to the .NET ecosystem.
 
 Pi's philosophy is "make Pi fit your workflow, not the other way around": each library does one minimal-but-complete thing, and you compose the layers above it yourself. This project carries that philosophy over — rather than mechanically translating TS into C#, it rebuilds everything in idiomatic C# with semantic equivalence (discriminated unions → abstract records with pattern matching, JS Proxy → explicit verb APIs).
 
@@ -57,7 +57,7 @@ The TypeScript monorepo remains the behavioral reference. Bundled upstream docs 
 
 ### Install from NuGet
 
-All 13 libraries ship to nuget.org under their project names, targeting `net9.0`, `net10.0` and `net11.0`:
+All 13 libraries ship to nuget.org under their project names, targeting `net8.0`, `net9.0`, `net10.0` and `net11.0`:
 
 ```bash
 dotnet add package Pi.Ai        # unified multi-provider LLM API
@@ -75,7 +75,7 @@ Package contents, release process and rollback are documented in [docs/publishin
 
 ### Build from source
 
-Requires the .NET 11 SDK (to compile `net11.0`). The libraries multi-target `net9.0`, `net10.0` and `net11.0`; the executables do too.
+Requires the .NET 11 SDK (to compile `net11.0`), plus the .NET 8 targeting pack to build the `net8.0` assets. The libraries multi-target `net8.0`, `net9.0`, `net10.0` and `net11.0`; the executables do too. On `net8.0` the build references `System.Text.Json` 9.0.10 and compiles a small compatibility shim (`build/Net8Polyfills.cs`, `build/Net8OrderedDictionary.cs`) for the handful of .NET 9 BCL APIs the port uses, so behavior stays identical across all four TFMs.
 
 ```bash
 dotnet restore Pi.slnx

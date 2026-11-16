@@ -408,5 +408,5 @@ public class PluginPackagesTests
     // Keeps the hashing honest: the expectations above are the first hex characters of the
     // SHA-256 of the path, which is what TS's createHash("sha256").digest("hex").slice(0, n) gives.
     private static string Hash(string value, int hexChars)
-        => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..hexChars];
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..hexChars];
 }

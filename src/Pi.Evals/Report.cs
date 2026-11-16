@@ -555,7 +555,7 @@ public static class EvalReport
         var identity = JsonSerializer.Serialize(
             new object?[] { task.EvalSet, task.CaseId, VariantText(task.Variant), task.Model, task.RunNumber },
             IdentityJsonOptions);
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
         var directory = Path.Combine(
             artifactDirectory,
             VariantText(task.Variant),

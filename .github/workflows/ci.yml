@@ -65,9 +65,10 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
-          # 库是多目标（net9.0;net10.0;net11.0）：编译 net11.0 需要 11.x SDK；
-          # 跑 net9.0/net10.0 测试另需对应版本的运行时。
+          # 库是多目标（net8.0;net9.0;net10.0;net11.0）：编译 net11.0 需要 11.x SDK，
+          # 编译 net8.0 需要 8.0.x targeting pack；跑各 TFM 测试另需对应版本的运行时。
           dotnet-version: |
+            8.0.x
             9.0.x
             10.0.x
             11.0.x
@@ -131,6 +132,10 @@ jobs:
       - name: Test (gate)
         if: inputs.run_tests == true
         run: bash scripts/gate-tests.sh Release
+
+      - name: Test (gate, net8.0 compatibility)
+        if: inputs.run_tests == true
+        run: GATE_FRAMEWORK=net8.0 bash scripts/gate-tests.sh Release
 
       - name: Test (host-dependent, informational)
         if: inputs.run_tests == true

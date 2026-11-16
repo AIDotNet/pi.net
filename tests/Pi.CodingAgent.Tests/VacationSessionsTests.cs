@@ -19,8 +19,8 @@ public sealed class VacationSessionsTests
 
             await using var session = await VacationSessions.SelectAsync(cwd, false, agentDirectory);
 
-            var expectedHash = Convert.ToHexStringLower(
-                SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(cwd))))[..24];
+            var expectedHash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(cwd)))).ToLowerInvariant()[..24];
             Assert.Equal(Path.GetFullPath(cwd), session.Cwd);
             Assert.Equal(expectedHash, Path.GetFileName(Path.GetDirectoryName(session.Directory)));
             Assert.True(session.Created);
@@ -44,8 +44,8 @@ public sealed class VacationSessionsTests
             var agentDirectory = Path.Combine(root, "agent");
             Directory.CreateDirectory(cwd);
 
-            var hash = Convert.ToHexStringLower(
-                SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(cwd))))[..24];
+            var hash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(cwd)))).ToLowerInvariant()[..24];
             var sessionRoot = Path.Combine(agentDirectory, "experimental", "vacation-sessions", hash);
             var older = Path.Combine(sessionRoot, "0000000000001-00000000-0000-0000-0000-000000000001");
             var newer = Path.Combine(sessionRoot, "0000000000002-00000000-0000-0000-0000-000000000002");

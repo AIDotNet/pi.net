@@ -1,9 +1,22 @@
 # Changelog
 
-All notable changes to `pi.net` — the .NET 10/11 port of [pi](https://github.com/earendil-works/pi) — are documented here.
+All notable changes to `pi.net` — the .NET 8/9/10/11 port of [pi](https://github.com/earendil-works/pi) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
 ## [Unreleased]
+
+### .NET 8 兼容（新增第 4 个 TFM，行为与 net9/10/11 一致）
+
+`TargetFrameworks` 从 `net9.0;net10.0;net11.0` 扩为 `net8.0;net9.0;net10.0;net11.0`，13 个 NuGet 库与 4 个可执行宿主都新增 `lib/net8.0` 资产。之前评估只做 net8 需要改约 66 处 .NET 9 新 API，成本不划算；这次改用**集中式兼容层**，不把 `#if` 散进业务源码：
+
+- `Directory.Build.props` 的 `net8.0` 条件组：引用 `System.Text.Json` **9.0.10**（NuGet 程序集在运行时真正加载，提供 `JsonStringEnumMemberNameAttribute` 与 `JsonSerializerOptions.NewLine/IndentCharacter/IndentSize`，使缩进 JSON 与枚举线名与 net9+ 逐字节相同）；并编入 `build/Net8Polyfills.cs`。该依赖写入 `net8.0` 资产组，随 NuGet 包一起下发，消费方无需额外配置。
+- `build/Net8Polyfills.cs`（仅 net8.0、每个工程各编一份 internal 副本）：补 `System.Threading.Lock`（`EnterScope`/`Scope`）、`System.Buffers.Text.Base64Url`（`EncodeToChars`/`DecodeFromChars`）。因仓库给所有 Pi 工程互相开了 `InternalsVisibleTo`，这里对 net8.0 抑制无害的 `CS0436`（编译器取源定义副本）。
+- `build/Net8OrderedDictionary.cs`：public 的 `OrderedDictionary<K,V>` 兼容类型，只编入 `Pi.CodingAgent`（它出现在 `BuildSystemPromptOptions.Sections` 这个公开属性上，必须 public；只放进一个程序集可避免友元程序集间的类型二义性）。
+- 三处 .NET 9 API 在调用点就地等价替换，四个 TFM 行为不变：`Convert.ToHexStringLower(x)` → `Convert.ToHexString(x).ToLowerInvariant()`（20 处）、`messages.Index()` → `Select((msg,index)=>(index,msg))`、`Task.WhenEach` 在 `Pi.Agent/ToolExecution.cs` 用 `#if NET8_0` 切到等价的 `WhenAny` 完成序循环。
+- `PersistedAssemblyBuilder`（.NET 9，net8.0 无法把动态程序集存盘）相关的一条 ALC 歧义用例只在 net9+ 编译；被测的 loader 代码与 TFM 无关。
+- CI / 发版工作流安装 `8.0.x` SDK，并在 net10.0 门禁之外增加一遍 `GATE_FRAMEWORK=net8.0` 门禁。
+
+验证：`dotnet build Pi.slnx -c Release` 四个 TFM 共 36 个工程 0 警告 0 错误；`dotnet pack` 仍产出 13 个包且各含 `lib/net8.0`；另用一个独立的 net8.0 消费方工程还原 / 编译 / 运行打包产物，确认 `System.Text.Json 9.0.10` 与 public 兼容类型在下游可解析。全量门禁（11 个不依赖宿主环境的测试工程）在 net8.0 为 **7,518 通过 / 8 跳过 / 0 失败**；`Pi.Tui.Tests` 23,975 全通过；`Pi.Env.Tests` 的 1 项失败与 net10.0 基线完全相同（依赖本地 sshd/守护进程，与 TFM 无关）。net9.0 / net10.0 / net11.0 门禁同样全绿、无回归（仅出现仓库已登记的负载 / 计时敏感 flake，单跑均通过）。
 
 ## [1.5.2.1] - 2026-11-14
 

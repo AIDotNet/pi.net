@@ -320,10 +320,29 @@ public class PromptCorpusTests : IDisposable
             // The 1-arg form reads the process environment.
             foreach (var vector in Corpus.GetProperty("telemetryFromEnv").EnumerateArray())
             {
-                Environment.SetEnvironmentVariable("PI_TELEMETRY", OptString(vector, "env"));
+                var env = OptString(vector, "env");
+                var expected = vector.GetProperty("result").GetBoolean();
+                var setting = vector.GetProperty("setting").GetBoolean();
+                Environment.SetEnvironmentVariable("PI_TELEMETRY", env);
+
+                // .NET 9+ on Windows keeps a variable set to "" (GetEnvironmentVariable returns "");
+                // net8.0 on Windows deletes it instead (returns null), so "set but empty" simply cannot
+                // be represented there and the 1-arg form necessarily falls back to the setting.
+                // Detect this at runtime rather than by #if so Linux net8.0 (where empty values are
+                // representable) still runs the vector normally. The empty-string semantics are already
+                // asserted above by telemetryEnvFlag / telemetryEnabled through the 2-arg seam overload,
+                // so here we re-check the vector via that same seam instead of dropping it.
+                if (env == "" && Environment.GetEnvironmentVariable("PI_TELEMETRY") is null)
+                {
+                    Check(failures, "from-env(empty/seam)", Escape(env), expected,
+                        Core.Telemetry.IsInstallTelemetryEnabled(
+                            SettingsManager.InMemory(new Settings { EnableInstallTelemetry = setting }), env));
+                    continue;
+                }
+
                 var actual = Core.Telemetry.IsInstallTelemetryEnabled(
-                    SettingsManager.InMemory(new Settings { EnableInstallTelemetry = vector.GetProperty("setting").GetBoolean() }));
-                Check(failures, "from-env", Escape(OptString(vector, "env") ?? "<null>"), vector.GetProperty("result").GetBoolean(), actual);
+                    SettingsManager.InMemory(new Settings { EnableInstallTelemetry = setting }));
+                Check(failures, "from-env", Escape(env ?? "<null>"), expected, actual);
             }
 
             Environment.SetEnvironmentVariable("PI_TELEMETRY", null);
