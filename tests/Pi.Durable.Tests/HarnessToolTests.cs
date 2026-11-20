@@ -404,6 +404,72 @@ public class ToolTaskTests
             where T : class, IReadOnlyDictionary<string, object?> => _session.WatchDocAsync(token, taskId, key, context);
     }
 
+    [Fact]
+    public async Task GateParkSleepsBeforeTheToolRunsThenExecutesIt()
+    {
+        var runs = 0;
+        var tool = new FakeTool("read", new Dictionary<string, object?> { ["type"] = "object" },
+            execute: (_, _, _) =>
+            {
+                runs++;
+                return Task.FromResult(new ToolExecutionResult { Content = [new TextContent("done")] });
+            });
+        var decided = 0;
+        var hooks = new FakeHooks
+        {
+            BeforeToolHandler = (_, _, _) => Task.FromResult<ToolHookDecision?>(
+                decided++ == 0 ? new ToolHookDecision { Park = new ToolPark { Until = 9_000 } } : null),
+        };
+        var fixture = await CreateFixtureAsync(tool, [hooks]);
+        var task = await GetTaskAsync(fixture);
+        await CallPhase(task, fixture.Runtime, Ctx);
+
+        var parked = await GetTaskAsync(fixture);
+        Assert.Equal(TaskStatus.Sleeping, parked.State.Status);
+        Assert.Equal(0, runs);
+
+        await ExecutePhase(parked, fixture.Runtime, Ctx);
+        var done = await GetTaskAsync(fixture);
+        Assert.Equal(TaskStatus.Terminal, done.State.Status);
+        Assert.Equal(1, runs);
+    }
+
+    [Fact]
+    public async Task ToolParkSleepsThenResumesWithItsCheckpoint()
+    {
+        var runs = 0;
+        var tool = new FakeTool("read", new Dictionary<string, object?> { ["type"] = "object" },
+            execute: (_, api, _) =>
+            {
+                runs++;
+                if (runs == 1)
+                {
+                    return Task.FromResult(new ToolExecutionResult
+                    {
+                        Park = new ToolPark { Until = 5_000, Checkpoint = "cp-1" },
+                    });
+                }
+
+                Assert.Equal("cp-1", api.Checkpoint);
+                Assert.NotNull(api.Wake);
+                return Task.FromResult(new ToolExecutionResult { Content = [new TextContent("done")] });
+            });
+        var fixture = await CreateFixtureAsync(tool);
+        var task = await GetTaskAsync(fixture);
+        await CallPhase(task, fixture.Runtime, Ctx);
+
+        var parked = await GetTaskAsync(fixture);
+        Assert.Equal(TaskStatus.Sleeping, parked.State.Status);
+        Assert.Equal(5_000L, parked.State.Until);
+        Assert.IsType<ToolTaskCheckpoint.Park>(
+            ToolTaskCheckpoint.FromJson((IReadOnlyDictionary<string, object?>)parked.State.Checkpoint!));
+
+        await ExecutePhase(parked, fixture.Runtime, Ctx);
+        var done = await GetTaskAsync(fixture);
+        Assert.Equal(TaskStatus.Terminal, done.State.Status);
+        Assert.Equal(2, runs);
+    }
+
     private sealed record Fixture(
         DurableSession Session,
         ConversationId Conv,

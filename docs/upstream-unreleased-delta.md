@@ -73,7 +73,7 @@
 | `18e99051b` | `pi.events` 处理器异常走扩展错误通道 | `Core/Extensions/{ExtensionRuntime,ExtensionLoaderImpl,ExtensionRunner}.cs` | 既有扩展错误用例 |
 | `ac78a6068` | changelog 解析失败不再直接写终端 | `Utils/Changelog.cs` | `ChangelogCorpusTests.ParseChangelogUnreadablePath_MatchesTypeScript` |
 | `b513b64d8` | 包管理的 git 进程禁用终端密码提示（端口本就捕获输出） | `Core/PackageManager.cs`（`GIT_TERMINAL_PROMPT`/`GIT_SSH_COMMAND`） | 既有包管理用例 |
-| `63dec2621` | 退出时 resume 命令单独一行 | `Modes/Interactive/InteractiveMode.Lifecycle.cs` | — |
+| `63dec2623` | 退出时 resume 命令单独一行 | `Modes/Interactive/InteractiveMode.Lifecycle.cs` | — |
 | `e67aa1a4e` | `onAbort: "keep"` 排队输入穿过对话中止 | `Pi.Durable/Harness/{HarnessTypes,Submissions,Inbox,Harness}.cs` | `HarnessInboxTests.OnAbortKeepStaysQueuedThroughConversationAbort` |
 | `75ca6e7d0` | listDir 跳过枚举后被删除的条目 | `Pi.Durable/Env/LocalExecutionEnv.cs`、`Pi.Env/RemoteEnv.cs` | 既有枚举用例 |
 | `628d8ab52` | 任务变更只上溯到最近对话，不再走完整 owner 链 | 端口 `Harness/Scheduler.cs` 的 `AddScopesAbove` 本就第一步收进对话并返回 | 既有深度链用例 |
@@ -109,8 +109,10 @@
    - **tool sleep park / gate park 已接入**：`ToolExecutionResult.Park`、`ToolHookDecision.Park`、
      `ToolTaskCheckpoint.Park`（含 checkpoint 往返用例）；工具或 beforeTool 门闩可返回
      `ToolPark { until, signals, checkpoint }`，任务进入 sleeping，恢复后以同一参数重跑
-     execute（`api.Wake`/`api.Checkpoint` 可读）。`ToolTaskCheckpoint.Park` 的 JSON 往返有
-     `SignalsTests.ParkCheckpointRoundTrips`。
+     execute（`api.Wake`/`api.Checkpoint` 可读）。     `ToolTaskCheckpoint.Park` 的 JSON 往返有
+     `SignalsTests.ParkCheckpointRoundTrips`/`WaitParkCheckpointRoundTrips`；
+     `HarnessToolTests.ToolParkSleepsThenResumesWithItsCheckpoint` 与
+     `GateParkSleepsBeforeTheToolRunsThenExecutesIt` 覆盖真实阶段重入。
    - **wait 型 park 已接入**：`ToolPark.On/Policy`、`ToolTaskCheckpoint.Park` 往返；任务以 waiting 状态等待子任务。
    - **仍未移植**：`afterTools`/`onYield` 钩子启动任务。
      端口的 `afterRun` 钩子任务（`RunEndTaskRequest`）已存在，其余两个钩子的返回类型
@@ -127,11 +129,7 @@
 
 - `dotnet build Pi.slnx -c Debug` / `-c Release`（`-p:TargetFrameworks=net10.0`）：均 0 警告 / 0 错误。
 - `Pi.Ai.Tests` 1069 通过（1 跳过）；`Pi.Agent.Tests` 38 通过；`Pi.CodingAgent.Tests` 5404 通过（5 跳过）；
-  `Pi.Durable.Tests` 621 通过（新增 1 个 signal 睡眠集成、6 个 signals/park 叶子用例）；`Pi.Tui.Tests` 新增 7 项通过。
-- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**（`Pi.Ai.Tests`/`Pi.Durable.Tests` 首次各有一项计时 flake，脚本重跑通过）。`Pi.Durable.Tests` 621 项，包含新增的 signal 睡眠/信号/park 用例。
-- 门禁 `bash scripts/gate-tests.sh Release`：10/11；`Pi.Durable.Tests` 的 `HarnessViewTests.SharesUnchangedPartsBetweenRevisionsAndSkipsCommitsThatTouchNothingMounted` 偶发失败。**同机对 `HEAD`（未含本批改动）的干净 worktree 跑 Release `Pi.Durable.Tests` 也失败 2 项（611/613），含同一个 HarnessView 用例**，说明是套件在此环境的计时/顺序敏感，不是本批引入。
-  改动）的干净 worktree 跑 Release `Pi.Durable.Tests` 也失败 1 项**（612/613），说明是该套件在此环境的
-  计时/顺序敏感，不是本批引入。
-- `Pi.Tui.Tests` 全量套件的 `AltScreenCorpus`/StdinBuffer 计时用例在基线 worktree 上同样偶发失败；
-  新加的 7 个用例单独运行全绿。
+  `Pi.Durable.Tests` 623 通过（新增 1 个 signal 睡眠集成、6 个 signals/park 叶子用例）；`Pi.Tui.Tests` 新增 7 项通过。
+- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**。
+- 门禁 `bash scripts/gate-tests.sh Release`：**11/11 全绿**。
 - 目录数据总量 1730 → 1740（+6 GPT-6.2、−4 deprecated、+2 qwen4 Team、+6 Individual）。

@@ -17,7 +17,7 @@
 | 9 | `9a7cfba47` | 2026-11-20 | fix(tui): Enter on a Tab menu for an absolute path no longer submits (#12312) | 已移植 | Pi.Tui/Components/Editor.cs IsInSlashCommandNameContext |
 | 10 | `e5c01ca6c` | 2026-11-19 | fix(ai): send strict on GitHub Copilot Responses tools (#12329) | 已移植 | ModelData/github-copilot.json openai-responses |
 | 11 | `1e34c3b4c` | 2026-11-19 | fix(ai): add qwen4-max-preview to qwen-token-plan-individual models (#12313) | 已移植 | ModelData/qwen-token-plan*.json + ModelCatalogTests |
-| 12 | `63dec2621` | 2026-11-18 | feat(coding-agent): print resume command on its own line on exit | 已移植 | InteractiveMode.Lifecycle.cs resume 命令行 |
+| 12 | `63dec2623` | 2026-11-18 | feat(coding-agent): print resume command on its own line on exit | 已移植 | InteractiveMode.Lifecycle.cs resume 命令行 |
 | 13 | `cead615b4` | 2026-11-17 | fix(ai): use Codex's context windows for GPT-6.2 (500K Sol, 272K Astra) | 已移植 | ModelData/openai-codex.json 500K/272K |
 | 14 | `e56d35ce5` | 2026-11-17 | feat(ai,coding-agent): add GPT-6.2 Astra and GPT-6.2 Sol | 已移植 | ModelData/openai|azure|openai-codex.json + ModelResolver |
 | 15 | `5f89cc0a7` | 2026-11-17 | feat(p3): slice 1 redo and slice 26, the release build and the p3 command | 范围外·p3 | apps/p3 原型，端口未移植 |
