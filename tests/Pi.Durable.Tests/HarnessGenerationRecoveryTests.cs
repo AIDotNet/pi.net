@@ -268,6 +268,9 @@ public sealed class HarnessGenerationRecoveryTests
             var checkpoint = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(recoveredTask.State.Checkpoint);
             Assert.Equal("retry", checkpoint["phase"]);
             Assert.Equal(61_000L, Convert.ToInt64(checkpoint["until"]));
+            // 重开后的首轮 reconcile 在变更线上异步进行；Scheduler.Wake() 在重算未完成时
+            // 保守回答 Active=true。先等它落定再断言（与 HarnessSleepTests 同一手法）。
+            await HarnessTestSupport.WaitForAsync(() => !reopened.Wake().Active);
             var wake = reopened.Wake();
             Assert.False(wake.Active);
             Assert.Equal(61_000L, wake.At);

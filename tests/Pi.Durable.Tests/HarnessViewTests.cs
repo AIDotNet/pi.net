@@ -89,6 +89,18 @@ public sealed class HarnessViewTests
     /// <summary>让提交后的 watch 回调追上。对应 TS <c>drained()</c>（setTimeout 0）。</summary>
     private static Task DrainedAsync() => HarnessTestSupport.FlushAsync();
 
+    /// <summary>
+    /// 等到 <paramref name="count"/> 帧被投递。端口用线程池投递 watch（TS 是 queueMicrotask），
+    /// 相邻提交若落在同一个调度窗口里会被折叠成一帧（见
+    /// <see cref="FoldsUndeliveredCommitsIntoOneCallWhoseOpsReachTheNewestView"/>）。
+    /// 需要「一提交一帧」的用例在两次提交之间等一次，而不是靠固定延迟。
+    /// </summary>
+    private static Task WaitForFramesAsync(List<Frame> frames, int count)
+        => HarnessTestSupport.WaitForAsync(() =>
+        {
+            lock (frames) return frames.Count >= count;
+        });
+
     /// <summary>统计触碰本对话挂载的提交数。</summary>
     private static Counter Touches(HarnessImpl harness, IConversation conversation)
     {
@@ -161,15 +173,17 @@ public sealed class HarnessViewTests
         await harness.WaitForIdleAsync(Ctx);
         await DrainedAsync();
         Assert.True(frames.Count > 0);
-        Assert.Equal(touching.Count, frames.Count);
+        // 端口在线程池投递 watch（TS 是 queueMicrotask）：一次运行里的相邻提交可能被折叠成一帧，
+        // 帧数 ≤ 触碰提交数；折叠后的 ops 仍能重建到最新修订（见
+        // FoldsUndeliveredCommitsIntoOneCallWhoseOpsReachTheNewestView）。
+        Assert.True(frames.Count <= touching.Count);
         AssertViewEqual(await CommittedAsync(harness, root, initial.Conversation), Replay(initial, frames));
         Assert.Contains(
-            frames[0].Ops,
+            frames.SelectMany(frame => frame.Ops),
             op => op is DeltaOp.Splice splice
                 && splice.Path.Segments.SequenceEqual([Seg.Key("entries")])
-                && splice.Index == 0 && splice.Remove == 0
-                && splice.Items.Count == 1
-                && EntryKindIs(splice.Items[0], "pi.user"));
+                && splice.Remove == 0
+                && splice.Items.Any(item => EntryKindIs(item, "pi.user")));
         // 文档操作在挂载路径下保持精确形状。
         Assert.Contains(
             frames.SelectMany(frame => frame.Ops),
@@ -190,8 +204,9 @@ public sealed class HarnessViewTests
         var (initial, frames, stop) = await RecordAsync(root);
         await other.CommitAsync(tx => tx.AppendEntryAsync(other.Id, new EntryDraft { Kind = "note" }), Ctx);
         await root.ConfigureAsync(new AgentChange { ThinkingLevel = ThinkingLevel.High }, Ctx);
+        await WaitForFramesAsync(frames, 1);
         await root.CommitAsync(tx => tx.AppendEntryAsync(root.Id, new EntryDraft { Kind = "note" }), Ctx);
-        await DrainedAsync();
+        await WaitForFramesAsync(frames, 2);
         Assert.Equal(2, frames.Count);
         Assert.True(frames[0].Ops.Count == 1 && frames[0].Ops[0] is DeltaOp.Set set
             && set.Path.Segments.SequenceEqual([Seg.Key("docs"), Seg.Key("pi.agent"), Seg.Key("thinkingLevel")])
@@ -349,13 +364,14 @@ public sealed class HarnessViewTests
             await tx.RetireDocAsync(Live.LiveDoc, root.Id);
             return true;
         }, Ctx);
+        await WaitForFramesAsync(frames, 1);
         await root.CommitAsync(async tx =>
         {
             var live = await tx.DocAsync(Live.LiveDoc, root.Id);
             live.Set(DocPath("tools"), new List<object?>());
             return true;
         }, Ctx);
-        await DrainedAsync();
+        await WaitForFramesAsync(frames, 2);
         Assert.Equal(2, frames.Count);
         Assert.True(frames[0].Ops.Count == 1 && frames[0].Ops[0] is DeltaOp.Delete del
             && del.Path.Segments.SequenceEqual([Seg.Key("docs"), Seg.Key("pi.live")]));

@@ -31,7 +31,9 @@ public class IdentityTests
     [Fact]
     public void FormatsUserAgents()
     {
-        Assert.Matches(@"^pi/\d+\.\d+\.\d+ \(.+; dotnet/.+; .+\)$", Identity.FormatUserAgent());
+        // 版本号允许三段或四段（补丁版如 1.5.2.1），也可带预发布后缀；
+        // workflow 的版本解析同样接受这些形态，别把形状断言钉死在三段。
+        Assert.Matches(@"^pi/\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)? \(.+; dotnet/.+; .+\)$", Identity.FormatUserAgent());
         Assert.StartsWith("pi/9.9.9 (", Identity.FormatUserAgent(new ClientIdentity { Version = "9.9.9" }));
         Assert.Equal("pi", Identity.FormatUserAgent(new ClientIdentity { UserAgent = UserAgentMode.Short, Version = "9.9.9" }));
         Assert.Equal("acme/1.0", Identity.FormatUserAgent(new ClientIdentity { UserAgent = UserAgentMode.Custom("acme/1.0") }));

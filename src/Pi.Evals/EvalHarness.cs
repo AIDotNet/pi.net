@@ -448,8 +448,8 @@ public static class EvalHarness
 
             systemPrompt ??= session.SystemPrompt;
             VerifySystemPrompt(systemPrompt, options.Name, options.ExpectedPiDocumentation);
-            metadata["systemPromptSha256"] = Convert.ToHexStringLower(
-                SHA256.HashData(Encoding.UTF8.GetBytes(systemPrompt)));
+            metadata["systemPromptSha256"] = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(systemPrompt))).ToLowerInvariant();
 
             output = options.Output is null
                 ? JsonSerializer.SerializeToElement(response, EvalJson.Options)
@@ -481,8 +481,8 @@ public static class EvalHarness
                     systemPrompt ??= session.SystemPrompt;
                     if (!metadata.ContainsKey("systemPromptSha256"))
                     {
-                        metadata["systemPromptSha256"] = Convert.ToHexStringLower(
-                            SHA256.HashData(Encoding.UTF8.GetBytes(systemPrompt)));
+                        metadata["systemPromptSha256"] = Convert.ToHexString(
+                            SHA256.HashData(Encoding.UTF8.GetBytes(systemPrompt))).ToLowerInvariant();
                     }
                 }
                 catch (Exception error)

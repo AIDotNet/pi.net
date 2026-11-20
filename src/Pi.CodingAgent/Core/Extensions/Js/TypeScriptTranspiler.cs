@@ -82,7 +82,7 @@ internal static class TypeScriptTranspiler
     private static string CacheKey(string source, string fileName)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(fileName + "\0" + source));
-        return Convert.ToHexStringLower(hash);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static Engine EnsureBabel()

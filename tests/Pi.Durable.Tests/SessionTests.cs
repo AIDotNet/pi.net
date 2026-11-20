@@ -512,6 +512,11 @@ public class SessionTests
             var change = await tx.DocAsync(NotesDoc, conversationId);
             change.Set(Path.Root.Append(Seg.Key("text")), "one");
         }, Ctx);
+        // 端口用线程池投递 watch：先等这一提交的帧落地，避免两次提交被折叠成一帧。
+        await WaitUntilAsync(() =>
+        {
+            lock (gate) return updates.Count == 1;
+        });
         await test.Session.CommitAsync(async tx =>
         {
             var change = await tx.DocAsync(NotesDoc, conversationId);

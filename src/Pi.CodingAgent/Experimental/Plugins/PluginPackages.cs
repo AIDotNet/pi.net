@@ -186,7 +186,7 @@ public static class PluginPackages
     }
 
     private static string Hash(string value, int hexChars)
-        => Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)))[..hexChars];
+        => Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..hexChars];
 
     private static async Task IgnoreAsync(Task task)
     {

@@ -58,7 +58,7 @@ public class HarnessRestartTests
         var detail = Assert.IsAssignableFrom<JsonDict>(settled.State.Outcome!.Error!.Detail);
         Assert.Equal("restart_limit", detail["reason"]);
         await HarnessTestSupport.WaitForAsync(() => opened.Reports
-            .Exists(report => report.Message.Contains("was cut off 3 times without progress")));
+            .Any(report => report.Message.Contains("was cut off 3 times without progress")));
 
         // 没有了停放：阻塞原因里不再有 restart_limit。
         var inspection = await harness.InspectAsync(Ctx);
@@ -376,7 +376,14 @@ public class HarnessRestartTests
             // 图随注册表变化；宿主听到现在有可运行的工作。
             await HarnessTestSupport.WaitForAsync(
                 () => TaskGraphReader.Node(graph.Value, Key(id))?.Blocked is null);
-            await HarnessTestSupport.WaitForAsync(() => opened.Wakes.Any(wake => wake.Active));
+            // 宿主应当被通知「现在有工作」。但端口的唤醒计算与 drain 是两条并发排队的
+            // Task.Run（TS 是同一个事件循环里的先 microtask 后任务）：解锁后的任务可能在
+            // 唤醒计算之前就跑完，此时再送一个 Active=true 已无意义，端口会跳过它。
+            // 因此这里接受两种结果：收到 Active=true 的唤醒，或任务已经直接结算。
+            await HarnessTestSupport.WaitForAsync(() =>
+                opened.Wakes.Any(wake => wake.Active)
+                || TaskGraphReader.Node(graph.Value, Key(id)) is null
+                || harness.Wake() is { Active: false });
             var settled = await harness.WaitForTaskAsync(id, Ctx);
             Assert.Equal(TaskOutcomeStatus.Completed, settled.State.Outcome!.Status);
             await graph.Stop();
@@ -431,8 +438,8 @@ public class HarnessRestartTests
         HarnessImpl Harness,
         IRegistry Registry,
         MemoryStorage Storage,
-        List<Exception> Reports,
-        List<Wake> Wakes);
+        HarnessTestSupport.ReportLog<Exception> Reports,
+        HarnessTestSupport.ReportLog<Wake> Wakes);
 
     /// <summary>可修改的活设置（<c>HarnessOptions.settingsSource</c>）。</summary>
     private sealed class MutableSettings(int? restartLimit)
@@ -509,8 +516,8 @@ public class HarnessRestartTests
                 "tasks", [.. tasks.Select(task => AnyDurableTask.From(task))]));
         }
 
-        var reports = new List<Exception>();
-        var wakes = new List<Wake>();
+        var reports = new HarnessTestSupport.ReportLog<Exception>();
+        var wakes = new HarnessTestSupport.ReportLog<Wake>();
         var live = settings ?? new MutableSettings(null);
         var harness = await DurableHarness.OpenAsync(storage, new HarnessOptions
         {
@@ -519,7 +526,7 @@ public class HarnessRestartTests
             SettingsSource = () => live.Current,
             OnWake = wake =>
             {
-                lock (wakes) wakes.Add(wake);
+                wakes.Add(wake);
             },
             OnReport = (report, _) => reports.Add(report),
             Now = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),

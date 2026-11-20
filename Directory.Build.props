@@ -32,7 +32,7 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <TargetFrameworks>net9.0;net10.0;net11.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net9.0;net10.0;net11.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -43,10 +43,63 @@
   </PropertyGroup>
 
   <!--
+    .NET 8 compatibility (net8.0 only; the other three TFMs are untouched).
+
+    The port uses BCL APIs that first appeared in .NET 9. For net8.0 we supply
+    two things instead of ~70 `#if` branches scattered through the sources:
+
+      * System.Text.Json 9.0.10 from NuGet. The package's net8.0 asset carries
+        the .NET 9 API surface (JsonStringEnumMemberNameAttribute, and
+        JsonSerializerOptions.NewLine / IndentCharacter / IndentSize) and is the
+        assembly actually loaded at runtime, so indented JSON and enum wire
+        names stay byte-identical to the net9.0+ builds. It also keeps the
+        source-generated JSON contexts working.
+      * build/Net8Polyfills.cs, compiled into every net8.0 project, providing
+        internal shims for System.Threading.Lock and System.Buffers.Text.Base64Url
+        (plus build/Net8OrderedDictionary.cs, see below). The other three .NET 9
+        APIs are handled at their call sites: Convert.ToHexStringLower(x) becomes
+        Convert.ToHexString(x).ToLowerInvariant(), Enumerable.Index() becomes
+        Select((item, index) => (index, item)), and Task.WhenEach is an #if NET8_0
+        WhenAny loop in Pi.Agent/ToolExecution.cs.
+
+    Both are gated on TargetFramework so net9.0/net10.0/net11.0 restore, build
+    and pack exactly as before. The generated extension projects in Pi.Evals
+    derive their TFM from Environment.Version and therefore emit net8.0 too.
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="System.Text.Json" Version="9.0.10" />
+    <Compile Include="$(MSBuildThisFileDirectory)build/Net8Polyfills.cs" Link="Net8Polyfills.cs" />
+  </ItemGroup>
+
+  <!--
+    OrderedDictionary<TKey,TValue> (.NET 9) backs the public
+    BuildSystemPromptOptions.Sections property, so its shim must be public. It is
+    compiled into exactly one assembly (Pi.CodingAgent) to avoid CS0433 ambiguity
+    in every friend assembly; other Pi projects and the test projects resolve it
+    through their Pi.CodingAgent reference.
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0' and '$(MSBuildProjectName)' == 'Pi.CodingAgent'">
+    <Compile Include="$(MSBuildThisFileDirectory)build/Net8OrderedDictionary.cs" Link="Net8OrderedDictionary.cs" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <!--
+      CS0436 is expected here: build/Net8Polyfills.cs defines Lock/Base64Url in
+      every assembly, and the repo's blanket InternalsVisibleTo makes those
+      internal types visible to sibling Pi assemblies, so the compiler reports a
+      "conflicts with imported type" warning at every use. It is benign: the
+      compiler resolves to the source-defined copy (identical implementation),
+      which is exactly the private per-assembly type we want. The other three
+      TFMs do not compile this file and keep TreatWarningsAsErrors unsilenced.
+    -->
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+  </PropertyGroup>
+
+  <!--
     Native AOT publishing (opt-in: `scripts/publish-aot.sh`, or
     `dotnet publish src/Pi.Cli -c Release -f net10.0 -r <rid> -p:PublishAot=true`).
 
-    The default multi-target build (net9.0;net10.0;net11.0) is untouched: this
+    The default multi-target build (net8.0;net9.0;net10.0;net11.0) is untouched: this
     group is only evaluated when PublishAot is explicitly requested.
 
       * TargetFrameworks -> net10.0: Native AOT emits one native image for one
@@ -67,7 +120,13 @@
         binary; see docs/native-aot.md.
   -->
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">
-    <TargetFrameworks>net10.0</TargetFrameworks>
+    <!--
+      AOT 只产出一个 TFM + RID 的原生映像，默认 net10.0（脚本硬编码的历史行为）。
+      scripts/publish-aot.sh 的第 4 个参数会传 -p:AotFramework=<tfm> 以选择目标
+      （net8.0 亦受支持）；直接 dotnet publish 时也可显式传 -p:AotFramework=net8.0。
+    -->
+    <AotFramework Condition="'$(AotFramework)' == ''">net10.0</AotFramework>
+    <TargetFrameworks>$(AotFramework)</TargetFrameworks>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
     <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
@@ -81,10 +140,10 @@
     with -p:Version=<tag version>, and local `dotnet pack` uses it as-is.
   -->
   <PropertyGroup>
-    <Version>1.5.2</Version>
+    <Version>1.5.2.1</Version>
     <Authors>xuzeyu</Authors>
     <Product>Pi.NET</Product>
-    <Description>Pi.NET - a .NET 9/10/11 port of Pi, a minimal and extensible agent harness. See https://github.com/AIDotNet/pi.net for the full package list.</Description>
+    <Description>Pi.NET - a .NET 8/9/10/11 port of Pi, a minimal and extensible agent harness. See https://github.com/AIDotNet/pi.net for the full package list.</Description>
     <Copyright>Copyright (c) 2025 Mario Zechner (upstream Pi); .NET port Copyright (c) 2026 xuzeyu</Copyright>
     <PackageProjectUrl>https://github.com/AIDotNet/pi.net</PackageProjectUrl>
     <RepositoryUrl>https://github.com/AIDotNet/pi.net</RepositoryUrl>

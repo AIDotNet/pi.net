@@ -121,7 +121,7 @@ ai 包至此与 pi 1:1 齐平（除下表列出的三处刻意归并）。
 ```
 pi.net/
 ├── Pi.slnx                    # 解决方案（新 .slnx 格式）
-├── Directory.Build.props      # net10.0 / nullable / latest / 警告即错误
+├── Directory.Build.props      # net8.0/9.0/10.0/11.0 多目标 / nullable / latest / 警告即错误
 ├── src/Pi.<Package>/          # 对应 packages/<pkg>
 └── tests/Pi.<Package>.Tests/  # xunit.v3（MTP 运行器）
 ```

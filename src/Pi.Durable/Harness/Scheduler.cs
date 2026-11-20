@@ -1060,6 +1060,10 @@ public sealed class TaskScheduler
 
         // 一遍 reconcile 可能终结任务而没走发布路径：全量结算空闲等待者（少见，但必须准确）。
         ResolveIdleWaiters(null);
+        // reconcile 本身会翻转「现在能否跑」的答案（_reconcileScheduled），而它不经过
+        // 发布路径：不补一次唤醒，宿主可能永远停在 Active=true 的那一版上（net8 实测：
+        // onWake 抛出后任务已睡下，却再没有第二次唤醒可送达）。
+        if (!_closing) ScheduleWake();
     }
 
     /// <summary><paramref name="ids"/> 中是否有任务持有或以非 <c>completed</c> 的结局结束。</summary>
@@ -1553,6 +1557,22 @@ public sealed class TaskScheduler
             {
                 _report(error, OnWakeError);
             }
+
+            // 计算与送达期间状态可能又变了：典型是 run 调用提交 Sleeping 之后才结束，
+            // 它那次 Kick 若被 _wakeScheduled 吞掉，宿主就永远收不到第二版唤醒。
+            // 值变了就再排一次，把「丢失的唤醒」变成一次新的计算。
+            if (_closing) return;
+            Wake current;
+            try
+            {
+                current = Wake();
+            }
+            catch
+            {
+                return;
+            }
+
+            if (current.Active != wake.Active || current.At != wake.At) ScheduleWake();
         });
     }
 
@@ -2507,6 +2527,10 @@ public sealed class TaskScheduler
         invocation.Timers.Clear();
         // 绑定到该调用的挂起等待（如工具的 waitForTask）随其拒绝。
         invocation.Controller.Cancel();
+        // 调用结束会改变「现在能否跑」的答案（典型：run 调用提交 Sleeping 后返回）。
+        // 不再唤醒一次的话，宿主可能只收到 Active=true 的那一版，永远等不到睡眠定时器
+        // （net8 实测偶发：onWake 抛出后不再有第二次机会）。
+        if (!_closing) Kick();
     }
 
     /// <summary>范围内没有存活的非后台任务；属主边未加载的任务算在其内。</summary>

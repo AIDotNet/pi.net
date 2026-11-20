@@ -1303,17 +1303,20 @@ public sealed class LocalExecutionEnv : IExecutionEnv
 
         void Emit(string text, ShellOutputStream stream)
         {
+            // 回调必须在 gate 内调用：否则一次 Emit 通过 settled 检查后可能被抢占，
+            // Settle 先完成、ExecuteAsync 的调用方读 Outputs 时这块文本还没写进去
+            // （net8 上实测偶发 stdout 尾块丢失）。gate 可重入，FailCallback 内部再加锁安全。
             lock (gate)
             {
                 if (settled || text.Length == 0 || options?.OnOutput is null || callbackError is not null) return;
-            }
-            try
-            {
-                options!.OnOutput!(text, context, new ShellOutputInfo { Stream = stream });
-            }
-            catch (Exception error)
-            {
-                FailCallback(error);
+                try
+                {
+                    options.OnOutput(text, context, new ShellOutputInfo { Stream = stream });
+                }
+                catch (Exception error)
+                {
+                    FailCallback(error);
+                }
             }
         }
 
@@ -1389,13 +1392,17 @@ public sealed class LocalExecutionEnv : IExecutionEnv
                 // 不带 token：中止路径会杀死进程，WaitForExit 随之正常完成，避免 OCE 竞态误报 spawn_error。
                 await process.WaitForExitAsync().ConfigureAwait(false);
                 // 退出后给 stdio 一个宽限期（例如持住 stdio 的后代进程）；溢出未排空则继续等。
+                // 宽限期按墙钟计：100ms 在高负载下会被线程池抖动吃掉，退出瞬间的最后一段输出
+                // 会因 Settle 之后的 Emit 被丢弃（net8 上实测偶发 stdout 尾块丢失）。
                 var pumps = Task.WhenAll(stdoutPump, stderrPump);
+                var graceDeadline = Environment.TickCount64 + 1000;
                 while (!pumps.IsCompleted)
                 {
-                    await Task.WhenAny(pumps, Task.Delay(100)).ConfigureAwait(false);
+                    await Task.WhenAny(pumps, Task.Delay(50)).ConfigureAwait(false);
                     bool spillDraining;
                     lock (gate) spillDraining = spillError is null && spillStart is not null && spillStream is null;
-                    if (pumps.IsCompleted || !spillDraining) break;
+                    if (pumps.IsCompleted) break;
+                    if (!spillDraining && Environment.TickCount64 >= graceDeadline) break;
                 }
                 await FinishSpillAsync().ConfigureAwait(false);
                 Emit(stdoutDecoder.Decode(null), ShellOutputStream.Stdout);

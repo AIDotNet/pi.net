@@ -10,7 +10,7 @@
   的提交 **116 个**（91 个含生产代码，19 个仅文档，6 个仅测试）。
 - `apps/p2`、`apps/p3`、`apps/p2-mac` 的 224 个提交不在本轮范围：端口从未移植这些原型应用
   （`docs/upstream-1.5.2-delta.md` §4.1 已用 `git grep` 证明 `apps/p2` 无 `packages/**` 消费方）。
-- 端口版本仍为 `1.5.2`（`Directory.Build.props`）：上游尚未发布下一个 tag，本轮不提升版本号，
+- 端口基线为 `1.5.2.1`（`Directory.Build.props`，含 main 的 net8/AOT 补丁）：上游尚未发布下一个 tag，本轮不提升版本号，
   只在 `CHANGELOG.md` 的 `[Unreleased]` 记录。
 
 ## 2. 已落地（按包）

@@ -18,7 +18,10 @@ namespace Pi.CodingAgent.Tests;
 /// </summary>
 /// <remarks>
 /// The single-entry case uses this test assembly itself (<see cref="SampleExtensionEntry"/>); the
-/// ambiguous-entry case emits a throwaway assembly with <see cref="PersistedAssemblyBuilder"/>.
+/// ambiguous-entry case emits a throwaway assembly with <c>PersistedAssemblyBuilder</c>.
+/// PersistedAssemblyBuilder is a .NET 9 API (net8.0 can only emit Run-only dynamic assemblies,
+/// which cannot be saved to a file), so the one ambiguous-entry test is compiled only for
+/// net9.0+. The loader code under test is TFM-independent and stays covered on the newer TFMs.
 /// </remarks>
 public class AssemblyLoadContextLoaderTests : IDisposable
 {
@@ -119,6 +122,7 @@ public class AssemblyLoadContextLoaderTests : IDisposable
         Assert.Contains("Could not load extension assembly", error.Message, StringComparison.Ordinal);
     }
 
+#if !NET8_0
     [Fact]
     public async Task LoadAsync_MultipleEntries_ThrowsInsteadOfPickingOne()
     {
@@ -132,6 +136,7 @@ public class AssemblyLoadContextLoaderTests : IDisposable
         Assert.Contains("EntryOne", error.Message, StringComparison.Ordinal);
         Assert.Contains("EntryTwo", error.Message, StringComparison.Ordinal);
     }
+#endif
 
     // ------------------------------------------------------------------ hot reload
 
@@ -159,6 +164,7 @@ public class AssemblyLoadContextLoaderTests : IDisposable
 
     // ------------------------------------------------------------------ helpers
 
+#if !NET8_0
     /// <summary>
     /// Emit an assembly with two <see cref="IExtensionEntry"/> implementations. The entry getters
     /// return null and are never invoked: the loader rejects the ambiguity before instantiating.
@@ -190,6 +196,7 @@ public class AssemblyLoadContextLoaderTests : IDisposable
 
         builder.Save(path);
     }
+#endif
 }
 
 /// <summary>

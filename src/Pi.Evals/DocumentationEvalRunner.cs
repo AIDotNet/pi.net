@@ -83,7 +83,7 @@ internal static class DocumentationEvalRunner
         var tasks = EvalPlan.CreateTaskPlan(cases, modelIdentity, options.RunsPerVariant);
         var protocol = CreateProtocol(selection, options.RunsPerVariant, images, files, cases, tasks);
         var protocolText = JsonSerializer.Serialize(protocol, EvalJson.Options);
-        var protocolDigest = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(protocolText)));
+        var protocolDigest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(protocolText))).ToLowerInvariant();
         await WriteJsonAsync(
             Path.Combine(artifactDirectory, "protocol.json"),
             new
@@ -274,7 +274,7 @@ internal static class DocumentationEvalRunner
                 task.RunNumber,
             },
             IdentityJsonOptions);
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
     }
 
     private static string VariantText(DocumentationVariant variant)

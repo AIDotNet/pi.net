@@ -262,7 +262,7 @@ public sealed class UnixListener : IServerListener
     /// <summary>私有绑定路径（<c>bind-&lt;sha256(path) 前 8 位&gt;</c>）。对应 TS <c>getOwnedBindPath</c>。</summary>
     internal static string GetOwnedBindPath(string path)
     {
-        var suffix = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(path)))[..8];
+        var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(path))).ToLowerInvariant()[..8];
         return Path.Combine(Path.GetDirectoryName(path)!, $"bind-{suffix}");
     }
 }

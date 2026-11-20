@@ -59,8 +59,10 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
-          # 多目标 net9.0;net10.0;net11.0：打包 net11.0 需要 11.x SDK。
+          # 多目标 net8.0;net9.0;net10.0;net11.0：打包 net11.0 需要 11.x SDK，
+          # 打包 net8.0 需要 8.0.x targeting pack。
           dotnet-version: |
+            8.0.x
             9.0.x
             10.0.x
             11.0.x
@@ -118,6 +120,9 @@ jobs:
       # Tui / Env 两个工程需要交互终端与 sshd，不在门禁内（见 ci.yml 的说明）。
       - name: Test (gate)
         run: bash scripts/gate-tests.sh Release
+
+      - name: Test (gate, net8.0 compatibility)
+        run: GATE_FRAMEWORK=net8.0 bash scripts/gate-tests.sh Release
 
       # 门禁失败时把每个工程的日志带出来：否则这类失败只能靠管理员权限下载作业日志才能查。
       # 诊断步骤绝不能拖累发布：即使在门禁通过时被误触发、或没有日志可传，也只当没发生。

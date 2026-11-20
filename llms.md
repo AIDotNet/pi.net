@@ -1,6 +1,6 @@
 # Pi.NET
 
-> Pi.NET 是 [Pi](https://github.com/earendil-works/pi)（TypeScript agent harness，约 17 万行）的 .NET 10/11 移植：
+> Pi.NET 是 [Pi](https://github.com/earendil-works/pi)（TypeScript agent harness，约 17 万行）的 .NET 8/9/10/11 移植：
 > 17 个源项目、13 个发布到 nuget.org 的库、4 个不打包的可执行宿主、14 个测试项目、约 3 万项测试。
 > 上游 TypeScript 仓库是**行为基准**；本仓库用惯用 C# 重写，不做逐行翻译。
 >
@@ -36,15 +36,17 @@
 | 打包 | `dotnet pack Pi.slnx -c Release -o artifacts` → 13 个 `.nupkg` + 13 个 `.snupkg` |
 | 跑 CLI | `dotnet run --project src/Pi.Cli/Pi.Cli.csproj -- --help` |
 | 发布 `pi` 到目录 | `dotnet publish src/Pi.Cli -c Release -o ./pi-bin` |
-| Native AOT 发布（无损、附加能力） | `bash scripts/publish-aot.sh [rid] [out] [host]` → `artifacts/aot/<rid>/pi.exe`；host 可选 4 个可执行宿主之一 |
+| Native AOT 发布（无损、附加能力） | `bash scripts/publish-aot.sh [rid] [out] [host] [tfm]` → `artifacts/aot/<rid>/pi.exe`；host 可选 4 个可执行宿主之一，tfm 默认 `net10.0`（可选 `net8.0`） |
 | AOT 与 JIT 行为对拍 | `bash scripts/verify-aot.sh artifacts/aot/win-x64`（52 项：29 CLI + 23 RPC，含 agent 事件判别串；自动解析 `python3`/`python`/`py -3`） |
 | CI 上的 AOT 验证 | `.github/workflows/ci.yml` → `native-aot` job，`workflow_dispatch` 勾选 `run_aot` |
 | 重新生成 AOT JSON 上下文 | `python3 scripts/gen-aot-contexts.py`（清单变化后重跑；Windows 可用 `py -3`） |
 | 重新生成 models.json 字段文档 | `node scripts/gen-models-configuration.mjs`（`--check` 供 CI 判断是否过期） |
 
-需要 .NET 11 SDK（编译 `net11.0`）。库与可执行程序都是多目标 `net9.0;net10.0;net11.0`，消费方按自己的运行时选；net8.0 及以下不支持。
+需要 .NET 11 SDK（编译 `net11.0`），构建 `net8.0` 资产还需 .NET 8 targeting pack。库与可执行程序都是多目标 `net8.0;net9.0;net10.0;net11.0`，消费方按自己的运行时选；net7.0 及以下不支持。
 
-多目标是零成本的：net9.0 已经有 net10.0 用到的全部 API（`JsonStringEnumMemberName`、`System.Threading.Lock`、`Convert.ToHexStringLower`、`JsonSerializerOptions.NewLine`），所以代码里没有任何 `#if` 分支。真正的运行时差异只有两处，都已按「三个 TFM 行为一致」修掉：事件记录上的 `Type` 属性必须逐个标 `[JsonIgnore]`（否则一行 JSON 出现两个 `type` 键，net9.0 的 `JsonObject` 会直接抛错），以及 `Pi.Evals.ExtensionCompiler` 生成扩展工程时必须用当前运行的 TFM 而不是硬编码。
+net9.0/10.0/11.0 零改动即可多目标（这三个 TFM 具备彼此用到的全部 API）。**net8.0 靠集中式兼容层**，没有把 `#if` 散到源码里：`Directory.Build.props` 在 `net8.0` 条件组里加了 `System.Text.Json` 9.0.10（提供 `JsonStringEnumMemberName`、`JsonSerializerOptions.NewLine/IndentCharacter/IndentSize`，并由包程序集在运行时真正加载，缩进 JSON 与枚举线名与 net9+ 逐字节一致），以及 `build/Net8Polyfills.cs`（`System.Threading.Lock`、`System.Buffers.Text.Base64Url`，仅 net8.0 编入每个工程）和 `build/Net8OrderedDictionary.cs`（public 的 `OrderedDictionary<K,V>`，只编入 `Pi.CodingAgent`，因为它出现在公开属性上）。其余 3 处 .NET 9 API 在调用点就地处理：`Convert.ToHexStringLower(...)` 改成 `Convert.ToHexString(...).ToLowerInvariant()`（全 TFM 等价）、`messages.Index()` 改成 `Select((msg,index)=>(index,msg))`、`Task.WhenEach` 在 `Pi.Agent/ToolExecution.cs` 用 `#if NET8_0` 切到等价的 `WhenAny` 循环。net8.0 还抑制了 `CS0436`（源定义类型与友元程序集同名 internal 类型的无害冲突，编译器取源定义副本），且 `PersistedAssemblyBuilder`（.NET 9）相关的一条测试只在 net9+ 编译。
+
+其余两个历史运行时差异仍然成立、四个 TFM 行为一致：事件记录上的 `Type` 属性必须逐个标 `[JsonIgnore]`（否则一行 JSON 出现两个 `type` 键，net9.0 的 `JsonObject` 会直接抛错），以及 `Pi.Evals.ExtensionCompiler` 生成扩展工程时必须用当前运行的 TFM 而不是硬编码。
 
 `samples/` 下五个工程**在 solution 里**，这是故意的：改公共 API 时它们一起编译失败，逼迫文档里的示例不烂掉。
 

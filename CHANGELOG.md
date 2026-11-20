@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `pi.net` — the .NET 10/11 port of [pi](https://github.com/earendil-works/pi) — are documented here.
+All notable changes to `pi.net` — the .NET 8/9/10/11 port of [pi](https://github.com/earendil-works/pi) — are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); versions track the upstream `packages/*` release line.
 
 ## [Unreleased]
@@ -36,6 +36,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   任务可无 `until` 地睡在信号键上，投递后恢复并读到值；工具与 beforeTool 门闩可停放
   （sleep/wait park，恢复后以同一参数重跑）；afterTools/onYield 钩子可启动持久任务
   （`IAfterToolsTaskHooks`/`IOnYieldTaskHooks`，按序作为生成的孩子创建并等待）。
+
+
+
+### .NET 8 兼容（新增第 4 个 TFM，行为与 net9/10/11 一致）
+
+`TargetFrameworks` 从 `net9.0;net10.0;net11.0` 扩为 `net8.0;net9.0;net10.0;net11.0`，13 个 NuGet 库与 4 个可执行宿主都新增 `lib/net8.0` 资产。之前评估只做 net8 需要改约 66 处 .NET 9 新 API，成本不划算；这次改用**集中式兼容层**，不把 `#if` 散进业务源码：
+
+- `Directory.Build.props` 的 `net8.0` 条件组：引用 `System.Text.Json` **9.0.10**（NuGet 程序集在运行时真正加载，提供 `JsonStringEnumMemberNameAttribute` 与 `JsonSerializerOptions.NewLine/IndentCharacter/IndentSize`，使缩进 JSON 与枚举线名与 net9+ 逐字节相同）；并编入 `build/Net8Polyfills.cs`。该依赖写入 `net8.0` 资产组，随 NuGet 包一起下发，消费方无需额外配置。
+- `build/Net8Polyfills.cs`（仅 net8.0、每个工程各编一份 internal 副本）：补 `System.Threading.Lock`（`EnterScope`/`Scope`）、`System.Buffers.Text.Base64Url`（`EncodeToChars`/`DecodeFromChars`）。因仓库给所有 Pi 工程互相开了 `InternalsVisibleTo`，这里对 net8.0 抑制无害的 `CS0436`（编译器取源定义副本）。
+- `build/Net8OrderedDictionary.cs`：public 的 `OrderedDictionary<K,V>` 兼容类型，只编入 `Pi.CodingAgent`（它出现在 `BuildSystemPromptOptions.Sections` 这个公开属性上，必须 public；只放进一个程序集可避免友元程序集间的类型二义性）。
+- 三处 .NET 9 API 在调用点就地等价替换，四个 TFM 行为不变：`Convert.ToHexStringLower(x)` → `Convert.ToHexString(x).ToLowerInvariant()`（20 处）、`messages.Index()` → `Select((msg,index)=>(index,msg))`、`Task.WhenEach` 在 `Pi.Agent/ToolExecution.cs` 用 `#if NET8_0` 切到等价的 `WhenAny` 完成序循环。
+- `PersistedAssemblyBuilder`（.NET 9，net8.0 无法把动态程序集存盘）相关的一条 ALC 歧义用例只在 net9+ 编译；被测的 loader 代码与 TFM 无关。
+- CI / 发版工作流安装 `8.0.x` SDK，并在 net10.0 门禁之外增加一遍 `GATE_FRAMEWORK=net8.0` 门禁。
+- **Native AOT 覆盖 net8.0**：`scripts/publish-aot.sh` 增加第 4 个参数选 TFM（默认 `net10.0`，可选 `net8.0`），`Directory.Build.props` 用 `AotFramework` 收口 `TargetFrameworks`。net8.0 映像由 ILCompiler 8.0.x + `System.Text.Json` 9.0.10 产出；RPC 的 6 个匿名响应负载改为具名 record 并登记 source-gen（STJ 9 在 net8 AOT 下对匿名类型走反射会抛 `There is no metadata token available`），`ModelRuntime` 的并发刷新用 `_refreshGate` 串行化（AOT 更快启动暴露的既存竞态）。4 个宿主均可发布，net8.0 / net10.0 的 52 项 AOT 对拍均全绿，CI `native-aot` job 增加 net8.0 矩阵腿。
+
+验证：`dotnet build Pi.slnx -c Release` 四个 TFM 共 36 个工程 0 警告 0 错误；`dotnet pack` 仍产出 13 个包且各含 `lib/net8.0`；另用一个独立的 net8.0 消费方工程还原 / 编译 / 运行打包产物，确认 `System.Text.Json 9.0.10` 与 public 兼容类型在下游可解析。全量门禁（11 个不依赖宿主环境的测试工程）在 net8.0 为 **7,518 通过 / 8 跳过 / 0 失败**；`Pi.Tui.Tests` 23,975 全通过；`Pi.Env.Tests` 的 1 项失败与 net10.0 基线完全相同（依赖本地 sshd/守护进程，与 TFM 无关）。net9.0 / net10.0 / net11.0 门禁同样全绿、无回归（仅出现仓库已登记的负载 / 计时敏感 flake，单跑均通过）。
+
+### Durable 调度：补齐三次「丢失的唤醒」
+
+`TaskScheduler` 的唤醒通知（宿主 `onWake`）在三个状态切换点缺失，负载下会永久停在
+`Active=true` 的那一版，宿主永远等不到睡眠定时器（net8 实测 `HarnessSleepTests` 偶发超时）：
+
+- `End(invocation)`：run 调用提交 `Sleeping` 后返回，调用结束本身会改变「现在能否跑」，
+  现在补一次 `Kick()`；
+- 唤醒计算之后状态又变了（`_wakeScheduled` 吞掉期间的 Kick）：计算完再比一次，变了就重排；
+- `ReconcileAsync` 结尾：`_reconcileScheduled` 被清掉后同样改变答案，补一次 `ScheduleWake()`。
+
+测试侧：`HarnessSleepTests` 的唤醒断言改为「任一次 2000 到点且非 Active」，
+不再要求它是最后一帧（reconcile 期间会短暂再报 `Active=true`）。
+
+### Durable 输出与重启用例的两个时序问题
+
+- `ToolOutput.Progress.Flush` 的失败路径改为**先上报 `onError` 再拒绝等待者**：TS 里
+  reject 只排一个微任务，上报一定先被观察到；C# 的 `TrySetException` 会让等待者在
+  线程池上立刻恢复，原顺序会丢掉上报（`RejectsTheWaitersOfAFailedCommitAndReportsItsError`
+  偶发 `errors` 为空）。
+- `HarnessRestartTests` 的「解锁后通知宿主」改为接受「收到 Active 唤醒」或「任务已直接
+  结算」：端口的唤醒计算与 drain 是两条并发 `Task.Run`，解锁的任务可能在唤醒计算之前
+  就跑完，此时不再发送 `Active=true`（实测 `wakes=[False/] nowWake=False/`）。
+
+## [1.5.2.1] - 2026-11-14
 
 ### Native AOT 支持（非破坏性、附加能力）
 

@@ -346,7 +346,7 @@ public sealed class ReportTests
         var identity = JsonSerializer.Serialize(
             new object?[] { task.EvalSet, task.CaseId, "without_docs", task.Model, task.RunNumber },
             new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
         return await File.ReadAllTextAsync(
             Path.Combine(directory, "without_docs", "sessions", hash, "session.jsonl"));
     }

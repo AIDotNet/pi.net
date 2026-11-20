@@ -119,7 +119,7 @@ public static partial class McpTools
             return name;
         }
 
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{server}\0{tool}")))[..8];
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{server}\0{tool}"))).ToLowerInvariant()[..8];
         var keep = Math.Min(name.Length, McpToolLimits.MaxToolNameLength - hash.Length - 1);
         return $"{name[..keep]}_{hash}";
     }

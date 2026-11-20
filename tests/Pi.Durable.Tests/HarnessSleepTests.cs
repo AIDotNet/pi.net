@@ -25,7 +25,7 @@ public class HarnessSleepTests
     public async Task SleepsWithoutAnInvocationAndResumesAtItsCheckpointOnceDue()
     {
         var clock = new Clock(1_000);
-        var wakes = new List<Wake>();
+        var wakes = new HarnessTestSupport.ReportLog<Wake>();
         var runs = new Runs();
         var nap = NapTask(1_000, runs);
         using var fixture = await CreateAsync(new MemoryStorage(), () => clock.Now, onWake: wakes.Add, tasks: [AnyDurableTask.From(nap)]);
@@ -42,7 +42,9 @@ public class HarnessSleepTests
 
         await WaitForAsync(() => !fixture.Scheduler.Wake().Active);
         Assert.Equal(new Wake { Active = false, At = 2_000 }, fixture.Scheduler.Wake());
-        await WaitForAsync(() => wakes.Count > 0 && wakes[^1].At == 2_000 && !wakes[^1].Active);
+        // 任何一次「2000 到点、当前没有可跑工作」的唤醒都算：reconcile 进行中会短暂
+        // 再报一次 Active=true/At=2000（Scheduler.Wake 的保守回答），不能只看最后一帧。
+        await WaitForAsync(() => wakes.Any(wake => wake.At == 2_000 && !wake.Active));
 
         // 提前与重复唤醒都不运行任何东西。
         clock.Set(1_999);
@@ -394,7 +396,7 @@ public class HarnessSleepTests
     public async Task ReportsAThrowingOnWakeAndOffersTheSameWakeAgainAtTheNextPass()
     {
         var clock = new Clock(1_000);
-        var wakes = new List<Wake>();
+        var wakes = new HarnessTestSupport.ReportLog<Wake>();
         var failure = new InvalidOperationException("alarm failed");
         var failing = true;
         var runs = new Runs();
@@ -588,7 +590,7 @@ public class HarnessSleepTests
         IRegistry registry,
         TaskScheduler scheduler,
         ConversationId conversationId,
-        List<Exception> reports) : IDisposable
+        HarnessTestSupport.ReportLog<Exception> reports) : IDisposable
     {
         public DurableSession Session => session;
 
@@ -598,7 +600,7 @@ public class HarnessSleepTests
 
         public ConversationId ConversationId => conversationId;
 
-        public List<Exception> Reports => reports;
+        public HarnessTestSupport.ReportLog<Exception> Reports => reports;
 
         public async Task CloseAsync()
         {
@@ -627,7 +629,7 @@ public class HarnessSleepTests
     {
         var session = new DurableSession(storage);
         var registry = Registry.CreateRegistry();
-        var reports = new List<Exception>();
+        var reports = new HarnessTestSupport.ReportLog<Exception>();
         if (tasks is { Length: > 0 }) registry.Install(new FakeTaskExtension("ext", tasks));
         var conversationId = await session.CommitAsync(
             async tx => (await tx.CreateConversationAsync(new ConversationOwnership.Ownerless())

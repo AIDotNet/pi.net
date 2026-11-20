@@ -43,7 +43,7 @@ internal static class EvalDockerRunner
             throw new FileNotFoundException("Eval Dockerfile was not found.", dockerfile);
         }
 
-        var prefix = $"pi-evals-{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(repositoryRoot)))[..12]}";
+        var prefix = $"pi-evals-{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(repositoryRoot))).ToLowerInvariant()[..12]}";
         var withoutDocs = await BuildImageAsync(
             repositoryRoot,
             dockerfile,
