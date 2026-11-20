@@ -6,11 +6,11 @@
 
 | # | 提交 | 日期 | 主题 | 处置 | 证据 / 落点 |
 |---|---|---|---|---|---|
-| 1 | `edfe6b2ef` | 2026-11-20 | fix(ai): send Codex system prompt as leading developer item | 已移植 | Src/Pi.Ai/Api/OpenAiCodexResponses.cs; AzureAndCodexResponsesTests |
-| 2 | `3107a58d2` | 2026-11-19 | fix(tui): keep the SIGTSTP listener tied to terminal ownership (#12339) | 已移植 | Src/Pi.Tui/Tui.cs SetSuspendSignalHandler |
-| 3 | `e4f50d76d` | 2026-11-20 | fix(coding-agent): handle external SIGTSTP like Ctrl+Z (#12283) | 已移植 | Src/Pi.Tui/Tui.cs + Pi.CodingAgent/Modes/Interactive |
+| 1 | `edfe6b2ef` | 2026-11-20 | fix(ai): send Codex system prompt as leading developer item | 已移植 | src/Pi.Ai/Api/OpenAiCodexResponses.cs; AzureAndCodexResponsesTests |
+| 2 | `3107a58d2` | 2026-11-19 | fix(tui): keep the SIGTSTP listener tied to terminal ownership (#12339) | 已移植 | src/Pi.Tui/Tui.cs SetSuspendSignalHandler |
+| 3 | `e4f50d76d` | 2026-11-20 | fix(coding-agent): handle external SIGTSTP like Ctrl+Z (#12283) | 已移植 | src/Pi.Tui/Tui.cs + Pi.CodingAgent/Modes/Interactive |
 | 4 | `7c05885bc` | 2026-11-19 | fix(coding-agent): flush stdout before exiting after stopping a TUI (#12336) | ➖ 不适用 | .NET Console.Out AutoFlush=true |
-| 5 | `5799e217e` | 2026-11-19 | fix(coding-agent): send images to llama.cpp decision classifiers (#12335) | 已移植 | Src/Pi.CodingAgent/Extensions/Llama/LlamaProvider.cs |
+| 5 | `5799e217e` | 2026-11-19 | fix(coding-agent): send images to llama.cpp decision classifiers (#12335) | 已移植 | src/Pi.CodingAgent/Extensions/Llama/LlamaProvider.cs |
 | 6 | `5bcf370a5` | 2026-11-19 | fix(coding-agent,tui): cursor keys in selector search keep the selection (#12… | 已移植 | Pi.Tui SettingsList + CodingAgent selectors |
 | 7 | `37b74c546` | 2026-11-20 | fix(coding-agent): /login and /logout search selects the best match (#12246) | 已移植 | Components/OAuthSelector.cs FilterProviders |
 | 8 | `c815a3dfe` | 2026-11-19 | feat(ai): send strict tools to Claude on GitHub Copilot (#12332) | 已移植 | ModelData/github-copilot.json anthropic-messages |
