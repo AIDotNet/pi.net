@@ -38,7 +38,7 @@ public class HarnessSleepTests
         var inspection = await fixture.Scheduler.InspectAsync(fixture.Registry.Snapshot());
         var sleeping = Assert.IsType<TaskInspection.Sleeping>(
             Assert.Single(inspection.Tasks, task => task.Record.Id == id));
-        Assert.Equal(2_000L, sleeping.Until);
+        Assert.Equal(2_000L, sleeping.Until!.Value);
 
         await WaitForAsync(() => !fixture.Scheduler.Wake().Active);
         Assert.Equal(new Wake { Active = false, At = 2_000 }, fixture.Scheduler.Wake());

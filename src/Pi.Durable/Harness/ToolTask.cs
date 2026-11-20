@@ -103,7 +103,8 @@ public abstract record ToolTaskCheckpoint
     /// 停放：<c>phase</c> 是 "execute"（工具自己停放）或 "gate"（beforeTool 门闩停放）；
     /// 恢复后重新执行该阶段。对应 TS <c>ToolTaskCheckpoint</c> 的 parked 形状。
     /// </summary>
-    public sealed record Park(object? Arguments, string Replay, ToolPark Wait, string Stage) : ToolTaskCheckpoint;
+    public sealed record Park(
+        object? Arguments, string Replay, ToolPark Wait, string Stage, string? Wake = null) : ToolTaskCheckpoint;
 
     public JsonDict ToJson() => this switch
     {
@@ -118,6 +119,7 @@ public abstract record ToolTaskCheckpoint
         {
             ["phase"] = "park",
             ["stage"] = park.Stage,
+            ["wake"] = park.Wake,
             ["arguments"] = park.Arguments,
             ["replay"] = park.Replay,
             ["park"] = JsonTrees.ToTree(new Dictionary<string, object?>
@@ -174,7 +176,8 @@ public abstract record ToolTaskCheckpoint
             };
             return new Park(arguments, replay, park, json.TryGetValue("stage", out var rawStage)
                 ? rawStage as string ?? "execute"
-                : "execute");
+                : "execute",
+                json.TryGetValue("wake", out var rawWake) ? rawWake as string : null);
         }
 
         return phase == "execute" ? new Execute(arguments, replay) : new Call();
@@ -544,9 +547,9 @@ public static partial class ToolTask
             if (ended) throw new InvalidOperationException($"Tool call {call.Id} has settled");
         }
 
-        var wake = resume is null ? null : resume.Wait.Signals is { Count: > 0 }
+        var wake = resume?.Wake ?? (resume is null ? null : resume.Wait.Signals is { Count: > 0 }
             ? "signal"
-            : resume.Wait.Until is { } until && until <= runtime.Now() ? "time" : null;
+            : resume.Wait.Until is { } until && until <= runtime.Now() ? "time" : null);
         var api = new ToolApi(runtime, call, reported, progress, AssertLive, limits, wake, resume?.Wait.Checkpoint);
         ToolExecutionResult result;
         var ending = Completed;

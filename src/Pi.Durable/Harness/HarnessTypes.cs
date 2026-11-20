@@ -1227,7 +1227,8 @@ public abstract record TaskInspection
     public sealed record Waiting(IReadOnlyList<TaskId<object?>> On) : TaskInspection;
 
     /// <summary>睡到 Harness 时钟到达 <paramref name="Until"/>。</summary>
-    public sealed record Sleeping(long Until) : TaskInspection;
+    /// <summary>睡到 <see cref="Until"/>，或只等信号（Until 为 null）。对应 TS <c>{ kind: "sleeping"; until?: number }</c>。</summary>
+    public sealed record Sleeping(long? Until) : TaskInspection;
 
     /// <summary>结果保持到其普通自有工作排空。</summary>
     public sealed record Completing : TaskInspection;

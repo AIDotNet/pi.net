@@ -1767,11 +1767,25 @@ public sealed class TaskScheduler
                             memos = merged;
                         }
 
+                        // 停放的工具要知道自己为什么被唤醒：把原因写进 park checkpoint，
+                        // 恢复时 api.Wake 才能区分 signal/time/expired。
+                        object? checkpoint = ready.Record.State.Checkpoint;
+                        if (waking?.Reason is { } reason
+                            && checkpoint is JsonDict parked
+                            && parked.TryGetValue("phase", out var phase)
+                            && phase as string == "park")
+                        {
+                            checkpoint = new Dictionary<string, object?>(parked, StringComparer.Ordinal)
+                            {
+                                ["wake"] = reason,
+                            };
+                        }
+
                         tx.SetTask(ready.Record with
                         {
                             State = new TaskState
                             {
-                                Status = TaskStatus.Running, Checkpoint = ready.Record.State.Checkpoint,
+                                Status = TaskStatus.Running, Checkpoint = checkpoint,
                             },
                             Memos = memos,
                         });
@@ -1896,7 +1910,7 @@ public sealed class TaskScheduler
 
         var on = WaitingOn(record, record.AbortRequested ? OwnedLiveBelow(record.Id, null, children) : []);
         if (on.Count > 0) return new TaskInspection.Waiting(on) { Record = record };
-        if (NotDue(record)) return new TaskInspection.Sleeping(record.State.Until ?? 0) { Record = record };
+        if (NotDue(record)) return new TaskInspection.Sleeping(record.State.Until) { Record = record };
         var fit = FitOf(record, snapshot.Task(record.Kind));
         if (fit is Fit.No no) return new TaskInspection.Blocked(no.Reason, no.Error) { Record = record };
         var fits = (Fit.Fits)fit;

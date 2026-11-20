@@ -1447,14 +1447,25 @@ public static partial class Generation
     {
         var prepared = new List<RunEndTaskRequest>();
         PrepareRunEndTasks(runtime, requests, prepared);
-        var outcomes = new List<TaskOutcome?>();
-        foreach (var request in prepared)
+        var created = new List<TaskId<object?>>();
+        // 一次提交创建全部孩子：崩溃不会留下只建了一半的钩子任务。
+        await runtime.CommitAsync(async (tx, _) =>
         {
-            var id = await runtime.CreateTaskAsync(request.Task, request.Input, new TaskOptions
+            foreach (var request in prepared)
             {
-                Ownership = new TaskOwnership.TaskOwner(runtime.TaskId),
-                ConversationId = runtime.ConversationId,
-            }, context).ConfigureAwait(false);
+                created.Add(await tx.CreateTaskErasedAsync(request.Task, request.Input, new TaskOptions
+                {
+                    Ownership = new TaskOwnership.TaskOwner(runtime.TaskId),
+                    ConversationId = runtime.ConversationId,
+                }).ConfigureAwait(false));
+            }
+
+            return null;
+        }, context).ConfigureAwait(false);
+
+        var outcomes = new List<TaskOutcome?>();
+        foreach (var id in created)
+        {
             var settled = await runtime.WaitForTaskAsync(id, context).ConfigureAwait(false);
             outcomes.Add(settled.Record.State.Outcome);
         }
