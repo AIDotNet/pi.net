@@ -482,6 +482,67 @@ public class HarnessSleepTests
         public IReadOnlyList<FakeTimer> Live => [.. Armed.Where(timer => !timer.Disarmed)];
     }
 
+    /// <summary>
+    /// suspendable signals：任务睡在一个没有 until 的键上，投递后立即被唤醒，并在恢复的阶段读到值。
+    /// 对应 TS <c>test/harness-signals.test.ts</c> 的核心路径。
+    /// </summary>
+    [Fact]
+    public async Task SleepsOnASignalAndWakesWithItsValue()
+    {
+        var token = SignalStore.Define<string>("test.ping", 1);
+        var task = new DurableTask<JsonDict, JsonDict, JsonDict>
+        {
+            Definition = new TaskDefinition<JsonDict, JsonDict, JsonDict>
+            {
+                Name = "fake.signal",
+                Version = 1,
+                Initial = _ => new Dictionary<string, object?> { ["phase"] = "wait" },
+                Phases = new Dictionary<string, object?>
+                {
+                    ["wait"] = (TaskPhaseHandler)((_, runtime, context) => runtime.CommitAsync(
+                        (_, _) => Task.FromResult<TaskState?>(new TaskState
+                        {
+                            Status = TaskStatus.Sleeping,
+                            Checkpoint = new Dictionary<string, object?> { ["phase"] = "done" },
+                            Signals = [token.Key("k")],
+                        }),
+                        context)),
+                    ["done"] = (TaskPhaseHandler)(async (_, runtime, context) =>
+                    {
+                        var state = await runtime.ReadSignalAsync(token, "k", context).ConfigureAwait(false);
+                        var value = Assert.IsType<SignalState<string>.Value>(state).Item;
+                        await runtime.CommitAsync(
+                            (_, _) => Task.FromResult<TaskState?>(new TaskState
+                            {
+                                Status = TaskStatus.Terminal,
+                                Outcome = new TaskOutcome
+                                {
+                                    Status = TaskOutcomeStatus.Completed, Result = value,
+                                },
+                            }),
+                            context).ConfigureAwait(false);
+                    }),
+                },
+            },
+        };
+        using var fixture = await CreateAsync(
+            new MemoryStorage(), () => 1_000L, tasks: [AnyDurableTask.From(task)]);
+        var id = await CreateTaskAsync(fixture, task);
+        fixture.Scheduler.Resume();
+
+        var sleeping = await WaitUntilAsync(fixture, id, status => status == TaskStatus.Sleeping);
+        Assert.Null(sleeping.State.Until);
+        await WaitForAsync(() => !fixture.Scheduler.Wake().Active);
+
+        Assert.Equal(SignalResult.Delivered,
+            await fixture.Scheduler.SignalAsync(id, token, "k", "hello", Ctx));
+        fixture.Scheduler.Resume();
+
+        var done = await WaitUntilAsync(fixture, id, status => status == TaskStatus.Terminal);
+        Assert.Equal(TaskOutcomeStatus.Completed, done.State.Outcome!.Status);
+        Assert.Equal("hello", done.State.Outcome.Result);
+    }
+
     /// <summary>睡 <paramref name="delay"/> 毫秒，之后以醒来时的时钟完成。对应 TS <c>napTask</c>。</summary>
     private static DurableTask<JsonDict, JsonDict, JsonDict> NapTask(long delay, Runs runs) => new()
     {

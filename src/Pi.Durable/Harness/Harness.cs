@@ -356,6 +356,13 @@ public sealed class HarnessImpl : DurableSession, IHarness
 
     public Task<string> AbortTaskAsync(TaskId<object?> id, Context context) => _tasks.AbortAsync(id, context);
 
+    public Task<SignalResult> SignalAsync<T>(
+        TaskId<object?> taskId, SignalToken<T> token, string key, T value, Context context)
+    {
+        _tasks.Resume();
+        return _tasks.SignalAsync(taskId, token, key, value, context);
+    }
+
     public Task<SettledTask> WaitForTaskAsync(TaskId<object?> id, Context context)
     {
         _tasks.Resume();

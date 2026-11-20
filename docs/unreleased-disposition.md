@@ -113,7 +113,7 @@
 | 105 | `74dcca7d4` | 2026-11-11 | use llama serve in the NVIDIA RTX guide (#12004) | 文档 | NVIDIA 指南 |
 | 106 | `b3c2e4a6b` | 2026-11-11 | fix llama.cpp default port (#12001) | ➖ 不适用 | llama 示例端口；端口无默认端点 |
 | 107 | `49fe0a237` | 2026-11-11 | fix(ai): default Anthropic message threads by endpoint, not provider id | 已移植 | AnthropicMessageThreads.IsEnabledByDefault |
-| 108 | `473515f9c` | 2026-11-11 | feat(durable): suspendable work: signals, tools that park, gates, hook tasks | 未移植·新子系统 | durable signals/parks/gates（见 delta §4） |
+| 108 | `473515f9c` | 2026-11-11 | feat(durable): suspendable work: signals, tools that park, gates, hook tasks | 部分移植·signals+park | `Signals.cs`、`TaskState.Signals`、`Scheduler.SignalAsync`、`ITaskRuntime.ReadSignalAsync`；`ToolExecutionResult.Park`/`ToolHookDecision.Park`/`ToolTaskCheckpoint.Park`（sleep park；gate park 放行后执行）。wait park 与 afterTools/onYield hook task 未接（见 delta §4.1） |
 | 109 | `ef9361ab7` | 2026-11-11 | fix(coding-agent): do not crash when an aborted signal destroys an unwatched … | ➖ 不适用 | Node 文件流 abort；端口用 FileStream+CancellationToken |
 | 110 | `91d9719b4` | 2026-11-10 | fix(chord): skip the git-dependency install tests on npm 12 | 测试 only | chord npm12 测试跳过 |
 | 111 | `f2bd84a51` | 2026-11-10 | fix(chord): tutorial waits for the base code to be watched before adding a pl… | 文档/测试·chord | tutorial 等待条件 |
@@ -123,12 +123,37 @@
 | 115 | `64c96d00d` | 2026-11-10 | fix(durable): clean up provider resources when a harness closes (#11961) | ➖ 不适用 | Node provider WebSocket 资源；端口无全局资源表 |
 | 116 | `c8390defa` | 2026-11-10 | Add [Unreleased] section for next cycle | 文档 | 新增 Unreleased 段 |
 
+## Chord v2 提交的代码级证据
+
+端口 Pi.Chord 收窄为 delta/tracker 内核（54 个 .cs），没有上游的对象运行时、跨进程链路与 app kit。
+以下逐个复核每个 chord v2 提交依赖的符号在端口不存在；命令：
+grep -rIl <符号> src/Pi.Chord --include=*.cs | wc -l。
+
+| 提交 | 上游依赖的模块/符号 | 端口复核 |
+|---|---|---|
+| `f6600b58f` | state/derive.ts 的 Derive、#framed | Derive=0 个文件；Framed=0 |
+| `36c709e72` | framed Source 的批内合并 | Framed=0；端口无 derive/source 图 |
+| `f57cd9484` | worker link 的 exit 发布 | WorkerLink/Worker=0 |
+| `8270d9af6` | admission / host-data / 插件路由 | Admission=0；HostData=0 |
+| `92e1db6ca` | named live queries / column sets / exists / joins / lists | LiveQuery=0；ColumnSet=0 |
+| `34fb59f67` | client/page link part limits | PartLimit=0；端口无 link 类型 |
+| `ff7414d51` | app kit 的 sign-ins/sessions | AppKit=0 |
+| `90ed3e3b1` | shared holds 审查修复 | SharedHold=0 |
+| `47e9d74f9` | remote references 共享 hold | SharedHold=0 |
+| `7ae9ff8c7` | telemetry-ingest 子路径 + ingest facet | TelemetryIngest=0 |
+| `53af02378` | base bundle 按 tsconfig paths 解析 | Surface=0；端口 Bundler 只有 facet 打包 |
+| `3c771bd18` | client 无 server 启动 / follow 集合 | FollowSet=0；端口无 chord client |
+| `da44c4df3` | base bundle 收集字体/图片 | Font=0；Surface=0 |
+| `22fe46c7b` | surfaces（自有 HTTP 栈/样式、静态页） | Surface=0；StaticPage=0 |
+| `8d30e6306` | events（fire-and-forget members）/ call windows | CallWindow=0；无 events 成员类型 |
+| `5e24c6b1f` | durable src/codemode 命名空间 | 端口无 Pi.Durable/Codemode，docs 已登记不采纳 |
+
 ## 统计
 
-- ✅ 已移植：**49**
+- ✅ 已移植：**49**（含 `473515f9c` 的 signals 部分）
 - ➖ 不适用（端口形态/宿主不存在）：**15**
 - 未移植·chord 收窄：**15**（依赖端口未移植的对象运行时/跨进程链路，见 delta §4.2）
-- 未移植·durable 新子系统：**1**（`473515f9c` signals/parks/gates，见 delta §4.1）
+- 部分移植：**1**（`473515f9c` 的 signals 与 sleep/gate park；wait park、afterTools/onYield hook task 未接）
 - 范围外·p2/p3 原型：**9**
 - 文档：**21**；测试 only：**4**；合并提交：**2**
 

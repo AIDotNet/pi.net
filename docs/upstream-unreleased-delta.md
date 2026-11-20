@@ -101,10 +101,19 @@
 
 本批有两块上游**新增子系统**，端口当前没有对应宿主，未在本轮落地：
 
-1. **`473515f9c` durable suspendable work**（signals、park 的工具、gates、hook tasks）：
-   新增 `packages/durable/src/signals.ts`（313 行）、`harness/parks.ts`，并重写 generation/tool/scheduler
-   的等待模型。端口 `Pi.Durable` 的 harness 仍以「一次运行到结束」为模型，没有 signal/park/gate 概念。
-   移植需要先引入该等待模型，属于独立子系统，不与本批的小修复混在一起。
+1. **`473515f9c` durable suspendable work**：
+   - **signals 已移植**：`src/Pi.Durable/Signals.cs`（define/deliver/read/checkSleep/sleepDue/sleepWake）、
+     `TaskState.Signals`、`Scheduler.SignalAsync`/`NotDue`/唤醒时 consumed、`ITaskRuntime.ReadSignalAsync`、
+     `IHarness.SignalAsync`。任务可以没有 `until` 地睡在一个信号键上，投递后恢复并读到值；
+     用例 `SignalsTests`（4）与 `HarnessSleepTests.SleepsOnASignalAndWakesWithItsValue`。
+   - **tool sleep park / gate park 已接入**：`ToolExecutionResult.Park`、`ToolHookDecision.Park`、
+     `ToolTaskCheckpoint.Park`（含 checkpoint 往返用例）；工具或 beforeTool 门闩可返回
+     `ToolPark { until, signals, checkpoint }`，任务进入 sleeping，恢复后以同一参数重跑
+     execute（`api.Wake`/`api.Checkpoint` 可读）。`oolTaskCheckpoint.Park` 的 JSON 往返有
+     `SignalsTests.ParkCheckpointRoundTrips`。
+   - **仍未移植**：`wait` 型 park（等待子任务）、`afterTools`/`onYield` 钩子启动任务。
+     端口的 `afterRun` 钩子任务（`RunEndTaskRequest`）已存在，其余两个钩子的返回类型
+     仍是 void / 继续标志，没有任务入口。
 2. **chord 的 v2 功能切片**（`8d30e6306` events、`47e9d74f9`/`90ed3e3b1` shared holds、
    `92e1db6ca`/`8270d9af6` admission/named queries、`22fe46c7b` surfaces、`ff7414d51` app kit 等）：
    端口 `Pi.Chord` 按 `docs/migration-execution-status.md` 的「特殊范围决策」收窄为 delta/tracker 内核，
@@ -117,7 +126,7 @@
 
 - `dotnet build Pi.slnx -c Debug` / `-c Release`（`-p:TargetFrameworks=net10.0`）：均 0 警告 / 0 错误。
 - `Pi.Ai.Tests` 1069 通过（1 跳过）；`Pi.Agent.Tests` 38 通过；`Pi.CodingAgent.Tests` 5404 通过（5 跳过）；
-  `Pi.Durable.Tests` 614 通过（隔离重跑）；`Pi.Tui.Tests` 新增 7 项通过。
+  `Pi.Durable.Tests` 620 通过（新增 1 个 signal 睡眠集成、5 个 signals/park 叶子用例）；`Pi.Tui.Tests` 新增 7 项通过。
 - 门禁 `bash scripts/gate-tests.sh Debug`：11 个工程中 10 个一次全绿；`Pi.Durable.Tests` 在完整门禁的
   负载下偶发 `HarnessView`/`HarnessSleep` 计时用例失败，隔离重跑 614/614 通过。Release 门禁同样 10/11，
   `Pi.Durable.Tests` 的 `HarnessView` 两个帧计数用例在 Release 下可复现失败；**同机对 `HEAD`（未含本批

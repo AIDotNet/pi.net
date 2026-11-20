@@ -387,8 +387,8 @@ public sealed class TaskScheduler
         {
             var record = _live.GetValueOrDefault(id);
             if (record is null || record.State.Status != TaskStatus.Sleeping || record.AbortRequested) continue;
-            var until = record.State.Until ?? 0;
-            if (until <= now) continue;
+            // 只等信号的睡眠没有 until，不参与最近到期时间。
+            if (record.State.Until is not { } until || until <= now) continue;
             at = at is null ? until : Math.Min(at.Value, until);
         }
 
@@ -545,6 +545,26 @@ public sealed class TaskScheduler
             await ContextSignals.AwaitWithContext(runInvocation.Done, context).ConfigureAwait(false);
         }
 
+        return result;
+    }
+
+    /// <summary>
+    /// 把值投递到任务的信号键上（一次独立提交）。任务不存在/已结束/非法/重复时返回对应结果，
+    /// 只有 <see cref="SignalResult.Delivered"/> 会改写任务记录。对应 TS <c>Harness.signal()</c>。
+    /// </summary>
+    public async Task<SignalResult> SignalAsync<T>(
+        TaskId<object?> id, SignalToken<T> token, string key, T value, Context context)
+    {
+        var result = await _session.CommitWithAsync(async tx =>
+        {
+            var current = await tx.GetTaskAsync(id).ConfigureAwait(false);
+            var delivery = SignalStore.Deliver(current, token, key, value, _now());
+            if (delivery.Record is { } record) tx.SetTask(record);
+            return delivery.Result;
+        }, context).ConfigureAwait(false);
+
+        // 投递可能让睡眠的键就绪；提交监听器会重排，但显式 resume 保证宿主不依赖时序。
+        if (result == SignalResult.Delivered) Resume();
         return result;
     }
 
@@ -1638,11 +1658,19 @@ public sealed class TaskScheduler
         return fits.Migrates && fits.Task.Migrate is null ? "migration_failed" : null;
     }
 
-    /// <summary>时钟尚未到达其 <c>until</c> 的睡眠；abort 标记结束睡眠。</summary>
+    /// <summary>
+    /// 仍在睡眠：还没到 <c>until</c>，且没有任何等待的键收到值；abort 标记结束睡眠。
+    /// 对应 TS <c>#notDue()</c>（含 suspendable 的 signal 睡眠）。
+    /// </summary>
     private bool NotDue(TaskRecord record)
     {
         var state = record.State;
-        return state.Status == TaskStatus.Sleeping && !record.AbortRequested && (state.Until ?? 0) > _now();
+        if (state.Status != TaskStatus.Sleeping || record.AbortRequested) return false;
+        // 只有明确列出信号键的睡眠才会「无 until 也继续等」；没有信号的旧状态仍按 until 判定，
+        // 避免把缺 until 的睡眠当成永久停放。
+        if (state.Signals is { Count: > 0 })
+            return !SignalStore.SleepDue(state, record.Memos, _now());
+        return (state.Until ?? 0) > _now();
     }
 
     /// <summary>
@@ -1724,12 +1752,28 @@ public sealed class TaskScheduler
                     var ready = (Resolution.Ready)resolution;
                     if (!ReferenceEquals(ready.Record, record) || record.State.Status != TaskStatus.Running)
                     {
+                        // 从信号睡眠中醒来：把本次唤醒使用的键标记 consumed（到点的则把空键标记
+                        // expired），避免同一值再次立即唤醒。对应 TS <c>sleepWake()</c> 写回的 memos。
+                        var waking = ready.Record.State.Status == TaskStatus.Sleeping
+                            ? SignalStore.SleepWake(ready.Record.State, ready.Record.Memos, _now())
+                            : null;
+                        IReadOnlyDictionary<string, object?>? memos = ready.Record.Memos;
+                        if (waking is { Memos.Count: > 0 } wake)
+                        {
+                            var merged = memos is null
+                                ? new Dictionary<string, object?>(StringComparer.Ordinal)
+                                : new Dictionary<string, object?>(memos, StringComparer.Ordinal);
+                            foreach (var (name, memo) in wake.Memos) merged[name] = memo;
+                            memos = merged;
+                        }
+
                         tx.SetTask(ready.Record with
                         {
                             State = new TaskState
                             {
                                 Status = TaskStatus.Running, Checkpoint = ready.Record.State.Checkpoint,
                             },
+                            Memos = memos,
                         });
                     }
 
@@ -2307,7 +2351,7 @@ public sealed class TaskScheduler
             await ValidateWaitAsync(tx, invocation, current, next.On ?? [], next.Policy).ConfigureAwait(false);
         }
 
-        if (next.Status == TaskStatus.Sleeping) ValidateSleep(invocation, current, next.Until);
+        if (next.Status == TaskStatus.Sleeping) ValidateSleep(invocation, current, next);
 
         if (next.Status == TaskStatus.Terminal)
         {
@@ -2743,6 +2787,10 @@ public sealed class TaskScheduler
             return scheduler._now();
         }
 
+        public Task<SignalState<T>?> ReadSignalAsync<T>(SignalToken<T> token, string key, Context context)
+            => scheduler.ReadAsync(invocation, () => Task.FromResult(
+                SignalStore.Read(scheduler._live.GetValueOrDefault(invocation.TaskId)?.Memos, token, key)));
+
         public void Report(Exception error, ReportFrom? from = null)
         {
             if (invocation.Ended) throw EndedError(invocation);
@@ -3167,20 +3215,16 @@ public sealed class TaskScheduler
         => task.Version == record.Version || (task.Version > record.Version && task.Migrate is not null);
 
     /// <summary>睡眠的 <c>until</c> 必须是 Harness 时钟上的时刻；abort 处理器不能睡眠。</summary>
-    private static void ValidateSleep(Invocation invocation, TaskRecord record, long? until)
+    private static void ValidateSleep(Invocation invocation, TaskRecord record, TaskState next)
     {
         if (invocation.Mode == "abort")
         {
             throw new InvalidOperationException($"Abort handler of task {record.Id.Value} cannot sleep");
         }
 
-        if (until is not { } value)
-        {
-            throw new InvalidOperationException(
-                $"Task {record.Id.Value} cannot sleep without an until time in milliseconds");
-        }
-
-        if (value < 0)
+        // 必须等一个时刻或至少一个信号；等信号时没有 until 是合法的。
+        SignalStore.CheckSleep(next, record.Memos, record.Id.Value);
+        if (next.Until is { } value && value < 0)
         {
             throw new InvalidOperationException(
                 $"Task {record.Id.Value} cannot sleep until {value}: not a time in milliseconds");

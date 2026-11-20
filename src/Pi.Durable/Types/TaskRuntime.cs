@@ -105,6 +105,11 @@ public interface ITaskRuntime : IDocumentObserver, IDocumentReader, IHookApi
     long Now();
 
     /// <summary>
+    /// 本任务上一个信号键的已提交状态；没投递过为 null。对应 TS <c>TaskRuntime.readSignal()</c>。
+    /// </summary>
+    Task<SignalState<T>?> ReadSignalAsync<T>(SignalToken<T> token, string key, Context context);
+
+    /// <summary>
     /// 在 Harness 的定时器（<see cref="Harness.HarnessOptions.SetTimer"/>）上、约 <paramref name="delayMs"/>
     /// 之后调用一次 <paramref name="callback"/>，用于阶段内的调速，例如节流的进度提交。不持久：调用结束即解除，
     /// 结束后也不再布设。返回解除函数。跨阶段的等待用 <see cref="SleepUntilAsync"/>。

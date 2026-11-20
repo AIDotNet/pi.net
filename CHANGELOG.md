@@ -31,7 +31,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - **tui**：Markdown 图像后的硬换行独立成行；overlay 遮住其下的终端图像；全屏重绘保留
   Kitty 上传；绝对路径 Tab 菜单回车只补全；SIGTSTP 监听器绑定终端所有权并支持外部
   `kill -TSTP`。
-- **durable**：`onAbort: "keep"` 的排队输入穿过对话中止；`listDir` 跳过枚举后被删除的条目。
+- **durable**：`onAbort: "keep"` 的排队输入穿过对话中止；`listDir` 跳过枚举后被删除的条目；
+  **signals**：`SignalStore` + `TaskState.Signals` + `Harness.SignalAsync`/`ITaskRuntime.ReadSignalAsync`，
+  任务可无 `until` 地睡在信号键上，投递后恢复并读到值（tool park/gate 仍未跟进）。
 
 ### Native AOT 支持（非破坏性、附加能力）
 

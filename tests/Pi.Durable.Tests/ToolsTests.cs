@@ -39,6 +39,10 @@ public class ToolsTests
 
         public string CallId => "call";
 
+        public string? Wake => null;
+
+        public object? Checkpoint => null;
+
         public IRegistrySnapshot Registry => Pi.Durable.Harness.Registry.CreateRegistry().Snapshot();
 
         public Task<Agent> AgentAsync(Context context) => Task.FromResult(new Agent

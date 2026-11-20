@@ -603,6 +603,12 @@ public sealed record TaskState
     /// </summary>
     public long? Until { get; init; }
 
+    /// <summary>
+    /// 睡眠等待的信号键（sleeping）；有它时即使没有 <see cref="Until"/> 也继续停放，
+    /// 直到某个键收到值。对应 TS <c>TaskState.signals</c>。
+    /// </summary>
+    public IReadOnlyList<Harness.SignalKey>? Signals { get; init; }
+
     /// <summary>已定结果（completing / terminal）。</summary>
     public TaskOutcome? Outcome { get; init; }
 }

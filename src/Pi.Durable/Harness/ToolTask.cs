@@ -99,6 +99,12 @@ public abstract record ToolTaskCheckpoint
 
     public sealed record Execute(object? Arguments, string Replay) : ToolTaskCheckpoint;
 
+    /// <summary>
+    /// 停放：<c>phase</c> 是 "execute"（工具自己停放）或 "gate"（beforeTool 门闩停放）；
+    /// 恢复后重新执行该阶段。对应 TS <c>ToolTaskCheckpoint</c> 的 parked 形状。
+    /// </summary>
+    public sealed record Park(object? Arguments, string Replay, ToolPark Wait, string Stage) : ToolTaskCheckpoint;
+
     public JsonDict ToJson() => this switch
     {
         Call => new Dictionary<string, object?> { ["phase"] = "call" },
@@ -108,15 +114,60 @@ public abstract record ToolTaskCheckpoint
             ["arguments"] = execute.Arguments,
             ["replay"] = execute.Replay,
         },
+        Park park => new Dictionary<string, object?>
+        {
+            ["phase"] = "park",
+            ["stage"] = park.Stage,
+            ["arguments"] = park.Arguments,
+            ["replay"] = park.Replay,
+            ["park"] = JsonTrees.ToTree(new Dictionary<string, object?>
+            {
+                ["checkpoint"] = park.Wait.Checkpoint,
+                ["until"] = park.Wait.Until,
+                ["signals"] = park.Wait.Signals is { } signals
+                    ? signals.Select(signal => (object?)new Dictionary<string, object?>
+                    {
+                        ["signal"] = signal.Signal,
+                        ["key"] = signal.Key,
+                    }).ToList()
+                    : null,
+            }),
+        },
         _ => throw new InvalidOperationException("Unknown pi.tool checkpoint"),
     };
 
     public static ToolTaskCheckpoint FromJson(JsonDict json)
-        => json.TryGetValue("phase", out var phase) && phase as string == "execute"
-            ? new Execute(
-                json.TryGetValue("arguments", out var arguments) ? arguments : null,
-                json.TryGetValue("replay", out var replay) ? replay as string ?? "unsafe" : "unsafe")
-            : new Call();
+    {
+        var phase = json.TryGetValue("phase", out var rawPhase) ? rawPhase as string : null;
+        var arguments = json.TryGetValue("arguments", out var rawArguments) ? rawArguments : null;
+        var replay = json.TryGetValue("replay", out var rawReplay) ? rawReplay as string ?? "unsafe" : "unsafe";
+        if (phase == "park")
+        {
+            var parkJson = json.TryGetValue("park", out var rawPark) && rawPark is JsonDict tree
+                ? tree
+                : new Dictionary<string, object?>();
+            var signals = parkJson.TryGetValue("signals", out var rawSignals)
+                && rawSignals is IReadOnlyList<object?> list
+                    ? list.OfType<JsonDict>()
+                        .Select(signal => new SignalKey(
+                            (string)signal["signal"]!, (string)signal["key"]!))
+                        .ToList()
+                    : null;
+            var park = new ToolPark
+            {
+                Checkpoint = parkJson.TryGetValue("checkpoint", out var checkpoint) ? checkpoint : null,
+                Until = parkJson.TryGetValue("until", out var until) && until is not null
+                    ? Convert.ToInt64(until)
+                    : null,
+                Signals = signals,
+            };
+            return new Park(arguments, replay, park, json.TryGetValue("stage", out var rawStage)
+                ? rawStage as string ?? "execute"
+                : "execute");
+        }
+
+        return phase == "execute" ? new Execute(arguments, replay) : new Call();
+    }
 }
 
 /// <summary>
@@ -238,6 +289,7 @@ public static partial class ToolTask
 
         var args = check.Args;
         string? block = null;
+        ToolPark? gatePark = null;
         await runtime.Hooks.EachAsync("beforeTool", async handler =>
         {
             if (block is not null || handler is not IToolHooks hooks) return;
@@ -246,6 +298,7 @@ public static partial class ToolTask
                 var decision = await hooks.BeforeTool(call with { Arguments = args }, runtime, context)
                     .ConfigureAwait(false);
                 if (decision?.Block is not null) block = decision.Block;
+                else if (decision?.Park is not null) gatePark ??= decision.Park;
                 else if (decision?.Arguments is not null) args = decision.Arguments;
             }
             catch (Exception error)
@@ -258,6 +311,14 @@ public static partial class ToolTask
         {
             var blocked = HarnessError("blocked", $"Tool call blocked: {block}");
             await RejectAsync(runtime, task, call, tool, blocked, context).ConfigureAwait(false);
+            return;
+        }
+
+        if (gatePark is not null)
+        {
+            // 门闩停放：不持调用；恢复后直接执行已放行的调用。
+            await ParkAsync(runtime, args, tool.Replay ?? "unsafe", gatePark, "execute", context)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -286,6 +347,18 @@ public static partial class ToolTask
         var checkpoint = task.State.Checkpoint as JsonDict is { } checkpointJson
             ? ToolTaskCheckpoint.FromJson(checkpointJson)
             : throw new InvalidOperationException("pi.tool execute phase requires a checkpoint");
+        if (checkpoint is ToolTaskCheckpoint.Park parked)
+        {
+            // 从停放恢复：不论 replay 策略都重跑被停下的阶段（gate 或 execute）。
+            var parkedCall = await ReadCallAsync(runtime, task, context).ConfigureAwait(false);
+            var parkedAgent = await runtime.AgentAsync(context).ConfigureAwait(false);
+            var parkedTool = parkedAgent.Tools.FirstOrDefault(each => each.Name == parkedCall.Name)
+                ?? throw new InvalidOperationException($"Tool {parkedCall.Name} is not available after a park");
+            await RunAsync(runtime, task, parkedCall, parkedTool, parked.Arguments, context, parked)
+                .ConfigureAwait(false);
+            return;
+        }
+
         if (checkpoint is not ToolTaskCheckpoint.Execute intent)
             throw new InvalidOperationException("pi.tool execute phase requires an execute checkpoint");
         var call = await ReadCallAsync(runtime, task, context).ConfigureAwait(false);
@@ -410,9 +483,22 @@ public static partial class ToolTask
     }
 
     /// <summary>以解析到的实现执行，然后结算其结果。</summary>
+    /// <summary>提交停放：任务睡到 Until / 等待 Signals，checkpoint 记录重跑所需的参数与阶段。</summary>
+    private static Task ParkAsync(
+        ITaskRuntime runtime, object? args, string replay, ToolPark park, string stage, Context context)
+        => runtime.CommitAsync(
+            (_, _) => Task.FromResult<TaskState?>(new TaskState
+            {
+                Status = TaskStatus.Sleeping,
+                Checkpoint = new ToolTaskCheckpoint.Park(args, replay, park, stage).ToJson(),
+                Until = park.Until,
+                Signals = park.Signals,
+            }),
+            context);
+
     private static async Task RunAsync(
         ITaskRuntime runtime, TaskRecord task, ToolCallContent call, IToolRegistration tool,
-        object? args, Context context)
+        object? args, Context context, ToolTaskCheckpoint.Park? resume = null)
     {
         var limits = new OutputLimits
         {
@@ -432,7 +518,10 @@ public static partial class ToolTask
             if (ended) throw new InvalidOperationException($"Tool call {call.Id} has settled");
         }
 
-        var api = new ToolApi(runtime, call, reported, progress, AssertLive, limits);
+        var wake = resume is null ? null : resume.Wait.Signals is { Count: > 0 }
+            ? "signal"
+            : resume.Wait.Until is { } until && until <= runtime.Now() ? "time" : null;
+        var api = new ToolApi(runtime, call, reported, progress, AssertLive, limits, wake, resume?.Wait.Checkpoint);
         ToolExecutionResult result;
         var ending = Completed;
         try
@@ -459,6 +548,17 @@ public static partial class ToolTask
             // execute() 或环境构建抛出让任务以 failed 结束（取消该调用拥有的东西）；它不再监督。
             // 错误文本已在结果条目里。
             ending = new Ending(TaskOutcomeStatus.Failed, $"Tool {call.Name} threw");
+        }
+
+        if (result.Park is { } toolPark)
+        {
+            // 工具停放：保存 checkpoint 与等待条件，不结算；到点/信号到达后以同一参数重跑 execute。
+            ended = true;
+            reported.Output.End();
+            foreach (var waiter in await progress.Stop().ConfigureAwait(false)) waiter.TrySetResult(null);
+            await ParkAsync(runtime, args, resume?.Replay ?? tool.Replay ?? "unsafe", toolPark, "execute", context)
+                .ConfigureAwait(false);
+            return;
         }
 
         ended = true;

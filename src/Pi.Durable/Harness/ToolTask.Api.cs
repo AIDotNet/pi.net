@@ -97,7 +97,9 @@ public static partial class ToolTask
         Reported reported,
         ToolOutput.Progress progress,
         Action assertLive,
-        OutputLimits limits) : RuntimeDocumentFaces(runtime, runtime), IToolExecutionApi
+        OutputLimits limits,
+        string? wake = null,
+        object? checkpoint = null) : RuntimeDocumentFaces(runtime, runtime), IToolExecutionApi
     {
         /// <summary>为本次调用构建的环境（执行前注入）；无环境为 null。</summary>
         public IExecutionEnv? Env { get; set; }
@@ -107,6 +109,10 @@ public static partial class ToolTask
         public ConversationId ConversationId => runtime.ConversationId;
 
         public string CallId => call.Id;
+
+        public string? Wake => wake;
+
+        public object? Checkpoint => checkpoint;
 
         public IRegistrySnapshot Registry => runtime.Registry;
 

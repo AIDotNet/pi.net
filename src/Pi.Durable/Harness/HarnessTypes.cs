@@ -171,6 +171,22 @@ public sealed record ToolDiagnostic
 }
 
 /// <summary>一次工具执行的结果。对应 TS <c>ToolExecutionResult&lt;TDetails&gt;</c>（C# 侧 details 擦除为 object?）。</summary>
+/// <summary>
+/// 工具返回「停放」而不是结果：睡到 <see cref="Until"/> / 等 <see cref="Signals"/>；调用不持运行，
+/// 到点或信号到达后以同一参数再次执行。对应 TS <c>ToolPark</c> 的 sleep 分支。
+/// </summary>
+public sealed record ToolPark
+{
+    /// <summary>停放时保存的调用内检查点，恢复时经 <see cref="IToolExecutionApi.Checkpoint"/> 读回。</summary>
+    public object? Checkpoint { get; init; }
+
+    /// <summary>醒来的时钟（Unix 毫秒）；只等信号时可空。</summary>
+    public long? Until { get; init; }
+
+    /// <summary>等待的信号键。</summary>
+    public IReadOnlyList<SignalKey>? Signals { get; init; }
+}
+
 public sealed record ToolExecutionResult
 {
     /// <summary>缺省：保留的 <c>output()</c> 文本成为内容。</summary>
@@ -188,6 +204,9 @@ public sealed record ToolExecutionResult
     public Pi.Ai.Types.Usage? Usage { get; init; }
 
     public ToolControl? Control { get; init; }
+
+    /// <summary>非 null：这次执行停放而不是给出结果。对应 TS <c>ToolPark</c>。</summary>
+    public ToolPark? Park { get; init; }
 }
 
 /// <summary>一轮的工具是并行还是按调用顺序逐个执行。对应 TS <c>ToolExecutionMode</c>。</summary>
@@ -230,6 +249,12 @@ public interface IToolExecutionApi : IDocumentObserver, IDocumentReader
     ConversationId ConversationId { get; }
 
     string CallId { get; }
+
+    /// <summary>从停放恢复时的唤醒原因（signal/time/expired）；首次执行为 null。对应 TS <c>api.wake</c>。</summary>
+    string? Wake { get; }
+
+    /// <summary>上一次停放保存的检查点；首次执行或检查点无内容时为 null。对应 TS <c>api.checkpoint</c>。</summary>
+    object? Checkpoint { get; }
 
     /// <summary>工具任务所处阶段的注册表快照。</summary>
     IRegistrySnapshot Registry { get; }
@@ -1343,6 +1368,13 @@ public interface IHarness : ISession
     /// </summary>
     Task<string> AbortTaskAsync(TaskId<object?> id, Context context);
 
+    /// <summary>
+    /// 在一次独立提交里把 <paramref name="value"/> 投递到 <paramref name="taskId"/> 的
+    /// <paramref name="token"/> 键 <paramref name="key"/> 上。对应 TS <c>Harness.signal()</c>。
+    /// </summary>
+    Task<SignalResult> SignalAsync<T>(
+        TaskId<object?> taskId, SignalToken<T> token, string key, T value, Context context);
+
     /// <summary>以终态回执完成；取消 context 只取消本等待。</summary>
     Task<SettledTask> WaitForTaskAsync(TaskId<object?> id, Context context);
 
@@ -1492,6 +1524,9 @@ public sealed record ToolHookDecision
     public IReadOnlyDictionary<string, object?>? Arguments { get; init; }
 
     public string? Block { get; init; }
+
+    /// <summary>非 null：门闩停放，恢复后重新询问。对应 TS gate 的 park 结果。</summary>
+    public ToolPark? Park { get; init; }
 }
 
 /// <summary>内建压缩任务的钩子。对应 TS <c>CompactionHooks</c>。</summary>

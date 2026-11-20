@@ -306,6 +306,9 @@ public class ToolTaskTests
 
         public Task<object> MemoAsync(string name, object candidate, Context context) => Task.FromResult(candidate);
 
+        public Task<SignalState<T>?> ReadSignalAsync<T>(SignalToken<T> token, string key, Context context)
+            => Task.FromResult<SignalState<T>?>(null);
+
         public Task<TaskId<object?>> CreateTaskAsync(
             AnyDurableTask task, object? input, TaskOptions options, Context context)
             => throw new NotSupportedException();
