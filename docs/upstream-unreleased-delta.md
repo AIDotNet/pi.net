@@ -127,9 +127,8 @@
 - `dotnet build Pi.slnx -c Debug` / `-c Release`（`-p:TargetFrameworks=net10.0`）：均 0 警告 / 0 错误。
 - `Pi.Ai.Tests` 1069 通过（1 跳过）；`Pi.Agent.Tests` 38 通过；`Pi.CodingAgent.Tests` 5404 通过（5 跳过）；
   `Pi.Durable.Tests` 620 通过（新增 1 个 signal 睡眠集成、5 个 signals/park 叶子用例）；`Pi.Tui.Tests` 新增 7 项通过。
-- 门禁 `bash scripts/gate-tests.sh Debug`：11 个工程中 10 个一次全绿；`Pi.Durable.Tests` 在完整门禁的
-  负载下偶发 `HarnessView`/`HarnessSleep` 计时用例失败，隔离重跑 614/614 通过。Release 门禁同样 10/11，
-  `Pi.Durable.Tests` 的 `HarnessView` 两个帧计数用例在 Release 下可复现失败；**同机对 `HEAD`（未含本批
+- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**（`Pi.Ai.Tests`/`Pi.Durable.Tests` 首次各有一项计时 flake，脚本重跑通过）。`Pi.Durable.Tests` 620 项，包含新增的 signal 睡眠/信号/park 用例。
+- 门禁 `bash scripts/gate-tests.sh Release`：10/11；`Pi.Durable.Tests` 的 `HarnessView`、`HarnessGenerationRecovery`、`Bash_StreamsOutput...` 在 Release 下偶发失败。**同机对 `HEAD`（未含本批改动）的干净 worktree 跑 Release `Pi.Durable.Tests` 也失败 2 项（611/613）**，说明是该套件在此环境的计时/顺序敏感，不是本批引入。
   改动）的干净 worktree 跑 Release `Pi.Durable.Tests` 也失败 1 项**（612/613），说明是该套件在此环境的
   计时/顺序敏感，不是本批引入。
 - `Pi.Tui.Tests` 全量套件的 `AltScreenCorpus`/StdinBuffer 计时用例在基线 worktree 上同样偶发失败；

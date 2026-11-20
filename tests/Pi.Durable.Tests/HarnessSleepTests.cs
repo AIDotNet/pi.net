@@ -683,7 +683,8 @@ public class HarnessSleepTests
     private static async Task<TaskRecord> WaitUntilAsync(
         Fixture fixture, TaskId<object?> id, Func<TaskStatus, bool> predicate)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        // 完整门禁在 CodingAgent 之后运行；满载时 10s 会误杀正常的唤醒/调度。
+        var deadline = DateTime.UtcNow.AddSeconds(30);
         while (DateTime.UtcNow < deadline)
         {
             var record = await ReadTaskAsync(fixture, id).ConfigureAwait(false);
@@ -700,7 +701,7 @@ public class HarnessSleepTests
 
     private static async Task WaitForAsync(Func<bool> condition)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
         while (DateTime.UtcNow < deadline)
         {
             if (condition()) return;
