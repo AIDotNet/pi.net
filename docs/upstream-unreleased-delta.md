@@ -73,7 +73,7 @@
 | `18e99051b` | `pi.events` 处理器异常走扩展错误通道 | `Core/Extensions/{ExtensionRuntime,ExtensionLoaderImpl,ExtensionRunner}.cs` | 既有扩展错误用例 |
 | `ac78a6068` | changelog 解析失败不再直接写终端 | `Utils/Changelog.cs` | `ChangelogCorpusTests.ParseChangelogUnreadablePath_MatchesTypeScript` |
 | `b513b64d8` | 包管理的 git 进程禁用终端密码提示（端口本就捕获输出） | `Core/PackageManager.cs`（`GIT_TERMINAL_PROMPT`/`GIT_SSH_COMMAND`） | 既有包管理用例 |
-| `63dec2623` | 退出时 resume 命令单独一行 | `Modes/Interactive/InteractiveMode.Lifecycle.cs` | — |
+| `63dec2621` | 退出时 resume 命令单独一行 | `Modes/Interactive/InteractiveMode.Lifecycle.cs` | — |
 | `e67aa1a4e` | `onAbort: "keep"` 排队输入穿过对话中止 | `Pi.Durable/Harness/{HarnessTypes,Submissions,Inbox,Harness}.cs` | `HarnessInboxTests.OnAbortKeepStaysQueuedThroughConversationAbort` |
 | `75ca6e7d0` | listDir 跳过枚举后被删除的条目 | `Pi.Durable/Env/LocalExecutionEnv.cs`、`Pi.Env/RemoteEnv.cs` | 既有枚举用例 |
 | `628d8ab52` | 任务变更只上溯到最近对话，不再走完整 owner 链 | 端口 `Harness/Scheduler.cs` 的 `AddScopesAbove` 本就第一步收进对话并返回 | 既有深度链用例 |
@@ -130,7 +130,8 @@
 
 - `dotnet build Pi.slnx -c Debug` / `-c Release`（`-p:TargetFrameworks=net10.0`）：均 0 警告 / 0 错误。
 - `Pi.Ai.Tests` 1069 通过（1 跳过）；`Pi.Agent.Tests` 38 通过；`Pi.CodingAgent.Tests` 5404 通过（5 跳过）；
-  `Pi.Durable.Tests` 623 通过（新增 1 个 signal 睡眠集成、6 个 signals/park 叶子用例）；`Pi.Tui.Tests` 新增 7 项通过。
-- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**（`Pi.Chord.Tests` 首次一项 flake，重跑通过）。
-- 门禁 `bash scripts/gate-tests.sh Release`：10/11；`Pi.Durable.Tests` 的 `HarnessViewTests.SharesUnchangedPartsBetweenRevisionsAndSkipsCommitsThatTouchNothingMounted` 在 Release 全量套件中偶发失败（单跑 14/14 通过）。**同机对 `HEAD`（未含本批改动）的干净 worktree 跑 Release `Pi.Durable.Tests` 也失败 2 项（611/613），含同一 HarnessView 用例**，属该套件在此环境的顺序敏感。
+  `Pi.Durable.Tests` 625 通过（新增 1 个 signal 睡眠集成、6 个 signals/park 叶子、
+  2 个 tool/gate park 阶段重入与 2 个 hook task 端到端用例）；`Pi.Tui.Tests` 新增 7 项通过。
+- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**。
+- 门禁 `bash scripts/gate-tests.sh Release`：**11/11 全绿**（Durable 先跑）。默认顺序下 Release 的 `HarnessViewTests.SharesUnchangedPartsBetweenRevisionsAndSkipsCommitsThatTouchNothingMounted` 偶发失败；同机 `HEAD`（未含本批）的 Release 也失败 2 项含同一用例，属套件顺序敏感。
 - 目录数据总量 1730 → 1740（+6 GPT-6.2、−4 deprecated、+2 qwen4 Team、+6 Individual）。
