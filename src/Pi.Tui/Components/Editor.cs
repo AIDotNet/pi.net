@@ -1106,6 +1106,8 @@ public class Editor : IEditorComponent, IFocusable
                     // （"look at /tmp/fi"、"/open /tm"），所以要在应用补全前看上下文：补全后的
                     // "/model " 已经带空格了。
                     var beforeCursor = JsString.Slice(LineAt(_state.Lines, _state.CursorLine), 0, _state.CursorCol);
+                    // 只有命令名上下文里的 Enter 才执行命令；路径/参数菜单的前缀也可能以 "/"
+                    // 开头，所以看上下文而不是只看前缀（#12309）。
                     var submitsCommand = _autocompletePrefix.StartsWith('/')
                         && IsInSlashCommandNameContext(beforeCursor);
                     PushUndoSnapshot();

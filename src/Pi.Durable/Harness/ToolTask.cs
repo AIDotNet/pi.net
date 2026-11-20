@@ -328,7 +328,7 @@ public static partial class ToolTask
         if (gatePark is not null)
         {
             // 门闩停放：不持调用；恢复后直接执行已放行的调用。
-            await ParkAsync(runtime, args, tool.Replay ?? "unsafe", gatePark, "execute", context)
+            await ParkAsync(runtime, args, tool.Replay ?? "unsafe", gatePark, "gate", context)
                 .ConfigureAwait(false);
             return;
         }
@@ -360,7 +360,14 @@ public static partial class ToolTask
             : throw new InvalidOperationException("pi.tool execute phase requires a checkpoint");
         if (checkpoint is ToolTaskCheckpoint.Park parked)
         {
-            // 从停放恢复：不论 replay 策略都重跑被停下的阶段（gate 或 execute）。
+            // 门闩停放：重新走一遍 call 阶段（重新询问 beforeTool），而不是直接执行。
+            if (parked.Stage == "gate")
+            {
+                await CallPhaseAsync(task, runtime, context).ConfigureAwait(false);
+                return;
+            }
+
+            // 从工具停放恢复：不论 replay 策略都重跑 execute。
             var parkedCall = await ReadCallAsync(runtime, task, context).ConfigureAwait(false);
             var parkedAgent = await runtime.AgentAsync(context).ConfigureAwait(false);
             var parkedTool = parkedAgent.Tools.FirstOrDefault(each => each.Name == parkedCall.Name)

@@ -193,7 +193,9 @@ internal static class DoctorCommand
                 checks.Add(new("config.auth", "error", "Could not read or parse auth.json.", authPath));
             }
 
-            var variables = EnvApiKeys.ProviderEnvMap.Values.Concat(
+            var variables = EnvApiKeys.ProviderEnvMap.Values
+                .Concat(EnvApiKeys.ProviderEnvVarLists.Values.SelectMany(names => names))
+                .Concat(
                 ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "COPILOT_GITHUB_TOKEN",
                  "AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_BEARER_TOKEN_BEDROCK", "GOOGLE_APPLICATION_CREDENTIALS"])
                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);

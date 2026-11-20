@@ -600,8 +600,12 @@ public sealed class ScopedModelsSelectorComponent : Container, IFocusable
 
         // 其余键交给搜索框。查询非空时把选中项移到首行（最匹配项）；开关/排序也会走
         // Refresh()，所以复位放在这里而不是 Refresh 里。
+        // 光标键不改变查询：不重置选中项，也不重建列表。
+        var previousQuery = _searchInput.GetValue();
         _searchInput.HandleInput(data);
-        if (_searchInput.GetValue().Length > 0) _selectedIndex = 0;
+        var query = _searchInput.GetValue();
+        if (query == previousQuery) return;
+        if (query.Length > 0) _selectedIndex = 0;
         Refresh();
     }
 }
