@@ -185,6 +185,12 @@ public sealed record ToolPark
 
     /// <summary>等待的信号键。</summary>
     public IReadOnlyList<SignalKey>? Signals { get; init; }
+
+    /// <summary>等待这些任务落定（wait park）；与 Until/Signals 互斥。对应 TS <c>ToolPark.wait.on</c>。</summary>
+    public IReadOnlyList<TaskId<object?>>? On { get; init; }
+
+    /// <summary>等待子任务时的连接策略；缺省 fail-fast。对应 TS <c>policy</c>。</summary>
+    public JoinPolicy? Policy { get; init; }
 }
 
 public sealed record ToolExecutionResult

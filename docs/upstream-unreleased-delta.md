@@ -105,13 +105,14 @@
    - **signals 已移植**：`src/Pi.Durable/Signals.cs`（define/deliver/read/checkSleep/sleepDue/sleepWake）、
      `TaskState.Signals`、`Scheduler.SignalAsync`/`NotDue`/唤醒时 consumed、`ITaskRuntime.ReadSignalAsync`、
      `IHarness.SignalAsync`。任务可以没有 `until` 地睡在一个信号键上，投递后恢复并读到值；
-     用例 `SignalsTests`（4）与 `HarnessSleepTests.SleepsOnASignalAndWakesWithItsValue`。
+     用例 `SignalsTests`（6）与 `HarnessSleepTests.SleepsOnASignalAndWakesWithItsValue`。
    - **tool sleep park / gate park 已接入**：`ToolExecutionResult.Park`、`ToolHookDecision.Park`、
      `ToolTaskCheckpoint.Park`（含 checkpoint 往返用例）；工具或 beforeTool 门闩可返回
      `ToolPark { until, signals, checkpoint }`，任务进入 sleeping，恢复后以同一参数重跑
-     execute（`api.Wake`/`api.Checkpoint` 可读）。`oolTaskCheckpoint.Park` 的 JSON 往返有
+     execute（`api.Wake`/`api.Checkpoint` 可读）。`ToolTaskCheckpoint.Park` 的 JSON 往返有
      `SignalsTests.ParkCheckpointRoundTrips`。
-   - **仍未移植**：`wait` 型 park（等待子任务）、`afterTools`/`onYield` 钩子启动任务。
+   - **wait 型 park 已接入**：`ToolPark.On/Policy`、`ToolTaskCheckpoint.Park` 往返；任务以 waiting 状态等待子任务。
+   - **仍未移植**：`afterTools`/`onYield` 钩子启动任务。
      端口的 `afterRun` 钩子任务（`RunEndTaskRequest`）已存在，其余两个钩子的返回类型
      仍是 void / 继续标志，没有任务入口。
 2. **chord 的 v2 功能切片**（`8d30e6306` events、`47e9d74f9`/`90ed3e3b1` shared holds、
@@ -126,8 +127,8 @@
 
 - `dotnet build Pi.slnx -c Debug` / `-c Release`（`-p:TargetFrameworks=net10.0`）：均 0 警告 / 0 错误。
 - `Pi.Ai.Tests` 1069 通过（1 跳过）；`Pi.Agent.Tests` 38 通过；`Pi.CodingAgent.Tests` 5404 通过（5 跳过）；
-  `Pi.Durable.Tests` 620 通过（新增 1 个 signal 睡眠集成、5 个 signals/park 叶子用例）；`Pi.Tui.Tests` 新增 7 项通过。
-- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**（`Pi.Ai.Tests`/`Pi.Durable.Tests` 首次各有一项计时 flake，脚本重跑通过）。`Pi.Durable.Tests` 620 项，包含新增的 signal 睡眠/信号/park 用例。
+  `Pi.Durable.Tests` 621 通过（新增 1 个 signal 睡眠集成、6 个 signals/park 叶子用例）；`Pi.Tui.Tests` 新增 7 项通过。
+- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**（`Pi.Ai.Tests`/`Pi.Durable.Tests` 首次各有一项计时 flake，脚本重跑通过）。`Pi.Durable.Tests` 621 项，包含新增的 signal 睡眠/信号/park 用例。
 - 门禁 `bash scripts/gate-tests.sh Release`：10/11；`Pi.Durable.Tests` 的 `HarnessView`、`HarnessGenerationRecovery`、`Bash_StreamsOutput...` 在 Release 下偶发失败。**同机对 `HEAD`（未含本批改动）的干净 worktree 跑 Release `Pi.Durable.Tests` 也失败 2 项（611/613）**，说明是该套件在此环境的计时/顺序敏感，不是本批引入。
   改动）的干净 worktree 跑 Release `Pi.Durable.Tests` 也失败 1 项**（612/613），说明是该套件在此环境的
   计时/顺序敏感，不是本批引入。

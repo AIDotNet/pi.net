@@ -116,4 +116,22 @@ public class SignalsTests
         var checkpointRead = Assert.IsType<Dictionary<string, object?>>(back.Wait.Checkpoint);
         Assert.Equal("upload", checkpointRead["step"]);
     }
+
+    [Fact]
+    public void WaitParkCheckpointRoundTrips()
+    {
+        var park = new ToolPark
+        {
+            Checkpoint = null,
+            On = [TaskId<object?>.From(9)],
+            Policy = JoinPolicy.AllSettled,
+        };
+        var checkpoint = new ToolTaskCheckpoint.Park(null, "safe", park, "execute");
+        var back = Assert.IsType<ToolTaskCheckpoint.Park>(ToolTaskCheckpoint.FromJson(checkpoint.ToJson()));
+
+        var id = Assert.Single(back.Wait.On!);
+        Assert.Equal(9, id.Value);
+        Assert.Equal(JoinPolicy.AllSettled, back.Wait.Policy);
+        Assert.Null(back.Wait.Until);
+    }
 }

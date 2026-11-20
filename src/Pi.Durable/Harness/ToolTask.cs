@@ -131,6 +131,10 @@ public abstract record ToolTaskCheckpoint
                         ["key"] = signal.Key,
                     }).ToList()
                     : null,
+                ["on"] = park.Wait.On is { } on
+                    ? on.Select(id => (object?)id.Value).ToList()
+                    : null,
+                ["policy"] = park.Wait.Policy == JoinPolicy.AllSettled ? "all-settled" : null,
             }),
         },
         _ => throw new InvalidOperationException("Unknown pi.tool checkpoint"),
@@ -153,6 +157,9 @@ public abstract record ToolTaskCheckpoint
                             (string)signal["signal"]!, (string)signal["key"]!))
                         .ToList()
                     : null;
+            var on = parkJson.TryGetValue("on", out var rawOn) && rawOn is IReadOnlyList<object?> onList
+                ? onList.Select(id => TaskId<object?>.From(Convert.ToInt64(id))).ToList()
+                : null;
             var park = new ToolPark
             {
                 Checkpoint = parkJson.TryGetValue("checkpoint", out var checkpoint) ? checkpoint : null,
@@ -160,6 +167,10 @@ public abstract record ToolTaskCheckpoint
                     ? Convert.ToInt64(until)
                     : null,
                 Signals = signals,
+                On = on,
+                Policy = parkJson.TryGetValue("policy", out var policy) && policy as string == "all-settled"
+                    ? JoinPolicy.AllSettled
+                    : null,
             };
             return new Park(arguments, replay, park, json.TryGetValue("stage", out var rawStage)
                 ? rawStage as string ?? "execute"
@@ -487,13 +498,21 @@ public static partial class ToolTask
     private static Task ParkAsync(
         ITaskRuntime runtime, object? args, string replay, ToolPark park, string stage, Context context)
         => runtime.CommitAsync(
-            (_, _) => Task.FromResult<TaskState?>(new TaskState
-            {
-                Status = TaskStatus.Sleeping,
-                Checkpoint = new ToolTaskCheckpoint.Park(args, replay, park, stage).ToJson(),
-                Until = park.Until,
-                Signals = park.Signals,
-            }),
+            (_, _) => Task.FromResult<TaskState?>(park.On is { Count: > 0 }
+                ? new TaskState
+                {
+                    Status = TaskStatus.Waiting,
+                    On = park.On,
+                    Policy = park.Policy ?? JoinPolicy.FailFast,
+                    Checkpoint = new ToolTaskCheckpoint.Park(args, replay, park, stage).ToJson(),
+                }
+                : new TaskState
+                {
+                    Status = TaskStatus.Sleeping,
+                    Checkpoint = new ToolTaskCheckpoint.Park(args, replay, park, stage).ToJson(),
+                    Until = park.Until,
+                    Signals = park.Signals,
+                }),
             context);
 
     private static async Task RunAsync(
