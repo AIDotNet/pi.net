@@ -1302,6 +1302,33 @@ public static partial class Generation
             var decision = await hooks.OnYield(message, runtime, context).ConfigureAwait(false);
             if (decision is { ContinueRun: true, Continue: { Count: > 0 } decided }) continuation = decided;
         }).ConfigureAwait(false);
+
+        // onYield 也可以改为启动持久任务：第一个以 { continue } 结束的任务提供续延。
+        var onYieldTasks = new List<RunEndTaskRequest>();
+        await runtime.Hooks.EachAsync("onYield", async handler =>
+        {
+            if (handler is not IOnYieldTaskHooks taskHooks) return;
+            var asked = await taskHooks.OnYieldTasks(message, runtime, context).ConfigureAwait(false);
+            if (asked is not null)
+            {
+                lock (onYieldTasks) onYieldTasks.AddRange(asked);
+            }
+        }).ConfigureAwait(false);
+        if (onYieldTasks.Count > 0)
+        {
+            var outcomes = await RunHookTasksAsync(runtime, onYieldTasks, context).ConfigureAwait(false);
+            foreach (var outcome in outcomes)
+            {
+                if (outcome?.Result is JsonDict result
+                    && result.TryGetValue("continue", out var continued)
+                    && continued is not null)
+                {
+                    continuation = JsonTrees.ToContent(continued);
+                    break;
+                }
+            }
+        }
+
         // afterRun 钩子声明了吗：声明了就让运行在答案之后等它们的任务，排队项留到那时再放置。
         var afterRun = await AsksAfterRunAsync(runtime, context).ConfigureAwait(false);
         var conversationId = runtime.ConversationId;
@@ -1409,6 +1436,30 @@ public static partial class Generation
             Status = TaskStatus.Running,
             Checkpoint = new GenerationCheckpoint.Finish(summary).ToJson(),
         };
+    }
+
+    /// <summary>
+    /// 创建并等待钩子要的任务：它们作为本生成任务的孩子，按请求顺序逐个运行；返回每个任务的结局。
+    /// 对应 TS 的 hook task 运行（afterTools/onYield）。
+    /// </summary>
+    private static async Task<IReadOnlyList<TaskOutcome?>> RunHookTasksAsync(
+        ITaskRuntime runtime, IReadOnlyList<RunEndTaskRequest> requests, Context context)
+    {
+        var prepared = new List<RunEndTaskRequest>();
+        PrepareRunEndTasks(runtime, requests, prepared);
+        var outcomes = new List<TaskOutcome?>();
+        foreach (var request in prepared)
+        {
+            var id = await runtime.CreateTaskAsync(request.Task, request.Input, new TaskOptions
+            {
+                Ownership = new TaskOwnership.TaskOwner(runtime.TaskId),
+                ConversationId = runtime.ConversationId,
+            }, context).ConfigureAwait(false);
+            var settled = await runtime.WaitForTaskAsync(id, context).ConfigureAwait(false);
+            outcomes.Add(settled.Record.State.Outcome);
+        }
+
+        return outcomes;
     }
 
     /// <summary>
@@ -1651,15 +1702,31 @@ public static partial class Generation
             ? list.OfType<JsonDict>().Select(ToolSlot.FromJson).ToList()
             : [];
         var results = slots.Where(slot => slot.Entry is not null).Select(slot => slot.Entry!.Value).ToList();
+        var afterToolsTasks = new List<RunEndTaskRequest>();
         await runtime.Hooks.EachAsync("afterTools", async handler =>
         {
             if (handler is IGenerationHooks hooks)
             {
                 await hooks.AfterTools(assistant, results, runtime, context).ConfigureAwait(false);
             }
+
+            if (handler is IAfterToolsTaskHooks taskHooks)
+            {
+                var asked = await taskHooks.AfterToolsTasks(assistant, results, runtime, context)
+                    .ConfigureAwait(false);
+                if (asked is not null)
+                {
+                    lock (afterToolsTasks) afterToolsTasks.AddRange(asked);
+                }
+            }
         }).ConfigureAwait(false);
+        var afterToolsOutcomes = afterToolsTasks.Count == 0
+            ? []
+            : await RunHookTasksAsync(runtime, afterToolsTasks, context).ConfigureAwait(false);
+        var hookTerminate = afterToolsOutcomes.Any(outcome => outcome?.Result is JsonDict result
+            && result.TryGetValue("terminate", out var stop) && stop is true);
         // 轮的每个调用，包括没有任务就得到回答的调用，都必须请求终止。
-        var terminate = slots.Count > 0 && slots.All(slot => slot.TaskId is { } slotTask
+        var terminate = hookTerminate || slots.Count > 0 && slots.All(slot => slot.TaskId is { } slotTask
             && controlByTask.TryGetValue(slotTask, out var control) && control?.Terminate == true);
         var added = controls.Where(control => control?.AddTools is not null)
             .SelectMany(control => control!.AddTools!).ToList();

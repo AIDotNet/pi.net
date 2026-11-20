@@ -114,9 +114,10 @@
      `HarnessToolTests.ToolParkSleepsThenResumesWithItsCheckpoint` 与
      `GateParkSleepsBeforeTheToolRunsThenExecutesIt` 覆盖真实阶段重入。
    - **wait 型 park 已接入**：`ToolPark.On/Policy`、`ToolTaskCheckpoint.Park` 往返；任务以 waiting 状态等待子任务。
-   - **仍未移植**：`afterTools`/`onYield` 钩子启动任务。
-     端口的 `afterRun` 钩子任务（`RunEndTaskRequest`）已存在，其余两个钩子的返回类型
-     仍是 void / 继续标志，没有任务入口。
+   - **hook tasks 已接入**：`IAfterToolsTaskHooks` / `IOnYieldTaskHooks` 是可选接口
+     （与既有的 `IRunEndHooks` 同模式）。`Generation.cs` 在 afterTools/onYield 收集
+     `RunEndTaskRequest`，按顺序作为生成的孩子创建并等待：afterTools 的任务以
+     `{ terminate: true }` 结束即终止本轮；onYield 的第一个 `{ continue }` 提供续延。
 2. **chord 的 v2 功能切片**（`8d30e6306` events、`47e9d74f9`/`90ed3e3b1` shared holds、
    `92e1db6ca`/`8270d9af6` admission/named queries、`22fe46c7b` surfaces、`ff7414d51` app kit 等）：
    端口 `Pi.Chord` 按 `docs/migration-execution-status.md` 的「特殊范围决策」收窄为 delta/tracker 内核，
@@ -130,6 +131,6 @@
 - `dotnet build Pi.slnx -c Debug` / `-c Release`（`-p:TargetFrameworks=net10.0`）：均 0 警告 / 0 错误。
 - `Pi.Ai.Tests` 1069 通过（1 跳过）；`Pi.Agent.Tests` 38 通过；`Pi.CodingAgent.Tests` 5404 通过（5 跳过）；
   `Pi.Durable.Tests` 623 通过（新增 1 个 signal 睡眠集成、6 个 signals/park 叶子用例）；`Pi.Tui.Tests` 新增 7 项通过。
-- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**。
-- 门禁 `bash scripts/gate-tests.sh Release`：**11/11 全绿**。
+- 门禁 `bash scripts/gate-tests.sh Debug`：**11/11 全绿**（`Pi.Chord.Tests` 首次一项 flake，重跑通过）。
+- 门禁 `bash scripts/gate-tests.sh Release`：10/11；`Pi.Durable.Tests` 的 `HarnessViewTests.SharesUnchangedPartsBetweenRevisionsAndSkipsCommitsThatTouchNothingMounted` 在 Release 全量套件中偶发失败（单跑 14/14 通过）。**同机对 `HEAD`（未含本批改动）的干净 worktree 跑 Release `Pi.Durable.Tests` 也失败 2 项（611/613），含同一 HarnessView 用例**，属该套件在此环境的顺序敏感。
 - 目录数据总量 1730 → 1740（+6 GPT-6.2、−4 deprecated、+2 qwen4 Team、+6 Individual）。

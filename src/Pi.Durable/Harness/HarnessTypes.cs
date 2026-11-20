@@ -1503,6 +1503,26 @@ public sealed record RunSummary
 }
 
 /// <summary>
+/// 可选：afterTools 钩子要启动的持久任务。对应 TS <c>afterTools</c> 返回 <c>{ tasks }</c>。
+/// 任务作为生成的孩子创建并等待；任一以 <c>{ terminate: true }</c> 结束即终止本轮。
+/// </summary>
+public interface IAfterToolsTaskHooks
+{
+    Task<IReadOnlyList<RunEndTaskRequest>?> AfterToolsTasks(
+        EntryId assistant, IReadOnlyList<EntryId> results, IHookApi api, Context context);
+}
+
+/// <summary>
+/// 可选：onYield 钩子要启动的持久任务。对应 TS <c>onYield</c> 返回 <c>{ tasks }</c>。
+/// 第一个以 <c>{ continue }</c> 结束的任务提供续延；没有则答案成立。
+/// </summary>
+public interface IOnYieldTaskHooks
+{
+    Task<IReadOnlyList<RunEndTaskRequest>?> OnYieldTasks(
+        AssistantMessage answer, IHookApi api, Context context);
+}
+
+/// <summary>
 /// <c>afterRun</c> 钩子请求的一个运行结束任务。对应 TS <c>runEndTask(task, input)</c>。
 /// </summary>
 public sealed record RunEndTaskRequest

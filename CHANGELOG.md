@@ -34,7 +34,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 - **durable**：`onAbort: "keep"` 的排队输入穿过对话中止；`listDir` 跳过枚举后被删除的条目；
   **signals**：`SignalStore` + `TaskState.Signals` + `Harness.SignalAsync`/`ITaskRuntime.ReadSignalAsync`，
   任务可无 `until` 地睡在信号键上，投递后恢复并读到值；工具与 beforeTool 门闩可停放
-  （sleep/wait park，恢复后以同一参数重跑）。afterTools/onYield 钩子启动任务仍未接。
+  （sleep/wait park，恢复后以同一参数重跑）；afterTools/onYield 钩子可启动持久任务
+  （`IAfterToolsTaskHooks`/`IOnYieldTaskHooks`，按序作为生成的孩子创建并等待）。
 
 ### Native AOT 支持（非破坏性、附加能力）
 
