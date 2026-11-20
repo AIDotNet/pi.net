@@ -170,6 +170,8 @@ internal sealed class TuiReference(Func<ITui> getTui) : ITui
     public void SetTerminalColorSchemeNotifications(bool enabled) =>
         Current.SetTerminalColorSchemeNotifications(enabled);
 
+    public void SetSuspendSignalHandler(Action? handler) => Current.SetSuspendSignalHandler(handler);
+
     public Task<TerminalColorsSnapshot> QueryTerminalColorsAsync(TerminalColorQueryOptions options) =>
         Current.QueryTerminalColorsAsync(options);
 

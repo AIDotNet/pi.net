@@ -877,9 +877,8 @@ public sealed class LocalExecutionEnv : IExecutionEnv
                 // EnumerateFileSystemEntries 返回完整路径，直接使用。
                 var entryPath = Path.GetFullPath(name);
                 var entry = FileStat.Lstat(entryPath);
-                if (entry is null) return Result<IReadOnlyList<FileInfo>, FileError>.Err(
-                    new FileError(FileErrorCode.NotFound, $"ENOENT: no such file or directory, lstat '{entryPath}'",
-                        entryPath));
+                // 枚举与 lstat 之间被删除（例如写入方 rename 覆盖 sidecar）：它已不属于本次列表（#12055）。
+                if (entry is null) continue;
                 var info = FileInfoFrom(entryPath, entry.Value);
                 if (info.IsOk) infos.Add(info.Value);
             }

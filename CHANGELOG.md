@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
+### 上游 v1.5.2 之后未发布提交的同步（2026-11-20）
+
+跟随上游 `edfe6b2ef`（`v1.5.2` 之后 349 个提交），移植其中触及端口 12 个已迁移 package 的
+49 个提交，逐项处置见 `docs/unreleased-disposition.md`。
+
+- **模型目录**：新增 GPT-6.2 Astra/Sol（OpenAI、Azure 1.05M、Codex 500K/272K），
+  `gpt-6.2-sol` 成为 openai/azure/openai-codex 的默认模型；Qwen Token Plan 迁到
+  `token-plan.maas.qwencloudapi.com` / `token-plan.maas.qianwenaiapi.com`，Team 清单去掉
+  deprecated 并补 `qwen4-max-preview`，Individual 补 `deepseek-v4.1-flash` 系列；
+  新增分套餐环境变量 `QWEN_TOKEN_PLAN_{TEAM,INDIVIDUAL}[_CN]_API_KEY`。
+  Copilot 的 Claude 支持 strict 工具、Responses 显式发 `strict`、completions 发
+  `reasoning_effort`；Together Kimi K3 输出上限改为 1M。
+- **ai 线格式**：Codex 系统提示改为首个 developer 项（提示缓存命中）；
+  Mistral strict 工具改为 opt-in；Anthropic 非 strict 工具保留根 `additionalProperties`；
+  无 type 的 strict schema 回退；Node socket 错误码 / `Connection closed.` /
+  Codex WebSocket 60 分钟上限可重试；Anthropic 消息线程按端点默认启用。
+- **coding-agent**：会话替换后统一播报诊断（含模型回退与 scope 警告）；JSON/RPC 模式在
+  绑定前订阅，`session_start` 事件不再丢失且只发一次；`bindExtensions({})` 后 reload 会重发
+  `session_start`；`/copy` 跳过未正常结束的空回合；read 的「模型不支持图片」移入 details；
+  find 路径模式相对搜索目录锚定并去掉前导 `./`；bash 尾部超长行不再吞掉输出；
+  `pi.exec` 信号终止不再读成 0；HTML 导出支持 OSC 8 链接；恢复会话时保留待定 MCP 工具；
+  `pi.events` 处理器异常走扩展错误通道；登录/模型/设置等选择器的光标键不再重置选中；
+  `/resume` 渐进加载保持选中；git 包安装禁用终端密码提示；退出时 resume 命令单独一行。
+- **tui**：Markdown 图像后的硬换行独立成行；overlay 遮住其下的终端图像；全屏重绘保留
+  Kitty 上传；绝对路径 Tab 菜单回车只补全；SIGTSTP 监听器绑定终端所有权并支持外部
+  `kill -TSTP`。
+- **durable**：`onAbort: "keep"` 的排队输入穿过对话中止；`listDir` 跳过枚举后被删除的条目。
+
 ### Native AOT 支持（非破坏性、附加能力）
 
 `pi` CLI（及其余可执行宿主）现在可以发布为 **Native AOT** 原生可执行文件：单个

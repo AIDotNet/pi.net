@@ -30,8 +30,6 @@ public sealed record ResponsesStreamOptions
 /// <summary>消息转换选项。对应 TS <c>ConvertResponsesMessagesOptions</c>。</summary>
 public sealed record ConvertResponsesMessagesOptions
 {
-    public bool? IncludeSystemPrompt { get; init; }
-
     public IReadOnlyDictionary<string, string>? GrammarToolInputProperties { get; init; }
 
     /// <summary>后续 system 消息是否就地发送；否则折叠进前导提示。</summary>
@@ -222,7 +220,6 @@ public static class OpenAiResponsesShared
         // 已宣布移除、之后没有再声明过的工具。
         var unavailableTools = new HashSet<string>();
 
-        var includeInitialSystemMessage = options?.IncludeSystemPrompt ?? true;
         var supportsDeveloperRole = model.Extra?["compat"]?["supportsDeveloperRole"] is JsonValue { } devRole
             ? devRole.TryGetValue<bool>(out var flag) && flag
             : true;
@@ -295,36 +292,33 @@ public static class OpenAiResponsesShared
                     // TransformMessages 保持系统消息顺序，所以它们的序号与 transcript 一致。
                     var anchorsToolChanges = systemIndex++ >= foldedSystemMessages;
                     if (anchorsToolChanges) AppendSystemToolAdditions(system, $"system:{msgIndex}");
-                    if (!isLeadingSystemMessage || includeInitialSystemMessage)
+                    var text = isLeadingSystemMessage
+                        ? Text.GetSystemMessageText(system)
+                        : Text.RenderSystemMessageUpdate(system);
+                    if (anchorsToolChanges)
                     {
-                        var text = isLeadingSystemMessage
-                            ? Text.GetSystemMessageText(system)
-                            : Text.RenderSystemMessageUpdate(system);
-                        if (anchorsToolChanges)
+                        // 重定义等于「删同名 + 加同名」，只有真正的删除才通报。
+                        var added = (system.ToolsAdded ?? []).Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+                        var removed = (system.ToolsRemoved ?? [])
+                            .Where(name => !added.Contains(name)).ToList();
+                        if (removed.Count > 0)
                         {
-                            // 重定义等于「删同名 + 加同名」，只有真正的删除才通报。
-                            var added = (system.ToolsAdded ?? []).Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
-                            var removed = (system.ToolsRemoved ?? [])
-                                .Where(name => !added.Contains(name)).ToList();
-                            if (removed.Count > 0)
-                            {
-                                text = text.Length > 0
-                                    ? $"{text}\n\n{RenderToolRemovalNotice(removed)}"
-                                    : RenderToolRemovalNotice(removed);
-                                // 在本次新增之后登记：本条消息的增量工具提示先于这条移除通报，
-                                // 因此它只能复述更早消息宣布过的移除。
-                                foreach (var name in removed) unavailableTools.Add(name);
-                            }
+                            text = text.Length > 0
+                                ? $"{text}\n\n{RenderToolRemovalNotice(removed)}"
+                                : RenderToolRemovalNotice(removed);
+                            // 在本次新增之后登记：本条消息的增量工具提示先于这条移除通报，
+                            // 因此它只能复述更早消息宣布过的移除。
+                            foreach (var name in removed) unavailableTools.Add(name);
                         }
+                    }
 
-                        if (text.Length > 0)
+                    if (text.Length > 0)
+                    {
+                        messages.Add(new JsonObject
                         {
-                            messages.Add(new JsonObject
-                            {
-                                ["role"] = instructionRole,
-                                ["content"] = SanitizeUnicode.SanitizeSurrogates(text),
-                            });
-                        }
+                            ["role"] = instructionRole,
+                            ["content"] = SanitizeUnicode.SanitizeSurrogates(text),
+                        });
                     }
                     break;
                 }

@@ -32,6 +32,8 @@ public class GoogleGenerativeAiTests
     {
         Assert.Equal(StopReason.Stop, GoogleShared.MapStopReason("STOP"));
         Assert.Equal(StopReason.Length, GoogleShared.MapStopReason("MAX_TOKENS"));
+        // 新版 SDK 的 CONTINUATION：单请求 token 上限、生成未完成，pi 不用 continuation token 续写。
+        Assert.Equal(StopReason.Length, GoogleShared.MapStopReason("CONTINUATION"));
         Assert.Equal(StopReason.Error, GoogleShared.MapStopReason("SAFETY"));
         Assert.Equal(StopReason.Error, GoogleShared.MapStopReason("MALFORMED_FUNCTION_CALL"));
         Assert.Equal(StopReason.Error, GoogleShared.MapStopReason("RECITATION"));

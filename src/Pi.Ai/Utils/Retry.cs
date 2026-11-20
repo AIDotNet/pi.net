@@ -126,11 +126,17 @@ public static class Retry
         "connection.?error",
         "connection.?refused",
         "connection.?lost",
+        // 网关在流中途断连、以 Anthropic 风格 api_error 转发："Connection closed."（上游 #12064）。
+        "connection.?closed",
         "other side closed",
         "fetch failed",
         // node-fetch 系统错误，例如 google-vertex 的 Google ADC OAuth token 刷新；reason 常为空（上游 #10996）。
         "request to \\S+ failed, reason:",
         "getaddrinfo",
+        // 只带 Node socket 错误码的传输失败，例如 "read ECONNRESET"、"write EPIPE"、
+        // "connect ETIMEDOUT 1.2.3.4:443"（上游 #12128）。错误码不能是更长标识符的一部分。
+        "(?<![a-z0-9_])(?:ECONNRESET|ECONNABORTED|ECONNREFUSED|ETIMEDOUT|EPIPE)(?![a-z0-9_])",
+        "connection reset by peer",
         "ENOTFOUND",
         "EAI_AGAIN",
         "upstream.?connect",
@@ -144,6 +150,9 @@ public static class Retry
         // WebSocket 传输可能报 close/error 文案而非 HTTP/fetch 文案。
         "websocket.?closed",
         "websocket.?error",
+        // Codex 的 60 分钟 WebSocket 寿命上限：错误码 websocket_connection_limit_reached 或
+        // 文案 "Responses websocket connection limit reached"。重试会新建连接（上游 #12124）。
+        "websocket.?connection.?limit.?reached",
 
         // 过早的流结束（Anthropic / Bedrock / Smithy HTTP2 无响应）。
         "ended without",

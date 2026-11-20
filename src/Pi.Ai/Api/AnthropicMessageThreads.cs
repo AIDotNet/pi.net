@@ -96,10 +96,13 @@ public static class AnthropicMessageThreads
         }
     }
 
-    /// <summary>是否默认对直连 Anthropic 端点启用消息线程（可由 compat.supportsMessageThreads 覆盖）。</summary>
+    /// <summary>
+    /// 是否默认对直连 Anthropic 端点启用消息线程（可由 compat.supportsMessageThreads 覆盖）。
+    /// 只按端点判断，不看 provider id：网关复用 <c>api.anthropic.com</c> 且能转发
+    /// <c>thread</c> 字段时同样安全，而带 anthropic id 的自建网关并不保证转发（#11987）。
+    /// </summary>
     public static bool IsEnabledByDefault(ModelSpec model)
-        => model.Provider == "anthropic"
-           && model.BaseUrl.Contains("api.anthropic.com", StringComparison.Ordinal);
+        => model.BaseUrl.Contains("api.anthropic.com", StringComparison.Ordinal);
 
     /// <summary>
     /// 线程续接所依赖内容的短哈希：必须在一个线程内保持不变的设置，加上服务端已持有的消息。

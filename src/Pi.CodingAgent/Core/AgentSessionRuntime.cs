@@ -112,6 +112,8 @@ public sealed class AgentSessionRuntime
     private AgentSessionServices _services;
     private IReadOnlyList<AgentSessionRuntimeDiagnostic> _diagnostics;
     private string? _modelFallbackMessage;
+    // 已经由 TakeUnreportedDiagnostics() 交出去的诊断（type + message），避免每次替换重复播报。
+    private readonly HashSet<string> _reportedDiagnosticKeys = new(StringComparer.Ordinal);
 
     private Func<AgentSession, Task>? _rebindSession;
     private Action? _beforeSessionInvalidate;
@@ -139,6 +141,22 @@ public sealed class AgentSessionRuntime
     public IReadOnlyList<AgentSessionRuntimeDiagnostic> Diagnostics => _diagnostics;
 
     public string? ModelFallbackMessage => _modelFallbackMessage;
+
+    /// <summary>
+    /// 返回当前 runtime 尚未播报的诊断并标记为已播报。宿主在启动时和每次会话替换
+    /// （/new、/resume、/fork、导入、RPC 替换）后调用；type 与 message 都相同的诊断不重复返回。
+    /// 对应 TS <c>takeUnreportedDiagnostics()</c>。
+    /// </summary>
+    public IReadOnlyList<AgentSessionRuntimeDiagnostic> TakeUnreportedDiagnostics()
+    {
+        var result = new List<AgentSessionRuntimeDiagnostic>();
+        foreach (var diagnostic in _diagnostics)
+        {
+            var key = $"{diagnostic.Type}\0{diagnostic.Message}";
+            if (_reportedDiagnosticKeys.Add(key)) result.Add(diagnostic);
+        }
+        return result;
+    }
 
     public void SetRebindSession(Func<AgentSession, Task>? rebindSession) => _rebindSession = rebindSession;
 

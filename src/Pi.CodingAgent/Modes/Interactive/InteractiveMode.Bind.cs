@@ -330,6 +330,26 @@ public partial class InteractiveMode
     /// (InternalsVisibleTo), following the read-only observation seams the earlier
     /// 4f batches added to their components.
     /// </remarks>
+    /// <summary>播报 runtime 尚未报告过的诊断（启动与每次会话替换共用）。对应 TS <c>showRuntimeDiagnostics()</c>。</summary>
+    internal void ShowRuntimeDiagnostics()
+    {
+        foreach (var diagnostic in _runtimeHost.TakeUnreportedDiagnostics())
+        {
+            switch (diagnostic.Type)
+            {
+                case AgentSessionDiagnosticType.Error:
+                    ShowError(diagnostic.Message);
+                    break;
+                case AgentSessionDiagnosticType.Warning:
+                    ShowWarning(diagnostic.Message);
+                    break;
+                default:
+                    ShowStatus(diagnostic.Message);
+                    break;
+            }
+        }
+    }
+
     internal void ShowStartupNoticesIfNeeded()
     {
         if (_startupNoticesShown)

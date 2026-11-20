@@ -20,15 +20,16 @@ public class FindPathPatternTests
         Assert.True(d.IsPathPattern);
         Assert.True(d.UseWindowsMatcher);
         Assert.DoesNotContain("\\", d.EffectivePattern);
-        Assert.StartsWith("**/", d.EffectivePattern);
+        Assert.StartsWith("src/", d.EffectivePattern);
         Assert.NotNull(d.MatchPattern);
     }
 
     [Fact]
-    public void PathPatternGetsLeadingGlobstar()
+    public void PathPatternIsAnchoredWithoutLeadingGlobstar()
     {
-        Assert.Equal("**/src/**/*.ts", FindPathPattern.For("src/**/*.ts", isWindows: true).MatchPattern);
-        Assert.Equal("**/src/*.ts", FindPathPattern.For("src/*.ts", isWindows: true).MatchPattern);
+        // #12066：不再补 **/，路径模式相对搜索目录。
+        Assert.Equal("src/**/*.ts", FindPathPattern.For("src/**/*.ts", isWindows: true).MatchPattern);
+        Assert.Equal("src/*.ts", FindPathPattern.For("src/*.ts", isWindows: true).MatchPattern);
     }
 
     [Fact]
@@ -46,7 +47,7 @@ public class FindPathPatternTests
     public void TrailingGlobstarBecomesGlobstarSlashStar()
     {
         // minimatch 的 'dir/**' 会连 'dir' 自身一起匹配，fd 不会 → 结尾补 /*（上游逐字逻辑）。
-        Assert.Equal("**/some/parent/child/**/*",
+        Assert.Equal("some/parent/child/**/*",
             FindPathPattern.For("some/parent/child/**", isWindows: true).MatchPattern);
     }
 
@@ -69,9 +70,12 @@ public class FindPathPatternTests
 
         Assert.True(d.IsPathPattern);
         Assert.False(d.UseWindowsMatcher);
-        Assert.Equal("**/src/**/*.ts", d.EffectivePattern);
+        Assert.Equal("src/**/*.ts", d.EffectivePattern);
+        // 有搜索路径时把转义后的搜索路径作为前缀（fd 匹配绝对路径）。
+        Assert.Equal("/tmp/app/src/**/*.ts",
+            FindPathPattern.For("src/**/*.ts", isWindows: false, "/tmp/app").EffectivePattern);
         // POSIX 上 \ 是 glob 转义符，不被规范化。
-        Assert.Equal(@"**/src\/**/*.ts", FindPathPattern.For(@"src\/**/*.ts", isWindows: false).EffectivePattern);
+        Assert.Equal(@"src\/**/*.ts", FindPathPattern.For(@"src\/**/*.ts", isWindows: false).EffectivePattern);
     }
 
     [Fact]
@@ -86,7 +90,7 @@ public class FindPathPatternTests
         FindPathPattern.CreateWindowsMatcher(FindPathPattern.For(pattern, isWindows: true));
 
     private static bool Matches(string pattern, string path) =>
-        FindPathPattern.Matches(Matcher(pattern), path);
+        FindPathPattern.Matches(Matcher(pattern), path, FindPathPattern.For(pattern, isWindows: true), "");
 
     [Fact]
     public void DoubleGlobstarAlsoMatchesFilesDirectlyInDirectory()
@@ -135,13 +139,19 @@ public class FindPathPatternTests
     }
 
     [Fact]
-    public void LeadingGlobstarMatchesFdAbsolutePaths()
+    public void RelativePatternMatchesOnlyBelowTheSearchPath()
     {
-        // 上游 #11972：Windows 路径模式下 fd 空 pattern 列出的是绝对路径，
-        // 前导 **/ 正是为命中任意前导绝对/相对目录前缀（端口生产接线用原始行匹配）。
-        var abs = "C:/Users/me/project/src/foo/bar/example.spec.ts";
-        Assert.True(Matches("src/**/*.ts", abs));
-        Assert.True(Matches("src/**/*.ts", "C:/Users/me/project/src/direct.spec.ts"));
-        Assert.False(Matches("src/*.ts", abs));
+        // #12066：Windows 上改为对「相对搜索路径的结果」匹配；祖先目录里同名文件夹不再命中。
+        var decision = FindPathPattern.For("src/**/*.ts", isWindows: true, "C:/app");
+        var matcher = FindPathPattern.CreateWindowsMatcher(decision);
+
+        Assert.True(FindPathPattern.Matches(matcher, "C:/app/src/direct.spec.ts", decision, "C:/app"));
+        Assert.True(FindPathPattern.Matches(matcher, "C:/app/src/foo/bar/x.spec.ts", decision, "C:/app"));
+        // 搜索路径上方还有 C:/src，旧实现会误命中。
+        Assert.False(FindPathPattern.Matches(matcher, "C:/src/b.spec.ts", decision, "C:/app"));
+        // **/src/*.ts 才匹配任意层级的 src 文件夹。
+        var anywhere = FindPathPattern.For("**/src/*.ts", isWindows: true, "C:/app");
+        Assert.True(FindPathPattern.Matches(
+            FindPathPattern.CreateWindowsMatcher(anywhere), "C:/app/pkg/src/b.ts", anywhere, "C:/app"));
     }
 }

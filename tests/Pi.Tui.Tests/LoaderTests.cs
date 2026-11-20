@@ -78,6 +78,10 @@ internal sealed class FakeTui : ITui
     {
     }
 
+    public void SetSuspendSignalHandler(Action? handler)
+    {
+    }
+
     public Task<TerminalColorsSnapshot> QueryTerminalColorsAsync(TerminalColorQueryOptions options) =>
         Task.FromResult(new TerminalColorsSnapshot());
 

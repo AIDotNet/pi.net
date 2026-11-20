@@ -445,10 +445,21 @@ public static class Main
 
             var modelPatterns = parsed.Models ?? runtimeSettings.GetEnabledModels();
             using var scopeCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var scopedModels = modelPatterns is { Count: > 0 }
-                ? await ModelResolver.ResolveModelScopeAsync(modelPatterns, modelRuntime, scopeCts.Token)
-                    .ConfigureAwait(false)
-                : [];
+            // 模型 scope 警告并入 runtime 诊断：交互模式在聊天里显示、其它模式写 stderr，
+            // 不再从工厂直接 console.warn（会在全屏模式下被清掉或画到编辑器边框里，#11973）。
+            var scopedModels = new List<ScopedModel>();
+            if (modelPatterns is { Count: > 0 })
+            {
+                var scope = await ModelResolver.ResolveModelScopeWithDiagnosticsAsync(
+                        modelPatterns, modelRuntime, scopeCts.Token)
+                    .ConfigureAwait(false);
+                scopedModels = [.. scope.ScopedModels];
+                diagnostics.AddRange(scope.Diagnostics.Select(diagnostic => new AgentSessionRuntimeDiagnostic
+                {
+                    Type = AgentSessionDiagnosticType.Warning,
+                    Message = diagnostic.Message,
+                }));
+            }
             var (sessionOptions, cliThinkingFromModel, sessionOptionDiagnostics) = BuildSessionOptions(
                 parsed,
                 scopedModels,
@@ -488,6 +499,17 @@ public static class Main
             if (created.Session.Model is not null && cliThinkingOverride)
             {
                 created.Session.SetThinkingLevel(created.Session.ThinkingLevel);
+            }
+            // "Could not restore model x/y. Using a/b." 会在 /resume、/fork 时重新产生；
+            // 作为诊断后，各模式在启动和每次会话替换后都会播报。完全没有模型时该消息是
+            // 登录指引，不走这里（交互模式仍从 ModelFallbackMessage 显示，其它模式直接退出）。
+            if (created.ModelFallbackMessage is { } fallback && created.Session.Model is not null)
+            {
+                diagnostics.Add(new AgentSessionRuntimeDiagnostic
+                {
+                    Type = AgentSessionDiagnosticType.Warning,
+                    Message = fallback,
+                });
             }
 
             return new CreateAgentSessionRuntimeResult
@@ -568,8 +590,9 @@ public static class Main
         }
 
         Timings.Time("resolveModelScope");
+        // 取出即标记已播报，各模式在会话替换后不会重复显示启动诊断。
         var startupDiagnostics = SettingsDiagnostics.DeduplicateDiagnostics(
-            [.. startupSettingsDiagnostics, .. runtime.Diagnostics]);
+            [.. startupSettingsDiagnostics, .. runtime.TakeUnreportedDiagnostics()]);
         var hasRuntimeErrors = runtime.Diagnostics.Any(diagnostic => diagnostic.Type == AgentSessionDiagnosticType.Error);
         if (appMode != AppModes.Interactive || hasRuntimeErrors)
         {
@@ -628,7 +651,8 @@ public static class Main
             {
                 MigratedProviders = migration.MigratedAuthProviders,
                 StartupDiagnostics = startupDiagnostics,
-                ModelFallbackMessage = modelFallbackMessage,
+                // 回退到其它模型的消息已经在 startupDiagnostics 里；只有「完全没有模型」才走这里。
+                ModelFallbackMessage = session.Model is not null ? null : modelFallbackMessage,
                 AutoTrustOnReloadCwd = autoTrustOnReloadCwd,
                 InitialMessage = initialMessage,
                 InitialImages = initialImages,

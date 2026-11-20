@@ -254,7 +254,11 @@ public sealed class Markdown : IComponent
                 block.Width = contentWidth;
                 block.NextTokenType = nextTokenType;
                 block.Lines.Clear();
-                foreach (var line in RenderToken(token, contentWidth, nextTokenType))
+                // 图片行跳过换行，所以先按硬换行拆开：图片后的空行必须是独立行，
+                // 否则后续内容会画到图片的下一行上（#12017）。
+                var tokenLines = RenderToken(token, contentWidth, nextTokenType)
+                    .SelectMany(line => TerminalImage.IsImageLine(line) ? line.Split('\n') : [line]);
+                foreach (var line in tokenLines)
                 {
                     if (TerminalImage.IsImageLine(line))
                     {

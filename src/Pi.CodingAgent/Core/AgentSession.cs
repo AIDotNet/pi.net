@@ -222,7 +222,10 @@ public partial class AgentSession
                 continue;
             }
 
-            if (assistant.StopReason == StopReason.Aborted && assistant.Content.Count == 0)
+            // 跳过「没有正常结束且没有文本」的助手消息：中止、出错、只调工具（#12119）。
+            // 正常结束但无文本的回复仍是最后一条回复，避免 /copy 悄悄复制更早的答案。
+            if (assistant.StopReason != StopReason.Stop
+                && !assistant.Content.OfType<TextContent>().Any(block => (block.Text ?? "").Trim().Length > 0))
             {
                 continue;
             }

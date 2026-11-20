@@ -48,19 +48,28 @@ public static class EnvApiKeys
             return [AnthropicEnv.AuthToken, AnthropicEnv.OAuthToken, AnthropicEnv.ApiKey];
         }
 
+        // Qwen Token Plan：先看各套餐自己的变量，再回退到两个套餐共用的地区变量。
+        if (ProviderEnvVarLists.TryGetValue(provider, out var envVars)) return envVars;
+
         var envVar = ProviderEnvMap.GetValueOrDefault(provider);
         return envVar is null ? null : [envVar];
     }
+
+    /// <summary>多变量候选（按优先级）。对应 TS <c>envMap</c> 中取值为数组的条目。</summary>
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> ProviderEnvVarLists =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["qwen-token-plan"] = ["QWEN_TOKEN_PLAN_TEAM_API_KEY", "QWEN_TOKEN_PLAN_API_KEY"],
+            ["qwen-token-plan-cn"] = ["QWEN_TOKEN_PLAN_TEAM_CN_API_KEY", "QWEN_TOKEN_PLAN_CN_API_KEY"],
+            ["qwen-token-plan-individual"] = ["QWEN_TOKEN_PLAN_INDIVIDUAL_API_KEY", "QWEN_TOKEN_PLAN_API_KEY"],
+            ["qwen-token-plan-individual-cn"] = ["QWEN_TOKEN_PLAN_INDIVIDUAL_CN_API_KEY", "QWEN_TOKEN_PLAN_CN_API_KEY"],
+        };
 
     /// <summary>provider → 单一 API key 环境变量映射。对应 TS <c>envMap</c>。</summary>
     public static readonly IReadOnlyDictionary<string, string> ProviderEnvMap =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["ant-ling"] = "ANT_LING_API_KEY",
-            ["qwen-token-plan"] = "QWEN_TOKEN_PLAN_API_KEY",
-            ["qwen-token-plan-cn"] = "QWEN_TOKEN_PLAN_CN_API_KEY",
-            ["qwen-token-plan-individual"] = "QWEN_TOKEN_PLAN_API_KEY",
-            ["qwen-token-plan-individual-cn"] = "QWEN_TOKEN_PLAN_CN_API_KEY",
             ["openai"] = "OPENAI_API_KEY",
             ["azure-openai-responses"] = "AZURE_OPENAI_API_KEY",
             ["nvidia"] = "NVIDIA_API_KEY",

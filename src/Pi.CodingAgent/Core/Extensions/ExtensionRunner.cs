@@ -182,6 +182,7 @@ public sealed class ExtensionRunner
     {
         // Copy actions into the shared runtime (all extension APIs reference this)
         runtime.BindActions(actions);
+        runtime.ReportError = EmitError;
         runtime.BindContextFactory(CreateContext);
 
         // Context actions (required)

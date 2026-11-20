@@ -65,7 +65,7 @@ public static class FindTool
             ["pattern"] = new Dictionary<string, object?>
             {
                 ["type"] = "string",
-                ["description"] = "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
+                ["description"] = "Glob pattern relative to the search directory, e.g. 'src/**/*.ts'. Without '/', e.g. '*.ts', it matches file names at any depth",
             },
             ["path"] = new Dictionary<string, object?>
             {
@@ -198,7 +198,7 @@ public static class FindTool
                 // （fd 10.5.1 前后对 --full-path glob 的行为相反，pi 会下载最新版），改为让 fd
                 // 列出全部条目、由端口用 Minimatch 逐行过滤，行为与 fd 版本无关。
                 // 决策与匹配器是纯叶子 FindPathPattern，可跨平台单测。
-                var pathDecision = FindPathPattern.For(pattern, NodePath.IsWindows);
+                var pathDecision = FindPathPattern.For(pattern, NodePath.IsWindows, searchPath);
                 var windowsMatcher = pathDecision.UseWindowsMatcher
                     ? FindPathPattern.CreateWindowsMatcher(pathDecision)
                     : null;
@@ -257,6 +257,11 @@ public static class FindTool
                     {
                         fdArgs.Add("--full-path");
                     }
+                    if (pathDecision.IsRelativePathPattern)
+                    {
+                        // smart case 由用户模式决定，不能被搜索路径里的字母带偏。
+                        if (pathDecision.NoCase) fdArgs.Add("--ignore-case");
+                    }
 
                     fdArgs.Add("--");
                     fdArgs.Add(pathDecision.EffectivePattern);
@@ -311,7 +316,7 @@ public static class FindTool
                             continue;
                         }
 
-                        if (FindPathPattern.Matches(windowsMatcher, line))
+                        if (FindPathPattern.Matches(windowsMatcher, line, pathDecision, searchPath))
                         {
                             lines.Add(line);
                         }
@@ -340,7 +345,7 @@ public static class FindTool
                 {
                     var tail = stdoutPending.ToString().TrimEnd('\r');
                     if (tail.Length > 0 && lines.Count <= effectiveLimit
-                        && FindPathPattern.Matches(windowsMatcher, tail))
+                        && FindPathPattern.Matches(windowsMatcher, tail, pathDecision, searchPath))
                     {
                         lines.Add(tail);
                     }

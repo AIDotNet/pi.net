@@ -114,6 +114,11 @@ internal sealed class FakeTui : ITui
 
     public void SetTerminalColorSchemeNotifications(bool enabled) => ColorSchemeNotifications = enabled;
 
+    public void SetSuspendSignalHandler(Action? handler) => SuspendSignalHandler = handler;
+
+    /// <summary>Last value passed to <see cref="SetSuspendSignalHandler"/>.</summary>
+    public Action? SuspendSignalHandler { get; private set; }
+
     public Task<TerminalColorsSnapshot> QueryTerminalColorsAsync(TerminalColorQueryOptions options)
     {
         LastColorQuery = options;

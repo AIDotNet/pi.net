@@ -497,6 +497,8 @@ public static class GoogleShared
         {
             "STOP" => StopReason.Stop,
             "MAX_TOKENS" => StopReason.Length,
+            // 单次请求的 token 上限，生成尚未完成；pi 不会用 continuation token 续写。
+            "CONTINUATION" => StopReason.Length,
             _ when reason is not null && ErrorFinishReasons.Contains(reason) => StopReason.Error,
             _ => throw new InvalidOperationException($"Unhandled stop reason: {reason ?? "null"}"),
         };

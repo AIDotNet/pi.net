@@ -170,8 +170,11 @@ public sealed class ThinkingSelectorComponent : Container, IFocusable
             return;
         }
 
+        // 光标键不改变查询，也就不该重建列表。
+        var previousQuery = _searchInput.GetValue();
         _searchInput.HandleInput(data);
-        ApplyFilter(_searchInput.GetValue());
+        var query = _searchInput.GetValue();
+        if (query != previousQuery) ApplyFilter(query);
     }
 
     public SelectList GetSelectList() => _selectList;

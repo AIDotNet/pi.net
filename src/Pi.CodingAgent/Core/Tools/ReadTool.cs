@@ -12,6 +12,12 @@ namespace Pi.CodingAgent.Core.Tools;
 public sealed record ReadToolDetails
 {
     public Truncate.TruncationResult? Truncation { get; init; }
+
+    /// <summary>
+    /// 读取图片时选中的模型 id（仅当该模型不接受图片输入）。只给用户看：模型每次请求会拿到
+    /// pi-ai 的占位文本，所以切换模型后保存的结果仍然正确（#12131）。
+    /// </summary>
+    public string? ImageUnsupportedByModel { get; init; }
 }
 
 /// <summary>
@@ -184,16 +190,6 @@ public static class ReadTool
             : text;
     }
 
-    private static string? GetNonVisionImageNote(ModelSpec? model)
-    {
-        if (model is null || model.Input.Contains("image"))
-        {
-            return null;
-        }
-
-        return "[Current model does not support images. The image will be omitted from this request.]";
-    }
-
     /// <summary>The TS <c>createReadToolDefinition(cwd, options)</c>.</summary>
     public static ToolDefinition CreateReadToolDefinition(string cwd, ReadToolOptions? options = null)
     {
@@ -235,7 +231,6 @@ public static class ReadTool
                     : null;
                 List<ContentBlock> content;
                 ReadToolDetails? details = null;
-                var nonVisionImageNote = GetNonVisionImageNote(ctx?.Model);
                 if (!string.IsNullOrEmpty(mimeType))
                 {
                     // Read image as binary.
@@ -249,13 +244,8 @@ public static class ReadTool
                     }).ConfigureAwait(false);
                     if (processed is not ProcessImageResult.Ok ok)
                     {
-                        var textNote = $"Read image file [{mimeType}]\n{(processed as ProcessImageResult.Fail)?.Message}";
-                        if (nonVisionImageNote is not null)
-                        {
-                            textNote += $"\n{nonVisionImageNote}";
-                        }
-
-                        content = [new TextContent(textNote)];
+                        content = [new TextContent(
+                            $"Read image file [{mimeType}]\n{(processed as ProcessImageResult.Fail)?.Message}")];
                     }
                     else
                     {
@@ -265,12 +255,15 @@ public static class ReadTool
                             textNote += $"\n{string.Join("\n", ok.Hints)}";
                         }
 
-                        if (nonVisionImageNote is not null)
-                        {
-                            textNote += $"\n{nonVisionImageNote}";
-                        }
-
                         content = [new TextContent(textNote), new ImageContent(ok.Data, ok.MimeType)];
+                        // 不支持图片的模型：只在 details 记下是哪个模型读的，结果文本保持干净。
+                        if (ctx?.Model is { } selected && !selected.Input.Contains(ModelInput.Image))
+                        {
+                            details = (details ?? new ReadToolDetails()) with
+                            {
+                                ImageUnsupportedByModel = selected.Id,
+                            };
+                        }
                     }
                 }
                 else

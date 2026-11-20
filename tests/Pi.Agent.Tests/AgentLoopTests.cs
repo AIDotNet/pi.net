@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Pi.Ai.Providers;
 using Pi.Ai.Stream;
 using Pi.Ai.Types;
@@ -98,6 +99,72 @@ public class AgentLoopTests
         Assert.Contains(events, e => e is AgentEvent.ToolExecutionStart { ToolName: "echo" });
         Assert.Contains(events, e => e is AgentEvent.ToolExecutionEnd { ToolName: "echo", IsError: false });
         Assert.Contains(events, e => e is AgentEvent.TurnEnd { ToolResults.Count: 1 });
+    }
+
+    /// <summary>
+    /// #9986：批次中途 abort 后，未执行的调用仍要各有一条 "Operation aborted" 结果，
+    /// 否则会话里会留下没有结果的工具调用。
+    /// </summary>
+    [Fact]
+    public async Task AbortedSequentialBatchAnswersEveryToolCall()
+    {
+        using var cts = new CancellationTokenSource();
+        var executed = new List<string>();
+        var tool = new AgentTool(
+            Name: "slow",
+            Description: "慢工具",
+            Parameters: new ToolSchema(new Dictionary<string, object?>
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["value"] = new Dictionary<string, object?> { ["type"] = "string" },
+                },
+                ["required"] = new List<object?> { "value" },
+            }),
+            Label: "Slow",
+            Execute: (_, args, _, _) =>
+            {
+                executed.Add(((JsonObject)args!)["value"]!.GetValue<string>());
+                // 用户在第一个调用执行期间中止。
+                cts.Cancel();
+                throw new InvalidOperationException("interrupted");
+            },
+            ExecutionMode: ToolExecutionMode.Sequential);
+
+        var streamFn = Faux.CreateStreamFn([
+            Faux.Response.ToolUse(
+                Faux.ToolCall("slow", new Dictionary<string, object?> { ["value"] = "first" }, id: "tool-1"),
+                Faux.ToolCall("slow", new Dictionary<string, object?> { ["value"] = "second" }, id: "tool-2"),
+                Faux.ToolCall("slow", new Dictionary<string, object?> { ["value"] = "third" }, id: "tool-3")),
+            Faux.Response.Text("done"),
+        ]);
+        var context = new AgentContext { Messages = [], Tools = [tool] };
+        var config = CreateConfig(Faux.DefaultModel) with { ToolExecution = ToolExecutionMode.Sequential };
+
+        var stream = AgentLoop.Run(
+            [Messages.UserText("run three")], context, config, cts.Token, streamFn);
+        // 外层循环在下一个助手回合看到已取消的信号而结束；批次内的事件在此之前已全部发出。
+        var events = new List<AgentEvent>();
+        try
+        {
+            await foreach (var @event in stream) events.Add(@event);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+
+        Assert.Equal(new[] { "first" }, executed);
+        var results = events.OfType<AgentEvent.MessageStart>()
+            .Select(e => e.Message).OfType<ToolResultMessage>().ToList();
+        Assert.Equal(["tool-1", "tool-2", "tool-3"], results.Select(r => r.ToolCallId));
+        Assert.Equal("interrupted", ((TextContent)results[0].Content[0]).Text);
+        Assert.Equal("Operation aborted", ((TextContent)results[1].Content[0]).Text);
+        Assert.Equal("Operation aborted", ((TextContent)results[2].Content[0]).Text);
+        Assert.Equal(["tool-1", "tool-2", "tool-3"],
+            events.OfType<AgentEvent.ToolExecutionStart>().Select(e => e.ToolCallId));
+        Assert.Equal(["tool-1", "tool-2", "tool-3"],
+            events.OfType<AgentEvent.ToolExecutionEnd>().Select(e => e.ToolCallId));
     }
 
     [Fact]

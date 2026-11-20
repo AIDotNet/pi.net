@@ -13,7 +13,9 @@ public static partial class OpenAiCodexResponses
 {
     private const int WebsocketMessageTooBigCloseCode = 1009;
     private const int SessionWebsocketCacheTtlMs = 5 * 60 * 1000;
-    private const int SessionWebsocketMaxAgeMs = 55 * 60 * 1000;
+    // 服务端在 60 分钟后关闭套接字（即使响应仍在进行，进行中的响应会丢失）。
+    // 新请求在 45 分钟后另开连接，给长响应留出至少 15 分钟。
+    private const int SessionWebsocketMaxAgeMs = 45 * 60 * 1000;
 
     /// <summary>WS 会话缓存条目。对应 TS <c>CachedWebSocketConnection</c>。</summary>
     private sealed class CachedWebSocketConnection : IDisposable
@@ -551,7 +553,6 @@ public static partial class OpenAiCodexResponses
                     CodexToolCallProviders,
                     new ConvertResponsesMessagesOptions
                     {
-                        IncludeSystemPrompt = false,
                         GrammarToolInputProperties = grammarToolInputProperties,
                     });
                 var filtered = new JsonArray();

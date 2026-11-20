@@ -114,6 +114,12 @@ public interface IExtensionRuntime
     /// <summary>Retain an event-bus subscription until this runtime is invalidated.</summary>
     Action TrackEventBusSubscription(Action unsubscribe);
 
+    /// <summary>
+    /// 扩展错误上报入口，由 runner 填入；runtime 失效后置空，之后的错误被丢弃。
+    /// 对应 TS <c>runtime.reportError</c>。
+    /// </summary>
+    Action<ExtensionError>? ReportError { get; set; }
+
     // ---- Provider / virtual-model registration (queue before bind, direct after) ----
 
     void RegisterProvider(string name, ProviderConfigInput config, string? extensionPath = null);

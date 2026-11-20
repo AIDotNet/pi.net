@@ -212,11 +212,9 @@ public static class Changelog
             Flush(entries, currentVersion, currentLines);
             return entries;
         }
-        catch (Exception error)
+        catch (Exception)
         {
-            // JavaScript catches everything here. The message text cannot match: `${error}` renders a
-            // JavaScript error as "name: message", and there is no JavaScript error in the port.
-            ErrorWriter.WriteLine($"Warning: Could not parse changelog: {error}");
+            // 不可读/不可解析时返回空表，不直接写终端：交互模式下会画到 TUI 上（#12117）。
             return [];
         }
     }

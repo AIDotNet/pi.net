@@ -1360,7 +1360,10 @@ public static class OpenAiCompletions
         var cacheWriteTokens = details?.Num("cache_write_tokens") ?? 0;
         var input = Math.Max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
         var outputTokens = rawUsage.Num("completion_tokens") ?? 0;
-        var reasoningTokens = rawUsage.Obj("completion_tokens_details")?.Num("reasoning_tokens") ?? 0;
+        // Copilot 把思考 token 放在 usage 顶层（usage.reasoning_tokens），嵌套字段缺失时回退到它。
+        var reasoningTokens = rawUsage.Obj("completion_tokens_details")?.Num("reasoning_tokens")
+            ?? rawUsage.Num("reasoning_tokens")
+            ?? 0;
 
         var usage = new Usage(
             (long)input,

@@ -598,8 +598,10 @@ public sealed class ScopedModelsSelectorComponent : Container, IFocusable
             return;
         }
 
-        // Pass everything else to search input
+        // 其余键交给搜索框。查询非空时把选中项移到首行（最匹配项）；开关/排序也会走
+        // Refresh()，所以复位放在这里而不是 Refresh 里。
         _searchInput.HandleInput(data);
+        if (_searchInput.GetValue().Length > 0) _selectedIndex = 0;
         Refresh();
     }
 }

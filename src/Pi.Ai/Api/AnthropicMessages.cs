@@ -925,7 +925,7 @@ public static class AnthropicMessages
                 };
                 // 上游 1.5.1 #9557：非 strict 工具也要保留根 $defs/definitions，否则属性里的本地
                 // $ref 指向空、Claude 会给出错误参数。其它根关键字（anyOf/oneOf/allOf）仍排除：Anthropic 会 400。
-                foreach (var key in new[] { "$defs", "definitions" })
+                foreach (var key in new[] { "additionalProperties", "$defs", "definitions" })
                 {
                     if (parameters[key] is { } shared)
                     {

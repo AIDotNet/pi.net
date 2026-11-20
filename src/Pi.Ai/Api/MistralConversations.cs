@@ -519,7 +519,13 @@ public static class MistralConversations
         };
 
         var currentTools = Transcript.GetCurrentTools(context.Messages);
-        if (currentTools.Count > 0) payload["tools"] = ToFunctionTools(currentTools);
+        // strict 工具是 opt-in：Mistral Large 4 带 strict: true 时可能沉默数分钟才发起工具调用（#12148）。
+        if (currentTools.Count > 0)
+        {
+            var supportsStrictMode = model.Compat?["supportsStrictMode"] is System.Text.Json.Nodes.JsonValue { } strictValue
+                && strictValue.TryGetValue<bool>(out var strictFlag) && strictFlag;
+            payload["tools"] = ToFunctionTools(currentTools, supportsStrictMode);
+        }
         if (options?.Temperature is { } temperature) payload["temperature"] = temperature;
         if (options?.MaxTokens is { } maxTokens) payload["maxTokens"] = maxTokens;
         if (options?.ToolChoice is { } toolChoice) payload["toolChoice"] = toolChoice.DeepClone();
@@ -530,12 +536,12 @@ public static class MistralConversations
         return payload;
     }
 
-    private static JsonArray ToFunctionTools(IReadOnlyList<ToolDefinition> tools)
+    private static JsonArray ToFunctionTools(IReadOnlyList<ToolDefinition> tools, bool supportsStrictMode)
     {
         var result = new JsonArray();
         foreach (var tool in tools)
         {
-            var strict = ConstrainedSampling.ResolveJsonSchemaStrictSampling(tool, true);
+            var strict = ConstrainedSampling.ResolveJsonSchemaStrictSampling(tool, supportsStrictMode);
             result.Add(new JsonObject
             {
                 ["type"] = "function",

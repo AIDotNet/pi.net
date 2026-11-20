@@ -31,13 +31,12 @@ public sealed record ToolHtmlRendererDeps
 /// </summary>
 public static partial class ToolHtmlRendererFactory
 {
-    [GeneratedRegex(@"\x1b\[[\d;]*m")]
-    private static partial Regex AnsiEscapeRegex();
 
     public static IToolHtmlRenderer Create(ToolHtmlRendererDeps deps) => new Renderer(deps);
 
     internal static bool IsBlankRenderedLine(string line)
-        => AnsiEscapeRegex().Replace(line, "").Trim().Length == 0;
+        // 只有转义码的行（例如终端给链接的重置 "\x1b[0m\x1b]8;;\x07"）也算空行。
+        => AnsiToHtml.StripEscapes(line).Trim().Length == 0;
 
     internal static IReadOnlyList<string> TrimRenderedResultLines(IReadOnlyList<string> lines)
     {

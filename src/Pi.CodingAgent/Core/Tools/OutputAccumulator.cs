@@ -114,8 +114,12 @@ public sealed class OutputAccumulator
     /// <summary>The TS <c>snapshot(options)</c>.</summary>
     public OutputSnapshot Snapshot(bool persistIfTruncated = false)
     {
+        // 裁剪会丢掉保留尾巴里不完整的第一行；当尾巴只是一条超长行的结尾时，这就是全部内容，
+        // 此时退回未裁剪的尾巴，让 TruncateTail 走「部分行」路径显示该行末尾（#12062）。
+        var snapshotText = GetSnapshotText();
+        if (snapshotText.Length == 0) snapshotText = _tailText;
         var tailTruncation = Truncate.TruncateTail(
-            GetSnapshotText(),
+            snapshotText,
             new Truncate.TruncationOptions { MaxLines = _maxLines, MaxBytes = _maxBytes });
         var truncated = _totalLines > _maxLines || _totalDecodedBytes > _maxBytes;
         var truncatedBy = truncated

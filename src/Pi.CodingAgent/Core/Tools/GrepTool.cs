@@ -147,7 +147,7 @@ public static class GrepTool
             ["glob"] = new Dictionary<string, object?>
             {
                 ["type"] = "string",
-                ["description"] = "Filter files by glob pattern, relative to path, e.g. '*.ts', 'src/**/*.ts' or '**/*.spec.ts'. A pattern without '/' matches file names at any depth",
+                ["description"] = "Filter files by glob pattern relative to path, e.g. 'src/**/*.ts'. Without '/', e.g. '*.ts', it matches file names at any depth",
             },
             ["ignoreCase"] = new Dictionary<string, object?>
             {

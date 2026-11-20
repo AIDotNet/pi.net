@@ -419,6 +419,10 @@ public sealed class LlamaProvider : IProvider, IClassifierProvider
         LlamaModelInfo model, string serverUrl, long? cachedContextWindow = null)
     {
         var decision = IsDecisionModel(model);
+        // decision 模型若声明 image 输入，就按 llama.cpp 的 System One 样式发图：图片放在
+        // images 数据 URL 里，而不是 TypeSafe 的 assets + 危险区图片头（#12282）。
+        // 走下一 token 概率的 llama-cpp-classify 回退模型不接受图片。
+        var image = decision && model.InputModalities?.Contains("image") == true;
         return new ModelSpec
         {
             Id = model.Id,
@@ -427,9 +431,12 @@ public sealed class LlamaProvider : IProvider, IClassifierProvider
             Provider = ProviderId,
             BaseUrl = decision ? LlamaModels.LlamaInferenceUrl(serverUrl) : serverUrl,
             Type = ModelType.Classifier,
-            Input = [ModelInput.Text],
+            Input = image ? [ModelInput.Text, ModelInput.Image] : [ModelInput.Text],
             Cost = new ModelCostRates(0, 0, 0, 0),
             ContextWindow = ContextWindowOf(model, cachedContextWindow),
+            Compat = image
+                ? new JsonObject { ["imageInput"] = "images", ["sendImageOptInHeader"] = false }
+                : null,
         };
     }
 

@@ -632,6 +632,7 @@ public partial class AgentSession
     private void RestoreToolsFromTranscript(IReadOnlyList<string>? modifiers = null)
     {
         _pendingToolNames.Clear();
+        _restoredToolNames.Clear();
 
         // 分支上全部系统消息（含压缩之前的）：压缩快照由它们派生，重放即得当前 loadout。
         var systemMessages = SessionManager.GetBranch()
@@ -681,6 +682,13 @@ public partial class AgentSession
         {
             _pendingToolNames.Add(name);
         }
+        _restoredToolNames = new HashSet<string>(
+            SettingsManager.ApplyToolModifiers(
+                Transcript.GetCurrentTools(systemMessages.Cast<ChatMessage>().ToList())
+                    .Select(tool => tool.Name)
+                    .ToList(),
+                modifiers ?? []),
+            StringComparer.Ordinal);
 
         SetActiveTools(names);
     }

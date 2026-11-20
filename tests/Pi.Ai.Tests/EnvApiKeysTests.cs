@@ -72,7 +72,9 @@ public class EnvApiKeysTests
     {
         // 有环境变量的内建家都在映射表里（Bedrock/Vertex 走 ambient 链，不入表）。
         Assert.Equal("MOONSHOT_API_KEY", EnvApiKeys.ProviderEnvMap["moonshotai-cn"]);
-        Assert.Equal("QWEN_TOKEN_PLAN_API_KEY", EnvApiKeys.ProviderEnvMap["qwen-token-plan-individual"]);
+        Assert.Equal(
+            ["QWEN_TOKEN_PLAN_INDIVIDUAL_API_KEY", "QWEN_TOKEN_PLAN_API_KEY"],
+            EnvApiKeys.GetApiKeyEnvVars("qwen-token-plan-individual"));
         Assert.Equal("CLOUDFLARE_API_KEY", EnvApiKeys.ProviderEnvMap["cloudflare-ai-gateway"]);
         // Vertex 有显式 key 变量（ADC 另走 ambient 链）；Bedrock 完全靠 ambient 链。
         Assert.Equal("GOOGLE_CLOUD_API_KEY", EnvApiKeys.ProviderEnvMap["google-vertex"]);

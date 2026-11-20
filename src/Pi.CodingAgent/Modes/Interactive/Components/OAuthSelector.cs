@@ -223,9 +223,10 @@ public sealed partial class OAuthSelectorComponent : Container, IFocusable
                 provider =>
                     $"{provider.Name} {provider.Id} {AuthTypeText(provider.AuthType)} {provider.Method?.Name ?? ""}")
             : _allProviders;
-        _selectedIndex = Math.Max(
-            0,
-            Math.Min(_selectedIndex, Math.Max(0, _filteredProviders.Count - 1)));
+        // 有查询时把选中项移到首行，高亮的就是最匹配项；清空查询时才保留原来的夹取行为。
+        _selectedIndex = query.Length > 0
+            ? 0
+            : Math.Min(_selectedIndex, Math.Max(0, _filteredProviders.Count - 1));
         UpdateList();
     }
 
@@ -332,11 +333,13 @@ public sealed partial class OAuthSelectorComponent : Container, IFocusable
             _onCancel();
         }
 
-        // Pass everything else to the search input
+        // 其余键交给搜索框；光标键不改变查询，也就不该移动选中项。
         else
         {
+            var previousQuery = _searchInput.GetValue();
             _searchInput.HandleInput(data);
-            FilterProviders(_searchInput.GetValue());
+            var query = _searchInput.GetValue();
+            if (query != previousQuery) FilterProviders(query);
         }
     }
 

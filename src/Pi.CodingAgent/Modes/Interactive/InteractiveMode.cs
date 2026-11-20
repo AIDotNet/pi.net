@@ -330,6 +330,8 @@ public partial class InteractiveMode
         {
             await RebindCurrentSessionAsync(renderBeforeBind: true).ConfigureAwait(true);
             _themeController.ApplyFromSettings();
+            // 替换后的新诊断（设置/信任/扩展加载/模型回退）在同一处播报，未变化的不重复（#12115）。
+            ShowRuntimeDiagnostics();
         });
         _version = Config.Version;
         _onRightClickPaste = () => _ = HandleRightClickPasteAsync();
@@ -550,6 +552,7 @@ public partial class InteractiveMode
         });
         nextUi.SetClearOnShrink(clearOnShrink);
         nextUi.OnDebug = onDebug;
+        nextUi.SetSuspendSignalHandler(HandleCtrlZ);
         if (nextUi is TuiMainScreen nextMainScreen && _mainScreenRenderState is not null)
         {
             nextMainScreen.RestoreRenderState(_mainScreenRenderState);

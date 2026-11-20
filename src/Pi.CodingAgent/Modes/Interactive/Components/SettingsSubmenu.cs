@@ -209,8 +209,11 @@ public sealed class SelectSubmenu : Container
             }
             else
             {
+                // 光标键不改变查询，也就不该移动选中项。
+                var previousQuery = _searchInput.GetValue();
                 _searchInput.HandleInput(data);
-                ApplyFilter(_searchInput.GetValue());
+                var query = _searchInput.GetValue();
+                if (query != previousQuery) ApplyFilter(query);
             }
         }
         else

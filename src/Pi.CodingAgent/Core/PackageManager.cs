@@ -196,11 +196,20 @@ public sealed class DefaultPackageCommandRunner : IPackageCommandRunner
         return Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // 输出始终被捕获（不继承终端），所以 git 不能等待用户在 TUI 上输入密码/口令（#12236）。
+            var env = options.Env is null
+                ? new Dictionary<string, string?>(StringComparer.Ordinal)
+                : new Dictionary<string, string?>(options.Env, StringComparer.Ordinal);
+            if (string.Equals(command, "git", StringComparison.OrdinalIgnoreCase))
+            {
+                env.TryAdd("GIT_TERMINAL_PROMPT", "0");
+                env.TryAdd("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
+            }
             var result = ChildProcess.SpawnSync(command, arguments, new SpawnSyncOptions
             {
                 Cwd = options.WorkingDirectory,
                 TimeoutMs = options.TimeoutMs,
-                Env = options.Env,
+                Env = env,
             });
             if (result.Error is not null)
             {

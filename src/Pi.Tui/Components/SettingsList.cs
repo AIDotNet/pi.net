@@ -367,8 +367,11 @@ public class SettingsList : IComponent
         }
         else if (_searchEnabled && _searchInput is not null)
         {
+            // 光标键不改变查询，也就不该重置选中项（#12245 之后）。
+            var previousQuery = _searchInput.GetValue();
             _searchInput.HandleInput(data);
-            ApplyFilter(_searchInput.GetValue());
+            var query = _searchInput.GetValue();
+            if (query != previousQuery) ApplyFilter(query);
         }
     }
 

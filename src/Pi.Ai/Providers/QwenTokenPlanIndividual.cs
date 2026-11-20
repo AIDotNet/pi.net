@@ -13,8 +13,13 @@ public static class QwenTokenPlanIndividual
     {
         Id = "qwen-token-plan-individual",
         Name = "Qwen Token Plan Individual",
-        BaseUrl = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
-        Auth = new ProviderAuth { ApiKey = new EnvApiKeyAuth("Qwen Token Plan Individual API key", ["QWEN_TOKEN_PLAN_API_KEY"]) },
+        BaseUrl = "https://token-plan.maas.qwencloudapi.com/compatible-mode/v1",
+        Auth = new ProviderAuth
+        {
+            ApiKey = new EnvApiKeyAuth(
+                "Qwen Token Plan Individual API key",
+                ["QWEN_TOKEN_PLAN_INDIVIDUAL_API_KEY", "QWEN_TOKEN_PLAN_API_KEY"]),
+        },
         Models = BuiltinCatalog.All("qwen-token-plan-individual"),
         Api = LazyApis.OpenAiCompletionsApi(),
     });

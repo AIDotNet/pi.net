@@ -108,6 +108,8 @@ public partial class InteractiveMode
         _ui.SetFocus(_editor);
 
         // Start the UI before initializing extensions so session_start handlers can use interactive dialogs
+        // 外部 SIGTSTP（kill -TSTP）与 Ctrl+Z 一样先恢复终端（#12272）。
+        _ui.SetSuspendSignalHandler(HandleCtrlZ);
         _ui.Start();
         _isInitialized = true;
         _programStatus.Report();
@@ -820,7 +822,8 @@ public partial class InteractiveMode
             appName: Config.AppName);
         if (resumeCommand is not null)
         {
-            Console.Write($"{Chalk.Dim("To resume this session:")} {resumeCommand}\n");
+            // 命令单独一行，方便三击选中（#12237）。
+            Console.Write($"{Chalk.Dim("To resume this session:")}\n{resumeCommand}\n");
         }
 
         Environment.Exit(0);

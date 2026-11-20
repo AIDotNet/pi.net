@@ -297,6 +297,40 @@ public class AnthropicMessagesWireTests
         Assert.Null(inputSchema["strict"]); // 非 strict 工具不带 strict 标记
     }
 
+    /// <summary>
+    /// #12100：非 strict 工具仍要带上根 additionalProperties，否则 Claude 不知道多余参数被禁止。
+    /// 根 anyOf/oneOf/allOf 仍排除（Anthropic 会 400）。
+    /// </summary>
+    [Fact]
+    public void NonStrictToolSchemaKeepsRootAdditionalProperties()
+    {
+        var schema = new Dictionary<string, object?>
+        {
+            ["type"] = "object",
+            ["title"] = "configure",
+            ["properties"] = new Dictionary<string, object?>
+            {
+                ["mode"] = new Dictionary<string, object?> { ["type"] = "string" },
+            },
+            ["required"] = new List<object?> { "mode" },
+            ["additionalProperties"] = false,
+        };
+        var tool = new ToolDefinition("configure", "configure", new ToolSchema(schema));
+
+        var parameters = AnthropicMessages.BuildParams(
+            Spec(),
+            new TranscriptContext([SystemWithTools("", tool), Messages.UserText("hi")]),
+            false,
+            new SimpleStreamOptions(ApiKey: "sk-ant"));
+
+        var inputSchema = Obj(Arr(parameters["tools"])[0]!["input_schema"]);
+        Assert.NotNull(inputSchema["additionalProperties"]);
+        Assert.False(inputSchema["additionalProperties"]!.GetValue<bool>());
+        // 其它根关键字仍被过滤。
+        Assert.Null(inputSchema["title"]);
+        Assert.Null(inputSchema["strict"]);
+    }
+
     [Fact]
     public void OAuthUsesClaudeCodeIdentityAndToolNames()
     {

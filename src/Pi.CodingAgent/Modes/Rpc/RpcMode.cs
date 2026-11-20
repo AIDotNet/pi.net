@@ -153,6 +153,24 @@ internal sealed class RpcModeSession
     private async Task RebindSessionAsync()
     {
         _session = _runtimeHost.Session;
+
+        // 先订阅再绑定：session_start 处理器发出的事件（如 entry_appended）必须到达客户端；
+        // 会话替换只在这里重绑一次，命令处理器不再重复调用（#10470）。
+        _unsubscribe?.Dispose();
+        _unsubscribeBackpressure?.Dispose();
+        _unsubscribe = _session.Subscribe(@event =>
+        {
+            _output(JsonEvent.ToJsonEvent(@event));
+            if (@event is AgentSessionEvent.AgentSettledEvent)
+            {
+                _ = CheckShutdownRequestedAsync();
+            }
+        });
+        _unsubscribeBackpressure = _session.Agent.Subscribe(async (_, _) =>
+        {
+            await _waitBackpressure().ConfigureAwait(false);
+        });
+
         await _session.BindExtensionsAsync(new ExtensionBindings
         {
             UiContext = CreateExtensionUIContext(),
@@ -168,20 +186,10 @@ internal sealed class RpcModeSession
             }),
         }).ConfigureAwait(false);
 
-        _unsubscribe?.Dispose();
-        _unsubscribeBackpressure?.Dispose();
-        _unsubscribe = _session.Subscribe(@event =>
-        {
-            _output(JsonEvent.ToJsonEvent(@event));
-            if (@event is AgentSessionEvent.AgentSettledEvent)
-            {
-                _ = CheckShutdownRequestedAsync();
-            }
-        });
-        _unsubscribeBackpressure = _session.Agent.Subscribe(async (_, _) =>
-        {
-            await _waitBackpressure().ConfigureAwait(false);
-        });
+        // 会话替换后新出现的诊断（设置错误、信任警告、扩展加载失败、模型回退）写 stderr，
+        // 绝不写 stdout（#12115）。
+        var diagnostics = _runtimeHost.TakeUnreportedDiagnostics();
+        if (diagnostics.Count > 0) Pi.CodingAgent.Cli.Main.ReportDiagnostics(diagnostics);
     }
 
     private ExtensionCommandContextActions CreateCommandContextActions() => new()
@@ -812,12 +820,8 @@ internal sealed class RpcModeSession
         var options = command.ParentSession is { } parentSession
             ? new ExtensionNewSessionOptions { ParentSession = parentSession }
             : null;
+        // 会话替换由 runtime 的 rebind 回调统一处理，这里不再重复绑定（#10470）。
         var result = await _runtimeHost.NewSessionAsync(options).ConfigureAwait(false);
-        if (!result.Cancelled)
-        {
-            await RebindSessionAsync().ConfigureAwait(false);
-        }
-
         return RpcResponses.Success(id, "new_session", result);
     }
 
@@ -909,22 +913,12 @@ internal sealed class RpcModeSession
     private async Task<JsonObject?> SwitchSessionAsync(string? id, RpcSwitchSessionCommand command)
     {
         var result = await _runtimeHost.SwitchSessionAsync(command.SessionPath).ConfigureAwait(false);
-        if (!result.Cancelled)
-        {
-            await RebindSessionAsync().ConfigureAwait(false);
-        }
-
         return RpcResponses.Success(id, "switch_session", result);
     }
 
     private async Task<JsonObject?> ForkAsync(string? id, RpcForkCommand command)
     {
         var result = await _runtimeHost.ForkAsync(command.EntryId).ConfigureAwait(false);
-        if (!result.Cancelled)
-        {
-            await RebindSessionAsync().ConfigureAwait(false);
-        }
-
         return RpcResponses.Success(id, "fork", new RpcForkData
         {
             Text = result.SelectedText ?? string.Empty,
@@ -942,11 +936,6 @@ internal sealed class RpcModeSession
 
         var result = await _runtimeHost.ForkAsync(leafId, new ForkOptions { Position = ForkPosition.At })
             .ConfigureAwait(false);
-        if (!result.Cancelled)
-        {
-            await RebindSessionAsync().ConfigureAwait(false);
-        }
-
         return RpcResponses.Success(id, "clone", new RpcCancelledData { Cancelled = result.Cancelled });
     }
 

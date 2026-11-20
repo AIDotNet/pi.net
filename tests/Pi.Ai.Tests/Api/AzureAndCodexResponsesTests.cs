@@ -168,7 +168,7 @@ public class AzureAndCodexResponsesTests
     }
 
     [Fact]
-    public void BuildRequestBodyUsesInstructionsAndVerbosity()
+    public void BuildRequestBodySendsSystemPromptAsLeadingDeveloperItem()
     {
         var model = Model("openai-codex-responses", "openai-codex") with
         {
@@ -183,7 +183,13 @@ public class AzureAndCodexResponsesTests
             "clamped-sess");
 
         Assert.Equal("gpt-5.1", body.Str("model"));
-        Assert.Equal("You are pi.", body.Str("instructions"));
+        // #12273：系统提示作为首个 developer 项发送，不再用顶层 instructions
+        // （GPT-6.2 起后端把 instructions 追加在 input 之后，提示缓存永远不命中）。
+        Assert.Null(body["instructions"]);
+        var input = Assert.IsType<JsonArray>(body["input"]);
+        var first = Assert.IsType<JsonObject>(input[0]);
+        Assert.Equal("developer", first.Str("role"));
+        Assert.Equal("You are pi.", first.Str("content"));
         Assert.Equal(false, body.Bool("store"));
         Assert.Equal(true, body.Bool("stream"));
         Assert.Equal("medium", body.Obj("text")?.Str("verbosity"));

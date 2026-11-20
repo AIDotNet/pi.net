@@ -333,4 +333,40 @@ public class ValidationTests
         Assert.Contains("Tool arguments must be a JSON object", error.Message);
         Assert.DoesNotContain("Validation failed for tool", error.Message);
     }
+
+    [Fact]
+    public void RetryableClassificationCoversSocketCodesAndGatewayDrops()
+    {
+        // #12128：只带 Node socket 错误码的传输失败（Bedrock 的 smithy handler 原样透传）。
+        foreach (var message in new[]
+        {
+            "read ECONNRESET",
+            "write EPIPE",
+            "connect ETIMEDOUT 140.82.113.3:443",
+            "connect ECONNREFUSED 1.2.3.4:443",
+            "read ECONNABORTED",
+            "connection reset by peer",
+        })
+        {
+            Assert.True(Retry.IsRetryableAssistantError(ErrorMessage(message)), message);
+        }
+
+        // 错误码必须是独立 token，长标识符里的片段不算。
+        foreach (var message in new[] { "EXECONNRESET", "ETIMEDOUTX", "ERR_EPIPE_ID" })
+        {
+            Assert.False(Retry.IsRetryableAssistantError(ErrorMessage(message)), message);
+        }
+
+        // #12064：网关中途断流，以 Anthropic 风格 api_error 转发 "Connection closed."。
+        Assert.True(Retry.IsRetryableAssistantError(ErrorMessage("Connection closed.")));
+
+        // #12124：Codex 60 分钟 WebSocket 寿命上限（错误码与文案两种形态）。
+        Assert.True(Retry.IsRetryableAssistantError(
+            ErrorMessage("Responses websocket connection limit reached (60 minutes).")));
+        Assert.True(Retry.IsRetryableAssistantError(
+            ErrorMessage("websocket_connection_limit_reached")));
+        Assert.False(Retry.IsRetryableAssistantError(ErrorMessage("connection limit reached")));
+    }
+    private static AssistantMessage ErrorMessage(string text)
+        => new([], StopReason.Error, ErrorMessage: text, UsageStats: new Usage(1, 1));
 }

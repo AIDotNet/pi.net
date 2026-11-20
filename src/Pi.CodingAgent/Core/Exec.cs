@@ -128,7 +128,9 @@ public static class Exec
         int code;
         try
         {
-            code = await ChildProcess.WaitForChildProcessAsync(process) ?? 0;
+            // 被信号终止的命令没有退出码；.NET 在 Unix 上报告 128 + 信号编号（如 SIGTERM=143）。
+            // 等待失败（返回 null）按 1 处理，绝不能读成成功（#12088，与 bash 工具一致）。
+            code = await ChildProcess.WaitForChildProcessAsync(process) ?? 1;
         }
         catch (Exception error)
         {

@@ -602,9 +602,11 @@ internal sealed class ResourceList : IComponent, IFocusable
             return;
         }
 
-        // Pass to search input
+        // 其余键交给搜索框；光标键不改变查询，也就不该移动选中项。
+        var previousQuery = _searchInput.GetValue();
         _searchInput.HandleInput(data);
-        FilterItems(_searchInput.GetValue());
+        var query = _searchInput.GetValue();
+        if (query != previousQuery) FilterItems(query);
     }
 
     private bool? ToggleResource(ResourceItem item)

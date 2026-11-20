@@ -2173,11 +2173,16 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
         if (fullRedraw)
         {
             FullRedrawCount += 1;
-            var clearImages =
-                _imageProtocol == ImageProtocol.Kitty && hadUploadedKittyImages
-                    ? TerminalImage.DeleteAllKittyPlacements()
-                    : DeleteKittyImages();
-            buffer.Append($"{clearImages}\x1b[2J");
+            if (_imageProtocol == ImageProtocol.Kitty && hadUploadedKittyImages)
+            {
+                // Kitty 在 ED 2 时释放没有 placement 的图像数据，只用 placement 复用就会丢图。
+                // 下面的 EL 2 会逐行清屏，所以保留上传、跳过整屏清除（#12010）。
+                buffer.Append(TerminalImage.DeleteAllKittyPlacements());
+            }
+            else
+            {
+                buffer.Append($"{DeleteKittyImages()}\x1b[2J");
+            }
         }
         else if (imagesNeedRedraw)
         {

@@ -98,6 +98,12 @@ public static class ConstrainedSampling
             }
         }
 
+        // OpenAI strict 模式拒绝没有 type 的节点；裸 enum 算有类型，裸 const 不算（#12049）。
+        if (!schema.ContainsKey("type") && !schema.ContainsKey("anyOf") && !schema.ContainsKey("enum"))
+        {
+            throw new UnsupportedStrictJsonSchemaError("schemas without a type are unsupported");
+        }
+
         if (schema["anyOf"] is { } anyOfNode)
         {
             if (anyOfNode is not JsonArray anyOf || anyOf.Count == 0)

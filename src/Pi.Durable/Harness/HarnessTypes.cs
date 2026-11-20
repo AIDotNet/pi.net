@@ -51,6 +51,13 @@ public abstract record SubmissionDraft
         /// 因此这条输入永远不会启动一次运行。配 <c>WhenBusy: "steer"</c> 时改为接管当前运行，接管不了就拒绝。
         /// </summary>
         public string? WhenIdle { get; init; }
+
+        /// <summary>
+        /// 排队期间 <c>Conversation.abort()</c> 与中止级联如何处置：<c>withdraw</c>（默认）结算为
+        /// <c>unanswered(aborted)</c>；<c>keep</c> 留在队列里，等下一次输入放置并回答它。
+        /// 适用于发送方无法撤回的输入，例如另一个 agent 的消息。对应 TS <c>onAbort</c>。
+        /// </summary>
+        public string? OnAbort { get; init; }
     }
 
     /// <summary>

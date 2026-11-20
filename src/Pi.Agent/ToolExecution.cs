@@ -258,6 +258,11 @@ public static partial class ToolExecution
         AgentLoopConfig config,
         CancellationToken signal)
     {
+        // 批次中途 abort 后，剩余的调用不再预检、也不询问 beforeToolCall；调用方仍会为每个
+        // 调用记录一条 "Operation aborted" 错误结果，避免会话里留下没有结果的工具调用（#9986）。
+        if (signal.IsCancellationRequested)
+            return new PreparedCall.Blocked(toolCall, AgentToolResult.FromError("Operation aborted"), false);
+
         var tool = (context.Tools ?? []).FirstOrDefault(t => t.Name == toolCall.Name);
         if (tool is null)
             return new PreparedCall.Blocked(toolCall, AgentToolResult.FromError($"Tool not found: {toolCall.Name}"), false);

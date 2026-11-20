@@ -10,6 +10,14 @@
   1.5.0 之后上游依次发布了 `v1.5.1`（`dd30101cf`，2026-11-09）与 `v1.5.2`；
   同步窗口 `v1.5.0..v1.5.2` = **395 个提交**（线性，其中 233 个触及 `packages/`）。
   逐包差异、处置标记与「➖ 不适用」的代码级实证见 [upstream-1.5.2-delta.md](./upstream-1.5.2-delta.md)。
+- **上游未发布提交（复核点 `edfe6b2ef`，2026-11-20）**：`v1.5.2..HEAD` 共 349 个提交，
+  其中触及端口已迁移 package 的 **116 个**：**49 个已真实移植**（含 GPT-6.2/Qwen 目录、
+  Codex/Copilot/Mistral/Anthropic 线格式修复、会话替换事件与诊断、find/bash/read/copy 行为、
+  TUI 图像与选择器、`onAbort: "keep"` 等），15 个「➖ 不适用」（Node/Rust/JS 运行时形态）、
+  15 个 chord v2 切片因端口 chord 收窄不适用、1 个 durable 新子系统（signals/parks/gates）
+  尚未移植、9 个 p2/p3 原型范围外、其余为文档/测试/合并提交。
+  逐提交处置与证据见 [unreleased-disposition.md](./unreleased-disposition.md)，
+  落地细节见 [upstream-unreleased-delta.md](./upstream-unreleased-delta.md)。
 - **参照检出：`a40abecaa`（`main`，v1.5.2 之后的未发布提交）**。`v1.5.2..HEAD` 的
   p2/p3 实验稿按既定策略先不跟，等下一个 tag。
 - **端口版本：`1.5.2`**（`Directory.Build.props` 的 `<Version>` 为唯一来源）。

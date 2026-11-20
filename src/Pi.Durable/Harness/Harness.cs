@@ -229,7 +229,7 @@ public sealed class HarnessImpl : DurableSession, IHarness
             Telemetry = options.Telemetry,
             LimitsRestarts = Live.LimitsRestarts.Contains,
             SettleOutcome = LiveSettle.SettleSchedulerOutcomeAsync,
-            WithdrawInputs = (tx, id) => Inbox.WithdrawQueuedInputsAsync(tx, id),
+            WithdrawInputs = (tx, id) => Inbox.WithdrawAbortedInputsAsync(tx, id),
             Conversation = async (id, binding, callContext) =>
             {
                 var record = await ReadOnLineAsync(() => storage.GetConversationAsync(id)).ConfigureAwait(false);

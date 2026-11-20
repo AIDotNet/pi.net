@@ -126,7 +126,8 @@ public class ChangelogCorpusTests
             Compare(failures, "unreadable", expected, Changelog.ParseChangelog(directory.FullName));
             Assert.True(failures.Count == 0, Mismatches(failures));
 
-            Assert.Contains("Warning: Could not parse changelog:", writer.ToString(), StringComparison.Ordinal);
+            // #12117：不可解析时只返回空表，不直接写终端（交互模式下会画到 TUI 上）。
+            Assert.Equal("", writer.ToString());
         }
         finally
         {

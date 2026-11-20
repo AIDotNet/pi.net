@@ -121,9 +121,14 @@ public static class ReadRenderers
         bool showImages,
         bool isError)
     {
+        var unsupportedImageModel = (result.Details as ReadToolDetails)?.ImageUnsupportedByModel;
+        var imageWarning = unsupportedImageModel is null
+            ? null
+            : $"[{unsupportedImageModel} does not support images; it saw a placeholder instead]";
         if (!options.Expanded && !isError)
         {
-            return "";
+            // 折叠态也显示提示：它说明模型当时看到的只是占位文本（#12131）。
+            return imageWarning is null ? "" : $"\n{theme.Fg(ThemeColors.Warning, imageWarning)}";
         }
 
         var rawPath = RenderUtils.Str(
@@ -147,6 +152,11 @@ public static class ReadRenderers
             text += $"{theme.Fg(ThemeColors.Muted, $"\n... ({remaining} more lines,")} " +
                 $"{KeybindingHints.KeyHint(AppKeybindings.AppToolsExpand, "to expand")}" +
                 $"{theme.Fg(ThemeColors.Muted, ")")}";
+        }
+
+        if (imageWarning is not null)
+        {
+            text += $"\n{theme.Fg(ThemeColors.Warning, imageWarning)}";
         }
 
         var truncation = (result.Details as ReadToolDetails)?.Truncation;

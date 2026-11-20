@@ -103,6 +103,34 @@ public sealed class AgentSessionLeafTests : IDisposable
     }
 
     [Fact]
+    public void GetLastAssistantText_SkipsUnfinishedTurnsWithoutText()
+    {
+        // #12119：Esc 中止工具调用后，最后是「只调工具 + 空消息」；provider 错误后是空错误消息。
+        ChatMessage[] messages =
+        [
+            new AssistantMessage([new TextContent("answer")], StopReason.Stop),
+            new AssistantMessage([new ToolCallContent("1", "bash", null)], StopReason.ToolUse),
+            new AssistantMessage([], StopReason.Aborted),
+        ];
+        Assert.Equal("answer", AgentSession.GetLastAssistantText(messages));
+
+        ChatMessage[] errored =
+        [
+            new AssistantMessage([new TextContent("answer")], StopReason.Stop),
+            new AssistantMessage([], StopReason.Error),
+        ];
+        Assert.Equal("answer", AgentSession.GetLastAssistantText(errored));
+
+        // 正常结束但无文本仍是最后一条回复。
+        ChatMessage[] normalEmpty =
+        [
+            new AssistantMessage([new TextContent("answer")], StopReason.Stop),
+            new AssistantMessage([], StopReason.Stop),
+        ];
+        Assert.Null(AgentSession.GetLastAssistantText(normalEmpty));
+    }
+
+    [Fact]
     public void GetLastAssistantText_ReturnsNullWhenBlank()
         => Assert.Null(AgentSession.GetLastAssistantText([new AssistantMessage([new TextContent("  ")])]));
 

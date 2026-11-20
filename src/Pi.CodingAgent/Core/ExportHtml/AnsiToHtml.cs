@@ -15,8 +15,23 @@ public static partial class AnsiToHtml
         "#0000ff", "#ff00ff", "#00ffff", "#ffffff",
     ];
 
-    [GeneratedRegex(@"\x1b\[([0-9;]*)m")]
+    // SGR（ESC[...m）、其它 CSI、OSC（BEL/ST 结束）与 APC（BEL/ST 结束）。
+    [GeneratedRegex(@"\x1b\[([0-9;]*)m|\x1b\[[0-?]*[ -/]*[@-~]|\x1b\]([^\x07\x1b]*)(?:\x07|\x1b\\)|\x1b_[^\x07\x1b]*(?:\x07|\x1b\\)")]
     private static partial Regex AnsiRegex();
+
+    // OSC 8 链接载荷："8;params;url"。
+    [GeneratedRegex(@"^8;[^;]*;(.*)$", RegexOptions.Singleline)]
+    private static partial Regex Osc8Regex();
+
+    [GeneratedRegex(@"^(?:https?:|mailto:)", RegexOptions.IgnoreCase)]
+    private static partial Regex SafeLinkRegex();
+
+    [GeneratedRegex(@"[\x00-\x1f\x7f]")]
+    private static partial Regex ControlCharsRegex();
+
+    /// <summary>去掉转换器识别的全部转义序列，以及游离的 ESC 字符。</summary>
+    public static string StripEscapes(string text)
+        => AnsiRegex().Replace(text, "").Replace("\x1b", "");
 
     public static string Convert(string text)
     {
@@ -29,49 +44,83 @@ public static partial class AnsiToHtml
         var lastIndex = 0;
         var current = StyleState.Default;
         var open = false;
+        var openLink = false;
+
+        void CloseSpan()
+        {
+            if (!open) return;
+            result.Append("</span>");
+            open = false;
+        }
+
+        void OpenCurrentSpan()
+        {
+            if (open || current.IsDefault) return;
+            result.Append(OpenSpan(current));
+            open = true;
+        }
 
         foreach (Match match in AnsiRegex().Matches(text))
         {
             if (match.Index > lastIndex)
             {
-                var chunk = text[lastIndex..match.Index];
+                var chunk = text[lastIndex..match.Index].Replace("\x1b", "");
                 if (chunk.Length > 0)
                 {
-                    if (!open && !current.IsDefault)
-                    {
-                        result.Append(OpenSpan(current));
-                        open = true;
-                    }
-
+                    OpenCurrentSpan();
                     result.Append(EscapeHtml(chunk));
                 }
             }
 
-            current = ApplyCodes(current, match.Groups[1].Value);
-            if (open)
+            if (match.Groups[1].Success)
             {
-                result.Append("</span>");
-                open = false;
+                current = ApplyCodes(current, match.Groups[1].Value);
+                CloseSpan();
             }
+            else if (match.Groups[2].Success)
+            {
+                var hyperlink = Osc8Regex().Match(match.Groups[2].Value);
+                if (hyperlink.Success)
+                {
+                    // 浏览器会剥掉 URL 里的 C0 控制字符，所以先剥再检查 scheme。
+                    var url = ControlCharsRegex().Replace(hyperlink.Groups[1].Value.Trim(), "");
+                    CloseSpan();
+                    if (openLink)
+                    {
+                        result.Append("</a>");
+                        openLink = false;
+                    }
+
+                    if (url.Length > 0 && SafeLinkRegex().IsMatch(url))
+                    {
+                        result.Append($"<a href=\"{EscapeHtml(url)}\">");
+                        openLink = true;
+                    }
+
+                    // span 保持嵌套在链接内部。
+                    OpenCurrentSpan();
+                }
+                // 其它 OSC 序列丢弃。
+            }
+            // 其它 CSI / APC 序列丢弃。
 
             lastIndex = match.Index + match.Length;
         }
 
         if (lastIndex < text.Length)
         {
-            var chunk = text[lastIndex..];
-            if (!open && !current.IsDefault)
+            var chunk = text[lastIndex..].Replace("\x1b", "");
+            if (chunk.Length > 0)
             {
-                result.Append(OpenSpan(current));
-                open = true;
+                OpenCurrentSpan();
+                result.Append(EscapeHtml(chunk));
             }
-
-            result.Append(EscapeHtml(chunk));
         }
 
-        if (open)
+        CloseSpan();
+        if (openLink)
         {
-            result.Append("</span>");
+            result.Append("</a>");
         }
 
         return result.ToString();

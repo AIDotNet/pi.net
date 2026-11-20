@@ -212,6 +212,12 @@ public interface ITui : IComponent
     void SetTerminalColorSchemeNotifications(bool enabled);
 
     /// <summary>
+    /// 设置「TUI 拥有终端期间收到 SIGTSTP」时的处理器（<c>null</c> 清除）。监听器在
+    /// <see cref="Stop"/> 时移除，之后接管终端的子进程仍可被正常挂起。
+    /// </summary>
+    void SetSuspendSignalHandler(Action? handler);
+
+    /// <summary>
     /// Query the terminal's default foreground/background and ANSI palette 0-15. Resolves when the DA1
     /// reply or all color replies arrive, or when the timeout expires; colors the terminal did not report
     /// stay <see langword="null"/>. Port of the TS <c>queryTerminalColors()</c>.
@@ -273,6 +279,11 @@ public abstract partial class TuiBase : Container, ITui
     private readonly List<PendingTerminalColorQuery> _pendingTerminalColorQueries = new();
 
     private bool _stopped;
+    private Action? _suspendSignalHandler;
+    private System.Runtime.InteropServices.PosixSignalRegistration? _suspendSignalRegistration;
+    // 从 Start() 到 Stop() 之间为 true；与 _stopped 不同，首次 Start() 之前是 false。
+    private bool _ownsTerminal;
+    private bool _suspendSignalListening;
 
     protected int FullRedrawCount;
 
@@ -814,6 +825,8 @@ public abstract partial class TuiBase : Container, ITui
         _stopped = false;
         AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
         AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+        _ownsTerminal = true;
+        UpdateSuspendSignalListener();
         BeforeTerminalStart();
         Terminal.Start(HandleTerminalInput, () => RequestRender());
         AfterTerminalStart();
@@ -850,6 +863,55 @@ public abstract partial class TuiBase : Container, ITui
         Terminal.ShowCursor();
         Terminal.Stop();
         AfterTerminalStop(options);
+        // 放在最后：恢复终端期间收到的 SIGTSTP 仍会被监听器接住（监听器移除时随队列丢弃），
+        // 不会以「终端只恢复了一半」的状态挂起进程。
+        _ownsTerminal = false;
+        UpdateSuspendSignalListener();
+    }
+
+    /// <summary>设置/清除 SIGTSTP 处理器。对应 TS <c>setSuspendSignalHandler</c>。</summary>
+    public void SetSuspendSignalHandler(Action? handler)
+    {
+        _suspendSignalHandler = handler;
+        UpdateSuspendSignalListener();
+    }
+
+    // 只在 TUI 拥有终端时监听。Stop() 之后由子进程（外部编辑器、交互命令）接管，
+    // 若继续监听，SIGTSTP 就停不下那个进程。只在真正需要变化时增删监听器：
+    // 移除最后一个监听器会恢复默认动作，来回增删会让中间的 SIGTSTP 停掉正在运行的 TUI。
+    private void UpdateSuspendSignalListener()
+    {
+        var listen = _ownsTerminal && _suspendSignalHandler is not null;
+        if (listen == _suspendSignalListening) return;
+        _suspendSignalListening = listen;
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows 没有 SIGTSTP。
+            return;
+        }
+        if (listen)
+        {
+            try
+            {
+                _suspendSignalRegistration ??= System.Runtime.InteropServices.PosixSignalRegistration.Create(
+                    System.Runtime.InteropServices.PosixSignal.SIGTSTP,
+                    context =>
+                    {
+                        context.Cancel = true;
+                        _suspendSignalHandler?.Invoke();
+                    });
+            }
+            catch (PlatformNotSupportedException)
+            {
+                // 宿主平台不支持该信号；保持「未监听」状态。
+                _suspendSignalListening = false;
+            }
+        }
+        else
+        {
+            _suspendSignalRegistration?.Dispose();
+            _suspendSignalRegistration = null;
+        }
     }
 
     public Action AddInputListener(Func<string, TuiInputListenerResult?> listener)
@@ -1157,6 +1219,16 @@ public abstract partial class TuiBase : Container, ITui
         var viewportStart = Math.Max(0, workingHeight - termHeight);
         foreach (var (_, overlayLines, row, col, w) in rendered)
         {
+            // 由下往上叠加时，逐个 overlay 移除被它遮住的图像 placement：终端总把图像画在
+            // 文字之上，不先移除就会盖住 overlay（#11584）。叠加的 overlay 也顺带遮住下层
+            // overlay 里的图像，而 overlay 自己的图像保留。
+            Tui.HideImagesUnderOverlay(result, new OverlayBounds
+            {
+                Row = row,
+                Col = col,
+                Width = w,
+                Height = overlayLines.Length,
+            }, viewportStart);
             for (var i = 0; i < overlayLines.Length; i++)
             {
                 var idx = viewportStart + row + i;
@@ -1887,6 +1959,30 @@ public static class Tui
     public static bool IsFocusable(IComponent? component) => component is IFocusable;
 
     /// <summary>Composite overlay content into a terminal line at a fixed column.</summary>
+    /// <summary>
+    /// 丢弃与 overlay 矩形（按行和列）相交的图像 placement。<paramref name="viewportStart"/> 之上的
+    /// 行坐标是视口相对的；Kitty 图像向下延伸，所以视口上方的图像行也可能伸进来。
+    /// </summary>
+    internal static void HideImagesUnderOverlay(List<string> lines, OverlayBounds overlay, int viewportStart)
+    {
+        if (overlay.Height == 0) return;
+        for (var index = Math.Max(0, viewportStart - TerminalImage.MaxKittyImageRows);
+             index < lines.Count;
+             index++)
+        {
+            if (TerminalImage.GetImageLineExtent(lines[index]) is not { } extent) continue;
+            var firstRow = index + extent.FirstRow - viewportStart;
+            var lastRow = index + extent.LastRow - viewportStart;
+            if (firstRow < overlay.Row + overlay.Height
+                && lastRow >= overlay.Row
+                && extent.StartCol < overlay.Col + overlay.Width
+                && extent.EndCol > overlay.Col)
+            {
+                lines[index] = TerminalImage.StripImageSequences(lines[index]);
+            }
+        }
+    }
+
     public static string CompositeTuiLine(string baseLine, string overlayLine, int startCol, int overlayWidth, int totalWidth)
     {
         if (TerminalImage.IsImageLine(baseLine))

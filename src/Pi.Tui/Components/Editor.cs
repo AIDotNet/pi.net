@@ -1102,6 +1102,12 @@ public class Editor : IEditorComponent, IFocusable
                 var selected = _autocompleteList.GetSelectedItem();
                 if (selected is not null && _autocompleteProvider is not null)
                 {
+                    // 只有「命令名」菜单里的 Enter 才执行斜杠命令。路径菜单的前缀也可能是 "/"，
+                    // （"look at /tmp/fi"、"/open /tm"），所以要在应用补全前看上下文：补全后的
+                    // "/model " 已经带空格了。
+                    var beforeCursor = JsString.Slice(LineAt(_state.Lines, _state.CursorLine), 0, _state.CursorCol);
+                    var submitsCommand = _autocompletePrefix.StartsWith('/')
+                        && IsInSlashCommandNameContext(beforeCursor);
                     PushUndoSnapshot();
                     _lastAction = LastAction.None;
                     var result = _autocompleteProvider.ApplyCompletion(
@@ -1114,7 +1120,7 @@ public class Editor : IEditorComponent, IFocusable
                     _state.CursorLine = result.CursorLine;
                     SetCursorCol(result.CursorCol);
 
-                    if (_autocompletePrefix.StartsWith('/'))
+                    if (submitsCommand)
                     {
                         CancelAutocomplete();
 
@@ -2708,6 +2714,11 @@ public class Editor : IEditorComponent, IFocusable
     private bool IsInSlashCommandContext(string textBeforeCursor) =>
         IsSlashMenuAllowed() && JsString.TrimStart(textBeforeCursor).StartsWith('/');
 
+    // 正在输入命令名："/mo"，而不是 "/model cla" 或 "/open /tm"。
+    private bool IsInSlashCommandNameContext(string textBeforeCursor) =>
+        IsInSlashCommandContext(textBeforeCursor)
+        && !JsString.TrimStart(textBeforeCursor).Contains(' ');
+
     /// <summary>
     /// Find the best autocomplete item index for the given prefix, or -1 when nothing matches.
     /// Priority: exact match, then first prefix match. Case-sensitive, matching <c>value</c> only.
@@ -2797,7 +2808,7 @@ public class Editor : IEditorComponent, IFocusable
         var currentLine = LineAt(_state.Lines, _state.CursorLine);
         var beforeCursor = JsString.Slice(currentLine, 0, _state.CursorCol);
 
-        if (IsInSlashCommandContext(beforeCursor) && !JsString.TrimStart(beforeCursor).Contains(' '))
+        if (IsInSlashCommandNameContext(beforeCursor))
         {
             HandleSlashCommandCompletion();
         }

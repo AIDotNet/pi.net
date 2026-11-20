@@ -138,7 +138,11 @@ internal sealed class ExtensionRuntimeImpl : IExtensionRuntime
         }
 
         eventBusUnsubscribers.Clear();
+        // runner 失效后，事件处理器抛出的错误不再送到旧会话的错误监听器。
+        ReportError = null;
     }
+
+    public Action<ExtensionError>? ReportError { get; set; }
 
     public Action TrackEventBusSubscription(Action unsubscribe)
     {
@@ -253,7 +257,9 @@ internal sealed class ExtensionApiImpl : IExtensionApi
         this.runtime = runtime;
         this.cwd = cwd;
         this.eventBus = eventBus;
-        Events = new EventsBus(eventBus, AssertActive, runtime.TrackEventBusSubscription, TrackLoadingSubscription);
+        Events = new EventsBus(
+            eventBus, AssertActive, runtime.TrackEventBusSubscription, TrackLoadingSubscription,
+            runtime, extension.Path);
     }
 
     private enum ApiState
@@ -732,7 +738,9 @@ internal sealed class ExtensionApiImpl : IExtensionApi
         EventBus inner,
         Action assertActive,
         Func<Action, Action> track,
-        Action<Action> trackLoading) : EventBus
+        Action<Action> trackLoading,
+        IExtensionRuntime runtime,
+        string extensionPath) : EventBus
     {
         public void Emit(string channel, object? data)
         {
@@ -743,7 +751,19 @@ internal sealed class ExtensionApiImpl : IExtensionApi
         public Action On(string channel, Func<object?, Task> handler)
         {
             assertActive();
-            var unsubscribe = track(inner.On(channel, handler));
+            var unsubscribe = track(inner.On(channel, async data =>
+            {
+                try
+                {
+                    await handler(data).ConfigureAwait(false);
+                }
+                catch (Exception error)
+                {
+                    // pi.events 处理器抛错走扩展错误通道（#12233），不再 console.error 画到 TUI 上。
+                    runtime.ReportError?.Invoke(new ExtensionError(
+                        extensionPath, $"events:{channel}", error.Message, error.StackTrace));
+                }
+            }));
             trackLoading(unsubscribe);
             return unsubscribe;
         }

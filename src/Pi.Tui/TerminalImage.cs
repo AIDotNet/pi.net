@@ -177,6 +177,21 @@ public static partial class TerminalImage
     [GeneratedRegex("^[yhr]=")]
     private static partial Regex CropControlPattern();
 
+    [GeneratedRegex(@"(?:^|,)c=([0-9]+)(?:,|$)")]
+    private static partial Regex ColumnControlPattern();
+
+    [GeneratedRegex(@"\x1b\[([0-9]+)A$")]
+    private static partial Regex CursorUpPattern();
+
+    [GeneratedRegex(@"[;=]width=([0-9]+)[;:]")]
+    private static partial Regex Iterm2WidthPattern();
+
+    [GeneratedRegex(@"\x1b_G[^\x1b]*\x1b\\")]
+    private static partial Regex KittySequencePattern();
+
+    [GeneratedRegex(@"(?:\x1b\[\d+A)?\x1b\]1337;File=[^\x07]*\x07")]
+    private static partial Regex Iterm2SequencePattern();
+
     // ------------------------------------------------------------------
     // Cell dimensions
     // ------------------------------------------------------------------
@@ -412,12 +427,55 @@ public static partial class TerminalImage
         return line.Contains(KittyPrefix, StringComparison.Ordinal) || line.Contains(Iterm2Prefix, StringComparison.Ordinal);
     }
 
+
     /// <summary>
-    /// Generate a random image ID for the Kitty graphics protocol. Uses random IDs to avoid collisions
-    /// between different module instances (e.g. main app vs extensions).
+    /// 一行图像 placement 覆盖的单元格。行相对该行；列是绝对列，endCol 不含，宽度未知时为 MaxValue。
+    /// 对应 TS <c>ImageLineExtent</c> / <c>getImageLineExtent</c>：Kitty 从该行向下延伸，
+    /// iTerm2 在绘制前上移光标，所以图像止于该行。
+    /// </summary>
+    public readonly record struct ImageLineExtent(int FirstRow, int LastRow, int StartCol, int EndCol);
+
+    public static ImageLineExtent? GetImageLineExtent(string line)
+    {
+        var kittyStart = line.IndexOf(KittyPrefix, StringComparison.Ordinal);
+        if (kittyStart != -1)
+        {
+            var controlsMatch = KittyControlsPattern().Match(line);
+            var controls = controlsMatch.Success ? controlsMatch.Groups[1].Value : "";
+            var columnMatch = ColumnControlPattern().Match(controls);
+            var columns = columnMatch.Success
+                ? int.Parse(columnMatch.Groups[1].Value, CultureInfo.InvariantCulture)
+                : GetRegisteredKittyImageMetadataFromControls(controls)?.Columns;
+            var kittyStartCol = UnicodeWidth.VisibleWidth(line[..kittyStart]);
+            var rows = GetKittyImagePlacementRows(line) ?? 1;
+            return new ImageLineExtent(0, rows - 1, kittyStartCol, kittyStartCol + (columns ?? int.MaxValue));
+        }
+
+        var iterm2Start = line.IndexOf(Iterm2Prefix, StringComparison.Ordinal);
+        if (iterm2Start == -1) return null;
+        var before = line[..iterm2Start];
+        var moveUp = CursorUpPattern().Match(before);
+        // 只有纯单元格宽度是已知宽度；auto、像素和百分比宽度都取决于图像本身。
+        var widthMatch = Iterm2WidthPattern().Match(line[iterm2Start..]);
+        // VisibleWidth 会把上移序列算成文本，所以只量它之前的部分。
+        var startCol = UnicodeWidth.VisibleWidth(moveUp.Success ? before[..moveUp.Index] : before);
+        return new ImageLineExtent(
+            moveUp.Success ? -int.Parse(moveUp.Groups[1].Value, CultureInfo.InvariantCulture) : 0,
+            0,
+            startCol,
+            startCol + (widthMatch.Success
+                ? int.Parse(widthMatch.Groups[1].Value, CultureInfo.InvariantCulture)
+                : int.MaxValue));
+    }
+
+    /// <summary>去掉 Kitty / iTerm2 图像序列（含 iTerm2 的上移前缀），保留文字。</summary>
+    public static string StripImageSequences(string line)
+        => Iterm2SequencePattern().Replace(KittySequencePattern().Replace(line, ""), "");
+
+    /// <summary>
+    /// 生成 Kitty 图形协议的随机图像 id，避免不同模块实例（主程序 / 扩展）之间冲突。
     /// </summary>
     public static long AllocateImageId() => Random.Shared.NextInt64(1, 0xfffffffeL + 1);
-
     // ------------------------------------------------------------------
     // Encoders
     // ------------------------------------------------------------------

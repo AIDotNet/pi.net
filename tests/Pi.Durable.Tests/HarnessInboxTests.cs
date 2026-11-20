@@ -136,6 +136,42 @@ public sealed class HarnessInboxTests
 
     // ─── 1. 忙碌提交的排队与放置顺序 ──────────────────────────────────────────
 
+    // ─── #12240：onAbort "keep" 在对话中止后仍留在队列里 ─────────────────────
+    [Fact]
+    public async Task OnAbortKeepStaysQueuedThroughConversationAbort()
+    {
+        var provider = new HarnessTestSupport.ScriptedProvider();
+        var setup = HarnessTestSupport.NewChatSetup(provider);
+        var first = Gated(Answer("first"));
+        provider.SetResponses(first.Step, HarnessTestSupport.FakeStep.Of(Answer("second")));
+        var (harness, root) = await HarnessTestSupport.OpenChatAsync(new MemoryStorage(), setup);
+        try
+        {
+            await root.SubmitAsync(new SubmissionDraft.Input { Content = [new TextContent("a")] }, Ctx);
+            await first.Reached;
+            var withdrawn = await root.SubmitAsync(
+                new SubmissionDraft.Input { Content = [new TextContent("gone")] }, Ctx);
+            var kept = await root.SubmitAsync(new SubmissionDraft.Input
+            {
+                Content = [new TextContent("kept")],
+                OnAbort = "keep",
+            }, Ctx);
+
+            await root.AbortAsync(Ctx);
+
+            var withdrawnRecord = Assert.IsType<SubmissionRecord.InputRecord>(await StatusAsync(withdrawn));
+            Assert.Equal(SubmissionStatus.Unanswered, withdrawnRecord.Status);
+            Assert.Equal("aborted", withdrawnRecord.Reason);
+            Assert.Equal(SubmissionStatus.Queued,
+                StatusOf(await StatusAsync(kept)));
+            Assert.Equal([[kept.Id.Value, "followUp"]], await InboxAsync(harness, root));
+        }
+        finally
+        {
+            await HarnessTestSupport.CloseQuietlyAsync(harness);
+        }
+    }
+
     [Fact]
     public async Task QueuesBusySubmissionsAndPlacesWritesBeforeUserItemsAtTheFinalBoundary()
     {

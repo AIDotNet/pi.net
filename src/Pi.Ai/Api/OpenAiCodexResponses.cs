@@ -232,9 +232,11 @@ public static partial class OpenAiCodexResponses
         var supportsToolSearch = CompatBool("supportsToolSearch", false);
         var supportsMidConvo = CompatBool("supportsMidConvoSystemMessages", false);
         var normalizedContext = Transcript.ResolveTranscript(context, supportsMidConvo);
+        // 系统提示作为首个 developer 项发送，而不是顶层 instructions/Codex CLI 的做法：
+        // 从 GPT-6.2 起后端把 instructions 追加在 input 之后，新一轮消息都会改变系统提示之前的
+        // 内容，导致提示缓存永远无法命中（#12273）。
         var messageOptions = new ConvertResponsesMessagesOptions
         {
-            IncludeSystemPrompt = false,
             GrammarToolInputProperties = grammarToolInputProperties,
             SupportsMidConvoSystemMessages = supportsMidConvo,
             SupportsAdditionalTools = supportsAdditionalTools,
@@ -251,16 +253,11 @@ public static partial class OpenAiCodexResponses
         var messages = OpenAiResponsesShared.ConvertResponsesMessages(
             model, normalizedContext, CodexToolCallProviders, messageOptions);
 
-        var initialSystemMessage = Transcript.GetInitialSystemMessage(context.Messages);
-        var instructions = initialSystemMessage is not null
-            ? Text.GetSystemMessageText(initialSystemMessage)
-            : "";
         var body = new JsonObject
         {
             ["model"] = model.Id,
             ["store"] = false,
             ["stream"] = true,
-            ["instructions"] = instructions.Length > 0 ? instructions : "You are a helpful assistant.",
             ["input"] = messages,
             ["text"] = new JsonObject { ["verbosity"] = options?.TextVerbosity ?? "low" },
             ["include"] = new JsonArray("reasoning.encrypted_content"),

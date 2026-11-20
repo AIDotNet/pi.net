@@ -166,6 +166,25 @@ internal sealed class PrintModeSession
     private async Task RebindSessionAsync()
     {
         _session = _runtimeHost.Session;
+
+        // 先订阅再绑定：session_start 处理器发出的事件（如 pi.appendEntry 的 entry_appended）
+        // 必须能进入 JSON 输出（#12231）。
+        _unsubscribe?.Dispose();
+        _unsubscribeBackpressure?.Dispose();
+        _unsubscribe = _session.Subscribe(@event =>
+        {
+            if (_options.Mode == "json")
+            {
+                OutputGuard.WriteRawStdout(JsonL.SerializeLine(JsonEvent.ToJsonEvent(@event)));
+            }
+        });
+        _unsubscribeBackpressure = _options.Mode == "json"
+            ? _session.Agent.Subscribe(async (_, _) =>
+            {
+                await OutputGuard.WaitForRawStdoutBackpressureAsync().ConfigureAwait(false);
+            })
+            : null;
+
         await _session.BindExtensionsAsync(new ExtensionBindings
         {
             // print / json 模式没有 UI 上下文（TS 同样不传 uiContext）。
@@ -201,21 +220,9 @@ internal sealed class PrintModeSession
             OnError = error => Console.Error.WriteLine($"Extension error ({error.ExtensionPath}): {error.Error}"),
         }).ConfigureAwait(false);
 
-        _unsubscribe?.Dispose();
-        _unsubscribeBackpressure?.Dispose();
-        _unsubscribe = _session.Subscribe(@event =>
-        {
-            if (_options.Mode == "json")
-            {
-                OutputGuard.WriteRawStdout(JsonL.SerializeLine(JsonEvent.ToJsonEvent(@event)));
-            }
-        });
-        _unsubscribeBackpressure = _options.Mode == "json"
-            ? _session.Agent.Subscribe(async (_, _) =>
-            {
-                await OutputGuard.WaitForRawStdoutBackpressureAsync().ConfigureAwait(false);
-            })
-            : null;
+        // 会话替换后新出现的诊断写 stderr（print 模式只有 json 输出走 stdout，#12115）。
+        var diagnostics = _runtimeHost.TakeUnreportedDiagnostics();
+        if (diagnostics.Count > 0) Pi.CodingAgent.Cli.Main.ReportDiagnostics(diagnostics);
     }
 
     private Task DisposeRuntimeAsync() => _shutdown!.DisposeAsync();

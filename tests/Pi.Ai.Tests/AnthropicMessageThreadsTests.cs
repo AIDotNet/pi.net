@@ -269,6 +269,37 @@ public class AnthropicMessageThreadsTests
         Assert.DoesNotContain(AnthropicMessageThreads.Beta, fixture.BetaHeader ?? "", StringComparison.Ordinal);
     }
 
+    // #11987：默认只看端点，不看 provider id。
+    [Fact]
+    public void ThreadDefaultFollowsEndpointNotProviderId()
+    {
+        var alias = new ModelSpec
+        {
+            Id = "claude-test",
+            Name = "claude-test",
+            Api = "anthropic-messages",
+            Provider = "anthropic-1-api",
+            BaseUrl = "https://api.anthropic.com",
+            ContextWindow = 200_000,
+            MaxTokens = 8_192,
+            Input = [ModelInput.Text],
+        };
+        Assert.True(AnthropicMessageThreads.IsEnabledByDefault(alias));
+
+        var gateway = new ModelSpec
+        {
+            Id = "claude-test",
+            Name = "claude-test",
+            Api = "anthropic-messages",
+            Provider = "anthropic",
+            BaseUrl = "https://gateway.example.com",
+            ContextWindow = 200_000,
+            MaxTokens = 8_192,
+            Input = [ModelInput.Text],
+        };
+        Assert.False(AnthropicMessageThreads.IsEnabledByDefault(gateway));
+    }
+
     private static async Task DrainAsync(IAssistantMessageEventStream stream)
     {
         await foreach (var _ in stream) { }

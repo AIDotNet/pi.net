@@ -415,7 +415,7 @@ public Task<ToolExecutionResult> ExecuteToolAsync(
     }
 
     [Fact]
-    public async Task Read_ImageForModelWithoutVision_NotesThePlaceholder()
+    public async Task Read_ImageForModelWithoutVision_KeepsResultTextClean()
     {
         var env = CreateEnv();
         await env.WriteFileAsync("photo.png", PngHeader(10, 10), Ctx);
@@ -428,7 +428,8 @@ public Task<ToolExecutionResult> ExecuteToolAsync(
             ReadTool.Create(), new Dictionary<string, object?> { ["path"] = "photo.png" }, env, model: textOnly);
 
         Assert.False(run.Result.IsError);
-        Assert.Contains("does not support images; it sees a placeholder instead", run.DiagnosticText);
+        // #12131：诊断文本不再提模型的图片能力，避免切换模型后会话里留下错误说明。
+        Assert.Equal("Read image file [image/png].", run.DiagnosticText);
         // 描述里仍列出无条件支持的格式。
         Assert.Contains("jpg, png, gif, webp", ReadTool.Create().Description);
         Assert.Contains("jpg, png, gif, webp, bmp", ReadTool.Create(new FixedProcessor(null)).Description);

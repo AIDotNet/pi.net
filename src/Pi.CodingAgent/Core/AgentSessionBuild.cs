@@ -192,6 +192,9 @@ public partial class AgentSession
     /// </summary>
     private readonly HashSet<string> _pendingToolNames = new(StringComparer.Ordinal);
 
+    /// <summary>待定工具所属的「恢复 / reload 后的 loadout」。对应 TS <c>_restoredToolNames</c>。</summary>
+    private HashSet<string> _restoredToolNames = new(StringComparer.Ordinal);
+
     private readonly bool _usesDefaultTools;
 
     /// <summary>
@@ -217,6 +220,8 @@ public partial class AgentSession
     private ExtensionCommandContextActions? _extensionCommandContextActions;
     private Action? _extensionAbortHandler;
     private ShutdownHandler? _extensionShutdownHandler;
+    // 由 BindExtensionsAsync() 置位：reload() 只在宿主真正启动过扩展时才重发 session_start。
+    private bool _extensionsBound;
     private ExtensionErrorListener? _extensionErrorListener;
     private Action? _extensionErrorUnsubscriber;
 
@@ -564,10 +569,10 @@ public partial class AgentSession
     {
         var previous = GetActiveToolNames();
         SetActiveTools(toolNames);
-        // A loadout that deactivates a tool replaces the restored one, whose pending tools are
-        // dropped. One that only adds tools, like activating tool_search, keeps them.
+        // 关掉「恢复/重载 loadout 里的」工具才算替换，其待定工具被丢弃；只关掉 loadout 之外的
+        // 工具（如扩展在 session_start 隐藏自己的 loader）时保留（#11996）。
         var active = new HashSet<string>(GetActiveToolNames(), StringComparer.Ordinal);
-        if (previous.Any(name => !active.Contains(name)))
+        if (previous.Any(name => !active.Contains(name) && _restoredToolNames.Contains(name)))
         {
             _pendingToolNames.Clear();
         }
@@ -903,6 +908,7 @@ public partial class AgentSession
         {
             _pendingToolNames.Add(name);
         }
+        _restoredToolNames = new HashSet<string>(activeToolNames, StringComparer.Ordinal);
 
         BuildRuntime(new BuildRuntimeOptions
         {
@@ -911,11 +917,8 @@ public partial class AgentSession
             IncludeAllExtensionTools = true,
         });
 
-        if (!HasExtensionBindings(
-                _extensionUIContext is not null,
-                _extensionCommandContextActions is not null,
-                _extensionShutdownHandler is not null,
-                _extensionErrorListener is not null))
+        // 只看宿主有没有调用过 bindExtensions()：bindExtensions({}) 也算已启动。
+        if (!_extensionsBound)
         {
             return;
         }
@@ -1136,6 +1139,7 @@ public partial class AgentSession
             _extensionErrorListener = bindings.OnError;
         }
 
+        _extensionsBound = true;
         ApplyExtensionBindings(_extensionRunner);
         await _extensionRunner.EmitAsync(_sessionStartEvent);
         _extensionRunner.ReportUnhandledMcpServers();

@@ -187,12 +187,28 @@ public static class Inbox
         => inbox.Splice(ItemsPath, Items(inbox.Draft).Count, 0, [item]);
 
     /// <summary>
-    /// 撤回一个对话的每个排队输入，如 <c>Conversation.abort()</c>、中止级联与失败的运行
-    /// （<c>settings.afterFailedRun = withdraw</c>）：每个以 <paramref name="reason"/> 结算为 <c>unanswered</c>
-    /// 并离开收件箱；排队写入保留待后续放置。对应 TS <c>withdrawQueuedInputs()</c>。
+    /// 撤回排队输入，如 <c>Conversation.abort()</c> 与中止级联：每个以 <c>aborted</c> 结算为
+    /// <c>unanswered</c> 并离开收件箱，但 <c>onAbort: "keep"</c> 的输入保留；排队写入保留待后续放置。
+    /// 对应 TS <c>withdrawAbortedInputs()</c>。
     /// </summary>
-    public static async Task WithdrawQueuedInputsAsync(
+    public static Task WithdrawAbortedInputsAsync(Transaction tx, ConversationId conversationId)
+        => WithdrawInputsAsync(tx, conversationId, "aborted",
+            item => !(item.TryGetValue("onAbort", out var value) && value is "keep"));
+
+    /// <summary>
+    /// 撤回一个对话的每个排队输入，如失败的运行（<c>settings.afterFailedRun = withdraw</c>）：
+    /// 每个以 <paramref name="reason"/> 结算为 <c>unanswered</c> 并离开收件箱；排队写入保留。
+    /// 对应 TS <c>withdrawQueuedInputs()</c>。
+    /// </summary>
+    public static Task WithdrawQueuedInputsAsync(
         Transaction tx, ConversationId conversationId, string reason = "aborted")
+        => WithdrawInputsAsync(tx, conversationId, reason, _ => true);
+
+    private static async Task WithdrawInputsAsync(
+        Transaction tx,
+        ConversationId conversationId,
+        string reason,
+        Func<IReadOnlyDictionary<string, object?>, bool> withdraws)
     {
         var inbox = await tx.DocAsync(InboxDoc, conversationId).ConfigureAwait(false);
         var items = Items(inbox.Draft);
@@ -200,6 +216,7 @@ public static class Inbox
         {
             var item = items[index];
             if (item.TryGetValue("mode", out var mode) && mode is "write") continue;
+            if (!withdraws(item)) continue;
             tx.SettleSubmission(IdOf(item), new SubmissionSettlement.Unanswered(reason));
             inbox.Splice(ItemsPath, index, 1, []);
         }

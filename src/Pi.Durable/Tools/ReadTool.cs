@@ -160,18 +160,16 @@ public static class ReadTool
     /// <see cref="ImageLimits.Default"/> 被模型的 <c>inputLimits.images.resize</c> 覆盖；
     /// 解析不到模型时按「能接收图片、默认限制」处理。
     /// </summary>
-    private static async Task<(bool Vision, ImageLimits Limits)> ImageModelAsync(
+    private static async Task<ImageLimits> ImageModelAsync(
         IToolExecutionApi api, Context context)
     {
         var agent = await api.AgentAsync(context).ConfigureAwait(false);
         var model = agent.Model is { } reference ? api.GetModel(reference.Provider, reference.ModelId) : null;
         var resize = model?.InputLimits?.Images?.Resize;
-        return (
-            model is null || model.Input.Contains("image", StringComparer.Ordinal),
-            new ImageLimits(
-                resize?.MaxWidth ?? ImageLimits.Default.MaxWidth,
-                resize?.MaxHeight ?? ImageLimits.Default.MaxHeight,
-                resize?.MaxBytes ?? ImageLimits.Default.MaxBytes));
+        return new ImageLimits(
+            resize?.MaxWidth ?? ImageLimits.Default.MaxWidth,
+            resize?.MaxHeight ?? ImageLimits.Default.MaxHeight,
+            resize?.MaxBytes ?? ImageLimits.Default.MaxBytes);
     }
 
     /// <summary>
@@ -185,7 +183,7 @@ public static class ReadTool
         string path,
         string mimeType,
         IImageProcessor? processor,
-        (bool Vision, ImageLimits Limits) model,
+        ImageLimits limits,
         Context context)
     {
         string data;
@@ -194,7 +192,7 @@ public static class ReadTool
         if (processor is not null)
         {
             var bytes = (await reader.ReadAsync(0, info.Size, context).ConfigureAwait(false)).GetOrThrow();
-            var prepared = await processor.PrepareAsync(bytes, mimeType, model.Limits).ConfigureAwait(false);
+            var prepared = await processor.PrepareAsync(bytes, mimeType, limits).ConfigureAwait(false);
             if (prepared is null)
             {
                 return ImageError($"{path} is an image ({mimeType}) that cannot be prepared for the model");
@@ -222,7 +220,7 @@ public static class ReadTool
                     $"{path} is an image ({mimeType}) that needs converting, and no image processor is configured");
             }
             const string unshrinkable = "and no image processor is configured to shrink it";
-            if (ImageEncoding.Base64Length(info.Size) > model.Limits.MaxBytes)
+            if (ImageEncoding.Base64Length(info.Size) > limits.MaxBytes)
             {
                 return ImageError(
                     $"{path} is an image ({mimeType}) of {Truncate.FormatSize(info.Size)}, too large to send, {unshrinkable}");
@@ -233,20 +231,16 @@ public static class ReadTool
             {
                 return ImageError($"{path} is an image ({mimeType}) whose size cannot be read");
             }
-            if (size.Value.Width > model.Limits.MaxWidth || size.Value.Height > model.Limits.MaxHeight)
+            if (size.Value.Width > limits.MaxWidth || size.Value.Height > limits.MaxHeight)
             {
                 return ImageError(
                     $"{path} is an image ({mimeType}) of {size.Value.Width}x{size.Value.Height}, " +
-                    $"larger than {model.Limits.MaxWidth}x{model.Limits.MaxHeight}, {unshrinkable}");
+                    $"larger than {limits.MaxWidth}x{limits.MaxHeight}, {unshrinkable}");
             }
             data = ImageEncoding.ToBase64(bytes);
             mime = mimeType;
         }
 
-        if (!model.Vision)
-        {
-            notes.Add("The current model does not support images; it sees a placeholder instead.");
-        }
         return new ToolExecutionResult
         {
             Content = [new ImageContent(data, mime)],

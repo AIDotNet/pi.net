@@ -999,7 +999,13 @@ public sealed class RemoteExecutionEnv : IExecutionEnv
                 }
 
                 var entryPath = NodePath.Resolve(windows, resolved, EnvJson.Str(entry, "name") ?? "");
-                if (EnvJson.Obj(entry, "error") is { } failure) throw RemoteErrors.ToFileError(new RemoteError(failure), entryPath);
+                if (EnvJson.Obj(entry, "error") is { } failure)
+                {
+                    // 与本地 listDir 一致：枚举后被删除的条目直接略过（#12055）。
+                    var remoteError = new RemoteError(failure);
+                    if (remoteError.Code == "ENOENT") continue;
+                    throw RemoteErrors.ToFileError(remoteError, entryPath);
+                }
                 if (EnvJson.Obj(entry, "info") is { } info)
                 {
                     var mapped = ToInfo(entryPath, info, windows);

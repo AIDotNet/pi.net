@@ -12,9 +12,14 @@ public static class QwenTokenPlan
     public static IProvider Provider() => ProviderFactory.Create(new CreateProviderOptions
     {
         Id = "qwen-token-plan",
-        Name = "Qwen Token Plan",
-        BaseUrl = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
-        Auth = new ProviderAuth { ApiKey = new EnvApiKeyAuth("Qwen Token Plan API key", ["QWEN_TOKEN_PLAN_API_KEY"]) },
+        Name = "Qwen Token Plan Team",
+        BaseUrl = "https://token-plan.maas.qwencloudapi.com/compatible-mode/v1",
+        Auth = new ProviderAuth
+        {
+            ApiKey = new EnvApiKeyAuth(
+                "Qwen Token Plan Team API key",
+                ["QWEN_TOKEN_PLAN_TEAM_API_KEY", "QWEN_TOKEN_PLAN_API_KEY"]),
+        },
         Models = BuiltinCatalog.All("qwen-token-plan"),
         Api = LazyApis.OpenAiCompletionsApi(),
     });

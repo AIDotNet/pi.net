@@ -350,12 +350,15 @@ public static class Admission
             else
             {
                 var input = (SubmissionDraft.Input)draft;
-                Inbox.AppendItem(inbox, new Dictionary<string, object?>
+                var item = new Dictionary<string, object?>
                 {
                     ["id"] = created.Id.Value,
                     ["mode"] = input.WhenBusy == "steer" ? "steer" : "followUp",
                     ["content"] = JsonTrees.ToTree(input.Content),
-                });
+                };
+                // 旧版 Harness 会忽略这个字段并撤回输入；新版保留它。
+                if (input.OnAbort == "keep") item["onAbort"] = "keep";
+                Inbox.AppendItem(inbox, item);
             }
 
             if (boundary is null) return new AdmissionResult(created.Id, SubmissionStatus.Queued);

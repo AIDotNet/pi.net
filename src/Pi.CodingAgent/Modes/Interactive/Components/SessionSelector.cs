@@ -344,6 +344,9 @@ internal sealed class SessionList : IComponent, IFocusable
     private List<FlatSessionNode> _filteredSessions = [];
     private int _selectedIndex;
     private bool _selectionTouched;
+
+    /// <summary>渐进加载尚未送到的选中会话；它到达后重新选中。对应 TS <c>pendingSelectedPath</c>。</summary>
+    private string? _pendingSelectedPath;
     private readonly Input _searchInput = new();
     private bool _showCwd;
     private SortMode _sortMode;
@@ -420,9 +423,11 @@ internal sealed class SessionList : IComponent, IFocusable
         FilterSessions(_searchInput.GetValue());
     }
 
-    public void SetSessions(IReadOnlyList<SessionInfo> sessions, bool showCwd)
+    /// <param name="partial">true 表示还有会话在加载；选中会话不在部分列表里时保持为目标，等它到达。</param>
+    public void SetSessions(IReadOnlyList<SessionInfo> sessions, bool showCwd, bool partial = false)
     {
-        var selectedPath = _selectionTouched ? GetSelectedSessionPath() : null;
+        var pendingPath = _selectionTouched ? _pendingSelectedPath : null;
+        var selectedPath = _selectionTouched ? pendingPath ?? GetSelectedSessionPath() : null;
         _allSessions = sessions;
         _showCwd = showCwd;
         FilterSessions(_searchInput.GetValue());
@@ -433,7 +438,20 @@ internal sealed class SessionList : IComponent, IFocusable
         else if (selectedPath is not null)
         {
             var selectedIndex = _filteredSessions.FindIndex(node => node.Session.Path == selectedPath);
-            if (selectedIndex >= 0) _selectedIndex = selectedIndex;
+            if (selectedIndex >= 0)
+            {
+                _selectedIndex = selectedIndex;
+                _pendingSelectedPath = null;
+            }
+            else if (partial)
+            {
+                // 选中的会话可能还没加载出来：保持目标，别把当前索引上的会话当成选择。
+                _pendingSelectedPath = selectedPath;
+            }
+            else
+            {
+                _pendingSelectedPath = null;
+            }
         }
     }
 
@@ -713,8 +731,7 @@ internal sealed class SessionList : IComponent, IFocusable
         {
             if (_searchInput.GetValue().Length > 0)
             {
-                _searchInput.HandleInput(keyData);
-                FilterSessions(_searchInput.GetValue());
+                HandleSearchInput(keyData);
                 return;
             }
 
@@ -723,6 +740,7 @@ internal sealed class SessionList : IComponent, IFocusable
         }
 
         _selectionTouched = true;
+        _pendingSelectedPath = null;
         // Up arrow
         if (kb.Matches(keyData, TuiKeybindingIds.SelectUp))
         {
@@ -760,9 +778,24 @@ internal sealed class SessionList : IComponent, IFocusable
         // Pass everything else to search input
         else
         {
-            _searchInput.HandleInput(keyData);
-            FilterSessions(_searchInput.GetValue());
+            HandleSearchInput(keyData);
         }
+    }
+
+    /// <summary>把按键交给搜索框；查询非空时选中首行（最匹配项），并放弃旧的选中目标。</summary>
+    private void HandleSearchInput(string keyData)
+    {
+        var previousQuery = _searchInput.GetValue();
+        _searchInput.HandleInput(keyData);
+        var query = _searchInput.GetValue();
+        // 光标键不改变查询，也就不该移动选中项。
+        if (query == previousQuery) return;
+        FilterSessions(query);
+        if (string.IsNullOrWhiteSpace(query)) return;
+        _selectedIndex = 0;
+        // 未手动选择时，仍在渐进加载的会话列表保持首行选中，而不是停在这个会话上。
+        _selectionTouched = false;
+        _pendingSelectedPath = null;
     }
 }
 
@@ -1171,7 +1204,7 @@ public sealed class SessionSelectorComponent : Container, IFocusable
                 {
                     _allSessions = sessions;
                 }
-                if (scope == _scope) _sessionList.SetSessions(sessions, showCwd);
+                if (scope == _scope) _sessionList.SetSessions(sessions, showCwd, partial: true);
             }
             if (scope != _scope) return;
             _header.SetProgress(loaded, total);
