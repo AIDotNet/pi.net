@@ -6,7 +6,7 @@
 [![CI](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/AIDotNet/pi.net)](https://github.com/AIDotNet/pi.net/blob/main/LICENSE)
 
-Pi.NET is a .NET 8/9/10/11 port of [Pi](https://github.com/earendil-works/pi). Pi is a minimal, extensible Agent harness (TypeScript monorepo, ~171k lines); this project ports its core libraries one by one to `net8.0`, `net9.0`, `net10.0` and `net11.0`, bringing the same capabilities to the .NET ecosystem.
+Pi.NET is a .NET 8/9/10/11 port of [Pi](https://github.com/earendil-works/pi). Pi is a minimal, extensible Agent harness (TypeScript monorepo, ~253k lines under `packages/*/src`); this project ports its core libraries one by one to `net8.0`, `net9.0`, `net10.0` and `net11.0`, bringing the same capabilities to the .NET ecosystem.
 
 Pi's philosophy is "make Pi fit your workflow, not the other way around": each library does one minimal-but-complete thing, and you compose the layers above it yourself. This project carries that philosophy over — rather than mechanically translating TS into C#, it rebuilds everything in idiomatic C# with semantic equivalence (discriminated unions → abstract records with pattern matching, JS Proxy → explicit verb APIs).
 
@@ -273,6 +273,8 @@ More detail per project in [samples/README.md](samples/README.md). Every flag an
 ## Migration Status
 
 Implementation progress, phase-by-phase evidence, and known TypeScript/.NET differences are tracked in [docs/migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md).
+
+Currently aligned with upstream [`v1.6.0`](https://github.com/earendil-works/pi/releases/tag/v1.6.0) (`faac58588`); the per-commit and per-release-notes disposition is in [docs/v1.6.0-disposition.md](https://github.com/AIDotNet/pi.net/blob/main/docs/v1.6.0-disposition.md).
 
 ## Issues
 

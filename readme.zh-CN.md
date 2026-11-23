@@ -6,7 +6,7 @@
 [![CI](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml/badge.svg)](https://github.com/AIDotNet/pi.net/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/AIDotNet/pi.net)](https://github.com/AIDotNet/pi.net/blob/main/LICENSE)
 
-Pi.NET 是 [Pi](https://github.com/earendil-works/pi) 的 .NET 8/9/10/11 移植版。Pi 是一个极简、可扩展的 Agent harness（TypeScript monorepo，约 17.1 万行），本项目把它的核心库逐一移植到 `net8.0` / `net9.0` / `net10.0` / `net11.0`，让 .NET 生态用上同一套能力。
+Pi.NET 是 [Pi](https://github.com/earendil-works/pi) 的 .NET 8/9/10/11 移植版。Pi 是一个极简、可扩展的 Agent harness（TypeScript monorepo，`packages/*/src` 约 25.3 万行），本项目把它的核心库逐一移植到 `net8.0` / `net9.0` / `net10.0` / `net11.0`，让 .NET 生态用上同一套能力。
 
 Pi 的理念是「让 Pi 适配你的工作流，而不是反过来」：库只做最小而完整的事，上层由你自己组合。本项目沿用这一理念——不是把 TS 代码翻成 C# 就完事，而是在语义等价的前提下用 C# 的方式重建（判别联合 → abstract record 模式匹配、JS Proxy → 显式动词 API）。
 
@@ -271,6 +271,8 @@ dotnet run --project samples/Pi.Samples.McpClient
 ## 迁移状态
 
 实施进度、逐阶段验收证据与已记录的 TypeScript/.NET 差异统一维护在 [docs/migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md)。
+
+当前对齐上游 [`v1.6.0`](https://github.com/earendil-works/pi/releases/tag/v1.6.0)（`faac58588`），逐提交与逐发布说明的处置见 [docs/v1.6.0-disposition.md](https://github.com/AIDotNet/pi.net/blob/main/docs/v1.6.0-disposition.md)。
 
 ## 问题反馈
 
