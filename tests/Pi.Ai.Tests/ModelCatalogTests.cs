@@ -185,6 +185,18 @@ public class ModelCatalogTests
         Assert.Equal(272000, codex.ChatModels["gpt-6.2-astra"].ContextWindow);
         Assert.True(codex.ChatModels["gpt-6.2-sol"].Compat!.Bool("supportsAdditionalTools"));
 
+        // fcc33744b：GPT-6 家族的档位改走 configuration_update。目录必须带标志，
+        // 否则 GetConfigurationUpdateEffort 恒为 null，修复形同虚设（Codex 曾缺这一条）。
+        foreach (var id in new[]
+                 {
+                     "gpt-6-astra", "gpt-6-sol", "gpt-6-luna",
+                     "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol",
+                 })
+        {
+            Assert.True(openai.ChatModels[id].Compat!.Bool("supportsMidConvoEffort"), id);
+            Assert.True(codex.ChatModels[id].Compat!.Bool("supportsMidConvoEffort"), id);
+        }
+
         // 12112：四个 Token Plan provider 迁到新网关；Team 清单 20 条（含 qwen4-max-preview）。
         var team = ModelCatalog.LoadFromResource("qwen-token-plan");
         Assert.Equal(20, team.ChatModels.Count);

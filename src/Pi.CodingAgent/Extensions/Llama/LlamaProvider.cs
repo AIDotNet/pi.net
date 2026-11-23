@@ -35,7 +35,7 @@ public sealed class LlamaProvider : IProvider, IClassifierProvider
     public const string ProviderId = "llama.cpp";
 
     /// <summary>The TS <c>DEFAULT_LLAMA_SERVER_URL</c>.</summary>
-    public const string DefaultServerUrl = "http://127.0.0.1:8080";
+    public const string DefaultServerUrl = "http://127.0.0.1:9931";
 
     /// <summary>The TS <c>process.env.LLAMA_BASE_URL</c> key.</summary>
     public const string BaseUrlEnv = "LLAMA_BASE_URL";
@@ -384,7 +384,6 @@ public sealed class LlamaProvider : IProvider, IClassifierProvider
         var compat = new JsonObject
         {
             ["supportsStore"] = false,
-            ["supportsDeveloperRole"] = false,
             ["supportsReasoningEffort"] = false,
             ["supportsUsageInStreaming"] = true,
             ["supportsStrictMode"] = false,

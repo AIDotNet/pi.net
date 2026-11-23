@@ -40,6 +40,15 @@ public sealed record ConvertResponsesMessagesOptions
     public bool? SupportsToolSearch { get; init; }
 
     public ConvertResponsesToolsOptions? ToolOptions { get; init; }
+
+    /// <summary>
+    /// 本次回复使用的思考档位。设置后思考档位改为 <c>configuration_update</c> 输入项，而不是改变
+    /// <c>reasoning.effort</c>（后者会让提示缓存失效）。每个项从该点起生效：先在此前每条记录了档位
+    /// （<c>providerThinkingLevel</c>）的回复前各放一个，最后再放一个当前档位。此前的输入因此永不改变。
+    /// OpenAI 只记录了放在用户消息前的用法；工具结果之后的位置已于 2026-10 在 gpt-6-luna 上验证可用。
+    /// 对应 TS <c>ConvertResponsesMessagesOptions.configurationUpdateEffort</c>。
+    /// </summary>
+    public string? ConfigurationUpdateEffort { get; init; }
 }
 
 /// <summary>工具转换选项。对应 TS <c>ConvertResponsesToolsOptions</c>。</summary>
@@ -279,6 +288,14 @@ public static class OpenAiResponsesShared
             });
         }
 
+        // 思考档位以 configuration_update 项表达：从该点起生效，且不改变此前的输入（提示缓存保持）。
+        void PushConfigurationUpdate(string effort)
+            => messages.Add(new JsonObject
+            {
+                ["type"] = "configuration_update",
+                ["reasoning"] = new JsonObject { ["effort"] = effort },
+            });
+
         var msgIndex = 0;
         var sourceIndex = 0;
         var systemIndex = 0;
@@ -461,6 +478,12 @@ public static class OpenAiResponsesShared
                         }
                     }
                     if (output.Count == 0) { msgIndex++; continue; }
+                    if (options?.ConfigurationUpdateEffort is not null
+                        && isSameModel
+                        && assistantMsg.ProviderThinkingLevel is not null)
+                    {
+                        PushConfigurationUpdate(assistantMsg.ProviderThinkingLevel);
+                    }
                     foreach (var item in output) messages.Add(item);
                     break;
                 }
@@ -493,6 +516,9 @@ public static class OpenAiResponsesShared
             }
             if (!isLeadingSystemMessage) msgIndex++;
         }
+
+        // 最后一项设置本次回复的档位。
+        if (options?.ConfigurationUpdateEffort is not null) PushConfigurationUpdate(options.ConfigurationUpdateEffort);
 
         return messages;
     }
@@ -826,10 +852,37 @@ public static class OpenAiResponsesShared
             }
         }
 
+        // 记录 API 从请求里扣掉的 reasoning 项及其原因（GPT-6.2 起：编辑早前输入后的
+        // prefix_mismatch，以及来自其他组织/终端用户/模型的 reasoning）。每次重放该条目都会再报一次。
+        // turn_boundary 不记录：只用当前轮 reasoning 的模型（GPT-5.6 之前）每次请求都会报上一轮的
+        // reasoning，存下来会让会话随轮数平方增长。
+        void AppendReasoningRemovals(JsonArray? transformations)
+        {
+            if (transformations is null) return;
+            var removals = new JsonArray();
+            foreach (var node in transformations)
+            {
+                if (node is not JsonObject transformation) continue;
+                if (transformation.Str("type") != "reasoning") continue;
+                if (transformation.Str("action") != "removed") continue;
+                if (transformation.Str("reason") == "turn_boundary") continue;
+                var item = new JsonObject { ["type"] = "reasoning", ["action"] = "removed" };
+                if (transformation.Str("id") is { } id) item["id"] = id;
+                if (transformation.Str("reason") is { } reason) item["reason"] = reason;
+                removals.Add(item);
+            }
+            if (removals.Count == 0) return;
+            state.Owner.Diagnostics.Add(new Pi.Ai.Utils.AssistantMessageDiagnostic(
+                "openai_input_transformations",
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                Details: new JsonObject { ["transformations"] = removals }));
+        }
+
         void FinalizeResponse(JsonObject response)
         {
             sawTerminalResponseEvent = true;
             BackfillReasoningSignatures(response["output"] as JsonArray ?? []);
+            AppendReasoningRemovals(response["input_transformations"] as JsonArray);
             if (response.Str("id") is { } responseId)
             {
                 state.Owner.ResponseId = responseId;

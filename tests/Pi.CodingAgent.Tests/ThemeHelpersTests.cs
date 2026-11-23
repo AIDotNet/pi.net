@@ -80,9 +80,28 @@ public sealed class ThemeHelpersTests : IDisposable
         Assert.Equal(
             new[]
             {
-                Current.Fg(ThemeColors.SyntaxKeyword, "const") + " " + Current.Fg(ThemeColors.SyntaxString, "\"x\""),
+                // 无 scope 的空格也吃 Pi 的前景色（上游 #12347）。
+                Current.Fg(ThemeColors.SyntaxKeyword, "const")
+                + Current.Fg(ThemeColors.Text, " ")
+                + Current.Fg(ThemeColors.SyntaxString, "\"x\""),
             },
             ThemeHelpers.HighlightCode("const \"x\"", "javascript"));
+    }
+
+    [Fact]
+    public void HighlightCode_AppliesTheThemeForegroundToUnscopedText()
+    {
+        // 终端主题与 Pi 主题反差大时，未着色文本若继承终端前景色就会在工具卡片上不可读。
+        SyntaxHighlight.HighlighterOverride = () => new ScriptedHighlighter(
+            "identifier <span class=\"hljs-keyword\">const</span> rest");
+        Assert.Equal(
+            new[]
+            {
+                Current.Fg(ThemeColors.Text, "identifier ")
+                + Current.Fg(ThemeColors.SyntaxKeyword, "const")
+                + Current.Fg(ThemeColors.Text, " rest"),
+            },
+            ThemeHelpers.HighlightCode("identifier const rest", "javascript"));
     }
 
     [Fact]

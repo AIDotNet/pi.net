@@ -18,6 +18,9 @@ public static class ThemeHelpers
     private static IReadOnlyDictionary<string, HighlightFormatter> BuildCliHighlightTheme(Theme theme) =>
         new Dictionary<string, HighlightFormatter>(StringComparer.Ordinal)
         {
+            // 无 scope 的普通文本也用 Pi 的前景色：否则它继承终端自身的默认色，
+            // 在终端主题与 Pi 主题反差大时（浅/深互换）工具卡片上的代码几乎看不清。
+            ["default"] = text => theme.Fg(ThemeColors.Text, text),
             ["keyword"] = text => theme.Fg(ThemeColors.SyntaxKeyword, text),
             ["built_in"] = text => theme.Fg(ThemeColors.SyntaxType, text),
             ["literal"] = text => theme.Fg(ThemeColors.SyntaxNumber, text),

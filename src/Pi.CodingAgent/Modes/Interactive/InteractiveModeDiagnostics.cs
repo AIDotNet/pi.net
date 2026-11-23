@@ -9,6 +9,7 @@
 // InteractiveMode; the class itself (4f-4m) keeps the fields and does the DOM work.
 // ============================================================================
 
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Utils;
@@ -108,5 +109,77 @@ public static partial class InteractiveModeDiagnostics
             ? $"Restart with `{resumeCommand}` to continue this session."
             : $"Restart {Config.AppName}.";
         return $"{cause}. Features that load code on demand can fail until restart. {restart}";
+    }
+
+    // ---------------------------------------------------------------- dropped reasoning
+
+    /// <summary>provider 报告从请求中扣掉的 reasoning 块摘要。对应 TS <c>DroppedReasoning</c>。</summary>
+    public sealed record DroppedReasoning(
+        string DiagnosticType, string Provider, int Count, string Noun, IReadOnlyList<string> Reasons);
+
+    /// <summary>按助手诊断类型记录的扣减项：provider 名、被扣条目的 type、单复数名词。</summary>
+    private sealed record ReasoningDropKind(
+        string Provider, string DroppedType, string Singular, string Plural);
+
+    /// <summary>列出 provider 从模型中扣掉的 reasoning 的助手诊断类型。对应 TS <c>REASONING_DROP_DIAGNOSTICS</c>。</summary>
+    private static readonly Dictionary<string, ReasoningDropKind> ReasoningDropKinds =
+        new(StringComparer.Ordinal)
+        {
+            ["anthropic_input_transformations"] = new(
+                "Anthropic", "thinking_dropped", "thinking block", "thinking blocks"),
+            ["openai_input_transformations"] = new(
+                "OpenAI", "reasoning", "reasoning item", "reasoning items"),
+        };
+
+    /// <summary>
+    /// 统计生成本条消息的请求里，provider 报告扣掉的 reasoning 块及其原因。对应 TS
+    /// <c>getDroppedReasoning</c>；会话数据里的诊断 details 是无类型 JSON。
+    /// </summary>
+    public static DroppedReasoning? GetDroppedReasoning(AssistantMessage message)
+    {
+        foreach (var diagnostic in message.Diagnostics ?? [])
+        {
+            if (!ReasoningDropKinds.TryGetValue(diagnostic.Type, out var kind))
+            {
+                continue;
+            }
+            if (diagnostic.Details?["transformations"] is not JsonArray transformations)
+            {
+                continue;
+            }
+
+            var count = 0;
+            var reasons = new List<string>();
+            foreach (var transformation in transformations)
+            {
+                if (transformation is not JsonObject obj
+                    || !obj.TryGetPropertyValue("type", out var type)
+                    || type?.ToString() != kind.DroppedType)
+                {
+                    continue;
+                }
+                count++;
+                if (obj.TryGetPropertyValue("reason", out var reason)
+                    && reason?.ToString() is { Length: > 0 } text
+                    && !reasons.Contains(text))
+                {
+                    reasons.Add(text);
+                }
+            }
+            if (count > 0)
+            {
+                var noun = count == 1 ? kind.Singular : kind.Plural;
+                return new DroppedReasoning(diagnostic.Type, kind.Provider, count, noun, reasons);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>扣减通报文本：<c>{provider} dropped {n} {noun}{: reasons} (details in session)</c>。</summary>
+    public static string ReasoningDropNoticeText(DroppedReasoning dropped)
+    {
+        var reasons = dropped.Reasons.Count > 0 ? $": {string.Join(", ", dropped.Reasons)}" : "";
+        return $"{dropped.Provider} dropped {dropped.Count} {dropped.Noun}{reasons} (details in session)";
     }
 }

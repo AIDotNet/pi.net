@@ -4,7 +4,26 @@
 [migration-plan.md](./migration-plan.md) 与 [porting-status.md](./porting-status.md)
 保留历史阶段说明；其汇总快照早于当前代码，不应用来推断当前完成度。
 
-## 当前口径（2026-11-12，对齐上游 v1.5.2）
+## 当前口径（2026-11-23，对齐上游 v1.6.0）
+
+- **上游目标版本：`v1.6.0`**（tag `faac58588`，2026-11-20）。`v1.5.2..v1.6.0` 共 **368 个提交**，
+  其中触及端口 12 个已迁移 package 的 **125 个**；`apps/p2`/`apps/p3` 的 241 个提交按既定范围不收。
+- **端口版本：`1.6.0`**（`Directory.Build.props` 的 `<Version>` 为唯一来源，
+  `src/Pi.CodingAgent/Assets/package.json` 与 CLI `--version` 同步）。
+- **1.6.0 发布说明 62 条逐条处置**：55 已移植、7 ➖ 不适用，见
+  [v1.6.0-disposition.md](./v1.6.0-disposition.md)；`edfe6b2ef..v1.6.0` 的 19 个提交同表处置，
+  落地细节见 [upstream-1.6.0-delta.md](./upstream-1.6.0-delta.md)。
+- **本轮新增落地**：`configuration_update` 思考档位（openai-responses 与 openai-codex-responses，
+  含 Codex `max_output_tokens` 转发）、OpenAI 扣减 reasoning 的诊断与通报、openai-completions
+  的 instruction 角色默认 `system`、工具预览的无 scope 文本沿用 Pi 前景色、llama.cpp 默认端点
+  `9931`。
+- **仍为 ➖ 不适用（端口无宿主/消费方）**：chord 的 `sync/`（`pull`/`upload`/`fold`，唯一消费方
+  `apps/p2` 未移植）、undici/npm 托管更新、Node 流 `AbortError` 与 stdout 队列、TS 组件
+  `render()` 的 `readonly string[]` 契约。
+- **完整迁移判定**：仍以本文件「特殊范围决策」与 §3/§4 的划分口径为准——published 功能变更
+  一律真实移植，只有端口无对应宿主/消费方的形态项记 ➖，且逐条附代码级实证。
+
+## 历史口径（2026-11-12，对齐上游 v1.5.2）
 
 - **上游目标版本：`v1.5.2`**（tag `b4afdddf4`，2026-11-10，`origin/stable` 同点）。
   1.5.0 之后上游依次发布了 `v1.5.1`（`dd30101cf`，2026-11-09）与 `v1.5.2`；

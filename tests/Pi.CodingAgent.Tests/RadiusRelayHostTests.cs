@@ -37,14 +37,54 @@ public class RadiusRelayHostTests
     private static RadiusRelayAuthResolver OfflineAuth()
         => new RadiusRelayAuthResolver(gateway: Gateway) { Env = _ => "1" };
 
+    /// <summary>
+    /// 供宿主线程写入、测试线程读取的列表：写入加锁，枚举走快照，避免并发修改异常。
+    /// </summary>
+    private sealed class SyncList<T> : IReadOnlyCollection<T>
+    {
+        private readonly List<T> _items = [];
+
+        public void Add(T item)
+        {
+            lock (_items) _items.Add(item);
+        }
+
+        public int Count
+        {
+            get
+            {
+                lock (_items) return _items.Count;
+            }
+        }
+
+        public T this[int index]
+        {
+            get
+            {
+                lock (_items) return _items[index];
+            }
+        }
+
+        public IEnumerator<T> GetEnumerator() => ((IEnumerable<T>)Snapshot()).GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+
+        private T[] Snapshot()
+        {
+            lock (_items) return [.. _items];
+        }
+    }
+
     /// <summary>A host wired to scripted fake sockets; the handshake inputs are recorded.</summary>
     private sealed class HostRig
     {
-        public List<RadiusRelayHostStatus> Statuses { get; } = [];
+        // OnStatus / WebSocketFactory 在宿主线程上回调，测试线程同时读取这些列表；
+        // 普通 List 在 net8 的调度下会撞上「Collection was modified」，所以统一用加锁快照。
+        public SyncList<RadiusRelayHostStatus> Statuses { get; } = [];
 
-        public List<FakeRelayWebSocket> Sockets { get; } = [];
+        public SyncList<FakeRelayWebSocket> Sockets { get; } = [];
 
-        public List<(string Url, string Protocol, string Authorization)> Handshakes { get; } = [];
+        public SyncList<(string Url, string Protocol, string Authorization)> Handshakes { get; } = [];
 
         public Func<IByteConnection, IByteConnectionHandler>? Accept { get; init; }
 

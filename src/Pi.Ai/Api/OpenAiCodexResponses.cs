@@ -124,6 +124,12 @@ public static partial class OpenAiCodexResponses
     private const string WebsocketConnectionLimitReachedCode = "websocket_connection_limit_reached";
     private const string PreviousResponseNotFoundCode = "previous_response_not_found";
 
+    // Responses API 拒绝低于 16 的 max_output_tokens。（pi#6265）
+    private const int MinOutputTokens = 16;
+
+    // 档位由 configuration_update 项承载时，reasoning.effort 固定为该值。
+    private const string ConfigurationUpdateRequestEffort = "medium";
+
     private static readonly HashSet<string> CodexToolCallProviders = ["openai", "openai-codex", "opencode"];
 
     private static readonly HashSet<string> CodexResponseStatuses =
@@ -214,13 +220,40 @@ public static partial class OpenAiCodexResponses
     // Request Building
     // ============================================================================
 
+    /// <summary>
+    /// configuration_update 项里要发送的档位；<see langword="null"/> 表示仍写在
+    /// <c>reasoning.effort</c> 里。对应 TS <c>getConfigurationUpdateEffort</c>。
+    /// </summary>
+    public static string? GetConfigurationUpdateEffort(
+        ModelSpec model, OpenAiCodexResponsesOptions? options)
+    {
+        var supportsMidConvoEffort = model.Compat?["supportsMidConvoEffort"] is JsonValue { } mid
+            && mid.TryGetValue<bool>(out var midFlag) && midFlag;
+        if (!supportsMidConvoEffort || options?.ReasoningEffort is null) return null;
+        return ResolveReasoningEffort(model, options.ReasoningEffort);
+    }
+
+    /// <summary>
+    /// 请求档位对应的 provider 原生 effort；模型不为该档位声明字段时返回 <see langword="null"/>。
+    /// 对应 TS <c>resolveReasoningEffort</c>。
+    /// </summary>
+    public static string? ResolveReasoningEffort(ModelSpec model, string reasoningEffort)
+    {
+        if (reasoningEffort == "none")
+        {
+            return model.ThinkingLevelMap is { } map && map.Has("off") ? map["off"] : "none";
+        }
+        return model.ThinkingLevelMap?[reasoningEffort] ?? reasoningEffort;
+    }
+
     /// <summary>构建 /codex/responses 请求体。对应 TS <c>buildRequestBody</c>。</summary>
     public static JsonObject BuildRequestBody(
         ModelSpec model,
         TranscriptContext context,
         OpenAiCodexResponsesOptions? options,
         string? cacheSessionId,
-        IReadOnlyDictionary<string, string>? grammarToolInputProperties = null)
+        IReadOnlyDictionary<string, string>? grammarToolInputProperties = null,
+        string? configurationUpdateEffort = null)
     {
         bool CompatBool(string key, bool fallback)
             => model.Compat is not null && model.Compat[key] is JsonValue { } value
@@ -241,6 +274,7 @@ public static partial class OpenAiCodexResponses
             SupportsMidConvoSystemMessages = supportsMidConvo,
             SupportsAdditionalTools = supportsAdditionalTools,
             SupportsToolSearch = supportsToolSearch,
+            ConfigurationUpdateEffort = configurationUpdateEffort,
             ToolOptions = new ConvertResponsesToolsOptions
             {
                 Strict = null,
@@ -266,6 +300,11 @@ public static partial class OpenAiCodexResponses
             ["parallel_tool_calls"] = true,
         };
 
+        if (options?.MaxTokens is > 0 && CompatBool("supportsMaxOutputTokens", true))
+        {
+            body["max_output_tokens"] = Math.Max(options.MaxTokens.Value, MinOutputTokens);
+        }
+
         if (options?.Temperature is { } temperature)
         {
             body["temperature"] = temperature;
@@ -289,9 +328,10 @@ public static partial class OpenAiCodexResponses
 
         if (options?.ReasoningEffort is { } requestedEffort)
         {
-            var effort = requestedEffort == "none"
-                ? (model.ThinkingLevelMap is { } map && map.Has("off") ? map["off"] : "none")
-                : model.ThinkingLevelMap?[requestedEffort] ?? requestedEffort;
+            // 档位改由 configuration_update 项表达时请求固定为 medium，避免改变此前的输入。
+            var effort = configurationUpdateEffort is not null
+                ? ConfigurationUpdateRequestEffort
+                : ResolveReasoningEffort(model, requestedEffort);
             if (effort is not null)
             {
                 body["reasoning"] = new JsonObject
@@ -737,8 +777,11 @@ public static partial class OpenAiCodexResponses
 
         var clampedReasoning = options?.Reasoning is not null
             ? ThinkingLevels.Clamp(model, options.Reasoning)
-            : null;
-        var reasoningEffort = clampedReasoning == "off" ? "none" : clampedReasoning;
+            : "off";
+        // off 以 effort none 发送：这样切到 off 也能走 configuration_update，提示缓存不失效。
+        var reasoningEffort = clampedReasoning != "off"
+            ? clampedReasoning
+            : model.Reasoning ? "none" : null;
 
         var baseOptions = FromSimple(model, context, options);
         return Stream(model, context, baseOptions with
@@ -766,8 +809,12 @@ public static partial class OpenAiCodexResponses
 
         _ = Task.Run(async () =>
         {
+            var configurationUpdateEffort = GetConfigurationUpdateEffort(model, options);
             var output = new OpenAiResponsesShared.MutableAssistantMessage(
-                model.Id, model.Api, model.Provider);
+                model.Id, model.Api, model.Provider)
+            {
+                ProviderThinkingLevel = configurationUpdateEffort,
+            };
             try
             {
                 var apiKey = options?.ApiKey;
@@ -785,7 +832,8 @@ public static partial class OpenAiCodexResponses
                     ? null
                     : OpenAiPromptCache.ClampPromptCacheKey(cacheSessionId);
                 var body = BuildRequestBody(
-                    model, normalizedContext, options, codexSessionId, grammarToolInputProperties);
+                    model, normalizedContext, options, codexSessionId, grammarToolInputProperties,
+                    configurationUpdateEffort);
                 if (options?.OnPayload is { } onPayload)
                 {
                     var transformed = await onPayload(body, model).ConfigureAwait(false);

@@ -158,7 +158,7 @@ dotnet run --project samples/Pi.Samples.CodingSession
 
 ## 可选
 
-- [上游 Pi（TypeScript）](https://github.com/earendil-works/pi)：行为基准。本机同级检出在 `D:\AI\参考项目\pi`，当前对齐 `v1.5.2`（`b4afdddf4`，`v1.5.0`→`v1.5.2` 的逐包差异见 `docs/upstream-1.5.2-delta.md`）。
+- [上游 Pi（TypeScript）](https://github.com/earendil-works/pi)：行为基准。本机同级检出在 `D:\AI\参考项目\pi`，当前对齐 `v1.6.0`（`faac58588`，`v1.5.2`→`v1.6.0` 的逐包差异见 `docs/upstream-1.6.0-delta.md`，逐条处置见 `docs/v1.6.0-disposition.md`）。
 - [nuget.org 上的 Pi.*](https://www.nuget.org/packages/Pi.Ai)：13 个库的发布地址。
 - [publishing.md](docs/publishing.md)：发版细节；打 tag 推送即触发 `nuget-publish.yml`。
 - [samples/README.md](samples/README.md)：四个示例工程各自演示什么。

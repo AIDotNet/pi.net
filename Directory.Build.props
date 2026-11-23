@@ -128,6 +128,14 @@
     <AotFramework Condition="'$(AotFramework)' == ''">net10.0</AotFramework>
     <TargetFrameworks>$(AotFramework)</TargetFrameworks>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <!--
+      ILCompiler 随 runtime pack 的补丁版本走。SDK 自带的补丁版（10.0.12）有
+      NuGet 审计告警 GHSA-p3jp-9v83-76w9（NU1903 会被 TreatWarningsAsErrors 升级成
+      错误，AOT 发布直接失败）。ILCompiler 只是构建期工具，不进入产物；与其压告警，
+      不如取最新的运行时补丁：TargetLatestRuntimePatch 会还原已修补的 runtime pack
+      与配套 ILCompiler，产物仍是自包含原生映像，运行时不依赖该补丁。
+    -->
+    <TargetLatestRuntimePatch>true</TargetLatestRuntimePatch>
     <IlcGenerateCompleteTypeMetadata>true</IlcGenerateCompleteTypeMetadata>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
     <TrimmerSingleWarn>false</TrimmerSingleWarn>
@@ -140,7 +148,7 @@
     with -p:Version=<tag version>, and local `dotnet pack` uses it as-is.
   -->
   <PropertyGroup>
-    <Version>1.5.2.1</Version>
+    <Version>1.6.0</Version>
     <Authors>xuzeyu</Authors>
     <Product>Pi.NET</Product>
     <Description>Pi.NET - a .NET 8/9/10/11 port of Pi, a minimal and extensible agent harness. See https://github.com/AIDotNet/pi.net for the full package list.</Description>

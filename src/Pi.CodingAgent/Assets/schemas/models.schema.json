@@ -515,7 +515,7 @@
         },
         "supportsDeveloperRole": {
           "type": "boolean",
-          "description": "Whether the provider supports the developer role instead of system. Defaults are API-specific."
+          "description": "Whether to send system messages of reasoning models (the system prompt and mid-conversation system messages) with the developer role instead of system. Default: true only for api.openai.com on openai-completions."
         },
         "supportsReasoningEffort": {
           "type": "boolean",
@@ -1038,7 +1038,7 @@
         },
         "supportsMidConvoEffort": {
           "type": "boolean",
-          "description": "Whether thinking level changes are sent inside the conversation instead of changing the request's effort, so a change keeps the prompt cache. Used by the anthropic-messages and openai-responses APIs.",
+          "description": "Whether thinking level changes are sent inside the conversation instead of changing the request's effort, so a change keeps the prompt cache. Used by the anthropic-messages, openai-responses, and openai-codex-responses APIs.",
           "default": false
         },
         "supportsMaxOutputTokens": {

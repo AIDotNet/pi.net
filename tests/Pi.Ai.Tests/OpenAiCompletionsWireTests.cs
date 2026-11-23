@@ -96,7 +96,8 @@ public class OpenAiCompletionsWireTests
                 baseUrl: "https://openrouter.ai/api/v1", reasoning: true));
         Assert.Equal("openrouter", openRouter.ThinkingFormat);
         Assert.Equal("anthropic", openRouter.CacheControlFormat);
-        Assert.True(openRouter.SupportsDeveloperRole);
+        // #10741：developer 是 OpenAI 的角色，其它宿主默认发 system。
+        Assert.False(openRouter.SupportsDeveloperRole);
         Assert.True(openRouter.SupportsStore);
         Assert.True(openRouter.SupportsReasoningEffort);
         Assert.True(openRouter.SendSessionAffinityHeaders);
@@ -163,7 +164,8 @@ public class OpenAiCompletionsWireTests
         var messages = Arr(parameters["messages"]);
 
         var instruction = Obj(messages[0]);
-        Assert.Equal("developer", Text(instruction, "role"));
+        // OpenRouter 不在 api.openai.com：instruction 角色是 system（#10741）。
+        Assert.Equal("system", Text(instruction, "role"));
         var instructionParts = Arr(instruction["content"]);
         Assert.Equal("ephemeral", Text(instructionParts[0]!["cache_control"], "type"));
 

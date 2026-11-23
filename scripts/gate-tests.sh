@@ -49,9 +49,18 @@ for project in "${gate[@]}"; do
 
   # 强制出 TRX：CI 上 MTP 只把汇总打到 stdout，详细失败在 TestResults/*.log 里，
   # 不解析 TRX 就只能看到「Failed: N」而不知道是哪几条用例。
+  # 直接跑 MTP 测试宿主：dotnet test -f <tfm> --no-build 在本仓库的多目标布局
+  # （含 net11，本机可能没有 11.x SDK）下会静默空跑并返回 0，看起来「全绿」其实一条没跑。
+  # 宿主就是测试工程自己产出的可执行文件，行为与 dotnet test 相同，失败码可靠。
   run_probe() {
-    dotnet test "${project}" -c "${configuration}" -f "${framework}" --no-build \
-      -- --report-xunit-trx --report-xunit-trx-filename "${name}.trx" > "test-${name}.log" 2>&1
+    local exe="tests/${name}/bin/${configuration}/${framework}/${name}.exe"
+    [[ -f "${exe}" ]] || exe="tests/${name}/bin/${configuration}/${framework}/${name}"
+    if [[ -f "${exe}" ]]; then
+      "${exe}" --report-xunit-trx --report-xunit-trx-filename "${name}.trx" > "test-${name}.log" 2>&1
+    else
+      dotnet test "${project}" -c "${configuration}" -f "${framework}" --no-build \
+        -- --report-xunit-trx --report-xunit-trx-filename "${name}.trx" > "test-${name}.log" 2>&1
+    fi
   }
 
   if run_probe; then

@@ -77,12 +77,31 @@ internal sealed class LayoutContext
 {
     public required LayoutViewport Viewport { get; init; }
 
-    public Dictionary<IComponent, Dictionary<int, string[]>> RenderCache { get; } =
+    public Dictionary<IComponent, Dictionary<int, string[]>> RenderCache { get; init; } =
         new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>滚动等只改视口位置的帧用这个回调；默认与 <see cref="RequestRender"/> 相同。</summary>
+    public Action? RequestViewRender { get; init; }
 
     public required Action RequestRender { get; init; }
 
     public ScrollView? PrimaryScrollView { get; set; }
+}
+
+/// <summary>
+/// 跨帧的组件渲染缓存：只改视口位置的帧（滚动）复用上一帧的组件输出，内容变化时由宿主
+/// <see cref="TuiBase.OnRenderInvalidated"/> 清空。对应上游 #11968 的 view-only frame。
+/// </summary>
+public sealed class LayoutRenderCache
+{
+    internal Dictionary<IComponent, Dictionary<int, string[]>> Entries { get; } =
+        new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>丢弃全部缓存；下一帧重新渲染每个组件。</summary>
+    public void Clear() => Entries.Clear();
+
+    /// <summary>缓存的组件数（测试与诊断用）。</summary>
+    public int Count => Entries.Count;
 }
 
 /// <summary>Port of <c>layout.ts</c>: the flex/stack layout solver and box painter.</summary>
@@ -198,7 +217,8 @@ public static partial class Layout
             var childBox = LayoutComponent(context, scroll.Component, x, y - previousScrollTop, contentWidth, null, clip);
             var contentHeight = childBox.Rect.Height;
             var viewportHeight = height is { } fixedHeight ? Math.Max(0, fixedHeight) : contentHeight;
-            scroll.State.UpdateLayout(contentHeight, viewportHeight, context.RequestRender);
+            // 滚动只改视口位置：走 view 回调，避免丢弃跨帧渲染缓存。
+            scroll.State.UpdateLayout(contentHeight, viewportHeight, context.RequestViewRender ?? context.RequestRender);
             TranslateBox(childBox, previousScrollTop - scroll.State.ScrollTop);
             var scrollView = scroll.State as ScrollView;
             if (scroll.State.Primary || context.PrimaryScrollView is null)
@@ -515,7 +535,13 @@ public static partial class Layout
     }
 
     /// <summary>Lay out <paramref name="root"/> and paint it into a fresh screen buffer.</summary>
-    public static LayoutFrame RenderLayoutFrame(IComponent root, int width, int height, Action requestRender)
+    public static LayoutFrame RenderLayoutFrame(
+        IComponent root,
+        int width,
+        int height,
+        Action requestRender,
+        Action? requestViewRender = null,
+        LayoutRenderCache? cache = null)
     {
         var safeWidth = Math.Max(1, (int)Math.Floor((double)width));
         var safeHeight = Math.Max(1, (int)Math.Floor((double)height));
@@ -523,6 +549,9 @@ public static partial class Layout
         {
             Viewport = new LayoutViewport(safeWidth, safeHeight),
             RequestRender = requestRender,
+            RequestViewRender = requestViewRender,
+            RenderCache = cache?.Entries
+                ?? new Dictionary<IComponent, Dictionary<int, string[]>>(ReferenceEqualityComparer.Instance),
         };
         var rootBox = LayoutComponent(context, root, 0, 0, safeWidth, safeHeight, new LayoutRect(0, 0, safeWidth, safeHeight));
         var lines = new string[safeHeight];

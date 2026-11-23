@@ -642,34 +642,6 @@ public partial class InteractiveMode
             0));
     }
 
-    private static int CountDroppedThinkingBlocks(AssistantMessage message)
-    {
-        var count = 0;
-        foreach (var diagnostic in message.Diagnostics ?? [])
-        {
-            if (diagnostic.Type != "anthropic_input_transformations")
-            {
-                continue;
-            }
-
-            if (diagnostic.Details?["transformations"] is not JsonArray transformations)
-            {
-                continue;
-            }
-
-            foreach (var transformation in transformations)
-            {
-                if (transformation is JsonObject obj
-                    && obj.TryGetPropertyValue("type", out var type)
-                    && type?.ToString() == "thinking_dropped")
-                {
-                    count++;
-                }
-            }
-        }
-
-        return count;
-    }
 
     /// <summary>TS stop-reason literal; the C# union is an enum.</summary>
     private static string StopReasonText(StopReason reason) => reason switch
@@ -709,13 +681,13 @@ public partial class InteractiveMode
             return;
         }
 
-        var droppedCount = CountDroppedThinkingBlocks(message);
-        if (droppedCount == 0)
+        var dropped = InteractiveModeDiagnostics.GetDroppedReasoning(message);
+        if (dropped is null)
         {
             return;
         }
 
-        var previousDroppedCount = 0;
+        // provider 每次重放被扣的块都会再报一次，只有比上一条回复更多才算新的损失。
         // message_end reaches the UI before the current message is persisted,
         // so the branch's last assistant message is the previous response.
         var branch = SessionManager.GetBranch();
@@ -723,20 +695,22 @@ public partial class InteractiveMode
         {
             if (branch[i] is SessionMessageEntry { Message: AssistantMessage previous })
             {
-                previousDroppedCount = CountDroppedThinkingBlocks(previous);
+                var previousDropped = InteractiveModeDiagnostics.GetDroppedReasoning(previous);
+                if (previousDropped is not null
+                    && previousDropped.DiagnosticType == dropped.DiagnosticType
+                    && dropped.Count <= previousDropped.Count)
+                {
+                    return;
+                }
                 break;
             }
         }
 
-        if (droppedCount <= previousDroppedCount)
-        {
-            return;
-        }
-
-        var noun = droppedCount == 1 ? "thinking block" : "thinking blocks";
         _chatContainer.AddChild(new Spacer(1));
         _chatContainer.AddChild(new ThemedText(
-            () => ThemeRuntime.Current.Fg("warning", $"Anthropic dropped {droppedCount} {noun} (details in session)"),
+            () => ThemeRuntime.Current.Fg(
+                "warning",
+                InteractiveModeDiagnostics.ReasoningDropNoticeText(dropped)),
             1,
             0));
     }

@@ -118,6 +118,13 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
     private int _previousScreenHeight;
     private IComponent? _layoutRoot;
     private LayoutFrame? _currentLayout;
+
+    // 跨帧渲染缓存：滚动帧复用上一帧的组件输出（上游 #11968）。内容变化（RequestRender）时清空；
+    // 尺寸变化时也清空；帧渲染期间若被失效（组件渲染时改状态），第二遍用空缓存重渲染。
+    private readonly LayoutRenderCache _layoutCache = new();
+    private int _layoutCacheWidth = -1;
+    private int _layoutCacheHeight = -1;
+    private bool _layoutInvalidatedDuringFrame;
     private readonly IComponent _implicitDocument;
     private readonly ScrollView _implicitScrollView;
     private readonly AltScreenFlashContainer _flashes;
@@ -184,6 +191,13 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
 
     /// <summary>Top content line currently shown at the top of the viewport.</summary>
     public int ViewportTop => GetPrimaryScrollView().ScrollTop;
+
+    /// <inheritdoc/>
+    protected override void OnRenderInvalidated()
+    {
+        _layoutCache.Clear();
+        _layoutInvalidatedDuringFrame = true;
+    }
 
     /// <summary>Whether the viewport is pinned to the end of the output.</summary>
     public bool IsFollowingOutput => GetPrimaryScrollView().IsFollowingEnd;
@@ -434,24 +448,26 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
         _previousScreenWidth = 0;
         _previousScreenHeight = 0;
         _currentLayout = null;
+        // RenderNow(force)/RequestRender(force) 语义是「全部重来」：跨帧缓存也一起丢。
+        _layoutCache.Clear();
     }
 
     public void ScrollBy(int lines)
     {
         GetPrimaryScrollView().ScrollBy(lines);
-        RequestRender();
+        RequestViewRender();
     }
 
     public void ScrollToTop()
     {
         GetPrimaryScrollView().ScrollToStart();
-        RequestRender();
+        RequestViewRender();
     }
 
     public void ScrollToBottom()
     {
         GetPrimaryScrollView().ScrollToEnd();
-        RequestRender();
+        RequestViewRender();
     }
 
     private void ScrollToPrompt(int direction)
@@ -474,7 +490,7 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
                 continue;
             }
             scrollView.ScrollTo(row);
-            RequestRender();
+            RequestViewRender();
             return;
         }
     }
@@ -1195,7 +1211,7 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
             primary.ScrollBy(remaining);
         }
         UpdateScrollbarHover(@event.X, @event.Y);
-        RequestRender();
+        RequestViewRender();
     }
 
     private static SgrMouseEvent? ParseSgrMouseEvent(string data)
@@ -2100,10 +2116,23 @@ public sealed class TuiAltScreen : TuiBase, IViewportTui
         var width = Math.Max(1, Terminal.Columns);
         var height = Math.Max(1, Terminal.Rows);
         var root = _layoutRoot ?? (IComponent)_implicitScrollView;
-        var nextLayout = Layout.RenderLayoutFrame(root, width, height, () => RequestRender());
-        if (RefreshSearch(nextLayout))
+        if (_layoutCacheWidth != width || _layoutCacheHeight != height)
         {
-            nextLayout = Layout.RenderLayoutFrame(root, width, height, () => RequestRender());
+            // 尺寸变化：宽度是缓存键的一部分，旧宽度的条目也不会再命中，清掉省内存。
+            _layoutCache.Clear();
+            _layoutCacheWidth = width;
+            _layoutCacheHeight = height;
+        }
+        _layoutInvalidatedDuringFrame = false;
+        var nextLayout = Layout.RenderLayoutFrame(
+            root, width, height, () => RequestRender(), () => RequestViewRender(), _layoutCache);
+        if (_layoutInvalidatedDuringFrame || RefreshSearch(nextLayout))
+        {
+            // 渲染期间内容变了（组件在 Render 里改了状态）：用空缓存重跑一遍，避免复用旧输出。
+            _layoutCache.Clear();
+            _layoutInvalidatedDuringFrame = false;
+            nextLayout = Layout.RenderLayoutFrame(
+                root, width, height, () => RequestRender(), () => RequestViewRender(), _layoutCache);
         }
         // Resolve fake cursors before highlighting and compositing, which only track SGR codes
         var screen = ResolveFakeCursors(nextLayout.Lines.Select(line => Osc133ZonePrefix.Replace(line, "")).ToArray());

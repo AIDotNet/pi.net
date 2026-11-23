@@ -5,7 +5,9 @@
 // hardcoded "start pi and" branch and the abort/cancel regex.
 // ============================================================================
 
+using System.Text.Json.Nodes;
 using Pi.Ai.Types;
+using Pi.Ai.Utils;
 using Pi.CodingAgent.Modes.Interactive;
 using Pi.CodingAgent.Utils;
 using Pi.Tui;
@@ -222,5 +224,72 @@ public sealed class InteractiveModeDiagnosticsTests : IDisposable
         Assert.Contains($"The {Config.AppName} installation this session runs from was removed or replaced", warning);
         Assert.Contains($"Restart {Config.AppName}.", warning);
         Assert.DoesNotContain("Restart with", warning);
+    }
+
+    // ---------------------------------------------------------------- dropped reasoning
+
+    private static AssistantMessage AssistantWithDrop(
+        string diagnosticType, params (string Type, string? Reason)[] entries)
+    {
+        var transformations = new JsonArray();
+        foreach (var (type, reason) in entries)
+        {
+            var item = new JsonObject { ["type"] = type };
+            if (reason is not null) item["reason"] = reason;
+            transformations.Add(item);
+        }
+        return new AssistantMessage([new TextContent("ok")])
+        {
+            Diagnostics =
+            [
+                new AssistantMessageDiagnostic(
+                    diagnosticType, 0, Details: new JsonObject { ["transformations"] = transformations }),
+            ],
+        };
+    }
+
+    [Fact]
+    public void DroppedReasoningCountsOpenAiReasoningItemsAndNamesTheReasons()
+    {
+        var message = AssistantWithDrop(
+            "openai_input_transformations",
+            ("reasoning", "prefix_mismatch"),
+            ("reasoning", "organization_mismatch"),
+            ("text", null));
+
+        var dropped = InteractiveModeDiagnostics.GetDroppedReasoning(message);
+
+        Assert.NotNull(dropped);
+        Assert.Equal("OpenAI", dropped!.Provider);
+        Assert.Equal(2, dropped.Count);
+        Assert.Equal("reasoning items", dropped.Noun);
+        Assert.Equal(["prefix_mismatch", "organization_mismatch"], dropped.Reasons);
+        Assert.Equal(
+            "OpenAI dropped 2 reasoning items: prefix_mismatch, organization_mismatch (details in session)",
+            InteractiveModeDiagnostics.ReasoningDropNoticeText(dropped));
+    }
+
+    [Fact]
+    public void DroppedReasoningUsesTheSingularNounAndOmitsEmptyReasons()
+    {
+        var message = AssistantWithDrop("anthropic_input_transformations", ("thinking_dropped", null));
+
+        var dropped = InteractiveModeDiagnostics.GetDroppedReasoning(message);
+
+        Assert.NotNull(dropped);
+        Assert.Equal("Anthropic", dropped!.Provider);
+        Assert.Equal("thinking block", dropped.Noun);
+        Assert.Empty(dropped.Reasons);
+        Assert.Equal(
+            "Anthropic dropped 1 thinking block (details in session)",
+            InteractiveModeDiagnostics.ReasoningDropNoticeText(dropped));
+    }
+
+    [Fact]
+    public void DroppedReasoningIgnoresOtherDiagnostics()
+    {
+        var message = AssistantWithDrop("transport_fallback", ("reasoning", "prefix_mismatch"));
+
+        Assert.Null(InteractiveModeDiagnostics.GetDroppedReasoning(message));
     }
 }

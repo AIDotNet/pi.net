@@ -77,6 +77,9 @@ public static class OpenAiResponses
 
     // OpenAI Responses 拒绝低于 16 的 max_output_tokens。（pi#6265）
     private const int MinOutputTokens = 16;
+
+    // 档位由 configuration_update 项承载时，reasoning.effort 固定为该值，让此前的输入保持不变。
+    private const string ConfigurationUpdateRequestEffort = "medium";
     private const string ChatGptUsageUrl = "https://chatgpt.com/settings/usage";
 
     private const string ChatGptWorkspaceLimitHint =
@@ -143,6 +146,7 @@ public static class OpenAiResponses
         {
             ["supportsDeveloperRole"] = Opt("supportsDeveloperRole", true),
             ["supportsMidConvoSystemMessages"] = Opt("supportsMidConvoSystemMessages", false),
+            ["supportsMidConvoEffort"] = Opt("supportsMidConvoEffort", false),
             ["sessionAffinityFormat"] = compat.Str("sessionAffinityFormat") ?? DetectSessionAffinityFormat(model),
             ["supportsLongCacheRetention"] = Opt("supportsLongCacheRetention", true),
             ["supportsStrictMode"] = Opt("supportsStrictMode", false),
@@ -175,13 +179,31 @@ public static class OpenAiResponses
         return null;
     }
 
+    /// <summary>
+    /// configuration_update 项里要发送的档位；<see langword="null"/> 表示仍写在
+    /// <c>reasoning.effort</c> 里。对应 TS <c>getConfigurationUpdateEffort</c>。
+    /// </summary>
+    public static string? GetConfigurationUpdateEffort(
+        ModelSpec model, OpenAiResponsesOptions? options, JsonObject compat)
+    {
+        if (!CompatBool(compat, "supportsMidConvoEffort")
+            || string.IsNullOrEmpty(options?.ReasoningEffort)
+            // Sign in with ChatGPT 拒绝 configuration_update 项。
+            || IsChatGptSignIn(model, options!.ApiKey))
+        {
+            return null;
+        }
+        return model.ThinkingLevelMap?[options.ReasoningEffort] ?? options.ReasoningEffort;
+    }
+
     /// <summary>构建 /responses 请求载荷。对应 TS <c>buildParams</c>。</summary>
     public static JsonObject BuildParams(
         ModelSpec model,
         TranscriptContext context,
         OpenAiResponsesOptions? options,
         JsonObject? compat = null,
-        IReadOnlyDictionary<string, string>? grammarToolInputProperties = null)
+        IReadOnlyDictionary<string, string>? grammarToolInputProperties = null,
+        string? configurationUpdateEffort = null)
     {
         compat ??= GetCompat(model);
         grammarToolInputProperties ??= ConstrainedSampling.CreateGrammarToolInputProperties(
@@ -195,6 +217,7 @@ public static class OpenAiResponses
             SupportsMidConvoSystemMessages = supportsMidConvo,
             SupportsAdditionalTools = CompatBool(compat, "supportsAdditionalTools"),
             SupportsToolSearch = CompatBool(compat, "supportsToolSearch"),
+            ConfigurationUpdateEffort = configurationUpdateEffort,
             ToolOptions = new ConvertResponsesToolsOptions
             {
                 SupportsStrictMode = CompatBool(compat, "supportsStrictMode"),
@@ -263,6 +286,8 @@ public static class OpenAiResponses
                 var effort = options?.ReasoningEffort is not null
                     ? model.ThinkingLevelMap?[options.ReasoningEffort] ?? options.ReasoningEffort
                     : reasoningEffort;
+                // 档位改由 configuration_update 项表达时请求固定为 medium，避免改变此前的输入。
+                if (configurationUpdateEffort is not null) effort = ConfigurationUpdateRequestEffort;
                 requestParams["reasoning"] = new JsonObject
                 {
                     ["effort"] = effort,
@@ -314,8 +339,12 @@ public static class OpenAiResponses
 
         _ = Task.Run(async () =>
         {
+            var configurationUpdateEffort = GetConfigurationUpdateEffort(model, options, compat);
             var output = new OpenAiResponsesShared.MutableAssistantMessage(
-                model.Id, model.Api, model.Provider);
+                model.Id, model.Api, model.Provider)
+            {
+                ProviderThinkingLevel = configurationUpdateEffort,
+            };
             try
             {
                 var apiKey = GetClientApiKey(model.Provider, options?.ApiKey, options?.Headers);
@@ -324,7 +353,8 @@ public static class OpenAiResponses
                 var grammarToolInputProperties = ConstrainedSampling.CreateGrammarToolInputProperties(
                     Transcript.GetDeclaredTools(normalizedContext.Messages),
                     CompatBool(compat, "supportsOpenAIGrammarTools"));
-                var payload = BuildParams(model, normalizedContext, options, compat, grammarToolInputProperties);
+                var payload = BuildParams(
+                    model, normalizedContext, options, compat, grammarToolInputProperties, configurationUpdateEffort);
                 if (options?.OnPayload is { } onPayload)
                 {
                     var transformed = await onPayload(payload, model).ConfigureAwait(false);

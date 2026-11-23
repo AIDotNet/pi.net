@@ -37,7 +37,8 @@ public class LlamaExtensionTests
         var provider = Assert.IsType<LlamaProvider>(pending.Provider);
         Assert.Equal("llama.cpp", provider.Id);
         Assert.Equal("llama.cpp", provider.Name);
-        Assert.Equal("http://127.0.0.1:8080/v1", provider.BaseUrl);
+        // llama-server 现在的默认端口是 9931（上游 #12001）。
+        Assert.Equal("http://127.0.0.1:9931/v1", provider.BaseUrl);
         Assert.Equal("llama.cpp server", provider.Auth?.ApiKey?.Name);
         Assert.True(provider.Auth?.ApiKey?.HasLogin);
         Assert.Empty(provider.GetModels());
@@ -142,7 +143,8 @@ public class LlamaExtensionTests
 
         Assert.NotNull(model.Compat);
         Assert.False(model.Compat!["supportsStore"]!.GetValue<bool>());
-        Assert.False(model.Compat["supportsDeveloperRole"]!.GetValue<bool>());
+        // 1.6.0 起 instruction 角色默认只对 api.openai.com 用 developer，本机端点不需要覆盖。
+        Assert.False(model.Compat.ContainsKey("supportsDeveloperRole"));
         Assert.False(model.Compat["supportsReasoningEffort"]!.GetValue<bool>());
         Assert.True(model.Compat["supportsUsageInStreaming"]!.GetValue<bool>());
         Assert.False(model.Compat["supportsStrictMode"]!.GetValue<bool>());

@@ -936,6 +936,26 @@ public abstract partial class TuiBase : Container, ITui
 
     public void RequestRender(bool force = false)
     {
+        // 内容（或尺寸/主题）变化的帧：先丢跨帧渲染缓存，再安排渲染。
+        OnRenderInvalidated();
+        RequestFrame(force);
+    }
+
+    /// <summary>
+    /// 内容已变化的帧：丢弃跨帧渲染缓存。子类可扩展（例如清布局缓存）。
+    /// </summary>
+    protected virtual void OnRenderInvalidated()
+    {
+    }
+
+    /// <summary>
+    /// 只改视口位置的帧（滚动）：复用上一帧的组件输出，不清缓存。对应上游 #11968 的
+    /// <c>requestViewRender()</c>。
+    /// </summary>
+    protected void RequestViewRender() => RequestFrame(force: false);
+
+    private void RequestFrame(bool force)
+    {
         if (force)
         {
             ResetRenderState();

@@ -109,7 +109,7 @@ Provider and model compatibility overrides. The port publishes one schema for ev
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `supportsStore` | boolean |  | Whether the provider supports the store field. Default: auto-detected from URL. |
-| `supportsDeveloperRole` | boolean |  | Whether the provider supports the developer role instead of system. Defaults are API-specific. |
+| `supportsDeveloperRole` | boolean |  | Whether to send system messages of reasoning models (the system prompt and mid-conversation system messages) with the developer role instead of system. Default: true only for api.openai.com on openai-completions. |
 | `supportsReasoningEffort` | boolean |  | Whether the provider supports reasoning_effort. Default: auto-detected from URL. |
 | `supportsUsageInStreaming` | boolean | `true` | Whether the provider supports stream_options.include_usage for token usage in streaming responses. |
 | `supportsFinishReason` | boolean | `true` | Whether streamed responses include finish_reason. When false, pi infers stop or toolUse when the stream ends. |
@@ -138,7 +138,7 @@ Provider and model compatibility overrides. The port publishes one schema for ev
 | `supportsAdditionalTools` | boolean | `false` | Whether the model supports message-anchored additional_tools input items. |
 | `supportsToolSearch` | boolean | `false` | Whether the model supports client-executed tool search for transcript-anchored additions. |
 | `supportsExplicitPromptCacheMode` | boolean | `false` | Whether the model accepts prompt_cache_options. Older OpenAI models reject the parameter. |
-| `supportsMidConvoEffort` | boolean | `false` | Whether thinking level changes are sent inside the conversation instead of changing the request's effort, so a change keeps the prompt cache. Used by the anthropic-messages and openai-responses APIs. |
+| `supportsMidConvoEffort` | boolean | `false` | Whether thinking level changes are sent inside the conversation instead of changing the request's effort, so a change keeps the prompt cache. Used by the anthropic-messages, openai-responses, and openai-codex-responses APIs. |
 | `supportsMaxOutputTokens` | boolean | `true` | Whether the provider accepts max_output_tokens. Some Codex-protocol gateways reject it. |
 | `supportsEagerToolInputStreaming` | boolean | `true` | Whether the provider accepts per-tool eager_input_streaming. When false, the Anthropic provider omits tools[].eager_input_streaming and sends the legacy fine-grained-tool-streaming-2025-05-14 beta header for tool-enabled requests. |
 | `supportsCacheControlOnTools` | boolean | `true` | Whether the provider supports Anthropic-style cache_control markers on tool definitions. When false, cache_control is omitted from tool parameters. Some Anthropic-compatible providers, such as Fireworks, do not support this field on tools and may reject or ignore it. |

@@ -5,7 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 ## [Unreleased]
 
-### 上游 v1.5.2 之后未发布提交的同步（2026-11-20）
+（暂无。）
+
+## [1.6.0] - 2026-11-20
+
+### 上游 v1.6.0 对齐
+
+跟随上游 `v1.5.2..v1.6.0`（368 个提交，tag `v1.6.0` = `faac58588`；触及端口 12 个已迁移
+package 的 125 个），逐项处置见 `docs/v1.6.0-disposition.md`，落地细节见
+`docs/upstream-1.6.0-delta.md`。
+
+- **思考档位改走 configuration_update**：`openai-responses` 与 `openai-codex-responses` 在
+  `compat.supportsMidConvoEffort` 打开时，把思考档位作为会话内 `configuration_update` 输入项
+  发送，请求里的 `reasoning.effort` 固定为 `medium`，切换档位不再让提示缓存失效
+  （上游 #10930 / #12269）。Codex 的 `off` 以 effort `none` 发送；`maxTokens` 现在按
+  `compat.supportsMaxOutputTokens` 转发为 `max_output_tokens`（下限 16，上游 #6265）。
+  目录侧给 `openai` 与 `openai-codex` 的 GPT-6 家族（7 个 id）都补上了
+  `supportsMidConvoEffort`，否则该修复对 Codex 实际模型不生效。
+- **OpenAI 扣减 reasoning 的通报**：OpenAI / Azure / Codex 的 Responses 响应在
+  `input_transformations` 里报告被扣掉的 reasoning 项时，写入
+  `openai_input_transformations` 诊断；交互模式在 `showCacheMissNotices` 打开时显示
+  「OpenAI dropped N reasoning items: <原因> (details in session)」，与 Anthropic 的 thinking
+  通报共用单复数与原因措辞。`turn_boundary` 不记录（只用当前轮 reasoning 的模型每次请求都会
+  报上一轮，存下来会让会话随轮数平方增长）。
+- **openai-completions 的 instruction 角色**：`developer` 只对 `api.openai.com` 默认开启，
+  其它宿主改用所有 chat 模板都接受的 `system`（上游 #10741 / #12134）。目录里显式的
+  `supportsDeveloperRole: false` 因此等价于新默认，数据不动。
+- **工具预览的语法高亮**：无 scope 的普通文本改用 Pi 的 `text` 前景色，终端与 Pi 主题反差大时
+  工具卡片上的代码不再不可读（上游 #12347）。
+- **全屏滚动的 view-only 帧**：新增跨帧渲染缓存（`LayoutRenderCache`）与 `RequestViewRender()`；
+  滚动只改视口位置时复用上一帧的组件输出，内容/尺寸/主题变化仍清缓存重渲染（上游 #11968）。
+  渲染过程中被失效的帧用空缓存重跑，避免复用旧输出；20k 行内容帧 1.45 → 0.41 ms。
+- **llama.cpp**：默认端点改为 `http://127.0.0.1:9931`（llama-server 现在的默认端口，上游
+  #12001），decision 分类器不再硬编码 `supportsDeveloperRole: false`。
+
+### 上一轮（`v1.5.2` 之后至 `edfe6b2ef`）的落地记录
 
 跟随上游 `edfe6b2ef`（`v1.5.2` 之后 349 个提交），移植其中触及端口 12 个已迁移 package 的
 49 个提交，逐项处置见 `docs/unreleased-disposition.md`。
@@ -36,8 +70,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
   任务可无 `until` 地睡在信号键上，投递后恢复并读到值；工具与 beforeTool 门闩可停放
   （sleep/wait park，恢复后以同一参数重跑）；afterTools/onYield 钩子可启动持久任务
   （`IAfterToolsTaskHooks`/`IOnYieldTaskHooks`，按序作为生成的孩子创建并等待）。
-
-
 
 ### .NET 8 兼容（新增第 4 个 TFM，行为与 net9/10/11 一致）
 

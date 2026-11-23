@@ -202,9 +202,9 @@ public static class OpenAiCompletions
             || isZai;
 
         var isGrok = provider == "xai" || Has("api.x.ai");
-        var isOpenRouterDeveloperRoleModel = isOpenRouter
-            && (model.Id.StartsWith("anthropic/", StringComparison.Ordinal)
-                || model.Id.StartsWith("openai/", StringComparison.Ordinal));
+        // developer 是 OpenAI 的角色；其它宿主的 chat 模板常直接拒绝（#10741），而所有宿主都接受
+        // system，所以只有 OpenAI 自己的 API 默认用 developer。
+        var isOpenAi = provider == "openai" || Has("api.openai.com");
         var cacheControlFormat = provider == "openrouter"
             && model.Id.StartsWith("anthropic/", StringComparison.Ordinal)
             ? "anthropic"
@@ -225,7 +225,7 @@ public static class OpenAiCompletions
         return new OpenAiCompletionsCompat
         {
             SupportsStore = !isNonStandard,
-            SupportsDeveloperRole = isOpenRouterDeveloperRoleModel || (!isNonStandard && !isOpenRouter),
+            SupportsDeveloperRole = isOpenAi,
             SupportsReasoningEffort = !isGrok && !isZai && !isMoonshot && !isTogether
                 && !isCloudflareAiGateway && !isNvidia && !isAntLing,
             SupportsUsageInStreaming = true,
