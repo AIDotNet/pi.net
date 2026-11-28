@@ -428,7 +428,7 @@ public partial class InteractiveMode
         var renderedPendingTools = new Dictionary<string, ToolExecutionComponent>(StringComparer.Ordinal);
         // Cache misses are not persisted, unlike successful cache-warming usage.
         // Re-derive them and inject them after the assistant messages that paid for them.
-        var cacheMisses = SettingsManager.GetShowCacheMissNotices()
+        var cacheMisses = SettingsManager.GetNotice("cacheMisses")
             ? CacheStats.CollectCacheMisses(SessionManager.GetEntries(), new ModelRuntimePriceSource(Session.ModelRuntime))
             : new Dictionary<AssistantMessage, CacheStats.CacheMiss>();
 
@@ -610,7 +610,7 @@ public partial class InteractiveMode
 
     private void AddCacheWarmingUsage(UsageEntry entry)
     {
-        if (!SettingsManager.GetShowCacheMissNotices())
+        if (!SettingsManager.GetNotice("cacheWarming"))
         {
             return;
         }
@@ -626,7 +626,7 @@ public partial class InteractiveMode
     /// </summary>
     private void AddCompactionCostNotice(CompactionCostNotice notice)
     {
-        if (!SettingsManager.GetShowCacheMissNotices())
+        if (!SettingsManager.GetNotice("compactionCosts"))
         {
             return;
         }
@@ -676,7 +676,7 @@ public partial class InteractiveMode
 
     private void MaybeShowThinkingDropNotice(AssistantMessage message)
     {
-        if (!SettingsManager.GetShowCacheMissNotices())
+        if (!SettingsManager.GetNotice("reasoningDrops"))
         {
             return;
         }
@@ -722,7 +722,7 @@ public partial class InteractiveMode
     /// </summary>
     private void MaybeShowCacheMissNotice(AssistantMessage message)
     {
-        if (!SettingsManager.GetShowCacheMissNotices())
+        if (!SettingsManager.GetNotice("cacheMisses"))
         {
             return;
         }

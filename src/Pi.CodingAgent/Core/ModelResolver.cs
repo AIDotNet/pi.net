@@ -286,7 +286,7 @@ public static class ModelResolver
     public static readonly IReadOnlyList<KeyValuePair<string, string>> DefaultModelPerProvider =
     [
         new("amazon-bedrock", "us.anthropic.claude-opus-5-5"),
-        new("ant-ling", "Ring-2.6-1T"),
+        new("ant-ling", "Ling-3.1-flash"),
         new("anthropic", "claude-opus-5-5"),
         new("openai", "gpt-6.2-sol"),
         new("azure", "gpt-6.2-sol"),
@@ -304,7 +304,7 @@ public static class ModelResolver
         new("cerebras", "gpt-oss-120b"),
         new("zai", "glm-5.3"),
         new("zai-coding-cn", "glm-5.3"),
-        new("mistral", "devstral-medium-latest"),
+        new("mistral", "mistral-medium-latest"),
         new("minimax", "MiniMax-M3"),
         new("minimax-cn", "MiniMax-M3"),
         new("moonshotai", "kimi-k2.7-code"),
@@ -317,8 +317,8 @@ public static class ModelResolver
         new("opencode-go", "kimi-k3.1-pro"),
         new("kimi-coding", "kimi-for-coding"),
         new("meta", "muse-spark-1.3"),
-        new("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.7-code"),
-        new("cloudflare-ai-gateway", "workers-ai/@cf/moonshotai/kimi-k2.7-code"),
+        new("cloudflare-workers-ai", "@cf/zai-org/glm-5.3"),
+        new("cloudflare-ai-gateway", "workers-ai/@cf/zai-org/glm-5.3"),
         new("qwen-token-plan", "qwen3.8-max"),
         new("qwen-token-plan-cn", "qwen3.8-max"),
         new("qwen-token-plan-individual", "qwen3.8-max"),

@@ -810,6 +810,9 @@ public partial class InteractiveMode
         Stop();
         await _runtimeHost.DisposeAsync().ConfigureAwait(true);
 
+        // OSC 7577：用户正常退出时清除终端里登记的恢复命令；信号退出（上方分支）保留。
+        _programResume?.Clear();
+
         var sessionFile = SessionManager.GetSessionFile();
         var resumeCommand = InteractiveModeLifecycle.FormatResumeCommand(
             isTty: !Console.IsOutputRedirected,

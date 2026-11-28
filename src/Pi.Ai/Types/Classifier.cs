@@ -126,6 +126,11 @@ public sealed record ClassifierResult
     /// <summary>token 用量与服务报价下的成本（服务报告 token 时才有）。</summary>
     public Usage? Usage { get; init; }
 
+    /// <summary>provider 上报的响应标识（如 OpenRouter 的 generation ID）。对应 TS <c>responseId?</c>。</summary>
+    [JsonPropertyName("responseId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ResponseId { get; init; }
+
     public ClassifierStopReason StopReason { get; init; } = ClassifierStopReason.Stop;
 
     public string? ErrorMessage { get; init; }
@@ -150,6 +155,9 @@ public record ClassifierOptions
     public int? MaxRetries { get; init; }
 
     public int? MaxRetryDelayMs { get; init; }
+
+    /// <summary>会话标识，供 pi-decision 网关关联/统计使用。对应 TS <c>PiDecisionOptions.sessionId</c>。</summary>
+    public string? SessionId { get; init; }
 
     /// <summary>
     /// 答案 logit 在归一化为概率前先除以该值：大于 1 变软、小于 1 变锐。

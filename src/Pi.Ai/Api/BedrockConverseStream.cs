@@ -819,6 +819,10 @@ public static class BedrockConverseStream
             Transcript.WithoutInitialSystemMessage(context.Messages), model,
             (id, _, _) => NormalizeToolCallId(id));
         var supportsSignature = IsAnthropicClaudeModel(model);
+        // v1.7.0：compat.supportsReasoningReplay === false 时不把历史 reasoning 发回 Bedrock
+        // （Kimi K3 / K3.1 在 Converse 上会因此 InternalServerException）。
+        var skipReasoningReplay = model.Compat?["supportsReasoningReplay"] is System.Text.Json.Nodes.JsonValue replayValue
+            && replayValue.TryGetValue<bool>(out var replayFlag) && !replayFlag;
 
         for (var i = 0; i < transformedMessages.Count; i++)
         {
@@ -874,6 +878,7 @@ public static class BedrockConverseStream
                                 break;
                             case ThinkingContent thinking:
                             {
+                                if (skipReasoningReplay) break;
                                 // 加密 reasoning 不透明：以 redactedContent 原样重放。
                                 if (thinking.Redacted == true)
                                 {

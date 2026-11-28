@@ -20,7 +20,19 @@ public static class RegisterBuiltins
             => OpenRouterImages.GenerateImages(model, context, options, cancellationToken: cancellationToken);
     }
 
+    private sealed class PiImageProvider : IImagesApiProvider
+    {
+        public string Api => "pi-image";
+
+        public Task<AssistantImages> GenerateImagesAsync(ModelSpec model, ImagesContext context,
+            ImagesOptions? options, CancellationToken cancellationToken)
+            => PiImage.GenerateImages(model, context, options, cancellationToken: cancellationToken);
+    }
+
     /// <summary>注册全部内置图片 API。</summary>
     public static void RegisterAll()
-        => ImagesApiRegistry.Register(new OpenRouterImagesProvider());
+    {
+        ImagesApiRegistry.Register(new OpenRouterImagesProvider());
+        ImagesApiRegistry.Register(new PiImageProvider());
+    }
 }

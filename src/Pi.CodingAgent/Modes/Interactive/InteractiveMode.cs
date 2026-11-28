@@ -28,6 +28,7 @@
 //   handleRightClickPaste / handleClipboardPaste → input batch.
 // ============================================================================
 
+using System.Text;
 using Pi.Ai.Types;
 using Pi.CodingAgent.Core;
 using Pi.CodingAgent.Core.Extensions;
@@ -111,6 +112,9 @@ public partial class InteractiveMode
 
     /// <summary>Reports working, blocked, done, and error states to terminals that support OSC 7501.</summary>
     private readonly ProgramStatusReporter _programStatus;
+
+    /// <summary>OSC 7577 program resume；仅在终端注入 OSC7577_TOKEN 时创建。</summary>
+    private readonly ProgramResumeReporter? _programResume;
 
     // 上游 1.5.1 #11851：ctx.ui.custom() overlay 带 blocked 时各自登记独立 program status 源，
     // 关闭一个不影响其它仍在等待的提问；/reload 与切会话会丢弃 overlay 而不调用 done()，需一并清空。
@@ -348,6 +352,12 @@ public partial class InteractiveMode
         _ui = TuiRenderer.CreateInteractiveTuiReference(() => _renderer);
         _ui.SetClearOnShrink(SettingsManager.GetClearOnShrink());
         _programStatus = new ProgramStatusReporter(() => _ui.Terminal, () => SessionManager.GetSessionName());
+        // OSC 7577：取走并清除 token（不能传给子进程），有 token 才向终端报告恢复命令。
+        var resumeToken = ProgramResume.TakeToken();
+        if (resumeToken is not null)
+        {
+            _programResume = new ProgramResumeReporter(resumeToken, () => _ui.Terminal, BuildProgramResumeCommand);
+        }
         _headerContainer = new Container();
         _loadedResourcesContainer = new Container();
         _chatContainer = new Container();
@@ -393,6 +403,52 @@ public partial class InteractiveMode
             OnChanged = UpdateEditorBorderColor,
             InitialThemeSetting = options.InitialThemeSetting,
         });
+        _programResume?.ReportIfNone();
+    }
+
+    /// <summary>构造供终端重启后恢复本会话的 argv（OSC 7577）。无持久化会话文件时返回 null。</summary>
+    private ProgramResumeCommand? BuildProgramResumeCommand()
+    {
+        var sessionFile = SessionManager.GetSessionFile();
+        if (string.IsNullOrEmpty(sessionFile) || !File.Exists(sessionFile)) return null;
+        var command = InteractiveModeLifecycle.FormatResumeCommand(
+            isTty: !Console.IsOutputRedirected,
+            isPersisted: SessionManager.IsPersisted(),
+            sessionFile: sessionFile,
+            sessionFileExists: true,
+            usesDefaultSessionDir: SessionManager.UsesDefaultSessionDir(),
+            sessionDir: SessionManager.GetSessionDir(),
+            sessionId: SessionManager.GetSessionId(),
+            appName: Config.AppName);
+        if (command is null) return null;
+        var parts = SplitResumeCommand(command);
+        return parts.Count == 0 ? null : new ProgramResumeCommand(parts, Directory.GetCurrentDirectory());
+    }
+
+    /// <summary>按空格切分并去掉 <see cref="InteractiveModeSupport.QuoteIfNeeded"/> 加的双引号。</summary>
+    private static List<string> SplitResumeCommand(string command)
+    {
+        var result = new List<string>();
+        var current = new StringBuilder();
+        var quoted = false;
+        foreach (var c in command)
+        {
+            if (c == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (c == ' ' && !quoted)
+            {
+                if (current.Length > 0) result.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(c);
+            }
+        }
+        if (current.Length > 0) result.Add(current.ToString());
+        return result;
     }
 
     /// <summary>

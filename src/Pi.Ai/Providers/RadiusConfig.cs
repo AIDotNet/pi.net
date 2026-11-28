@@ -12,9 +12,10 @@ namespace Pi.Ai.Providers;
 /// </summary>
 public static class RadiusProviderConfig
 {
-    /// <summary>网关模型条目 → <c>pi-messages</c> 模型（补齐 api/provider/baseUrl）。</summary>
+    /// <summary>网关模型条目 → 全部类别模型（chat / classifier / image）。对应 TS <c>getRadiusAllModelsFromConfig</c>。</summary>
     public static IReadOnlyList<ModelSpec> ModelsFromConfig(string providerId, RadiusGatewayConfig config)
-        => config.Models.Select(model => new ModelSpec
+    {
+        var chat = config.Models.Select(model => new ModelSpec
         {
             Id = model.Id,
             Name = model.Name,
@@ -29,7 +30,36 @@ public static class RadiusProviderConfig
             ThinkingLevelMap = model.ThinkingLevelMap is null
                 ? null
                 : ThinkingLevelMapFromBudgets(model.ThinkingLevelMap),
-        }).ToList();
+        });
+        var classifiers = config.Decision.Select(model => new ModelSpec
+        {
+            Id = model.Id,
+            Name = model.Name,
+            Api = "pi-decision",
+            Provider = providerId,
+            BaseUrl = config.BaseUrl,
+            Input = model.Input,
+            Cost = model.Cost,
+            ContextWindow = model.ContextWindow,
+            MaxTokens = model.MaxTokens,
+            Type = ModelType.Classifier,
+        });
+        var images = config.Images.Select(model => new ModelSpec
+        {
+            Id = model.Id,
+            Name = model.Name,
+            Api = "pi-image",
+            Provider = providerId,
+            BaseUrl = config.BaseUrl,
+            Input = model.Input,
+            Cost = model.Cost,
+            ContextWindow = model.ContextWindow,
+            MaxTokens = model.MaxTokens,
+            Type = ModelType.Image,
+            Output = model.Output,
+        });
+        return chat.Concat(classifiers).Concat(images).ToList();
+    }
 
     /// <summary>从凭据扩展字段取网关模型。对应 TS <c>getRadiusModels</c>。</summary>
     public static IReadOnlyList<ModelSpec> Models(string providerId, Credential.OAuth? credential)

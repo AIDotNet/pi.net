@@ -69,6 +69,15 @@ public record ImagesOptions
 
     public int? MaxRetryDelayMs { get; init; }
 
+    /// <summary>期望的宽高比（如 "1:1"/"16:9"），原样转发给 provider。对应 TS <c>aspectRatio</c>。</summary>
+    public string? AspectRatio { get; init; }
+
+    /// <summary>期望的分辨率（如 "1K"/"2K"/"4K"），原样转发给 provider。对应 TS <c>size</c>。</summary>
+    public string? Size { get; init; }
+
+    /// <summary>会话标识，供 pi-image 网关关联/统计使用。对应 TS <c>PiImageOptions.sessionId</c>。</summary>
+    public string? SessionId { get; init; }
+
     /// <summary>包含进 API 请求的元数据；provider 各取所需，忽略其余。对应 TS <c>metadata</c>。</summary>
     public JsonObject? Metadata { get; init; }
 

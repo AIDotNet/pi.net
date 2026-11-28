@@ -33,6 +33,12 @@ public static class ModelSpecJson
         var input = new JsonArray();
         foreach (var modality in model.Input) input.Add(modality);
         result["input"] = input;
+        if (model.Output is { } outputModalities)
+        {
+            var output = new JsonArray();
+            foreach (var modality in outputModalities) output.Add(modality);
+            result["output"] = output;
+        }
 
         if (model.Cost is { } cost)
         {
@@ -43,6 +49,7 @@ public static class ModelSpecJson
             };
             if (cost.CacheRead is { } cacheRead) costObject["cacheRead"] = cacheRead;
             if (cost.CacheWrite is { } cacheWrite) costObject["cacheWrite"] = cacheWrite;
+            if (cost.ImageOutput is { } imageOutput) costObject["imageOutput"] = imageOutput;
             if (cost.Tiers is { Count: > 0 } tiers)
             {
                 var tiersArray = new JsonArray();

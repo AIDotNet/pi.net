@@ -272,7 +272,7 @@ dotnet run --project samples/Pi.Samples.McpClient
 
 实施进度、逐阶段验收证据与已记录的 TypeScript/.NET 差异统一维护在 [docs/migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md)。
 
-当前对齐上游 [`v1.6.0`](https://github.com/earendil-works/pi/releases/tag/v1.6.0)（`faac58588`），逐提交与逐发布说明的处置见 [docs/v1.6.0-disposition.md](https://github.com/AIDotNet/pi.net/blob/main/docs/v1.6.0-disposition.md)。
+当前对齐上游 [`v1.7.0`](https://github.com/earendil-works/pi/releases/tag/v1.7.0)（`fb0fe82353`），逐提交与逐发布说明的处置见 [docs/v1.7.0-disposition.md](https://github.com/AIDotNet/pi.net/blob/main/docs/v1.7.0-disposition.md)。
 
 ## 问题反馈
 

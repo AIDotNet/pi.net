@@ -189,6 +189,14 @@ public sealed record Usage(long Input, long Output, long CacheRead = 0, long Cac
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? Reasoning { get; init; }
 
+    /// <summary>
+    /// 图片输出 token，<see cref="Output"/> 的子集；provider 未上报图片拆分时为 null。
+    /// 对应 TS <c>imageOutput?</c>。
+    /// </summary>
+    [JsonPropertyName("imageOutput")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ImageOutput { get; init; }
+
     /// <summary>总 token（provider 上报值）。对应 TS <c>totalTokens</c>。</summary>
     [JsonPropertyName("totalTokens")]
     public long TotalTokens { get; init; }

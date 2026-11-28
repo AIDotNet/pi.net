@@ -7,6 +7,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions track t
 
 （暂无。）
 
+## [1.7.0] - 2026-11-27
+
+跟随上游 `v1.6.0`（`faac58588`）..`v1.7.0`（`fb0fe82353`）的对齐移植；该区间共 896 个上游提交，
+其中触及端口已迁移 package 的提交按发布说明逐条处置，见 `docs/v1.7.0-disposition.md` 与
+`docs/upstream-1.7.0-delta.md`。端口发布版本提升到 **1.7.0**（`Directory.Build.props`、
+`src/Pi.CodingAgent/Assets/package.json`、CLI `--version` 三者一致）。
+
+### 图片生成与用量（v1.7.0 头条）
+
+- **pi-image 协议**：新增 `Pi.Ai.Api.PiImage`，`POST <baseUrl>/image` 发送
+  `{ model, context, options }`，解析 `{ output, usage?, responseId? }`；注册进 `ImagesApiRegistry`，
+  Radius 网关 provider 的 `images[]` 模型与 `generateImages()` 直接走这条协议（TS
+  `api/pi-image.ts` / `providers/images/register-builtins.ts`）。
+- **`ImagesOptions` 增加 `aspectRatio` / `size` / `sessionId`**：`openrouter-images` 把前两项作为
+  `image_config.image_size` / `aspect_ratio` 转发；`pi-image` 原样放进请求 `options`。
+- **`Usage.imageOutput` 与 `cost.imageOutput`**：图片输出 token 作为 `output` 子集上报；目录新增
+  `cost.imageOutput` 费率，`CalculateCost` 对图片 token 用该费率、其余 output 用普通 output 费率，
+  provider 未上报拆分时全部 output 按图片费率计价（保守口径）。`openrouter-images` 与
+  `pi-image` / `pi-decision` 均解析 `reasoning` / `imageOutput` 子集，OpenRouter 计费覆盖目录价。
+- **图片生成不再误报成功**：`openrouter-images` 遇到无 choices、顶层或 choice 的 provider 错误信封、
+  非 `stop`/`end` 的 finish_reason 时返回 error 结果，并在错误消息里带 `native_finish_reason`。
+- **Bedrock 思考回放**：`BedrockConverseStream` 尊重 `compat.supportsReasoningReplay === false`
+  （Kimi K3 不再把历史 reasoning 发回 Converse，避免 `InternalServerException`）；目录条目已打标。
+- **模型目录**：ant-ling 换 Ling 3.0/3.1/3.2 Flash 家族并默认 `Ling-3.1-flash`，思考档位只保留
+  off/high 且 `thinkingFormat: "ant-ling"` 作为 `"deepseek"` 的废弃别名（发送 `thinking.type`）；
+  Qwen Token Plan Individual 的 `qwen4-max-preview` 换为 `qwen4-max`；Cloudflare Workers AI /
+  AI Gateway 默认模型改 `@cf/zai-org/glm-5.3`；Mistral 默认 `mistral-medium-latest`；
+  退役 `gpt-5-chat-latest`、Groq 三个下线模型、Mistral 未文档化的 `mistral-medium-3.5`。
+
+### 决策模型（v1.6.1 / v1.7.0）
+
+- **pi-decision 协议**：新增 `Pi.Ai.Api.PiDecision`（`POST <baseUrl>/decision`），
+  `ClassifierResult` 增加 `responseId`；Radius 网关 provider 的 `decision[]` 模型走这条协议。
+- **Radius 全类别目录**：`/v1/config` 现在解析 `decision[]` 与 `images[]`（过滤未知模态），
+  `getAllModels()` 暴露 chat + classifier + image，`getModels()` 仍只列 chat；`RadiusProvider`
+  实现 `IClassifierProvider` / `IImagesProvider`。
+
+### 终端程序恢复（OSC 7577，v1.7.0）
+
+- `Pi.Tui.ProgramResume` 实现 Program Resume Protocol：SHA-256(token) 认证、base64 argv/cwd、
+  2048 字节与 64 参数上限、`takeProgramResumeToken()` 取走 token 并阻止传给子进程。
+- `ProgramResumeReporter` 在命令变化时上报、用户退出时清除（信号退出保留）；交互模式启动时
+  若终端注入 `OSC7577_TOKEN` 即启用，恢复命令包含 `--session`、非默认 `--session-dir`（与
+  `--agent-dir` 等价路径）以及当前工作目录。
+
+### transcript notice 拆分（v1.6.1）
+
+- `showCacheMissNotices` 拆成 `notices.cacheMisses` / `cacheWarming` / `compactionCosts` /
+  `reasoningDrops` 四项；旧值迁移为四项全开/全关，`SettingsManager` 保留旧 getter/setter 作为
+  兼容包装，交互模式四类通报分别读取各自开关。
+
+### 验证
+
+`dotnet build Pi.slnx -c Release` 零警告零错误；全量门禁 11 个测试工程全绿（含 `Pi.Ai.Tests`
+1089 通过 / 1 跳过、`Pi.Tui.Tests` 23,991 全通过、`Pi.CodingAgent.Tests` 5,408 通过 / 5 跳过）；
+新增 `V170ImageTests`(8) 与 `ProgramResumeTests`(4)。
+
 ## [1.6.0] - 2026-11-20
 
 ### 上游 v1.6.0 对齐

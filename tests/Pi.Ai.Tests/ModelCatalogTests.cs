@@ -23,8 +23,8 @@ public class ModelCatalogTests
 
         // chat 是缺省类型（JSON 无 type 字段）。
         Assert.Equal(ModelType.Chat, gpt55.Type);
-        // 未发布批补入 GPT-6.2 Astra/Sol → 46。
-        Assert.Equal(46, openai.ChatModels.Count);
+        // 未发布批补入 GPT-6.2 Astra/Sol → 46；v1.7.0 退役 gpt-5-chat-latest → 45。
+        Assert.Equal(45, openai.ChatModels.Count);
         Assert.Empty(openai.ImageModels);
         // openai-decisions 的分类模型落在独立桶里。
         Assert.Equal("openai-decisions", Assert.Single(openai.ClassifierModels.Values).Api);
@@ -56,7 +56,8 @@ public class ModelCatalogTests
         // 未发布批：GPT-6.2 Astra/Sol 在 openai/azure/openai-codex 各 2 条（+6）、
         // Qwen Token Plan Team 去掉 2 个 deprecated（-4）并补 qwen4-max-preview（+2）、
         // Individual 补 deepseek-v4.1-flash/1017 与 qwen4-max-preview（+6）→ 1740。
-        Assert.Equal(1740, total);
+        // v1.7.0：ant-ling 换 Ling 3.x（+2）、mistral/openai/azure/groq 退役 8 条 → 1735。
+        Assert.Equal(1735, total);
     }
 
     /// <summary>
@@ -89,7 +90,8 @@ public class ModelCatalogTests
         // chat 桶 1602 → 1598：openrouter 的 openai-completions 组净减 16（+10 / -26），
         // 其余 provider 净增 12。总量反而涨了 2——image / classifier 桶加得更多。
         // 1.5.2 新增 12 个 chat 模型 → 1610；未发布批 +10 → 1620。
-        Assert.Equal(1620, total);
+        // v1.7.0：ant-ling Ling 3.x（+2）与退役模型移除（-7 chat）→ 1615。
+        Assert.Equal(1615, total);
     }
 
     /// <summary>
@@ -210,10 +212,11 @@ public class ModelCatalogTests
         Assert.All(teamCn.ChatModels.Values, m =>
             Assert.Equal("https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1", m.BaseUrl));
 
-        // 12313：Individual 的 allowlist 补 qwen4-max-preview（1M / 393216，effort 低中高）。
+        // 12313：Individual 的 allowlist 补 qwen4-max（1M / 393216，effort 低中高）；
+        // v1.7.0 把退役的 qwen4-max-preview 换成 qwen4-max。
         var individual = ModelCatalog.LoadFromResource("qwen-token-plan-individual");
         Assert.Equal(13, individual.ChatModels.Count);
-        var preview = individual.ChatModels["qwen4-max-preview"];
+        var preview = individual.ChatModels["qwen4-max"];
         Assert.Equal(1000000, preview.ContextWindow);
         Assert.Equal(393216, preview.MaxTokens);
         Assert.Equal(new[] { "text", "image" }, preview.Input);

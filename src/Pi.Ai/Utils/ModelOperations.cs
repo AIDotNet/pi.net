@@ -87,9 +87,13 @@ public static class ModelOperations
 
         var longWrite = usage.CacheWrite1h ?? 0;
         var shortWrite = usage.CacheWrite - longWrite;
+        // 图片模型：imageOutput 档位只给图片 token 计价，其余 output（文本/推理）用普通 output 档位；
+        // provider 未上报拆分时按最保守口径把全部 output 当图片 token。与 TS calculateCost 一致。
+        var imageRate = model.Cost?.ImageOutput;
+        var imageTokens = imageRate is null ? 0 : Math.Min(usage.Output, usage.ImageOutput ?? usage.Output);
         var cost = new UsageCost(
             Input: rates.Input / 1_000_000 * usage.Input,
-            Output: rates.Output / 1_000_000 * usage.Output,
+            Output: (rates.Output * (usage.Output - imageTokens) + (imageRate ?? 0) * imageTokens) / 1_000_000,
             CacheRead: (rates.CacheRead ?? 0) / 1_000_000 * usage.CacheRead,
             CacheWrite: ((rates.CacheWrite ?? 0) * shortWrite + rates.Input * 2 * longWrite) / 1_000_000);
         // 目录价重算：总价不再来自 provider 上报。

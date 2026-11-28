@@ -274,7 +274,7 @@ More detail per project in [samples/README.md](samples/README.md). Every flag an
 
 Implementation progress, phase-by-phase evidence, and known TypeScript/.NET differences are tracked in [docs/migration-execution-status.md](https://github.com/AIDotNet/pi.net/blob/main/docs/migration-execution-status.md).
 
-Currently aligned with upstream [`v1.6.0`](https://github.com/earendil-works/pi/releases/tag/v1.6.0) (`faac58588`); the per-commit and per-release-notes disposition is in [docs/v1.6.0-disposition.md](https://github.com/AIDotNet/pi.net/blob/main/docs/v1.6.0-disposition.md).
+Currently aligned with upstream [`v1.7.0`](https://github.com/earendil-works/pi/releases/tag/v1.7.0) (`fb0fe82353`); the per-commit and per-release-notes disposition is in [docs/v1.7.0-disposition.md](https://github.com/AIDotNet/pi.net/blob/main/docs/v1.7.0-disposition.md).
 
 ## Issues
 

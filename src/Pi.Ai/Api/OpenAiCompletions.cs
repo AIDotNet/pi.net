@@ -217,7 +217,7 @@ public static class OpenAiCompletions
                 : isTogether
                     ? "together"
                     : isAntLing
-                        ? "ant-ling"
+                        ? "deepseek"
                         : isOpenRouter
                             ? "openrouter"
                             : "openai";
@@ -287,7 +287,10 @@ public static class OpenAiCompletions
             RequiresReasoningContentOnAssistantMessages =
                 compat.Bool("requiresReasoningContentOnAssistantMessages")
                 ?? detected.RequiresReasoningContentOnAssistantMessages,
-            ThinkingFormat = compat.Str("thinkingFormat") ?? detected.ThinkingFormat,
+            // v1.7.0：显式 "ant-ling" 作为 "deepseek" 的废弃别名保留（模型 JSON 旧条目继续可用）。
+            ThinkingFormat = compat.Str("thinkingFormat") is { } explicitFormat
+                ? explicitFormat == "ant-ling" ? "deepseek" : explicitFormat
+                : detected.ThinkingFormat,
             OpenRouterRouting = compat.Obj("openRouterRouting") ?? detected.OpenRouterRouting,
             VercelGatewayRouting = compat.Obj("vercelGatewayRouting") ?? detected.VercelGatewayRouting,
             ChatTemplateKwargs = compat.Obj("chatTemplateKwargs") ?? detected.ChatTemplateKwargs,

@@ -278,4 +278,18 @@ public static class LazyApis
         Classify = (model, context, options, cancellationToken) =>
             OpenAiDecisions.ClassifyAsync(model, context, options, cancellationToken: cancellationToken),
     };
+
+    /// <summary>pi-decision 分类 API（Radius 网关协议）。对应 TS <c>piDecisionApi()</c>。</summary>
+    public static ProviderClassifier PiDecisionApi() => new()
+    {
+        Classify = (model, context, options, cancellationToken) =>
+            PiDecision.ClassifyAsync(model, context, options, cancellationToken: cancellationToken),
+    };
+
+    /// <summary>pi-image 图片 API（Radius 网关协议）。对应 TS <c>piImageApi()</c>。</summary>
+    public static ProviderImages PiImageApi() => new()
+    {
+        GenerateImages = (model, context, options, cancellationToken) =>
+            PiImage.GenerateImages(model, context, options, cancellationToken: cancellationToken),
+    };
 }

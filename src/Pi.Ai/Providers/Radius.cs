@@ -13,7 +13,7 @@ namespace Pi.Ai.Providers;
 /// <para>刷新经 ModelsStore 管道做事务化持久化（TS <c>context.publish</c>）：启动时从存储快照恢复、
 /// legacy 凭据缓存导入落库、网络刷新写回，见 <see cref="RefreshModels"/>。</para>
 /// </summary>
-public sealed class RadiusProvider : IProvider
+public sealed class RadiusProvider : IProvider, IClassifierProvider, IImagesProvider
 {
     private readonly IReadOnlyList<ModelSpec> _baseline;
 
@@ -32,7 +32,6 @@ public sealed class RadiusProvider : IProvider
         HttpClient = httpClient;
         _baseline = Gateway == RadiusConfig.NormalizeGatewayUrl(RadiusConfig.DefaultRadiusGateway)
             ? BuiltinCatalog.All("radius")
-                .Where(model => model.Type == ModelType.Chat)
                 .Select(model => model with { Provider = id })
                 .ToList()
             : [];
@@ -56,8 +55,12 @@ public sealed class RadiusProvider : IProvider
             new RadiusOAuth.Options(Name, Gateway), HttpClient)),
     };
 
-    /// <summary>当前生效的模型目录。对应 TS <c>getModels: () => dynamicModels ?? baselineModels</c>。</summary>
-    public IReadOnlyList<ModelSpec> GetModels() => ResolveModels(_baseline, _dynamic);
+    /// <summary>当前生效的 chat 模型。对应 TS <c>getModels()</c>（只列 chat）。</summary>
+    public IReadOnlyList<ModelSpec> GetModels()
+        => ResolveModels(_baseline, _dynamic).Where(model => model.Type == ModelType.Chat).ToList();
+
+    /// <summary>全部类别的已知模型。对应 TS <c>getAllModels()</c>。</summary>
+    public IReadOnlyList<ModelSpec> GetAllModels() => ResolveModels(_baseline, _dynamic);
 
     /// <summary>
     /// 对应 TS <c>getModels: () => dynamicModels ?? baselineModels</c>：网关目录**替换**随包基线目录，
@@ -133,6 +136,14 @@ public sealed class RadiusProvider : IProvider
     public IAssistantMessageEventStream StreamSimple(ModelSpec model, IReadOnlyList<ChatMessage> context,
         IReadOnlyDictionary<string, object?>? options = null)
         => LazyApis.PiMessagesApi().StreamSimple(model, new TranscriptContext(context), options);
+
+    public Task<ClassifierResult> ClassifyAsync(ModelSpec model, ClassifierContext context,
+        ClassifierOptions? options, CancellationToken cancellationToken = default)
+        => LazyApis.PiDecisionApi().Classify(model, context, options, cancellationToken);
+
+    public Task<AssistantImages> GenerateImagesAsync(ModelSpec model, ImagesContext context,
+        ImagesOptions? options, CancellationToken cancellationToken = default)
+        => LazyApis.PiImageApi().GenerateImages(model, context, options, cancellationToken);
 }
 
 /// <summary>radiusProvider 的选项。对应 TS <c>RadiusProviderOptions</c>（providers/radius.ts）。</summary>

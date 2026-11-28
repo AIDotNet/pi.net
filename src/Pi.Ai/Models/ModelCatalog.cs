@@ -17,7 +17,8 @@ public sealed record ModelCostTier(
     double Input, double Output, double? CacheRead, double? CacheWrite, double InputTokensAbove);
 
 /// <summary>成本费率（美元/百万 token）。对应 TS <c>ModelCostRates</c>（含可选阶梯 <c>tiers</c>）。</summary>
-public sealed record ModelCostRates(double Input, double Output, double? CacheRead = null, double? CacheWrite = null)
+public sealed record ModelCostRates(double Input, double Output, double? CacheRead = null, double? CacheWrite = null,
+    double? ImageOutput = null)
 {
     /// <summary>请求级阶梯费率；最高命中阈值整单生效。对应 TS <c>ModelCost.tiers</c>。</summary>
     public IReadOnlyList<ModelCostTier>? Tiers { get; init; }
@@ -82,6 +83,9 @@ public sealed record ModelSpec
 
     /// <summary>输入模态（text/image）。</summary>
     public IReadOnlyList<string> Input { get; init; } = [ModelInput.Text];
+
+    /// <summary>图片模型的输出模态（image/text）；其它类别为 null。对应 TS <c>ImageModel.output</c>。</summary>
+    public IReadOnlyList<string>? Output { get; init; }
 
     public ModelCostRates? Cost { get; init; }
 
@@ -211,6 +215,15 @@ public sealed class ModelCatalog
                 .Select(v => v.TryGetValue<string>(out var text) ? text : "")
                 .Where(text => text.Length > 0));
         }
+        IReadOnlyList<string>? output = null;
+        if (spec["output"] is JsonArray outputArray)
+        {
+            output = outputArray
+                .OfType<JsonValue>()
+                .Select(v => v.TryGetValue<string>(out var text) ? text : "")
+                .Where(text => text.Length > 0)
+                .ToList();
+        }
 
         ModelCostRates? cost = spec["cost"] is JsonObject costObject ? ParseCost(costObject) : null;
 
@@ -269,6 +282,7 @@ public sealed class ModelCatalog
             Provider = provider,
             BaseUrl = GetString("baseUrl") ?? "",
             Input = input,
+            Output = output,
             Cost = cost,
             Headers = headers,
             ThinkingLevelMap = thinkingLevelMap,
@@ -322,7 +336,8 @@ public sealed class ModelCatalog
             Required(costObject, "input"),
             Required(costObject, "output"),
             Number(costObject, "cacheRead", "cache_read"),
-            Number(costObject, "cacheWrite", "cache_write"))
+            Number(costObject, "cacheWrite", "cache_write"),
+            Number(costObject, "imageOutput", "image_output"))
         {
             Tiers = tiers,
         };

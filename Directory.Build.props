@@ -148,7 +148,7 @@
     with -p:Version=<tag version>, and local `dotnet pack` uses it as-is.
   -->
   <PropertyGroup>
-    <Version>1.6.0</Version>
+    <Version>1.7.0</Version>
     <Authors>xuzeyu</Authors>
     <Product>Pi.NET</Product>
     <Description>Pi.NET - a .NET 8/9/10/11 port of Pi, a minimal and extensible agent harness. See https://github.com/AIDotNet/pi.net for the full package list.</Description>

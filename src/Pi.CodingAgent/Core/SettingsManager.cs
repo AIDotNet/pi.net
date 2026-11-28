@@ -1109,7 +1109,41 @@ public sealed class SettingsManager
 
     public bool GetHideThinkingBlock() => AsBool(Raw("hideThinkingBlock"), false);
 
-    public bool GetShowCacheMissNotices() => AsBool(Raw("showCacheMissNotices"), false);
+    /// <summary>
+    /// v1.6.1：四类 transcript notice 各自一个开关（notices.cacheMisses / cacheWarming /
+    /// compactionCosts / reasoningDrops）。旧的 <c>showCacheMissNotices</c> 值迁移到全部四类。
+    /// </summary>
+    public static readonly string[] NoticeKeys = ["cacheMisses", "cacheWarming", "compactionCosts", "reasoningDrops"];
+
+    public bool GetNotice(string key)
+    {
+        var notices = Raw("notices");
+        if (notices is JsonObject noticeObject && noticeObject[key] is { } configured)
+        {
+            return AsBool(configured, false);
+        }
+        // 迁移：没有 notices 配置时，旧开关对所有四类生效。
+        return AsBool(Raw("showCacheMissNotices"), false);
+    }
+
+    public IReadOnlyDictionary<string, bool> GetNotices()
+        => NoticeKeys.ToDictionary(key => key, GetNotice);
+
+    public void SetNotice(string key, bool value)
+    {
+        if (Raw("notices") is not JsonObject notices)
+        {
+            notices = new JsonObject();
+            _globalSettings["notices"] = notices;
+        }
+        notices[key] = value;
+        // 显式使用新设置后不再让旧开关生效。
+        _globalSettings.Remove("showCacheMissNotices");
+        MarkModified("notices");
+        Save();
+    }
+
+    public bool GetShowCacheMissNotices() => GetNotice("cacheMisses");
 
     public string GetExternalEditorCommand()
     {
@@ -1130,10 +1164,17 @@ public sealed class SettingsManager
         Save();
     }
 
+    /// <summary>兼容旧调用：等价于把四类 notice 全部设为同一值。</summary>
     public void SetShowCacheMissNotices(bool show)
     {
-        _globalSettings["showCacheMissNotices"] = show;
-        MarkModified("showCacheMissNotices");
+        if (Raw("notices") is not JsonObject notices)
+        {
+            notices = new JsonObject();
+            _globalSettings["notices"] = notices;
+        }
+        foreach (var key in NoticeKeys) notices[key] = show;
+        _globalSettings.Remove("showCacheMissNotices");
+        MarkModified("notices");
         Save();
     }
 
